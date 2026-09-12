@@ -2,6 +2,7 @@ package com.dark.javaHarness.channel.qq;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
+import java.util.List;
 
 /**
  * QQ 渠道（NapCat / OneBot 11）配置（napcat.*）。
@@ -41,6 +42,7 @@ public class NapCatProperties {
     private final GroupTrigger groupTrigger = new GroupTrigger();
     private final RateLimit rateLimit = new RateLimit();
     private final Reply reply = new Reply();
+    private final Emoji emoji = new Emoji();
 
     public boolean isEnabled() {
         return enabled;
@@ -118,6 +120,10 @@ public class NapCatProperties {
         return reply;
     }
 
+    public Emoji getEmoji() {
+        return emoji;
+    }
+
     /** 群聊触发方式：at=仅@机器人 | prefix=命令前缀 | all=全部响应 */
     public static class GroupTrigger {
 
@@ -161,9 +167,14 @@ public class NapCatProperties {
     public static class Reply {
 
         private int maxLength;
+        private int splitChars;
         private boolean progressive;
+        /** 动态条间延迟基础值（毫秒）：实际延迟 = 基础值 + 字数 × delay-factor + 随机扰动 */
         private int interChunkDelayMs;
         private int maxChunks;
+        private double delayFactor;
+        private int jitterRangeMs;
+        private int maxDelayMs;
 
         public int getMaxLength() {
             return maxLength;
@@ -171,6 +182,15 @@ public class NapCatProperties {
 
         public void setMaxLength(int maxLength) {
             this.maxLength = maxLength;
+        }
+
+        /** 渐进切分粒度阈值（字）：块超过此字数就按下一层边界（\n → 。！？）继续切 */
+        public int getSplitChars() {
+            return splitChars;
+        }
+
+        public void setSplitChars(int splitChars) {
+            this.splitChars = splitChars;
         }
 
         public boolean isProgressive() {
@@ -195,6 +215,144 @@ public class NapCatProperties {
 
         public void setMaxChunks(int maxChunks) {
             this.maxChunks = maxChunks;
+        }
+
+        /** 动态延迟字数系数（秒/字）：0.1 = 每字停 100ms，模拟打字节奏；0 = 只用基础延迟 */
+        public double getDelayFactor() {
+            return delayFactor;
+        }
+
+        public void setDelayFactor(double delayFactor) {
+            this.delayFactor = delayFactor;
+        }
+
+        /** 动态延迟随机扰动幅度（±毫秒）：叠加在基础值+字数延迟上，避免机械等间隔 */
+        public int getJitterRangeMs() {
+            return jitterRangeMs;
+        }
+
+        public void setJitterRangeMs(int jitterRangeMs) {
+            this.jitterRangeMs = jitterRangeMs;
+        }
+
+        /** 动态延迟上限（毫秒）：防超长块（无标点长文/合并尾条）算出分钟级停顿；0 = 不设上限 */
+        public int getMaxDelayMs() {
+            return maxDelayMs;
+        }
+
+        public void setMaxDelayMs(int maxDelayMs) {
+            this.maxDelayMs = maxDelayMs;
+        }
+    }
+
+    /**
+     * 表情包发送（napcat.emoji.*）：行为开关与路径配置（数值唯一来源仍是 application.yaml，
+     * 零默认值）；情绪-表情映射表本身不放 yaml，独立为 index-file 指向的 JSON 文件。
+     * {@code enabled=false} 时整个模块零行为（不读映射文件/目录、不检测、不发送）。
+     */
+    public static class Emoji {
+
+        /** 总开关：false 时表情模块零行为 */
+        private boolean enabled;
+
+        /** 表情包根目录（相对启动工作目录，支持绝对路径）；图片由使用者自行放置，不进 git */
+        private String dir;
+
+        /** 情绪-表情映射表 JSON 路径（表情名 → {path, tags}）；缺失/损坏按空映射降级 */
+        private String indexFile;
+
+        /** 单次回复最多发送张数；0 = 不限制 */
+        private int maxPerReply;
+
+        /** 命中后发送概率（0.0~1.0）；1.0 = 必发，0 = 从不发送 */
+        private double probability;
+
+        /** 表情发送前停顿毫秒数（模拟「找图」节奏）；0 = 不等待 */
+        private long sendDelayMs;
+
+        /** 句尾 ~ / ！ / ! 兜底触发的默认表情名（须为映射表中已有的表情名） */
+        private String cheerEmoji;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getDir() {
+            return dir;
+        }
+
+        public void setDir(String dir) {
+            this.dir = dir;
+        }
+
+        public String getIndexFile() {
+            return indexFile;
+        }
+
+        public void setIndexFile(String indexFile) {
+            this.indexFile = indexFile;
+        }
+
+        public int getMaxPerReply() {
+            return maxPerReply;
+        }
+
+        public void setMaxPerReply(int maxPerReply) {
+            this.maxPerReply = maxPerReply;
+        }
+
+        public double getProbability() {
+            return probability;
+        }
+
+        public void setProbability(double probability) {
+            this.probability = probability;
+        }
+
+        public long getSendDelayMs() {
+            return sendDelayMs;
+        }
+
+        public void setSendDelayMs(long sendDelayMs) {
+            this.sendDelayMs = sendDelayMs;
+        }
+
+        public String getCheerEmoji() {
+            return cheerEmoji;
+        }
+
+        public void setCheerEmoji(String cheerEmoji) {
+            this.cheerEmoji = cheerEmoji;
+        }
+    }
+
+    /** 情绪-表情映射项（index-file JSON 单条结构，Jackson 绑定载体）：path 相对表情根目录 */
+    public static class EmojiItem {
+
+        /** 图片文件名（相对 dir） */
+        private String path;
+
+        /** 触发关键词（chunk 文本 contains 任一 tag 即命中） */
+        private List<String> tags;
+
+        public String getPath() {
+            return path;
+        }
+
+        public void setPath(String path) {
+            this.path = path;
+        }
+
+        public List<String> getTags() {
+            return tags;
+        }
+
+        public void setTags(List<String> tags) {
+            this.tags = tags;
         }
     }
 }

@@ -51,3 +51,5 @@ mcp-config.json
 # doc
 .trae/specs/
 .zcode/
+
+channel/emojis/

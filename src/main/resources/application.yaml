@@ -153,10 +153,24 @@ napcat:
   rate-limit:
     per-user-seconds: 10  # 同用户回复最小间隔（群聊防风控 + 私聊防刷）；0 = 不限制
   reply:
-    max-length: 3000      # 超长按段落边界分段；0 = 不分段
-    progressive: true           # 段落渐进发送：多段回答按段逐条弹出（像人连发）；false = 整包一次发（原行为）
-    inter-chunk-delay-ms: 1200  # 渐进条间延迟（模拟打字节奏，兼防风控）；0 = 不等待
-    max-chunks: 4               # 渐进单次回复最多拆几条，超出段落合并为最后一条；0 = 不限制
+    max-length: 3000      # 仅渐进关闭时的整包分段上限；0 = 不分段
+    split-chars: 40             # 渐进切分粒度（字）：块超过就按下一层边界继续切（段落 → 换行 → 。！？）
+    progressive: true           # 段落渐进发送：按上述粒度逐条弹出（像人连发）；false = 整包一次发（原行为）
+    inter-chunk-delay-ms: 1200  # 动态条间延迟基础值（毫秒）：实际延迟 = 基础值 + 字数 × delay-factor + 随机扰动
+    delay-factor: 0.1           # 动态延迟字数系数（秒/字）：0.1 = 每字停 100ms，模拟打字节奏；0 = 只用基础值
+    jitter-range-ms: 200        # 动态延迟随机扰动（±毫秒）：叠加在基础值+字数延迟上，避免机械等间隔
+    max-delay-ms: 10000         # 动态延迟上限（毫秒）：防超长块（无标点长文/合并尾条）算出分钟级停顿；0 = 不设上限
+    max-chunks: 4               # 渐进单次回复最多拆几条，超出部分合并为最后一条；0 = 不限制
+  # 表情包发送（行为开关只放这里；情绪-表情映射表在 channel/emoji-index.json，不放 yaml）：
+  # 回复每条 chunk 发送完成后按关键词/句尾符号命中自动追加表情图片，模拟真人甩表情
+  emoji:
+    enabled: true               # 总开关；false 时整个模块零行为（不读映射文件/目录、不检测、不发送）
+    dir: channel/emojis         # 表情包根目录（相对启动工作目录，支持绝对路径）；图片需自行放置，不进 git
+    index-file: channel/emoji-index.json  # 情绪-表情映射表 JSON（表情名 → {path, tags}）；缺失/损坏按空映射降级
+    max-per-reply: 2            # 单次回复最多发送张数；0 = 不限制
+    probability: 1.0            # 命中后发送概率（0.0~1.0）；1.0 = 必发，0 = 从不发送
+    send-delay-ms: 800          # 表情发送前停顿毫秒数（模拟「找图」节奏）；0 = 不等待
+    cheer-emoji: happy_01       # 句尾 ~ / ！ / ! 兜底触发的默认表情名（须为映射表中已有的表情名）
 
 logging:
   level:
