@@ -157,10 +157,13 @@ public class NapCatProperties {
         }
     }
 
-    /** 回复输出控制：超长按段落边界分段发送（兼作单条输出上限） */
+    /** 回复输出控制：超长按段落边界分段发送（兼作单条输出上限）；渐进模式下多段回答逐条弹出 */
     public static class Reply {
 
         private int maxLength;
+        private boolean progressive;
+        private int interChunkDelayMs;
+        private int maxChunks;
 
         public int getMaxLength() {
             return maxLength;
@@ -168,6 +171,30 @@ public class NapCatProperties {
 
         public void setMaxLength(int maxLength) {
             this.maxLength = maxLength;
+        }
+
+        public boolean isProgressive() {
+            return progressive;
+        }
+
+        public void setProgressive(boolean progressive) {
+            this.progressive = progressive;
+        }
+
+        public int getInterChunkDelayMs() {
+            return interChunkDelayMs;
+        }
+
+        public void setInterChunkDelayMs(int interChunkDelayMs) {
+            this.interChunkDelayMs = interChunkDelayMs;
+        }
+
+        public int getMaxChunks() {
+            return maxChunks;
+        }
+
+        public void setMaxChunks(int maxChunks) {
+            this.maxChunks = maxChunks;
         }
     }
 }

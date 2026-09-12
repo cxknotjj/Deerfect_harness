@@ -18,6 +18,7 @@ import com.dark.javaHarness.domain.entity.OneBotSessionBinding;
 import com.dark.javaHarness.mapper.OneBotSessionBindingMapper;
 import com.dark.javaHarness.service.ChatService;
 import com.dark.javaHarness.service.SessionService;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -240,9 +241,30 @@ class OneBotEventServiceImplTest {
     }
 
     @Test
-    void splitReply_hardCutsOversizedParagraph() {
-        List<String> parts = OneBotEventServiceImpl.splitReply("12345678", 5);
-        assertEquals(List.of("12345", "678"), parts);
+    void splitReply_unsplittableParagraphSentWhole() {
+        // 无换行无标点：层级切不动 → 原样单条发送（不再字符硬切）
+        assertEquals(List.of("12345678"), OneBotEventServiceImpl.splitReply("12345678", 5));
+    }
+
+    @Test
+    void splitOversizedBlock_descendsLineThenSentence() {
+        // 换行层：整块超长 → 按行拆
+        assertEquals(List.of("aaa", "bbb"), OneBotEventServiceImpl.splitOversizedBlock("aaa\nbbb", 5));
+        // 句子层：无换行但有句末标点 → 按句拆，标点保留在句尾
+        assertEquals(List.of("你好。", "世界！"), OneBotEventServiceImpl.splitOversizedBlock("你好。世界！", 5));
+        // 切不动：无换行无标点 → 原样（不硬切）
+        assertEquals(List.of("12345678"), OneBotEventServiceImpl.splitOversizedBlock("12345678", 5));
+        // 未超长原样
+        assertEquals(List.of("abc"), OneBotEventServiceImpl.splitOversizedBlock("abc", 5));
+    }
+
+    @Test
+    void splitProgressive_oversizedParagraphDescendsWithoutHardCut() {
+        // 单段超长：句末标点断句，标点留在句尾；两句各自成条（即使单句仍超 max 也不硬切）
+        assertEquals(List.of("今天天气真好。", "明天会更好！"),
+                OneBotEventServiceImpl.splitProgressive("今天天气真好。明天会更好！", 5, 0));
+        // 无标点切不动 → 整块单条
+        assertEquals(List.of("12345678"), OneBotEventServiceImpl.splitProgressive("12345678", 5, 0));
     }
 
     @Test
@@ -256,5 +278,49 @@ class OneBotEventServiceImplTest {
         when(bindingMapper.selectOne(any())).thenThrow(new RuntimeException("db down"));
         service.handle(privateMsg(60L, "任何异常都不外抛"));
         verify(chatService, never()).chat(any());
+    }
+
+    @Test
+    void splitProgressive_multiParagraph_alwaysSplitsByParagraph() {
+        // 渐进拆分不设总长门槛：正常长度的多段回答也按段逐条（区别于 splitReply 的超长门槛）
+        assertEquals(List.of("第一段", "第二段", "第三段"),
+                OneBotEventServiceImpl.splitProgressive("第一段\n\n第二段\n\n第三段", 3000, 4));
+        // 单段回答 = 单条（与关闭渐进一致）
+        assertEquals(List.of("只有一段"), OneBotEventServiceImpl.splitProgressive("只有一段", 3000, 4));
+        // 超过 maxChunks：尾部段落合并为最后一条
+        assertEquals(List.of("一", "二", "三\n\n四\n\n五"),
+                OneBotEventServiceImpl.splitProgressive("一\n\n二\n\n三\n\n四\n\n五", 3000, 3));
+        // maxChunks = 0 不限制
+        assertEquals(List.of("一", "二", "三"),
+                OneBotEventServiceImpl.splitProgressive("一\n\n二\n\n三", 3000, 0));
+    }
+
+    @Test
+    void handle_progressiveMultiParagraph_sendsChunksWithDelayBetween() {
+        props.getReply().setProgressive(true);
+        props.getReply().setInterChunkDelayMs(1200);
+        props.getReply().setMaxChunks(4);
+        List<Long> pauses = new ArrayList<>();
+        service.chunkPause = pauses::add; // 注入记录器避免真 sleep
+        when(bindingMapper.selectOne(any())).thenReturn(binding(5L, "qq:private:" + UID, 5L));
+        stubChatSuccess("第一段。\n\n第二段。\n\n第三段。");
+        service.handle(privateMsg(70L, "问"));
+        verify(apiClient, times(3)).sendPrivateMsg(eq(UID), any());
+        // 首条不等待，条间各延迟一次
+        assertEquals(List.of(1200L, 1200L), pauses);
+    }
+
+    @Test
+    void handle_progressiveDisabled_singleMessageNoDelay() {
+        // 关闭渐进 = 原行为：多段短回答整包一条发送，零等待
+        props.getReply().setProgressive(false);
+        props.getReply().setInterChunkDelayMs(1200);
+        List<Long> pauses = new ArrayList<>();
+        service.chunkPause = pauses::add;
+        when(bindingMapper.selectOne(any())).thenReturn(binding(5L, "qq:private:" + UID, 5L));
+        stubChatSuccess("第一段。\n\n第二段。");
+        service.handle(privateMsg(71L, "问"));
+        verify(apiClient, times(1)).sendPrivateMsg(eq(UID), any());
+        assertTrue(pauses.isEmpty());
     }
 }
