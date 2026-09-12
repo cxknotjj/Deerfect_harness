@@ -62,12 +62,20 @@ public class NapCatApiClientImpl implements NapCatApiClient, ApplicationRunner {
 
     @Override
     public void sendPrivateMsg(long userId, List<MessageSegment> segments) {
-        call("send_private_msg", new SendMsgRequest(userId, null, segments));
+        ApiResult result = call("send_private_msg", new SendMsgRequest(userId, null, segments));
+        if (result.retcode() == 0) {
+            log.info("[napcat] 已发送私聊消息 user={} text={}（messageId={}）",
+                    userId, preview(segments), sentMessageId(result));
+        }
     }
 
     @Override
     public void sendGroupMsg(long groupId, List<MessageSegment> segments) {
-        call("send_group_msg", new SendMsgRequest(null, groupId, segments));
+        ApiResult result = call("send_group_msg", new SendMsgRequest(null, groupId, segments));
+        if (result.retcode() == 0) {
+            log.info("[napcat] 已发送群聊消息 group={} text={}（messageId={}）",
+                    groupId, preview(segments), sentMessageId(result));
+        }
     }
 
     /** 单次调用（含 1 次重试）：IO/5xx 重试，4xx/业务失败不重试，永不抛异常 */
@@ -123,6 +131,29 @@ public class NapCatApiClientImpl implements NapCatApiClient, ApplicationRunner {
         } catch (Exception e) {
             log.warn("[napcat] 启动自检异常：{}（不阻断启动）", e.getMessage());
         }
+    }
+
+    /** 消息预览：text 段拼文字、其他段显示为 [type]，压平空白截断 80 字，避免长回复刷日志 */
+    private static String preview(List<MessageSegment> segments) {
+        StringBuilder sb = new StringBuilder();
+        for (MessageSegment seg : segments) {
+            if (sb.length() > 0) {
+                sb.append('|');
+            }
+            if ("text".equals(seg.type())) {
+                sb.append(seg.text());
+            } else {
+                sb.append('[').append(seg.type()).append(']');
+            }
+        }
+        String flat = sb.toString().replaceAll("\\s+", " ").trim();
+        return flat.isEmpty() ? "-" : flat.length() <= 80 ? flat : flat.substring(0, 80) + "…";
+    }
+
+    /** 发送成功响应里的 message_id（data 为 {message_id: ...} 结构；取不到回 "-"） */
+    private static Object sentMessageId(ApiResult result) {
+        return result.data() instanceof java.util.Map<?, ?> data && data.get("message_id") != null
+                ? data.get("message_id") : "-";
     }
 
     private static String trimTail(String url) {

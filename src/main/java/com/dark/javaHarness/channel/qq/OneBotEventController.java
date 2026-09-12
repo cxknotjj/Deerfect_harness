@@ -62,14 +62,18 @@ public class OneBotEventController {
         }
         try {
             OneBotEvent event = objectMapper.readValue(body, OneBotEvent.class);
-            // 非 message 事件（meta/notice/request）与上报链路无关，静默 ACK
+            // 非 message 事件（meta/notice/request）与上报链路无关，静默 ACK（debug 可查）
             if (!"message".equals(event.postType())) {
+                log.debug("[napcat] 非消息事件静默 ACK postType={}", event.postType());
                 return ack();
             }
             if (!dedup.tryAcquire(event.messageId() == null ? null : String.valueOf(event.messageId()))) {
                 log.debug("[napcat] 重复上报丢弃 messageId={}", event.messageId());
                 return ack();
             }
+            log.info("[napcat] 收到上报 type={} messageId={} user={}({}) group={} text={}",
+                    event.messageType(), event.messageId(), event.userId(), senderName(event),
+                    event.groupId(), preview(event.rawMessage()));
             try {
                 onebotExecutor.execute(() -> eventService.handle(event));
             } catch (Exception e) {
@@ -85,6 +89,27 @@ public class OneBotEventController {
     /** 200 ACK：响应体为空快速操作对象（NapCat 按 JSON 解析，见 EMPTY_QUICK_OP 注释） */
     private static ResponseEntity<String> ack() {
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(EMPTY_QUICK_OP);
+    }
+
+    /** 发送者展示名：群名片 card 优先，其次昵称；无则 "-" */
+    private static String senderName(OneBotEvent event) {
+        OneBotEvent.Sender s = event.sender();
+        if (s == null) {
+            return "-";
+        }
+        if (s.card() != null && !s.card().isBlank()) {
+            return s.card();
+        }
+        return s.nickname() == null || s.nickname().isBlank() ? "-" : s.nickname();
+    }
+
+    /** 文本预览：压平空白并截断 80 字，避免长消息刷日志 */
+    private static String preview(String text) {
+        if (text == null || text.isBlank()) {
+            return "-";
+        }
+        String flat = text.replaceAll("\\s+", " ").trim();
+        return flat.length() <= 80 ? flat : flat.substring(0, 80) + "…";
     }
 
     /** 上报验签：X-Signature: sha1=HMAC-SHA1(secret, rawBody)；secret 未配置时跳过 */
