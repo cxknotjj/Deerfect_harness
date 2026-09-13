@@ -15,24 +15,25 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.agent.ProgressLine;
+import com.dark.javaHarness.config.StreamConnectionLimiter;
 import com.dark.javaHarness.domain.Goal;
 import com.dark.javaHarness.domain.RouteDecision;
 import com.dark.javaHarness.domain.dto.ChatRequest;
 import com.dark.javaHarness.domain.dto.ChatResponse;
 import com.dark.javaHarness.domain.entity.SessionEntity;
 import com.dark.javaHarness.enums.GoalStatus;
+import com.dark.javaHarness.exception.ConcurrentRequestException;
 import com.dark.javaHarness.exception.ResumeConflictException;
 import com.dark.javaHarness.service.AgentService;
-import com.dark.javaHarness.service.ChatService;
 import com.dark.javaHarness.service.GoalService;
 import com.dark.javaHarness.service.RouteJudge;
 import com.dark.javaHarness.service.SessionService;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -58,8 +59,16 @@ class ChatServiceImplTest {
     @Mock
     private GoalService goalService;
 
-    @InjectMocks
     private ChatServiceImpl chatService;
+
+    @BeforeEach
+    void setUp() {
+        // 手动构造（7 参 @Autowired 构造加入后 @InjectMocks 无法实例化）：null 知识检索器
+        // （知识库禁用语义）、限流器 0=不限制（计数语义由 StreamConnectionLimiterTest 覆盖）、
+        // 降级开关开启（降级用例依赖；既有用例无「COMPLEX + 失败」组合，不受影响）
+        chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
+                null, new StreamConnectionLimiter(0), true);
+    }
 
     private Goal succeededGoal(String sessionId, String summary) {
         Goal g = new Goal("goal-1", "hi", sessionId);
@@ -262,6 +271,114 @@ class ChatServiceImplTest {
         ChatResponse resp = chatService.chat(req);
 
         assertEquals("SUCCEEDED", resp.status(), "会话同步失败不得影响本次聊天");
+    }
+
+    /* ---------------- COMPLEX 编排失败降级重答（同步 + 流式） ---------------- */
+
+    /** 过载保护接线：上限 1 时第二路流被并发超限拒绝；首路终结 doFinally 释放后恢复 */
+    @Test
+    void streamReactive_limiterFull_secondRequestRejected_thenReleasedAfterTermination() {
+        chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
+                null, new StreamConnectionLimiter(1), true);
+        ChatRequest req = new ChatRequest("hi", "50", null);
+        when(agentService.executeStreamReactive("general", "hi", "50"))
+                .thenReturn(Flux.just("a"));  // 冷流：未订阅不发射，名额保持占用
+
+        Flux<String> first = chatService.streamReactive(req);
+        assertThrows(ConcurrentRequestException.class, () -> chatService.streamReactive(req),
+                "上限 1 已占用时第二路流应立即拒绝（429）");
+
+        first.collectList().block();  // 首路终结 → doFinally 释放
+        assertTrue(chatService.streamReactive(req).collectList().block().contains("event: token\ndata: a"),
+                "释放后新流应可正常进入");
+    }
+
+    /** 同步路径：COMPLEX 编排失败 → 降级为会话绑定 Agent 单模型重答一次，成功按正常响应返回 */
+    @Test
+    void chat_complexOrchestrationFailed_shouldFallbackToSessionAgentRetry() {
+        ChatRequest req = new ChatRequest("调研竞品", "50", null);
+        when(routeJudge.judge("调研竞品")).thenReturn(RouteDecision.COMPLEX);
+        Goal orchestration = new Goal("g-orch", "调研竞品", "50");
+        orchestration.fail("子任务 LLM 调用超时");
+        Goal retry = new Goal("g-retry", "调研竞品", "50");
+        retry.succeed("重答结果");
+        when(agentService.executeSync("multi-agent", "调研竞品", "50")).thenReturn(orchestration);
+        when(agentService.executeSync("general", "调研竞品", "50")).thenReturn(retry);
+
+        ChatResponse resp = chatService.chat(req);
+
+        assertEquals("SUCCEEDED", resp.status(), "重答成功应按正常响应返回");
+        assertEquals("重答结果", resp.reply());
+        assertEquals("g-retry", resp.goalId(), "goalId 应为重答的 goal");
+        assertEquals("general", resp.agent(), "降级重答应透出实际使用的会话 Agent");
+        // 会话未绑定 Agent → sessionAgentName 回退默认 general
+        verify(agentService).executeSync("general", "调研竞品", "50");
+    }
+
+    /** 同步路径：重答也失败 → FAILED 响应，错误信息保留「编排失败 + 重答失败」两段 */
+    @Test
+    void chat_complexOrchestrationFailed_retryAlsoFails_shouldKeepBothErrors() {
+        ChatRequest req = new ChatRequest("调研竞品", "50", null);
+        when(routeJudge.judge("调研竞品")).thenReturn(RouteDecision.COMPLEX);
+        Goal orchestration = new Goal("g-orch", "调研竞品", "50");
+        orchestration.fail("子任务 LLM 调用超时");
+        Goal retry = new Goal("g-retry", "调研竞品", "50");
+        retry.fail("重答同样超时");
+        when(agentService.executeSync("multi-agent", "调研竞品", "50")).thenReturn(orchestration);
+        when(agentService.executeSync("general", "调研竞品", "50")).thenReturn(retry);
+
+        ChatResponse resp = chatService.chat(req);
+
+        assertEquals("FAILED", resp.status());
+        assertTrue(resp.error().contains("编排失败: 子任务 LLM 调用超时"),
+                "应保留编排失败原因: " + resp.error());
+        assertTrue(resp.error().contains("重答失败: 重答同样超时"),
+                "应保留重答失败原因: " + resp.error());
+        // 重答失败不得写回会话记忆
+        verify(sessionService, never()).saveContext(anyString(), any());
+    }
+
+    /** 流式路径：COMPLEX 编排流异常 → 先发降级进度行，再用会话 Agent 流式重答，meta SUCCEEDED */
+    @Test
+    void streamReactive_complexOrchestrationError_shouldFallbackToSessionAgentRetry() {
+        ChatRequest req = new ChatRequest("调研竞品", "50", null);
+        when(routeJudge.judge("调研竞品")).thenReturn(RouteDecision.COMPLEX);
+        when(agentService.executeStreamReactive("multi-agent", "调研竞品", "50"))
+                .thenReturn(Flux.error(new IllegalStateException("图执行异常")));
+        when(agentService.executeStreamReactive("general", "调研竞品", "50"))
+                .thenReturn(Flux.just("重答A", "重答B"));
+
+        List<String> lines = chatService.streamReactive(req).collectList().block();
+
+        assertTrue(lines.stream().anyMatch(l -> l.startsWith("event: progress") && l.contains("降级")),
+                "应先发降级进度行: " + lines);
+        assertTrue(lines.contains("event: token\ndata: 重答A") && lines.contains("event: token\ndata: 重答B"),
+                "重答内容应按 token 事件输出: " + lines);
+        assertTrue(lines.stream().anyMatch(l -> l.startsWith("event: meta") && l.contains("\"status\":\"SUCCEEDED\"")),
+                "重答成功 meta 应为 SUCCEEDED: " + lines);
+        // 成功后写回会话记忆（user + assistant 共 2 条）
+        verify(sessionService, times(2)).saveContext(eq("50"), any());
+    }
+
+    /** 流式路径：重答也失败 → error 事件与 meta FAILED，错误信息保留「编排失败 + 重答失败」两段 */
+    @Test
+    void streamReactive_complexOrchestrationError_retryAlsoFails_shouldKeepBothErrors() {
+        ChatRequest req = new ChatRequest("调研竞品", "50", null);
+        when(routeJudge.judge("调研竞品")).thenReturn(RouteDecision.COMPLEX);
+        when(agentService.executeStreamReactive("multi-agent", "调研竞品", "50"))
+                .thenReturn(Flux.error(new IllegalStateException("图执行异常")));
+        when(agentService.executeStreamReactive("general", "调研竞品", "50"))
+                .thenReturn(Flux.error(new IllegalStateException("重答同样异常")));
+
+        List<String> lines = chatService.streamReactive(req).collectList().block();
+
+        assertTrue(lines.stream().anyMatch(l -> l.startsWith("event: error")
+                        && l.contains("编排失败") && l.contains("图执行异常")
+                        && l.contains("重答失败") && l.contains("重答同样异常")),
+                "error 事件应保留两段错误: " + lines);
+        assertTrue(lines.stream().anyMatch(l -> l.startsWith("event: meta") && l.contains("\"status\":\"FAILED\"")),
+                "重答失败 meta 应为 FAILED: " + lines);
+        verify(sessionService, never()).saveContext(anyString(), any());
     }
 
     @Test

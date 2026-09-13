@@ -72,19 +72,29 @@ ChatService.chat(request)
 
 ```
 ChatService.streamReactive(request)
+  0. streamConnectionLimiter.tryAcquire()     ← 过载保护（超限抛 ConcurrentRequestException → 429）
+                                               流终结（complete/error/cancel）doFinally 释放
+                                               （resume 入口同口径；上限 app.chat.max-stream-connections，0=不限制）
   1. resolveAgent(message)                    ← 主 Agent 分流（同步旁路）
   2. 无 sessionId → boundedElastic 上 createSession() 建档
   3. agent 选择：
        agentId 有值 → executeStreamReactiveByAgentId()
        无 agentId → 按 resolveAgent 结果：
-         SIMPLE  → executeStreamReactive(general, ...)
+         SIMPLE  → executeStreamReactive(会话绑定 Agent, ...)
          COMPLEX → executeStreamReactive(multi-agent, ...)
        └─ AgentService：create(sessionId) → markRunning → 订阅 Agent 流
+       └─ COMPLEX 编排流异常（非客户端断开）→ 降级为会话绑定 Agent 单模型重答一次
+         （先发「降级」进度行；重答失败保留「编排失败 + 重答失败」两段错误；
+          app.chat.complex-fallback.enabled 开关，一层兜底不递归）
   4. Flux 管道：data: token… → data: [DONE] → event: meta
        （多 Agent 复杂路径：进度行另作 event: progress + data:{stage,detail}；仅内容 token 计入写回摘要）
                  （出错改为 event:error + data:msg）
   5. doOnComplete → writeBackContext() 写回 session_memory（多轮记忆）
 ```
+
+> LLM 调用超时兜底（connect/read/stream-idle）经 `app.chat.timeouts.*` 参数化：
+> connect/read 作用于阻塞通道（`ChatClientFactory`），stream-idle 作用于流式通道
+> （`AgentChatCaller` 的 Flux.timeout），未配置回退 10/300/120 秒现值。
 
 ***
 

@@ -3,6 +3,7 @@ package com.dark.javaHarness.config.agent;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+import com.dark.javaHarness.config.ChatTimeoutProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
 
@@ -20,7 +21,7 @@ class ChatClientFactoryTest {
     @Test
     void build_withConventionEnvKey_succeedsWithoutYamlMapping() {
         MockEnvironment env = new MockEnvironment().withProperty("MOONSHOT_API_KEY", "sk-convention");
-        ChatClientFactory factory = new ChatClientFactory(env);
+        ChatClientFactory factory = new ChatClientFactory(env, new ChatTimeoutProperties());
 
         assertNotNull(factory.build("moonshot", URL), "约定式环境变量 MOONSHOT_API_KEY 应被自动发现");
     }
@@ -29,7 +30,7 @@ class ChatClientFactoryTest {
     @Test
     void build_providerCaseInsensitive_matchesConventionEnvKey() {
         MockEnvironment env = new MockEnvironment().withProperty("DEEPSEEK_API_KEY", "sk-case");
-        ChatClientFactory factory = new ChatClientFactory(env);
+        ChatClientFactory factory = new ChatClientFactory(env, new ChatTimeoutProperties());
 
         assertNotNull(factory.build("DeepSeek", URL));
     }
@@ -39,7 +40,7 @@ class ChatClientFactoryTest {
     void build_withYamlExplicitMapping_usesProviderProperty() {
         MockEnvironment env = new MockEnvironment()
                 .withProperty("app.providers.dashscope.api-key", "sk-yaml");
-        ChatClientFactory factory = new ChatClientFactory(env);
+        ChatClientFactory factory = new ChatClientFactory(env, new ChatTimeoutProperties());
 
         assertNotNull(factory.build("dashscope", URL), "yaml 显式映射应优先生效");
     }
@@ -47,7 +48,7 @@ class ChatClientFactoryTest {
     /** 两处皆无 key → 返回 null（注册表跳过该行，而不是构建出必然失败的客户端） */
     @Test
     void build_withoutAnyKey_returnsNull() {
-        ChatClientFactory factory = new ChatClientFactory(new MockEnvironment());
+        ChatClientFactory factory = new ChatClientFactory(new MockEnvironment(), new ChatTimeoutProperties());
 
         assertNull(factory.build("unknown-provider", URL));
     }
@@ -56,7 +57,7 @@ class ChatClientFactoryTest {
     @Test
     void build_withInvalidArgs_returnsNull() {
         MockEnvironment env = new MockEnvironment().withProperty("MOONSHOT_API_KEY", "sk-x");
-        ChatClientFactory factory = new ChatClientFactory(env);
+        ChatClientFactory factory = new ChatClientFactory(env, new ChatTimeoutProperties());
 
         assertNull(factory.build(null, URL));
         assertNull(factory.build("moonshot", " "));

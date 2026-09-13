@@ -102,4 +102,17 @@ class GlobalExceptionHandlerTest {
         assertEquals(HttpStatus.BAD_GATEWAY.value(), resp.code(), "与配额类同口径映射 502");
         assertTrue(resp.message().contains("鉴权失败"), "人话指引透传给调用方");
     }
+
+    /** 流式连接数超限 → 429 + 可读提示（含当前活跃数与上限），warn 单行不打堆栈 */
+    @Test
+    void concurrentRequest_mapsTo429WithReadableMessage() {
+        ErrorResponse resp = handler.handleConcurrentRequest(
+                new ConcurrentRequestException("当前流式连接数已达上限（活跃 50，上限 50），请稍后重试"));
+
+        assertEquals(HttpStatus.TOO_MANY_REQUESTS.value(), resp.code(), "并发超限应映射 429");
+        assertTrue(resp.message().contains("已达上限"), "限流提示应透出活跃数与上限");
+        ILoggingEvent event = events.list.get(0);
+        assertEquals(Level.WARN, event.getLevel(), "限流属预期内拒绝，降级为 warn");
+        assertNull(event.getThrowableProxy(), "不应打印堆栈");
+    }
 }

@@ -49,9 +49,10 @@
 
 - [ ] **模型调用重试/限流**：Spring Retry / Resilience4j，模型失败自动重试（指数退避，可重试错误与限流错误区分），接口限流防刷
   - 验收：bad key 场景按策略重试后失败；限流返回 429
-- [ ] **并发 / 资源控制**：流式连接数限制、模型调用超时兜底与熔断降级（COMPLEX 编排失败可降级为 SIMPLE 单模型重答）
-  - 2026-09 部分完成：异步线程池隔离与参数化已落地（`goalExecutor` 有界池 + 拒绝兜底 + MVC 异步槽位，见存档「异步治理与发布工程」）；连接数限制与熔断降级待做
-  - 验收：并发提交多个流式请求稳定，无连接/线程池耗尽（线程池部分已由 10 并发 submit 用例覆盖）
+- [x] **并发 / 资源控制**：流式连接数限制、模型调用超时兜底与熔断降级（COMPLEX 编排失败可降级为 SIMPLE 单模型重答）。已完成（2026-09-13）
+  - 2026-09 部分完成：异步线程池隔离与参数化已落地（`goalExecutor` 有界池 + 拒绝兜底 + MVC 异步槽位，见存档「异步治理与发布工程」）
+  - 2026-09-13 完成：流式连接数限制（`StreamConnectionLimiter`，stream/resume 两入口 tryAcquire + doFinally 释放，超限 429，`app.chat.max-stream-connections` 配置 0=不限制）；LLM 超时参数化（`ChatTimeoutProperties` + `app.chat.timeouts.*`，connect/read/stream-idle 秒值，未配置回退现值）；COMPLEX 编排失败降级重答（流式与同步路径，降级为会话绑定 Agent 单模型重答一次，一层兜底不递归，`app.chat.complex-fallback.enabled` 开关）；spec 见 `.trae/specs/add-stream-limit-and-complex-fallback/`
+  - 验收：并发提交多个流式请求稳定，无连接/线程池耗尽（全量回归 482 例绿；限流计数/超限/降级重答由 StreamConnectionLimiterTest + ChatServiceImplTest 降级用例覆盖）
 - [ ] **工具分配最小权限化**：现状按「能力类别」粒度分配（`ToolAssignments` 给整组工具），存在权限漏洞：
   - **`general` 全量过宽且是所有回退路径的落点**：路由兜底、未识别专家、lead 漏指派全部落 general——最宽权限（执行/容器写/网页）给了最不可控的场景，违背最小权限原则
   - 改造项（沙箱语境下已简化：沙箱原生分执行/只读文件/写入三类，无需再拆类）：

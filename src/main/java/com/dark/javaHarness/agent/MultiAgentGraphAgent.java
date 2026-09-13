@@ -14,6 +14,7 @@ import com.alibaba.cloud.ai.graph.exception.GraphStateException;
 import com.alibaba.cloud.ai.graph.internal.node.ParallelNode;
 import com.alibaba.cloud.ai.graph.state.strategy.ReplaceStrategy;
 import com.dark.javaHarness.advisor.PromptBudgetAdvisor;
+import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.Goal;
@@ -193,13 +194,14 @@ public class MultiAgentGraphAgent implements Agent {
                                 SkillManager skillManager) {
         this(agentName, clientRegistry, agentService, toolAssignments, recorder,
                 checkpointSaver, budgets, memoryStore, lazyTools, promptAssembler,
-                skillManager, null);
+                skillManager, null, null);
     }
 
     /**
      * 全参构造（含 skill 装配与 RAG 知识检索）：knowledgeRetriever 仅知识库启用时非 null
      * （ChatAgentConfig 经 ObjectProvider 注入），透传给编排调用器后 lead/各子任务按
-     * 各自 user 文本检索（aggregator 由检索器角色策略跳过）。
+     * 各自 user 文本检索（aggregator 由检索器角色策略跳过）。timeouts 透传给编排调用器
+     * 作流式空闲超时（null 时走调用器默认，见 AgentChatCaller.DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS）。
      */
     public MultiAgentGraphAgent(String agentName,
                                 ChatClientRegistry clientRegistry,
@@ -212,7 +214,8 @@ public class MultiAgentGraphAgent implements Agent {
                                 ToolLazyManager lazyTools,
                                 PromptAssembler promptAssembler,
                                 SkillManager skillManager,
-                                com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever) {
+                                com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
+                                ChatTimeoutProperties timeouts) {
         ToolLazyManager lazy = lazyTools != null ? lazyTools : new ToolLazyManager(toolAssignments, false);
         this.agentName = agentName;
         // 工具索引段与延迟加载同源：开启时索引段追加 expand_tool 使用引导（与轻量态工具面对齐）
@@ -220,7 +223,7 @@ public class MultiAgentGraphAgent implements Agent {
                 : new PromptAssembler(agentService, toolAssignments, List.of(), lazy.isEnabled());
         this.chatCaller = new AgentChatCaller(clientRegistry, agentService, toolAssignments, recorder,
                 new LlmRetry(), budgets, this.promptAssembler, memoryStore, lazy, skillManager,
-                knowledgeRetriever);
+                knowledgeRetriever, timeouts);
         this.checkpointSaver = checkpointSaver;
         this.budgets = budgets != null ? budgets : new ContextBudgetProperties();
         this.orchestrationBudget = new OrchestrationBudget(this.budgets);
@@ -464,7 +467,7 @@ public class MultiAgentGraphAgent implements Agent {
         try {
             content = predictLeadLogged(sessionId, objective, cancelled,
                     orchestrationBudget.ledgerHandle(state, true));
-        } catch (AgentChatCaller.BudgetExceededException e) {
+        } catch (BudgetLedger.BudgetExceededException e) {
             log.warn("[multi-agent][lead] 编排预算超限中止拆解（已消耗 {} / 上限 {}），退化为单子任务",
                     OrchestrationBudget.ledgerValue(state), budgets.getOrchestrationBudget());
             content = null; // 拆解产物缺失 → 退化为单个子任务=objective，执行前被熔断跳过
@@ -490,7 +493,7 @@ public class MultiAgentGraphAgent implements Agent {
     /**
      * 子任务节点：读 subtask_i 与指派的 subtaskAgent_i，若存在则调用对应专家 ChatClient 生成 result_i。
      * 熔断下沉到 caller（方向 b）：门控账本句柄在调用发起前（零 HTTP）与每轮 roundtrip 的
-     * usage 帧上检查，超限抛 {@link AgentChatCaller.BudgetExceededException}——节点捕获后
+     * usage 帧上检查，超限抛 {@link BudgetLedger.BudgetExceededException}——节点捕获后
      * result 写「预算超限跳过」占位，聚合据此注入降级说明。并行扇出下共享账本让后序调用
      * 及时看到前序消耗，配合 subtask-concurrency 错峰使「部分跳过」成为常态而非偶发。
      */
@@ -511,7 +514,7 @@ public class MultiAgentGraphAgent implements Agent {
         try {
             result = predictSubtask(sessionId, task, expert, toolEmitter, cancelled,
                     orchestrationBudget.ledgerHandle(state, true));
-        } catch (AgentChatCaller.BudgetExceededException e) {
+        } catch (BudgetLedger.BudgetExceededException e) {
             log.warn("[multi-agent][subtask-{}] 编排 token 消费已达上限（{} / {}），跳过专家调用",
                     idx, OrchestrationBudget.ledgerValue(state), budgets.getOrchestrationBudget());
             Map<String, Object> updates = new HashMap<>();
@@ -596,7 +599,7 @@ public class MultiAgentGraphAgent implements Agent {
                                              Sinks.Many<String> liveTokens,
                                              AtomicBoolean contentSent,
                                              AtomicBoolean cancelled,
-                                             AgentChatCaller.BudgetLedger budgetLedger) {
+                                             BudgetLedger budgetLedger) {
         BranchProgressListener.tryEmitSerialized(liveTokens,
                 ProgressLine.encode("聚合", "汇总子任务结果，生成最终回答"));
         StringBuilder collected = new StringBuilder();
@@ -612,7 +615,7 @@ public class MultiAgentGraphAgent implements Agent {
                 throw ce;
             }
             if (isCancelled(cancelled)) {
-                throw AgentChatCaller.cancelException();
+                throw CallCancellation.cancelException();
             }
             if (collected.length() > 0) {
                 // 已推 token 后失败：重试会内容重复，以已收内容为准
@@ -629,7 +632,7 @@ public class MultiAgentGraphAgent implements Agent {
                 throw ce;
             }
             if (isCancelled(cancelled)) {
-                throw AgentChatCaller.cancelException();
+                throw CallCancellation.cancelException();
             }
             log.warn("[multi-agent][aggregate] 聚合流式重试仍失败：{}", safe(e2));
             throw e2;
@@ -644,7 +647,7 @@ public class MultiAgentGraphAgent implements Agent {
     private void streamAggregateOnce(String sessionId, String user, StringBuilder collected,
                                      Sinks.Many<String> liveTokens, AtomicBoolean contentSent,
                                      AtomicBoolean cancelled,
-                                     AgentChatCaller.BudgetLedger budgetLedger) {
+                                     BudgetLedger budgetLedger) {
         chatCaller.stream(sessionId, ROLE_AGGREGATOR, AGGREGATOR_FALLBACK_PROMPT,
                 user,
                 token -> {
@@ -688,7 +691,7 @@ public class MultiAgentGraphAgent implements Agent {
      * 每轮 roundtrip 熔断判定 + 增量记账；可 null）。
      */
     private String predictLead(String sessionId, String objective, AtomicBoolean cancelled,
-                               AgentChatCaller.BudgetLedger budgetLedger) {
+                               BudgetLedger budgetLedger) {
         return chatCaller.call(sessionId, ROLE_LEAD, LEAD_FALLBACK_PROMPT, "拆解目标：" + objective,
                 null, new PromptBudgetAdvisor[]{PromptBudgetAdvisor.tail(budgets.getLeadBudget())},
                 cancelled == null ? null : cancelled::get, budgetLedger);
@@ -696,7 +699,7 @@ public class MultiAgentGraphAgent implements Agent {
 
     /** lead 拆解前日志埋点便于诊断专家指派（raw 输出统一记审计） */
     private String predictLeadLogged(String sessionId, String objective, AtomicBoolean cancelled,
-                                     AgentChatCaller.BudgetLedger budgetLedger) {
+                                     BudgetLedger budgetLedger) {
         String raw = predictLead(sessionId, objective, cancelled, budgetLedger);
         log.info("[multi-agent][lead] raw 拆解输出: {}", raw.length() > 300 ? raw.substring(0, 300) + "..." : raw);
         return raw;
@@ -710,7 +713,7 @@ public class MultiAgentGraphAgent implements Agent {
     private String predictSubtask(String sessionId, String task, String expert,
                                   java.util.function.Consumer<String> toolEmitter,
                                   AtomicBoolean cancelled,
-                                  AgentChatCaller.BudgetLedger budgetLedger) {
+                                  BudgetLedger budgetLedger) {
         // 未指派（lead 输出旧格式或漏 agent 字段）→ 回退 general：通用兜底且持有全量工具
         String resolved = (expert == null || expert.isBlank())
                 ? AgentConstants.DEFAULT_AGENT : expert;
@@ -727,7 +730,7 @@ public class MultiAgentGraphAgent implements Agent {
      * budgetLedger 为 record-only 句柄（聚合不受熔断，仅记账；可 null）。
      */
     private String predictAggregate(String sessionId, String user, AtomicBoolean cancelled,
-                                    AgentChatCaller.BudgetLedger budgetLedger) {
+                                    BudgetLedger budgetLedger) {
         return chatCaller.call(sessionId, ROLE_AGGREGATOR, AGGREGATOR_FALLBACK_PROMPT, user,
                 null, new PromptBudgetAdvisor[]{aggregateBudgetAdvisor()},
                 cancelled == null ? null : cancelled::get, budgetLedger);

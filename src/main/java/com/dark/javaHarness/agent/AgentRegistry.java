@@ -1,5 +1,6 @@
 package com.dark.javaHarness.agent;
 
+import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.enums.AgentConstants;
@@ -45,6 +46,8 @@ public class AgentRegistry {
     private final ToolAssignments toolAssignments;
     private final LlmCallRecorder recorder;
     private final ContextBudgetProperties budgets;
+    /** LLM 超时配置（app.chat.timeouts.*）：透传给 GA 内部调用器作流式空闲超时（null 走默认） */
+    private final ChatTimeoutProperties timeouts;
     private final ToolLazyManager lazyTools;
     /** 共享 Prompt 组装器（含 skill 段提供者），注册实例与编排实例共用；null 时 GA 裸构建（测试场景） */
     private final PromptAssembler promptAssembler;
@@ -81,7 +84,7 @@ public class AgentRegistry {
                          PromptAssembler promptAssembler,
                          SkillManager skillManager) {
         this(provider, agentServiceProvider, clientRegistry, memoryStore, toolAssignments,
-                recorder, budgets, lazyTools, promptAssembler, skillManager, null);
+                recorder, budgets, lazyTools, promptAssembler, skillManager, null, null);
     }
 
     /** 全参构造（含 RAG 知识检索）：knowledgeRetriever 仅知识库启用时非 null（ChatAgentConfig 经 ObjectProvider 注入） */
@@ -95,7 +98,8 @@ public class AgentRegistry {
                          ToolLazyManager lazyTools,
                          PromptAssembler promptAssembler,
                          SkillManager skillManager,
-                         com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever) {
+                         com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
+                         ChatTimeoutProperties timeouts) {
         this.provider = provider;
         this.agentServiceProvider = agentServiceProvider;
         this.clientRegistry = clientRegistry;
@@ -107,6 +111,7 @@ public class AgentRegistry {
         this.promptAssembler = promptAssembler;
         this.skillManager = skillManager;
         this.knowledgeRetriever = knowledgeRetriever;
+        this.timeouts = timeouts;
     }
 
     /** 启动注册：注册 agent 表全部对话 Agent 行（is_internal=0），逐行容错；general 行缺失时代码兜底注册。 */
@@ -175,7 +180,7 @@ public class AgentRegistry {
     private Agent createGeneralAssistant(String agentName) {
         return new GeneralAssistantAgent(agentName, clientRegistry, memoryStore,
                 agentServiceProvider.getObject(), toolAssignments, recorder, budgets, lazyTools,
-                promptAssembler, skillManager, knowledgeRetriever);
+                promptAssembler, skillManager, knowledgeRetriever, timeouts);
     }
 
     /** 统一「未知 Agent」文案：含可用列表，不泄漏底层异常。 */

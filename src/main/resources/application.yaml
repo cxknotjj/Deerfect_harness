@@ -78,6 +78,22 @@ app:
     # —— 消费侧：编排子任务并行限并发（0 = 不限并发，全部并行）——
     subtask-concurrency: 2    # 子任务并行扇出经信号量排队错峰执行：收敛下游 LLM 并发压力，
                               # 并把熔断后的在途超额窗口从「整批」收窄到「至多 N 个在途调用」
+  # 聊天并发与超时（过载保护）：
+  chat:
+    # 流式连接数上限：/api/chat/stream 与 /api/chat/resume 的活跃 SSE 流计数（超限 429）；
+    # 0 = 不限制（与预算口径一致）
+    max-stream-connections: 50
+    # LLM 调用超时（秒）：connect/read 作用于阻塞通道（call，防端点无响应永久挂起）；
+    # stream-idle 作用于流式通道（AgentChatCaller 的 Flux.timeout 兜底，JDK 连接器无响应级超时）。
+    # 未配置键回退代码兜底默认（10/300/120），行为与历史硬编码一致
+    timeouts:
+      connect-timeout-seconds: 10
+      read-timeout-seconds: 300
+      stream-idle-timeout-seconds: 120
+    # COMPLEX 编排失败降级：编排自身失败（非客户端断开）时降级为会话绑定 Agent 单模型重答一次
+    # （一层兜底不递归；重答失败保留「编排失败 + 重答失败」两段错误信息）
+    complex-fallback:
+      enabled: true
   # 工具 Schema 延迟加载（两段式工具暴露）：开启后请求级工具面轻量注入（名称+用途，schema 置空），
   # system 附工具索引段，模型经 expand_tool 元工具按需展开获取完整参数说明；
   # 关闭后回退全量注入现状（expand_tool 不注册）

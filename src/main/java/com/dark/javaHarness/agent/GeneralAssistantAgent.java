@@ -108,13 +108,14 @@ public class GeneralAssistantAgent implements Agent {
                                  PromptAssembler promptAssembler,
                                  SkillManager skillManager) {
         this(agentName, clientRegistry, memoryStore, agentService, toolAssignments,
-                recorder, budgets, lazyTools, promptAssembler, skillManager, null);
+                recorder, budgets, lazyTools, promptAssembler, skillManager, null, null);
     }
 
     /**
      * 全参构造（含 skill 装配与 RAG 知识检索）：knowledgeRetriever 仅知识库启用时非 null
      * （AgentRegistry 经 ObjectProvider 注入），null 时无知识段注入、行为退化现状。
-     * 内部构建 {@link AgentChatCaller} 共享执行引擎（组装链/重试/观测同源）。
+     * 内部构建 {@link AgentChatCaller} 共享执行引擎（组装链/重试/观测同源）。timeouts 透传
+     * 给调用器作流式空闲超时（null 时走调用器默认）。
      */
     public GeneralAssistantAgent(String agentName,
                                  ChatClientRegistry clientRegistry,
@@ -126,7 +127,8 @@ public class GeneralAssistantAgent implements Agent {
                                  ToolLazyManager lazyTools,
                                  PromptAssembler promptAssembler,
                                  SkillManager skillManager,
-                                 com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever) {
+                                 com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
+                                 com.dark.javaHarness.config.ChatTimeoutProperties timeouts) {
         this.agentName = agentName;
         this.agentService = agentService;
         this.recorder = recorder;
@@ -141,7 +143,7 @@ public class GeneralAssistantAgent implements Agent {
         this.maxTokensFinal = effectiveBudgets.getMaxTokensFinal();
         this.chatCaller = new AgentChatCaller(clientRegistry, agentService, toolAssignments, recorder,
                 new LlmRetry(), effectiveBudgets, effectiveAssembler, memoryStore, effectiveLazy,
-                skillManager, knowledgeRetriever);
+                skillManager, knowledgeRetriever, timeouts);
     }
 
     /** 返回 Agent 名称（用于注册与路由） */

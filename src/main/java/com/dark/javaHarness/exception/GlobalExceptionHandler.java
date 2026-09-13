@@ -77,6 +77,14 @@ public class GlobalExceptionHandler {
         return ErrorResponse.of(HttpStatus.CONFLICT.value(), e.getMessage());
     }
 
+    /** 429：流式连接数已达上限（过载保护触发）——客户端应稍后重试，message 含活跃数与上限 */
+    @ExceptionHandler(ConcurrentRequestException.class)
+    @ResponseStatus(HttpStatus.TOO_MANY_REQUESTS)
+    public ErrorResponse handleConcurrentRequest(ConcurrentRequestException e) {
+        log.warn("[stream-limit] 流式连接超限：{}", e.getMessage());
+        return ErrorResponse.of(HttpStatus.TOO_MANY_REQUESTS.value(), e.getMessage());
+    }
+
     /** 502：模型供应商账户级硬错误（余额不足/配额耗尽）——上游故障透传，message 已是人话提示 */
     @ExceptionHandler(ModelQuotaException.class)
     @ResponseStatus(HttpStatus.BAD_GATEWAY)

@@ -58,7 +58,7 @@ final class OrchestrationBudget {
      * </ul>
      * AtomicLong/AtomicBoolean 保证并行写安全（熔断为近似判定，竞态窗口见限并发说明）。
      */
-    AgentChatCaller.BudgetLedger ledgerHandle(OverAllState state, boolean enforceBudget) {
+    BudgetLedger ledgerHandle(OverAllState state, boolean enforceBudget) {
         AtomicLong ledger =
                 state.value(K_TOKEN_LEDGER, AtomicLong.class).orElse(null);
         if (ledger == null) {
@@ -66,7 +66,7 @@ final class OrchestrationBudget {
         }
         AtomicBoolean estimated = state.value(K_TOKEN_ESTIMATED, AtomicBoolean.class).orElse(null);
         int budget = budgets.getOrchestrationBudget();
-        return new AgentChatCaller.BudgetLedger() {
+        return new BudgetLedger() {
             @Override
             public boolean overBudget() {
                 return enforceBudget && budget > 0 && ledger.get() >= budget;

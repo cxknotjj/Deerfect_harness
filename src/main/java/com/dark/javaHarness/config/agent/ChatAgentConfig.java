@@ -84,10 +84,11 @@ public class ChatAgentConfig {
                                        PromptAssembler promptAssembler,
                                        SkillManager skillManager,
                                        MultiAgentGraphAgent multiAgent,
-                                       ObjectProvider<com.dark.javaHarness.knowledge.KnowledgeRetriever> knowledgeRetriever) {
+                                       ObjectProvider<com.dark.javaHarness.knowledge.KnowledgeRetriever> knowledgeRetriever,
+                                       com.dark.javaHarness.config.ChatTimeoutProperties timeouts) {
         AgentRegistry agentRegistry = new AgentRegistry(agentConfigProvider, agentService, registry,
                 memoryStore, toolAssignments, recorder, budgets, toolLazyManager,
-                promptAssembler, skillManager, knowledgeRetriever.getIfAvailable());
+                promptAssembler, skillManager, knowledgeRetriever.getIfAvailable(), timeouts);
         agentRegistry.register(multiAgent);
         agentRegistry.init();
         return agentRegistry;
@@ -119,9 +120,11 @@ public class ChatAgentConfig {
                                            ToolLazyManager toolLazyManager,
                                            PromptAssembler promptAssembler,
                                            SkillManager skillManager,
-                                           ObjectProvider<com.dark.javaHarness.knowledge.KnowledgeRetriever> knowledgeRetriever) {
+                                           ObjectProvider<com.dark.javaHarness.knowledge.KnowledgeRetriever> knowledgeRetriever,
+                                           com.dark.javaHarness.config.ChatTimeoutProperties timeouts) {
         return new MultiAgentGraphAgent(AgentConstants.MULTI_AGENT, registry, agentService,
                 toolAssignments, recorder, graphCheckpointSaver, budgets, memoryStore,
-                toolLazyManager, promptAssembler, skillManager, knowledgeRetriever.getIfAvailable());
+                toolLazyManager, promptAssembler, skillManager, knowledgeRetriever.getIfAvailable(),
+                timeouts);
     }
 }

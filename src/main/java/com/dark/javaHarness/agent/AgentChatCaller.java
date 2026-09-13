@@ -1,11 +1,11 @@
 package com.dark.javaHarness.agent;
 
+import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
+import com.dark.javaHarness.config.agent.ChatClientFactory;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.AgentConfig;
-import com.dark.javaHarness.domain.LlmCallLog;
-import com.dark.javaHarness.exception.ModelAuthException;
-import com.dark.javaHarness.exception.ModelQuotaException;
+import com.dark.javaHarness.agent.BudgetLedger.BudgetExceededException;
 import com.dark.javaHarness.prompt.MemoryPolicy;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.prompt.SkillManager;
@@ -24,6 +24,10 @@ import reactor.core.publisher.Flux;
 
 /**
  * 路径 A/B 统一 LLM 调用器（执行层单一来源）：查 agent 表配置 → 取注册客户端 → 组装请求 → 调用。
+ * 本类收窄为「调用生命周期编排」——流管道核（tokenStream/streamCore）、重试循环、取消拦截、
+ * 角色装配策略、流帧记账留在类内；独立关注点已提取为同包组件：账本契约 {@link BudgetLedger}
+ * （含熔断异常）、取消词汇表 {@link CallCancellation}、错误分类纯函数 {@link LlmErrorClassifier}、
+ * 观测封装 {@link LlmCallObserver}（llm_call_log 落库口径）。
  *
  * <p>供 {@link MultiAgentGraphAgent} 各环节（lead 拆解 / 专家子任务 / 聚合）与
  * {@link GeneralAssistantAgent}（路径 A，薄适配）复用；每次调用按传入的 agent 名独立查表，
@@ -36,53 +40,17 @@ final class AgentChatCaller {
     private static final org.slf4j.Logger log =
             org.slf4j.LoggerFactory.getLogger(AgentChatCaller.class);
 
+    /** 流式空闲超时兜底默认（秒）：app.chat.timeouts.stream-idle-timeout-seconds 未配置时生效 */
+    static final int DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS = 120;
+
     /**
      * 流式调用空闲超时：相邻信号间隔超过该时长即判定端点挂起，超时失败（不可重试——
      * 实测厂商端对该类请求为稳定挂死，重试同请求只会成倍放大等待）。
-     * 取值依据：工具执行期是流上最长的正常静默（fetchUrl/browser 实测 ~8s），
-     * 120s 已有 10 倍余量；300s 旧值曾让挂死请求阻塞用户 5 分钟才失败。
+     * 默认 120s：工具执行期是流上最长的正常静默（fetchUrl/browser 实测 ~8s），已有 10 倍余量；
+     * 300s 旧值曾让挂死请求阻塞用户 5 分钟才失败。可经 app.chat.timeouts.stream-idle-timeout-seconds
+     * 覆盖（timeouts 为 null 的单测/旧构造链场景走默认值）。
      */
-    private static final java.time.Duration STREAM_IDLE_TIMEOUT = java.time.Duration.ofSeconds(120);
-
-    /** 取消异常消息（llm_call_log.error_msg 检索用）：客户端断连中止在途请求 */
-    private static final String CANCELLED_MSG = "client-cancelled: 客户端断连，中止在途请求";
-
-    /** 取消异常工厂（包级共用：编排节点捕获后需重新抛出同语义异常） */
-    static CancellationException cancelException() {
-        return new CancellationException(CANCELLED_MSG);
-    }
-
-    /**
-     * 编排预算账本句柄（MultiAgentGraphAgent 按节点注入，同一编排共享同一账本）：
-     * <ul>
-     *   <li>{@link #overBudget()}：熔断判定（budget>0 且已消耗 ≥ 上限）。调用器在两个时点
-     *       检查——发起调用前（零 HTTP 短路）与每次 LLM roundtrip 的 usage 帧到达时（含
-     *       单次 call 内部工具循环的每轮，超限即断流，阻止下一轮发起）；
-     *   <li>{@link #recordUsage(int, boolean)}：按 roundtrip 增量同步累计消耗（同一调用栈内
-     *       可读，不依赖 llm_call_log 异步落库时序）。真实 usage 优先（streamUsage 帧），
-     *       全程无 usage 时按输出文本估算并置 estimated=true（口径与 tokens_estimated 一致）。
-     * </ul>
-     * 聚合等「必发不受熔断」的调用方传 record-only 句柄（overBudget 恒 false，仅记账）。
-     */
-    interface BudgetLedger {
-
-        /** 熔断判定：true = 已达编排消费上限 */
-        boolean overBudget();
-
-        /** 累计消耗（estimated=true 表示含估算值，降级说明注明口径） */
-        void recordUsage(int totalTokens, boolean estimated);
-    }
-
-    /**
-     * 编排预算熔断异常：超限断流/拒绝发起新调用时抛出。编排节点捕获后写
-     * 「预算超限跳过」占位并注入聚合降级说明；非可重试错误（LlmRetry 天然旁路）。
-     */
-    static final class BudgetExceededException extends RuntimeException {
-
-        BudgetExceededException() {
-            super("budget-exceeded: 编排 token 消费已达上限，熔断中止调用");
-        }
-    }
+    private final java.time.Duration streamIdleTimeout;
 
     private final ChatClientRegistry clientRegistry;
     private final AgentService agentService;
@@ -98,8 +66,8 @@ final class AgentChatCaller {
     private final ToolLazyManager lazyTools;
     /** skill 装配管理器（load_skill 元工具来源）；null 时不注册元工具（单测/旧构造链场景） */
     private final SkillManager skillManager;
-    /** LLM 调用观测记录器（可 null：无观测场景下直通） */
-    private final LlmCallRecorder recorder;
+    /** LLM 调用观测封装（llm_call_log 落库口径见 {@link LlmCallObserver}；recorder null 直通） */
+    private final LlmCallObserver observer;
     /** 模型调用重试策略（指数退避，最多 3 次） */
     private final LlmRetry retry;
     /** 上下文预算配置（工具次数/结果预算等；null 时用内置默认值，单测场景） */
@@ -126,86 +94,19 @@ final class AgentChatCaller {
                     AgentService agentService,
                     ToolAssignments toolAssignments,
                     LlmCallRecorder recorder,
-                    ContextBudgetProperties budgets) {
-        this(clientRegistry, agentService, toolAssignments, recorder, new LlmRetry(), budgets);
-    }
-
-    AgentChatCaller(ChatClientRegistry clientRegistry,
-                    AgentService agentService,
-                    ToolAssignments toolAssignments,
-                    LlmCallRecorder recorder,
                     LlmRetry retry,
                     ContextBudgetProperties budgets) {
         this(clientRegistry, agentService, toolAssignments, recorder, retry, budgets,
-                new PromptAssembler(agentService, toolAssignments));
-    }
-
-    AgentChatCaller(ChatClientRegistry clientRegistry,
-                    AgentService agentService,
-                    ToolAssignments toolAssignments,
-                    LlmCallRecorder recorder,
-                    LlmRetry retry,
-                    ContextBudgetProperties budgets,
-                    PromptAssembler promptAssembler) {
-        this(clientRegistry, agentService, toolAssignments, recorder, retry, budgets, promptAssembler, null);
+                new PromptAssembler(agentService, toolAssignments), null, null, null, null, null);
     }
 
     /**
-     * @param memoryStore 会话记忆源（SessionService，与路径 A GeneralAssistantAgent 同源同口径）；
-     *                    lead 节点据此注入会话记忆，null 时不注入（单测场景）
-     */
-    AgentChatCaller(ChatClientRegistry clientRegistry,
-                    AgentService agentService,
-                    ToolAssignments toolAssignments,
-                    LlmCallRecorder recorder,
-                    LlmRetry retry,
-                    ContextBudgetProperties budgets,
-                    PromptAssembler promptAssembler,
-                    SessionService memoryStore) {
-        this(clientRegistry, agentService, toolAssignments, recorder, retry, budgets,
-                promptAssembler, memoryStore, null);
-    }
-
-    /**
-     * 全参构造：lazyTools 为 null 时构造禁用态实例（旧构造链/单测场景，工具面全量注入现状）。
-     * 注意 promptAssembler 的延迟加载标志应与 lazyTools.isEnabled() 同源一致
-     * （由 MultiAgentGraphAgent 全参构造统一构建传入）。
-     */
-    AgentChatCaller(ChatClientRegistry clientRegistry,
-                    AgentService agentService,
-                    ToolAssignments toolAssignments,
-                    LlmCallRecorder recorder,
-                    LlmRetry retry,
-                    ContextBudgetProperties budgets,
-                    PromptAssembler promptAssembler,
-                    SessionService memoryStore,
-                    ToolLazyManager lazyTools) {
-        this(clientRegistry, agentService, toolAssignments, recorder, retry, budgets,
-                promptAssembler, memoryStore, lazyTools, null);
-    }
-
-    /**
-     * 全参构造（含 skill 装配）：skillManager 为 null 时不注册 load_skill 元工具
-     * （单测/旧构造链场景）；正式装配由 MultiAgentGraphAgent 透传共享实例。
-     * knowledgeRetriever 为 null 时零行为变化（知识库禁用/单测场景）。
-     */
-    AgentChatCaller(ChatClientRegistry clientRegistry,
-                    AgentService agentService,
-                    ToolAssignments toolAssignments,
-                    LlmCallRecorder recorder,
-                    LlmRetry retry,
-                    ContextBudgetProperties budgets,
-                    PromptAssembler promptAssembler,
-                    SessionService memoryStore,
-                    ToolLazyManager lazyTools,
-                    SkillManager skillManager) {
-        this(clientRegistry, agentService, toolAssignments, recorder, retry, budgets,
-                promptAssembler, memoryStore, lazyTools, skillManager, null);
-    }
-
-    /**
-     * 全参构造（含 skill 装配与 RAG 知识检索）：knowledgeRetriever 仅知识库启用时非 null
-     * （MultiAgentGraphAgent 经 ObjectProvider 传入），null 时无知识段注入、行为退化现状。
+     * 全参构造（含 skill 装配与 RAG 知识检索，正式装配由 MultiAgentGraphAgent/GeneralAssistantAgent
+     * 统一构建传入）：knowledgeRetriever 仅知识库启用时非 null（MultiAgentGraphAgent 经
+     * ObjectProvider 传入），null 时无知识段注入、行为退化现状。
+     * timeouts 为 null（单测/旧构造链场景）时流式空闲超时走默认
+     * {@link #DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS}。
+     * 其余仅保留 4/5/6 参单测便捷重载（尾部组件取禁用态/null），中间历史重载已收敛删除。
      */
     AgentChatCaller(ChatClientRegistry clientRegistry,
                     AgentService agentService,
@@ -217,7 +118,8 @@ final class AgentChatCaller {
                     SessionService memoryStore,
                     ToolLazyManager lazyTools,
                     SkillManager skillManager,
-                    com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever) {
+                    com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
+                    ChatTimeoutProperties timeouts) {
         this.clientRegistry = clientRegistry;
         this.agentService = agentService;
         this.toolAssignments = toolAssignments;
@@ -225,12 +127,15 @@ final class AgentChatCaller {
         this.memoryStore = memoryStore;
         this.lazyTools = lazyTools != null ? lazyTools : new ToolLazyManager(toolAssignments, false);
         this.skillManager = skillManager;
-        this.recorder = recorder;
+        this.observer = new LlmCallObserver(recorder);
         this.retry = retry;
         this.budgets = budgets != null ? budgets : new ContextBudgetProperties();
         this.specFactory = new AgentRequestSpecFactory(clientRegistry, promptAssembler,
                 toolAssignments, this.lazyTools, skillManager, memoryStore, this.budgets,
                 knowledgeRetriever, recorder);
+        this.streamIdleTimeout = ChatClientFactory.resolve(
+                timeouts != null ? timeouts.getStreamIdleTimeoutSeconds() : null,
+                DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS);
     }
 
     /** 带会话观测的单次调用（推荐入口：sessionId 用于 llm_call_log 归因） */
@@ -299,51 +204,48 @@ final class AgentChatCaller {
                         new java.util.concurrent.atomic.AtomicReference<>();
                 String content = streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
                         assembly, extraAdvisors, null, cancelled, usageRef, ledger);
-                recordOkStream(sessionId, forAgent, model, start, content, usageRef.get());
+                observer.okStream(sessionId, forAgent, model, start, content, usageRef.get());
                 recordEstimatedIfNoUsage(ledger, content, usageRef.get());
                 return content;
             } catch (RuntimeException e) {
                 // 客户端断连中止：记录后立即上抛（CancellationException 不可重试，直接放行）
                 if (e instanceof CancellationException) {
-                    recordError(sessionId, forAgent, model, true, start, e);
+                    observer.error(sessionId, forAgent, model, true, start, e);
                     throw e;
                 }
                 // 编排预算熔断：政策性中止（非模型错误），记录后立即上抛（不可重试，
                 // 编排节点捕获后写「预算超限跳过」占位）
                 if (e instanceof BudgetExceededException) {
-                    recordError(sessionId, forAgent, model, true, start, e);
+                    observer.error(sessionId, forAgent, model, true, start, e);
                     throw e;
                 }
-                // 账户级硬错误（余额不足/配额耗尽）：重试无意义，立即转人话异常向上传播
-                if (ModelQuotaException.matches(e)) {
-                    recordError(sessionId, forAgent, model, true, start, e);
-                    throw ModelQuotaException.from(e, model);
-                }
-                // 鉴权失败（401/invalid key）：重试无意义，立即转可执行指引异常向上传播
-                if (ModelAuthException.matches(e)) {
-                    recordError(sessionId, forAgent, model, true, start, e);
-                    throw ModelAuthException.from(e, model);
+                // 账户级硬错误（余额不足/配额耗尽 402/403、鉴权失败 401）：重试无意义，
+                // 立即转人话异常向上传播（分类口径收敛于 LlmErrorClassifier）
+                RuntimeException translated = LlmErrorClassifier.translate(e, model);
+                if (translated != null) {
+                    observer.error(sessionId, forAgent, model, true, start, e);
+                    throw translated;
                 }
                 // 模型可能把提示词里的专家名（researcher 等）误当工具发起调用——
                 // 工具列表里没有该名字，Spring AI 执行时抛「No ToolCallback found」。
                 // 此时去掉工具列表重试一次：模型纯文本作答仍可产出结果，不炸整个编排。
-                if (isUnknownToolCall(e)) {
-                    log.warn("[caller] {} 发起未知名工具调用，去工具重试一次：{}", forAgent, safeMsg(e));
+                if (LlmErrorClassifier.isUnknownToolCall(e)) {
+                    log.warn("[caller] {} 发起未知名工具调用，去工具重试一次：{}", forAgent, LlmCallRecorder.describeError(e));
                     long start2 = System.currentTimeMillis();
                     try {
                         java.util.concurrent.atomic.AtomicReference<Usage> usageRef2 =
                                 new java.util.concurrent.atomic.AtomicReference<>();
                         String content = streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
                                 noToolsVariant(assembly), extraAdvisors, null, cancelled, usageRef2, ledger);
-                        recordOkStream(sessionId, forAgent, model, start2, content, usageRef2.get());
+                        observer.okStream(sessionId, forAgent, model, start2, content, usageRef2.get());
                         recordEstimatedIfNoUsage(ledger, content, usageRef2.get());
                         return content;
                     } catch (RuntimeException e2) {
-                        recordError(sessionId, forAgent, model, true, start2, e2);
+                        observer.error(sessionId, forAgent, model, true, start2, e2);
                         throw e2;
                     }
                 }
-                recordError(sessionId, forAgent, model, true, start, e);
+                observer.error(sessionId, forAgent, model, true, start, e);
                 throw e;
             }
         });
@@ -358,20 +260,8 @@ final class AgentChatCaller {
         String content = streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
                 assemblyForRole(forAgent, sessionId, toolEmitter, disableTools),
                 extraAdvisors, null, null, usageRef, null);
-        recordOkStream(sessionId, forAgent, model, start, content, usageRef.get());
+        observer.okStream(sessionId, forAgent, model, start, content, usageRef.get());
         return content;
-    }
-
-    /**
-     * 模型幻觉出不存在的工具调用（工具名不在回调列表中，Spring AI 执行阶段抛出）。
-     *
-     * <p>轻量态兼容（延迟加载开启时）：所有已分配工具名均已注册（轻量 callback），已注册但
-     * 未展开的工具被直接调用时走 {@link ToolLazyManager} 的引导文本（正常工具结果，不抛异常），
-     * 只有真·未注册名才触发本降级——两分支不冲突，本逻辑保留原样。
-     */
-    private static boolean isUnknownToolCall(RuntimeException e) {
-        String msg = e.getMessage();
-        return msg != null && msg.contains("No ToolCallback found for tool name");
     }
 
     /**
@@ -394,7 +284,7 @@ final class AgentChatCaller {
                                  java.util.concurrent.atomic.AtomicReference<Usage> usageRef,
                                  BudgetLedger ledger) {
         if (cancelled != null && cancelled.getAsBoolean()) {
-            throw cancelException();
+            throw CallCancellation.cancelException();
         }
         if (ledger != null && ledger.overBudget()) {
             throw new BudgetExceededException();
@@ -409,7 +299,7 @@ final class AgentChatCaller {
         } catch (RuntimeException e) {
             // 取消置位时一律按取消归因（流取消竞态下 blockLast 可能抛出其他形态异常）
             if (cancelled != null && cancelled.getAsBoolean()) {
-                throw cancelException();
+                throw CallCancellation.cancelException();
             }
             throw e;
         }
@@ -429,13 +319,13 @@ final class AgentChatCaller {
         tokenStream(buildSpec(config, sessionId, forAgent, fallbackSystem, user, assembly, extraAdvisors),
                         usageRef, ledger, prevTotal)
                 // 端点无响应兜底：JDK 连接器无读超时，流空闲超时由此处兜住（防永久挂起）
-                .timeout(STREAM_IDLE_TIMEOUT)
+                .timeout(streamIdleTimeout)
                 .takeUntil(__ -> cancelled != null && cancelled.getAsBoolean())
                 .doOnNext(token -> {
                     if (cancelled != null && cancelled.getAsBoolean()) {
                         // takeUntil 放行的终止前元素在此拦截；异常致流以错误终止，
                         // Reactor cancel 向上游传播关闭 HTTP 连接
-                        throw cancelException();
+                        throw CallCancellation.cancelException();
                     }
                     collected.append(token);
                     if (onToken != null) {
@@ -444,7 +334,7 @@ final class AgentChatCaller {
                 })
                 .blockLast();
         if (cancelled != null && cancelled.getAsBoolean()) {
-            throw cancelException();
+            throw CallCancellation.cancelException();
         }
         return collected.toString();
     }
@@ -527,12 +417,6 @@ final class AgentChatCaller {
         }
     }
 
-    private static String safeMsg(Exception e) {
-        // 原因链展开：供应商 4xx/5xx 的响应体（报错 JSON）在 HttpStatusCodeException 里，
-        // 外层 wrapper 的 getMessage() 常为空或泛化，直接取会丢真实报错
-        return LlmCallRecorder.describeError(e);
-    }
-
     /**
      * 流式 ChatClient 调用：请求组装与 {@link #call} 完全一致，但走 stream 通道——
      * 每个 token 到达即回调 {@code onToken}，方法阻塞至流结束并返回完整内容。
@@ -588,9 +472,9 @@ final class AgentChatCaller {
                               Consumer<String> onToken, AgentRequestSpecFactory.Assembly assembly,
                               Advisor[] extraAdvisors, BooleanSupplier cancelled, BudgetLedger ledger) {
         if (cancelled != null && cancelled.getAsBoolean()) {
-            recordError(sessionId, forAgent, null, true, System.currentTimeMillis(),
-                    cancelException());
-            throw cancelException();
+            observer.error(sessionId, forAgent, null, true, System.currentTimeMillis(),
+                    CallCancellation.cancelException());
+            throw CallCancellation.cancelException();
         }
         if (ledger != null && ledger.overBudget()) {
             throw new BudgetExceededException();
@@ -613,25 +497,22 @@ final class AgentChatCaller {
                         extraAdvisors, collected, onToken, cancelled, usageRef, prevTotal, ledger);
                 // streamUsage 回传真实 usage 时记真实值，无则按已收输出文本近似估算（原口径兜底）；
                 // 账本兜底入账：无真实 usage 帧时按输出估算补记（有则增量已在流帧上记账，不重复）
-                recordOkStream(sessionId, forAgent, model, start, out, usageRef.get());
+                observer.okStream(sessionId, forAgent, model, start, out, usageRef.get());
                 recordEstimatedIfNoUsage(ledger, out, usageRef.get());
                 return out;
             } catch (RuntimeException e) {
                 boolean isCancel = e instanceof CancellationException
                         || (cancelled != null && cancelled.getAsBoolean());
                 if (isCancel) {
-                    recordError(sessionId, forAgent, model, true, start,
-                            cancelException());
-                    throw cancelException();
+                    observer.error(sessionId, forAgent, model, true, start,
+                            CallCancellation.cancelException());
+                    throw CallCancellation.cancelException();
                 }
-                recordError(sessionId, forAgent, model, true, start, e);
+                observer.error(sessionId, forAgent, model, true, start, e);
                 // 账户级硬错误：与阻塞（call）路径同口径转换，不重试直接抛人话异常
-                if (ModelQuotaException.matches(e)) {
-                    throw ModelQuotaException.from(e, model);
-                }
-                // 鉴权失败：与阻塞（call）路径同口径转换，不重试直接抛可执行指引异常
-                if (ModelAuthException.matches(e)) {
-                    throw ModelAuthException.from(e, model);
+                RuntimeException translated = LlmErrorClassifier.translate(e, model);
+                if (translated != null) {
+                    throw translated;
                 }
                 boolean partialOutput = collected.length() > 0;
                 boolean canRetry = !partialOutput && LlmRetry.isRetryable(e) && attempt < retry.maxAttempts();
@@ -697,20 +578,6 @@ final class AgentChatCaller {
         return budgets.getMaxTokensExpert();
     }
 
-    /** 成功记录（流式）：streamUsage 末帧回传真实 usage 时记真实 token，无则按输出文本估算兜底 */
-    private void recordOkStream(String sessionId, String agentName, String model, long start,
-                                String content, Usage usage) {
-        Integer prompt = usage == null ? null : usage.getPromptTokens();
-        Integer completion = usage == null ? null : usage.getCompletionTokens();
-        Integer total = usage == null ? null : usage.getTotalTokens();
-        if (completion == null) {
-            int tokens = LlmCallRecorder.estimateTokens(content);
-            completion = tokens;
-            total = tokens;
-        }
-        record(sessionId, agentName, model, true, true, prompt, completion, total, start, null);
-    }
-
     /** 模型空响应防御：从流式 chatResponse 捕获 usage（streamUsage 末帧回传真实值；取最后一个非空有效帧） */
     private static void captureUsage(org.springframework.ai.chat.model.ChatResponse resp,
                                      java.util.concurrent.atomic.AtomicReference<Usage> ref) {
@@ -723,20 +590,4 @@ final class AgentChatCaller {
         }
     }
 
-    private void recordError(String sessionId, String agentName, String model, boolean stream,
-                             long start, Exception e) {
-        record(sessionId, agentName, model, stream, false, null, null, null, start, safeMsg(e));
-    }
-
-    private void record(String sessionId, String agentName, String model, boolean stream, boolean ok,
-                        Integer promptTokens, Integer completionTokens, Integer totalTokens,
-                        long start, String errorMsg) {
-        if (recorder == null) {
-            return;
-        }
-        recorder.record(new LlmCallLog(sessionId, agentName, model, stream, ok,
-                promptTokens, completionTokens, totalTokens,
-                /* tokensEstimated */ stream && completionTokens == null,
-                System.currentTimeMillis() - start, errorMsg));
-    }
 }

@@ -49,21 +49,33 @@ public class ChatServiceImpl implements ChatService {
     /** 知识检索器（RAG 出处透出源）；null 时 meta.sources 恒空（知识库禁用场景，Demo 规模 pragmatic 方案） */
     private final com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever;
 
+    /** 流式连接限流器（stream/resume 入口过载保护，超限 429） */
+    private final com.dark.javaHarness.config.StreamConnectionLimiter streamConnectionLimiter;
+
+    /** COMPLEX 编排失败降级开关（app.chat.complex-fallback.enabled）：开启时编排失败降级为会话 Agent 单模型重答一次 */
+    private final boolean complexFallbackEnabled;
+
     public ChatServiceImpl(AgentService agentService, SessionService sessionService,
                            RouteJudge routeJudge, GoalService goalService) {
-        this(agentService, sessionService, routeJudge, goalService, null);
+        this(agentService, sessionService, routeJudge, goalService, null,
+                new com.dark.javaHarness.config.StreamConnectionLimiter(0), true);
     }
 
     /** Spring 装配入口（多构造需显式标注）：knowledgeRetriever 仅知识库启用时非 null */
     @org.springframework.beans.factory.annotation.Autowired
     public ChatServiceImpl(AgentService agentService, SessionService sessionService,
                            RouteJudge routeJudge, GoalService goalService,
-                           com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever) {
+                           com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
+                           com.dark.javaHarness.config.StreamConnectionLimiter streamConnectionLimiter,
+                           @org.springframework.beans.factory.annotation.Value("${app.chat.complex-fallback.enabled:true}")
+                           boolean complexFallbackEnabled) {
         this.agentService = agentService;
         this.sessionService = sessionService;
         this.routeJudge = routeJudge;
         this.goalService = goalService;
         this.knowledgeRetriever = knowledgeRetriever;
+        this.streamConnectionLimiter = streamConnectionLimiter;
+        this.complexFallbackEnabled = complexFallbackEnabled;
     }
 
     private static final Logger log = LoggerFactory.getLogger(ChatServiceImpl.class);
@@ -86,6 +98,12 @@ public class ChatServiceImpl implements ChatService {
                 : resolveAgent(request.message(), sessionId);
 
         Goal goal = agentService.executeSync(resolvedAgent, request.message(), sessionId);
+        // COMPLEX 编排失败降级（同步路径无客户端断开，FAILED 即编排自身失败）：
+        // 降级为会话 Agent 单模型重答一次，与流式 withComplexFallback 同语义，一层兜底不递归
+        if (complexFallbackEnabled && GoalStatus.FAILED == goal.status()
+                && AgentConstants.MULTI_AGENT.equals(resolvedAgent)) {
+            return chatWithComplexFallback(goal, request, sessionId, newSession);
+        }
         writeBackContext(sessionId, request.message(), goal);
 
         if (goal.status() == GoalStatus.FAILED) {
@@ -93,6 +111,25 @@ public class ChatServiceImpl implements ChatService {
         }
         return ChatResponse.success(sessionId, newSession, goal.id(), goal.summary(),
                 recentKnowledgeSources(sessionId), resolvedAgent);
+    }
+
+    /**
+     * 同步路径 COMPLEX 编排失败降级重答：编排 FAILED 时用会话绑定 Agent 单模型重答一次。
+     * 重答成功按正常响应返回；重答也失败才返回失败响应，错误信息保留编排失败原因 +
+     * 重答失败原因两段（与流式 {@link #withComplexFallback} 错误拼接口径一致）。
+     */
+    private ChatResponse chatWithComplexFallback(Goal orchestration, ChatRequest request,
+                                                 String sessionId, boolean newSession) {
+        log.warn("[route] 编排失败（goal={}），降级单模型重答：{}", orchestration.id(), orchestration.summary());
+        String fallbackAgent = sessionAgentName(sessionId);
+        Goal retry = agentService.executeSync(fallbackAgent, request.message(), sessionId);
+        writeBackContext(sessionId, request.message(), retry);
+        if (retry.status() == GoalStatus.FAILED) {
+            return ChatResponse.failure(sessionId, newSession, retry.id(),
+                    "编排失败: " + orchestration.summary() + "；重答失败: " + retry.summary(), fallbackAgent);
+        }
+        return ChatResponse.success(sessionId, newSession, retry.id(), retry.summary(),
+                recentKnowledgeSources(sessionId), fallbackAgent);
     }
 
     /** 同步执行成功后写回会话记忆 */
@@ -116,6 +153,20 @@ public class ChatServiceImpl implements ChatService {
      */
     @Override
     public Flux<String> streamReactive(ChatRequest request) {
+        // 过载保护：同步占名额（超限立即 429，不排队不占线程池）；流终结（complete/error/cancel）统一释放
+        streamConnectionLimiter.tryAcquire();
+        Flux<String> flux;
+        try {
+            flux = streamReactiveInternal(request);
+        } catch (RuntimeException e) {
+            streamConnectionLimiter.release();
+            throw e;
+        }
+        return flux.doFinally(sig -> streamConnectionLimiter.release());
+    }
+
+    /** 实际流式编排（限流包裹层内）：无 sessionId 时在 boundedElastic 上自动建档 */
+    private Flux<String> streamReactiveInternal(ChatRequest request) {
         String existing = request.sessionId();
         boolean needNew = existing == null || existing.isBlank();
         Mono<SessionCtx> sessionMono = needNew
@@ -145,9 +196,30 @@ public class ChatServiceImpl implements ChatService {
             }
             // 主 Agent 前置判断：分流「场景A简单(会话绑定 Agent) / 场景B复杂(multi-agent)」
             String resolvedAgent = resolveAgent(request.message(), ctx.sid());
-            return toSseBody(withAgentProgress(resolvedAgent,
-                    agentService.executeStreamReactive(resolvedAgent, request.message(), ctx.sid())),
+            Flux<String> agentStream = agentService.executeStreamReactive(resolvedAgent, request.message(), ctx.sid());
+            // COMPLEX 编排失败降级：编排自身异常（客户端断开走 cancel，不触发 onErrorResume）时
+            // 降级为会话 Agent 单模型重答一次，一层兜底不递归
+            if (complexFallbackEnabled && AgentConstants.MULTI_AGENT.equals(resolvedAgent)) {
+                agentStream = withComplexFallback(agentStream, request.message(), ctx.sid());
+            }
+            return toSseBody(withAgentProgress(resolvedAgent, agentStream),
                     ctx.sid(), ctx.newSession(), request.message(), null);
+        });
+    }
+
+    /**
+     * COMPLEX 编排失败降级重答：编排流异常时先发降级进度行，再用会话绑定 Agent 单模型重答一次。
+     * 重答失败保留双段错误（编排原因 + 重答原因），随 error 事件与 meta(FAILED) 透出；
+     * 重答走显式单 Agent 通道（executeStreamReactive 具名 agent），不经 RouteJudge/编排二次入口。
+     */
+    private Flux<String> withComplexFallback(Flux<String> orchestration, String message, String sessionId) {
+        return orchestration.onErrorResume(e -> {
+            log.warn("[route] 编排失败，降级单模型重答：{}", safeMessage(e));
+            return Flux.concat(
+                    Flux.just(ProgressLine.encode("编排", "失败，降级为单模型重答")),
+                    agentService.executeStreamReactive(sessionAgentName(sessionId), message, sessionId)
+                            .onErrorMap(e2 -> new IllegalStateException(
+                                    "编排失败: " + safeMessage(e) + "；重答失败: " + safeMessage(e2), e2)));
         });
     }
 
@@ -168,8 +240,17 @@ public class ChatServiceImpl implements ChatService {
             throw new ResumeConflictException("该任务已完成，无需续跑: " + goalId);
         }
         log.info("[resume] goal '{}' 续跑请求（原状态={}）", goal.id(), goal.status());
-        return toSseBody(withAgentProgress(AgentConstants.MULTI_AGENT, agentService.resumeStreamReactive(goal)),
-                goal.sessionId(), false, goal.objective(), goal.id());
+        // 过载保护与 streamReactive 同口径：校验通过后才占名额，流终结统一释放
+        streamConnectionLimiter.tryAcquire();
+        Flux<String> flux;
+        try {
+            flux = toSseBody(withAgentProgress(AgentConstants.MULTI_AGENT, agentService.resumeStreamReactive(goal)),
+                    goal.sessionId(), false, goal.objective(), goal.id());
+        } catch (RuntimeException e) {
+            streamConnectionLimiter.release();
+            throw e;
+        }
+        return flux.doFinally(sig -> streamConnectionLimiter.release());
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.dark.javaHarness.config.agent;
 
+import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.tool.DemoTools;
 import java.net.http.HttpClient;
 import java.time.Duration;
@@ -31,17 +32,31 @@ public class ChatClientFactory {
 
     private static final Logger log = LoggerFactory.getLogger(ChatClientFactory.class);
 
-    /** HTTP 连接超时：第三方端点不可达时快速失败（秒） */
-    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
+    /** HTTP 连接超时兜底默认（秒）：app.chat.timeouts.connect-timeout-seconds 未配置时生效 */
+    private static final int DEFAULT_CONNECT_TIMEOUT_SECONDS = 10;
 
-    /** HTTP 读超时：LLM 生成最长等待。默认 JdkClientHttpRequestFactory 无读超时，
-     * 端点不响应会永久挂起（实测：编排卡死在 CompletableFuture.get()），必须显式设置 */
-    private static final Duration READ_TIMEOUT = Duration.ofSeconds(300);
+    /** HTTP 读超时兜底默认（秒）：app.chat.timeouts.read-timeout-seconds 未配置时生效。
+     * 默认 JdkClientHttpRequestFactory 无读超时，端点不响应会永久挂起
+     * （实测：编排卡死在 CompletableFuture.get()），必须显式设置 */
+    private static final int DEFAULT_READ_TIMEOUT_SECONDS = 300;
 
     private final Environment env;
 
-    public ChatClientFactory(Environment env) {
+    /** LLM 超时配置（app.chat.timeouts.*）：未配置键为 null，经 {@link #resolve} 兜底默认 */
+    private final ChatTimeoutProperties timeouts;
+
+    public ChatClientFactory(Environment env, ChatTimeoutProperties timeouts) {
         this.env = env;
+        this.timeouts = timeouts;
+    }
+
+    /**
+     * 可空配置秒数 → Duration：null（未配置）回退默认秒数，行为与历史硬编码一致。
+     * public 静态辅助：本类（连接/读超时）与 AgentChatCaller（流式空闲超时）共用同一
+     * 兜底口径，亦便于跨包单测。
+     */
+    public static Duration resolve(Integer configured, int defaultSeconds) {
+        return Duration.ofSeconds(configured != null ? configured : defaultSeconds);
     }
 
     /** 默认 DashScope 客户端（基于 spring.ai.openai 自动配置的 Builder，注册表兜底用） */
@@ -85,10 +100,10 @@ public class ChatClientFactory {
         try {
             // 阻塞调用通道（call）：连接/读超时防端点无响应时永久挂起
             java.net.http.HttpClient jdkClient = HttpClient.newBuilder()
-                    .connectTimeout(CONNECT_TIMEOUT)
+                    .connectTimeout(resolve(timeouts.getConnectTimeoutSeconds(), DEFAULT_CONNECT_TIMEOUT_SECONDS))
                     .build();
             JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(jdkClient);
-            requestFactory.setReadTimeout(READ_TIMEOUT);
+            requestFactory.setReadTimeout(resolve(timeouts.getReadTimeoutSeconds(), DEFAULT_READ_TIMEOUT_SECONDS));
             RestClient.Builder restBuilder = RestClient.builder().requestFactory(requestFactory);
             WebClient.Builder webBuilder = WebClient.builder()
                     .clientConnector(new JdkClientHttpConnector(jdkClient));
@@ -97,7 +112,8 @@ public class ChatClientFactory {
                     .apiKey(apiKey)
                     .restClientBuilder(restBuilder)
                     // 流式调用通道（stream）：连接超时同口径；读/空闲超时由 AgentChatCaller 的
-                    // Flux.timeout 兜底（JDK 连接器无响应级超时，且项目未引入 reactor-netty）
+                    // Flux.timeout 兜底（JDK 连接器无响应级超时，且项目未引入 reactor-netty），
+                    // 兜底秒数可经 app.chat.timeouts.* 配置（未配置同 DEFAULT_*_SECONDS 口径）
                     .webClientBuilder(webBuilder)
                     .build();
             OpenAiChatModel model = OpenAiChatModel.builder()

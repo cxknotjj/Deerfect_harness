@@ -92,7 +92,11 @@ final class MultiAgentStreamPipeline {
                 })
                 .onErrorResume(e -> {
                     log.warn("[multi-agent] 流式执行异常：{}", safe(e));
-                    return Flux.just(ProgressLine.encode("编排", "异常，已回退：" + safe(e)));
+                    // 保留「已回退」进度行（CLI 兼容），异常继续冒泡：ChatServiceImpl 层据
+                    // complex-fallback 开关决定「降级单模型重答」或按 FAILED 收尾（meta 不再谎报 SUCCEEDED）
+                    return Flux.concat(
+                            Flux.just(ProgressLine.encode("编排", "异常，已回退：" + safe(e))),
+                            Flux.error(new IllegalStateException("编排失败：" + safe(e), e)));
                 });
     }
 

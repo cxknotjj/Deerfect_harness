@@ -72,7 +72,7 @@ class AgentChatCallerTest {
      * 预算账本桩：记录每次 recordUsage（[totalTokens, estimated]），overBudget 按
      * 「已入账累计 ≥ limit」判定（limit=0 恒不熔断）；preSpent 模拟前序调用已消耗。
      */
-    private static final class LedgerStub implements AgentChatCaller.BudgetLedger {
+    private static final class LedgerStub implements BudgetLedger {
         final long limit;
         final java.util.concurrent.atomic.AtomicLong spent = new java.util.concurrent.atomic.AtomicLong();
         final List<long[]> records = new ArrayList<>();
@@ -307,7 +307,7 @@ class AgentChatCallerTest {
     void call_ledgerPreCheckOverBudget_zeroHttp() {
         LedgerStub ledger = new LedgerStub(100, 100); // 前序调用已耗尽预算
 
-        assertThrows(AgentChatCaller.BudgetExceededException.class,
+        assertThrows(BudgetLedger.BudgetExceededException.class,
                 () -> caller.call("s1", "researcher", "兜底", "任务", null, new Advisor[0], null, ledger),
                 "超限后调用应被熔断拒绝");
 
@@ -328,7 +328,7 @@ class AgentChatCallerTest {
                 fluxWithUsage(120, "续")));
         LedgerStub ledger = new LedgerStub(100);
 
-        assertThrows(AgentChatCaller.BudgetExceededException.class,
+        assertThrows(BudgetLedger.BudgetExceededException.class,
                 () -> caller.call("s1", "researcher", "兜底", "任务", null, new Advisor[0], null, ledger),
                 "usage 帧累计入账达上限应断流");
 
@@ -382,7 +382,7 @@ class AgentChatCallerTest {
     void stream_ledgerPreCheckOverBudget_zeroHttp() {
         LedgerStub ledger = new LedgerStub(100, 100);
 
-        assertThrows(AgentChatCaller.BudgetExceededException.class,
+        assertThrows(BudgetLedger.BudgetExceededException.class,
                 () -> caller.stream("s1", "researcher", "兜底", "任务",
                         token -> { }, null, new Advisor[0], null, ledger),
                 "超限后流式调用应被熔断拒绝");
