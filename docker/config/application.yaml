@@ -1,0 +1,25 @@
+# ============================================================
+# Docker 外置配置覆盖（免重打镜像）
+#
+# 用法：只写要改的键，其余自动沿用 jar 内 application.yaml 默认值。
+# Spring Boot 启动时扫描工作目录 ./config/application.yaml（即容器内
+# /workspace/config/application.yaml），按键叠加覆盖。
+#
+# 优先级（高 → 低）：
+#   命令行参数 > 环境变量（compose environment/.env） > 本文件 > jar 内 application.yaml
+#   注意 DB 地址、API key、NapCat 地址已由 compose env 管理，写在这里无效。
+#
+# 改完生效：docker compose restart app
+#
+# 示例（去掉注释即生效）：
+# napcat:
+#   emoji:
+#     max-per-reply: 3        # 单次回复最多表情张数（0 = 不限制）
+#     probability: 0.5        # 命中后发送概率
+# app:
+#   orchestration:
+#     route-policy: ALWAYS_MULTI   # 路由策略（示意，键名以 jar 内 yaml 为准）
+# logging:
+#   level:
+#     com.dark.javaHarness: debug
+# ============================================================

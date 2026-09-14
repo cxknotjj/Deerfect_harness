@@ -27,7 +27,7 @@ services:
     mem_limit: 300m
     environment:
       MYSQL_DATABASE: harness
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-harness123}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-}
       TZ: Asia/Shanghai
     volumes:
       - mysql-data:/var/lib/mysql
@@ -108,17 +108,18 @@ services:
       # 沙箱在容器内默认走 unix socket 标准发现，无需配 DOCKER_HOST；
       # 不需要沙箱可删除此行（启动打 warn，其余功能不受影响）
       - /var/run/docker.sock:/var/run/docker.sock
-      # 知识库/技能文档挂载（免重打镜像改文档）：目录默认已 COPY 进镜像（/workspace/knowledge），
-      # 挂载即覆盖。sync 只读扫描、不回写文件；改完调 POST /api/knowledge/sync 增量摄取（mtime 对比，免重启）：
-      # - ../knowledge:/workspace/knowledge:ro
-      # - ../skills:/workspace/skills:ro
+      # 知识库/技能文档（免重打镜像改内容）：目录挂载实时可见，
+      # knowledge 改完调 POST /api/knowledge/sync 增量摄取（mtime 对比，免重启）
+      - ../knowledge:/workspace/knowledge:ro
+      - ../skills:/workspace/skills:ro
+      # 表情映射表 + 图片（图片不进 git/.dockerignore 已排除，index 改后 restart app）
+      - ../channel:/workspace/channel:ro
+      # MCP server 配置（不进 git，含 API key）：McpToolProvider 启动时读一次，
+      # 改后需 up -d --force-recreate app（或 cat > 覆盖写保 inode 后 restart）
+      - ../mcp-config.json:/workspace/mcp-config.json:ro
       # 批量覆盖 jar 内 yaml 属性（无需重打镜像）：Spring Boot 默认扫描工作目录 ./config/，
-      # 外置文件按键叠加在 jar 内 yaml 之上，只写要改的键、其余沿用默认值：
-      # - ./application-docker.yaml:/workspace/config/application.yaml:ro
-      # mcp-config.json 不进 git（含 API key）；需要外部 MCP server 时解除注释：
-      # - ../mcp-config.json:/workspace/mcp-config.json:ro
-      # 表情图片不进镜像（.dockerignore 已排除），需要时挂载：
-      # - ../channel/emojis:/workspace/channel/emojis:ro
+      # 外置文件按键叠加在 jar 内 yaml 之上，只写要改的键、其余沿用默认值；改后 restart app：
+      - ./config:/workspace/config:ro
     extra_hosts:
       # 容器内访问宿主机服务（如宿主 Docker 里的 NapCat）用 host.docker.internal
       - "host.docker.internal:host-gateway"
