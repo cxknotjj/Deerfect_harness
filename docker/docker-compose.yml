@@ -17,6 +17,14 @@ services:
   mysql:
     image: mysql:8.4
     container_name: harness-mysql
+    # 宿主机内存只有 1.8G，压低 InnoDB 缓冲池与连接数，防止 mysqld 被 OOM killer 击杀
+    command:
+      - "--innodb-buffer-pool-size=96M"
+      - "--max-connections=60"
+      - "--performance-schema=OFF"
+    # 数据库绝不能被全局 OOM 杀：低 oom_score + 硬上限兜底
+    oom_score_adj: -500
+    mem_limit: 300m
     environment:
       MYSQL_DATABASE: harness
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-harness123}
@@ -48,6 +56,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
+    oom_score_adj: -500
+    mem_limit: 256m
 
   app:
     build:
@@ -70,8 +80,17 @@ services:
         condition: service_healthy
     ports:
       - "8080:8080"
+    # 全局 OOM 时先牺牲 napcat 的 qq(adj=200) 再轮到本服务(adj=100)，别再连累 mysql
+    oom_score_adj: 100
+    mem_limit: 600m
+    # 1.8G 小内存机：全局 OOM 可能仍会杀到本服务（JVM total_vm 最大），
+    # 被杀后自动拉起；mysql/pg 有 adj=-500 保护不受影响
+    restart: unless-stopped
     environment:
       TZ: Asia/Shanghai
+      # 1.8G 小内存机器：收紧 JVM（堆/元空间/线程栈/直接内存/代码缓存），
+      # 降低 RSS 和 total_vm，避免成为全局 OOM killer 的首选目标
+      JAVA_TOOL_OPTIONS: "-Xms64m -Xmx256m -XX:MaxMetaspaceSize=128m -Xss512k -XX:MaxDirectMemorySize=64m -XX:ReservedCodeCacheSize=64m"
       # —— 主库：连 compose 内 mysql（env 覆盖 yaml 的 localhost 硬编码）——
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/harness?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
       SPRING_DATASOURCE_USERNAME: root
