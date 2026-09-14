@@ -349,6 +349,17 @@ WHERE agent_name IN ('general', 'researcher') AND tools NOT LIKE '%tavily_search
 
 - 未声明的工具模型不可见；声明时 server 未连接则该 token 跳过（warn），不影响其余工具
 
+> [!IMPORTANT]
+> **最小权限**：`general` 是所有回退路径的落点（路由兜底/未识别专家/lead 漏指派），已收敛为只读探索者
+> （网页抓取 + 沙箱只读文件 + 浏览器 + MCP 白名单）——执行类 `sandbox.base` 与写入类 `sandbox.write`
+> 只留给 lead 明确指派的 `coder`/`analyst`。生产库若 general 的 `tools` 列声明过执行/写入组，需手工对齐
+> （数据驱动优先于代码内置，改库即生效）：
+
+```sql
+UPDATE agent SET tools = 'web, sandbox.read, sandbox.browser, tavily_search'
+WHERE agent_name = 'general' AND (tools LIKE '%sandbox.base%' OR tools LIKE '%sandbox.write%');
+```
+
 > [!NOTE]
 > MCP 工具返回内容不经过项目的内容裁剪链（缓存/相关段落过滤），超长由工具结果硬预算统一截断。
 

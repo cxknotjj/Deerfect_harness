@@ -53,13 +53,7 @@
   - 2026-09 部分完成：异步线程池隔离与参数化已落地（`goalExecutor` 有界池 + 拒绝兜底 + MVC 异步槽位，见存档「异步治理与发布工程」）
   - 2026-09-13 完成：流式连接数限制（`StreamConnectionLimiter`，stream/resume 两入口 tryAcquire + doFinally 释放，超限 429，`app.chat.max-stream-connections` 配置 0=不限制）；LLM 超时参数化（`ChatTimeoutProperties` + `app.chat.timeouts.*`，connect/read/stream-idle 秒值，未配置回退现值）；COMPLEX 编排失败降级重答（流式与同步路径，降级为会话绑定 Agent 单模型重答一次，一层兜底不递归，`app.chat.complex-fallback.enabled` 开关）；spec 见 `.trae/specs/add-stream-limit-and-complex-fallback/`
   - 验收：并发提交多个流式请求稳定，无连接/线程池耗尽（全量回归 482 例绿；限流计数/超限/降级重答由 StreamConnectionLimiterTest + ChatServiceImplTest 降级用例覆盖）
-- [ ] **工具分配最小权限化**：现状按「能力类别」粒度分配（`ToolAssignments` 给整组工具），存在权限漏洞：
-  - **`general` 全量过宽且是所有回退路径的落点**：路由兜底、未识别专家、lead 漏指派全部落 general——最宽权限（执行/容器写/网页）给了最不可控的场景，违背最小权限原则
-  - 改造项（沙箱语境下已简化：沙箱原生分执行/只读文件/写入三类，无需再拆类）：
-    - `general` 收敛为只读探索者（fetchUrl + 沙箱只读文件/检索 + 浏览器），执行与写入类工具只留给 lead 明确指派的 `coder`/`analyst`
-    - 重排 `ToolAssignments` 分配表并同步测试（专家派遣用例、`ToolAssignments` 相关断言）
-  - 机制说明：权限边界是**服务端硬边界**——只注入已分配工具的 schema，模型看不见未分配的工具，伪造调用在服务端无执行注册（比提示词约束可靠）
-  - 验收：general/未指派子任务全链路无写与执行权限；coder 仍可完成「读文件→改文件→跑命令」闭环
+- [x] **工具分配最小权限化**：已完成（2026-09-14）。`general`（所有回退路径的落点：路由兜底/未识别专家/lead 漏指派）收敛为只读探索者——legacy 分配 = webTools（fetchUrl/getCurrentTime）+ `sandbox.read` + `sandbox.browser` + MCP 白名单（页面交互类，只读探索的推进动作），去掉 `sandbox.base`（执行）与 `sandbox.write`（写入）；执行/写入只留 lead 明确指派的 `coder`（base+write，读文件走 shell cat 闭环不变）/`analyst`（base+read）；researcher/未登记专家面零变化。数据驱动优先于 legacy，生产库 general 行 `tools` 列需手工对齐（README「MCP 工具接入」节已附收敛 UPDATE，改库即生效免重启）。验证：ToolAssignmentsTest 13 例全绿（general 只读面 5 callbacks + verify never base/write、重名去重重算、blank 回退断言同步）
 - [ ] **限制思考预算（Thinking Budget）**：qwen3 类混合推理模型的思考段不受控——长思考拖慢首 token、烧 token。经模型参数透传思考开关与预算上限（如 `enable_thinking` / `thinking_budget`），按 agent/场景粒度生效
   - 设计要点待细化：参数透传方式（Spring AI 1.1.4 `OpenAiChatOptions` 扩展）、配置落点（agent 表列 vs `app.chat.*`）、路由场景（SIMPLE 直答可关思考）
   - 验收：指定 agent 的思考 token 有上限且可观测；关闭思考的会话直答不含思考段

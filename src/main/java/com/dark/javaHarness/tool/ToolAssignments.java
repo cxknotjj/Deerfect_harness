@@ -138,8 +138,7 @@ public class ToolAssignments {
                     concat(List.of(sandbox.baseTools(), sandbox.readOnlyFileTools())));
             case "general" -> new ToolSet(
                     List.of(webTools),
-                    concat(List.of(sandbox.baseTools(), sandbox.readOnlyFileTools(), sandbox.writeTools(),
-                            sandbox.browserTools(), mcpTools())));
+                    concat(List.of(sandbox.readOnlyFileTools(), sandbox.browserTools(), mcpTools())));
             default -> ToolSet.EMPTY;
         };
     }

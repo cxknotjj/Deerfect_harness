@@ -24,6 +24,7 @@ import org.springframework.ai.tool.definition.ToolDefinition;
  * ToolAssignments 单测：Sandbox 接入后的双通道（@Tool 对象 + ToolCallback）分配语义。
  * - 退役替换：原 FileTools/SearchTools/ShellTools 能力由沙箱 ToolCallback 等价承担
  * - 最小可见性：writer/未登记（含编排器）为空集；未分配工具对模型不可见
+ * - 最小权限：general（所有回退路径的落点）收敛为只读探索者，执行/写入只留 coder/analyst
  * - 同名去重：先到者优先（沙箱工具优先于 MCP 重名工具），防 Spring AI 同名校验失败
  * - 懒加载：EMPTY 集合的专家不触发沙箱初始化
  */
@@ -127,8 +128,8 @@ class ToolAssignmentsTest {
                 .thenReturn(List.of(mcpHover, mcpClick, mcpScroll));
 
         ToolAssignments.ToolSet general = assignments.forAgent("general");
-        assertEquals(10, general.callbacks().size(),
-                "9 沙箱 + 3 MCP − 1 白名单外(browser_hover) − 1 重名(browser_click) = 10");
+        assertEquals(6, general.callbacks().size(),
+                "5 只读 + 3 浏览器 + 3 MCP − 1 白名单外(browser_hover) − 1 重名(browser_click) = 6");
         assertFalse(general.callbacks().contains(mcpHover), "白名单外 MCP 工具不可见");
         assertFalse(general.callbacks().contains(mcpClick), "重名 MCP 工具应被沙箱版本取代");
         assertTrue(general.callbacks().contains(mcpScroll), "白名单内无冲突 MCP 工具正常保留");
@@ -158,10 +159,15 @@ class ToolAssignmentsTest {
     }
 
     @Test
-    void general_getsFullToolset() {
+    void general_getsReadOnlyExplorerToolset() {
+        // 最小权限化：general 是所有回退路径的落点（路由兜底/未识别专家/lead 漏指派），
+        // 收敛为只读探索者（网页抓取 + 沙箱只读文件 + 浏览器 + MCP 白名单），
+        // 执行类（base）与写入类（write）只留给 lead 明确指派的 coder/analyst
         ToolAssignments.ToolSet set = assignments.forAgent("general");
         assertEquals(List.of(webTools), set.annotated());
-        assertEquals(9, set.callbacks().size(), "general = 执行(1) + 只读(2) + 写入(3) + 浏览器(3) + MCP(0，重名被沙箱取代) 全量");
+        assertEquals(5, set.callbacks().size(), "general = 只读(2) + 浏览器(3) + MCP(0，重名被沙箱取代)");
+        verify(sandbox, never()).baseTools();
+        verify(sandbox, never()).writeTools();
     }
 
     @Test
@@ -233,6 +239,6 @@ class ToolAssignmentsTest {
                 "tools 列缺失 → legacy 分配");
         assertEquals(assignments.forAgent("general"), dataDriven.forAgent("general"),
                 "tools 列空白 → legacy 分配");
-        assertEquals(9, dataDriven.forAgent("general").callbacks().size(), "回退结果为 legacy 全量");
+        assertEquals(5, dataDriven.forAgent("general").callbacks().size(), "回退结果为 legacy 只读面");
     }
 }
