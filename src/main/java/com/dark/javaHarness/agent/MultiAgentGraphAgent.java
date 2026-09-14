@@ -30,9 +30,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
@@ -57,7 +55,10 @@ import reactor.core.publisher.Sinks;
  * <p>图拓扑只构建一次；同步执行 {@link #execute(Goal)} 走 invoke；
  * 流式执行 {@link #executeStreamReactive(Goal)} 走「stream 主干帧 + 生命周期钩子旁路」
  * 双通道管道（详见 {@link MultiAgentStreamPipeline}）；
- * 编排预算熔断与 lead 产物解析分别委托 {@link OrchestrationBudget}/{@link LeadOutputParser}。
+ * 编排预算熔断与 lead 产物解析分别委托 {@link OrchestrationBudget}/{@link LeadOutputParser}；
+ * 兜底提示词与聚合 prompt 拼接委托 {@link OrchestrationPrompts}，流式聚合护栏
+ * （失败自愈重试时序）委托 {@link AggregateStreamGuard}——本类保留编排本体：
+ * 图构建、三节点、执行/续跑入口、熔断/取消接线、节点→caller 桥接。
  */
 public class MultiAgentGraphAgent implements Agent {
 
@@ -112,6 +113,8 @@ public class MultiAgentGraphAgent implements Agent {
     private final OrchestrationBudget orchestrationBudget;
     /** 流式管道：主干帧 + 旁路合并（依赖 {@link #streamPipeline} 建图回调） */
     private final MultiAgentStreamPipeline streamPipeline;
+    /** 流式聚合护栏（失败自愈策略见 AggregateStreamGuard；聚合必发不受熔断） */
+    private final AggregateStreamGuard streamGuard;
 
     public MultiAgentGraphAgent(String agentName,
                                 ChatClientRegistry clientRegistry,
@@ -153,48 +156,7 @@ public class MultiAgentGraphAgent implements Agent {
                                 ContextBudgetProperties budgets,
                                 SessionService memoryStore) {
         this(agentName, clientRegistry, agentService, toolAssignments, recorder,
-                checkpointSaver, budgets, memoryStore, null);
-    }
-
-    /**
-     * 全参构造：lazyTools 为 null 时构造禁用态实例（旧构造链/单测场景，工具面全量注入现状）。
-     * 正式装配由 ChatAgentConfig 注入共享实例（app.prompt.lazy-tools.enabled 开关）——
-     * 编排三节点（lead/子任务/聚合）共用本实例的 {@link AgentChatCaller} → 同一 sessionId
-     * 的会话展开集共享。
-     */
-    public MultiAgentGraphAgent(String agentName,
-                                ChatClientRegistry clientRegistry,
-                                AgentService agentService,
-                                ToolAssignments toolAssignments,
-                                LlmCallRecorder recorder,
-                                BaseCheckpointSaver checkpointSaver,
-                                ContextBudgetProperties budgets,
-                                SessionService memoryStore,
-                                ToolLazyManager lazyTools) {
-        this(agentName, clientRegistry, agentService, toolAssignments, recorder,
-                checkpointSaver, budgets, memoryStore, lazyTools, null, null);
-    }
-
-    /**
-     * 全参构造（含 skill 装配）：promptAssembler/skillManager 为 null 时内部裸构建
-     * （旧构造链/单测场景，无 skill 段、不注册 load_skill）；正式装配由 ChatAgentConfig
-     * 注入共享实例——编排三节点与路径 A 共用同一组装器与 skill 技能面。
-     * knowledgeRetriever 为 null 时零行为变化（知识库禁用/单测场景）。
-     */
-    public MultiAgentGraphAgent(String agentName,
-                                ChatClientRegistry clientRegistry,
-                                AgentService agentService,
-                                ToolAssignments toolAssignments,
-                                LlmCallRecorder recorder,
-                                BaseCheckpointSaver checkpointSaver,
-                                ContextBudgetProperties budgets,
-                                SessionService memoryStore,
-                                ToolLazyManager lazyTools,
-                                PromptAssembler promptAssembler,
-                                SkillManager skillManager) {
-        this(agentName, clientRegistry, agentService, toolAssignments, recorder,
-                checkpointSaver, budgets, memoryStore, lazyTools, promptAssembler,
-                skillManager, null, null);
+                checkpointSaver, budgets, memoryStore, null, null, null, null, null);
     }
 
     /**
@@ -227,6 +189,8 @@ public class MultiAgentGraphAgent implements Agent {
         this.checkpointSaver = checkpointSaver;
         this.budgets = budgets != null ? budgets : new ContextBudgetProperties();
         this.orchestrationBudget = new OrchestrationBudget(this.budgets);
+        this.streamGuard = new AggregateStreamGuard(this.chatCaller, ROLE_AGGREGATOR,
+                OrchestrationPrompts.AGGREGATOR_FALLBACK_PROMPT, this::aggregateBudgetAdvisor);
         this.streamPipeline = new MultiAgentStreamPipeline(
                 (liveTokens, contentSent, toolEvents, cancelled, listener) ->
                         buildStateGraph(liveTokens, contentSent, toolEvents, cancelled)
@@ -565,7 +529,7 @@ public class MultiAgentGraphAgent implements Agent {
             // 子任务全失败：兜底（原有行为）
             finalAnswer = state.value(K_FINAL, String.class).orElse("（未生成最终回答）");
         } else {
-            String user = aggregateUserPrompt(results);
+            String user = OrchestrationPrompts.aggregateUserPrompt(results);
             if (skipped > 0) {
                 user = orchestrationBudget.degradationNote(skipped, state) + "\n\n" + user;
             }
@@ -574,7 +538,7 @@ public class MultiAgentGraphAgent implements Agent {
                 finalAnswer = predictAggregate(sessionId, user, cancelled,
                         orchestrationBudget.ledgerHandle(state, false));
             } else {
-                finalAnswer = predictAggregateStreaming(sessionId, user, liveTokens, contentSent,
+                finalAnswer = streamGuard.predictStreaming(sessionId, user, liveTokens, contentSent,
                         cancelled, orchestrationBudget.ledgerHandle(state, false));
             }
         }
@@ -585,104 +549,7 @@ public class MultiAgentGraphAgent implements Agent {
         return updates;
     }
 
-    /**
-     * 流式聚合：首个内容 token 前推「聚合」进度行，随后逐 token 实时发射（聚合只有流式一条语义路径）。
-     * 失败自愈（带护栏的流式重试，不再回退阻塞调用）：
-     * - 流式异常且未推出任何 token（挂死超时等首 token 前失败）→ 流式重试一次；
-     * - 流式成功但 0 个内容 token（思考模型输出全在 reasoning_content 等）→ 流式重试一次；
-     * - 已推出 token 后失败 → 不重试（重试会造成内容重复），以已收内容为准；
-     * - 重试后仍失败 / 仍 0 token → 上抛（编排按失败收尾，不再以阻塞调用兜底）。
-     * 例外：客户端断连中止（取消异常）不重试、部分输出不按成功返回，取消异常向上传播。
-     */
-    private String predictAggregateStreaming(String sessionId,
-                                             String user,
-                                             Sinks.Many<String> liveTokens,
-                                             AtomicBoolean contentSent,
-                                             AtomicBoolean cancelled,
-                                             BudgetLedger budgetLedger) {
-        BranchProgressListener.tryEmitSerialized(liveTokens,
-                ProgressLine.encode("聚合", "汇总子任务结果，生成最终回答"));
-        StringBuilder collected = new StringBuilder();
-        try {
-            streamAggregateOnce(sessionId, user, collected, liveTokens, contentSent, cancelled, budgetLedger);
-            if (collected.length() > 0) {
-                return collected.toString();
-            }
-            log.warn("[multi-agent][aggregate] 流式聚合 0 个内容 token，流式重试一次");
-        } catch (Exception e) {
-            // 客户端断连中止：取消不是流式失败，禁止重试/以部分输出充数——原样上抛
-            if (e instanceof CancellationException ce) {
-                throw ce;
-            }
-            if (isCancelled(cancelled)) {
-                throw CallCancellation.cancelException();
-            }
-            if (collected.length() > 0) {
-                // 已推 token 后失败：重试会内容重复，以已收内容为准
-                log.warn("[multi-agent][aggregate] 流式聚合失败（已推出部分 token，不重试）：{}", safe(e));
-                return collected.toString();
-            }
-            log.warn("[multi-agent][aggregate] 流式聚合失败，流式重试一次：{}", safe(e));
-        }
-        // 护栏重试：到达此处必然未推出任何 token（重试零内容重复风险）
-        try {
-            streamAggregateOnce(sessionId, user, collected, liveTokens, contentSent, cancelled, budgetLedger);
-        } catch (Exception e2) {
-            if (e2 instanceof CancellationException ce) {
-                throw ce;
-            }
-            if (isCancelled(cancelled)) {
-                throw CallCancellation.cancelException();
-            }
-            log.warn("[multi-agent][aggregate] 聚合流式重试仍失败：{}", safe(e2));
-            throw e2;
-        }
-        if (collected.length() == 0) {
-            throw new IllegalStateException("聚合流式重试后仍无内容输出");
-        }
-        return collected.toString();
-    }
-
-    /** 聚合单次流式尝试：token 追加进 collected 并经旁路发射（成败处置由调用方负责） */
-    private void streamAggregateOnce(String sessionId, String user, StringBuilder collected,
-                                     Sinks.Many<String> liveTokens, AtomicBoolean contentSent,
-                                     AtomicBoolean cancelled,
-                                     BudgetLedger budgetLedger) {
-        chatCaller.stream(sessionId, ROLE_AGGREGATOR, AGGREGATOR_FALLBACK_PROMPT,
-                user,
-                token -> {
-                    if (token == null || token.isEmpty()) {
-                        return;
-                    }
-                    collected.append(token);
-                    contentSent.set(true);
-                    BranchProgressListener.tryEmitSerialized(liveTokens, token);
-                },
-                null,
-                new PromptBudgetAdvisor[]{aggregateBudgetAdvisor()},
-                cancelled == null ? null : cancelled::get,
-                budgetLedger);
-    }
-
     /* ---------- ChatClient 单次调用 ---------- */
-
-    /** lead 拆解兜底提示词（agent 表无 lead 行时使用；正常情况以表配置为准） */
-    private static final String LEAD_FALLBACK_PROMPT =
-            "你是多 Agent 的 Lead 拆解器。把用户复杂目标拆解为若干条可并行执行的子任务，"
-                    + "并为每条子任务指派最合适的专家执行。可选专家（只能用这些名字）："
-                    + "researcher（资料调研）、coder（代码编写/修复）、analyst（数据分析）、writer（汇总撰写）、general（通用兜底）。"
-                    + "拆解数量必须与任务难度匹配，禁止凑数：至多 4 条；简单任务只拆 1 条，中等任务 2~3 条，"
-                    + "只有确实存在多个可独立并行、且各自对最终结果都有贡献的部分时才拆满；"
-                    + "任何一条子任务如果只是原任务换个说法，就不要拆。"
-                    + "只输出一行 JSON，格式："
-                    + "{\"subtasks\":[{\"desc\":\"子任务描述\",\"agent\":\"专家名\"}]}，不要任何解释。";
-
-    /** 聚合兜底提示词（agent 表无 aggregator 行时使用；正常情况以表配置为准） */
-    private static final String AGGREGATOR_FALLBACK_PROMPT =
-            "你是聚合汇总的 AI 助手，依据多个子结果的最终回答可直接呈现给用户。";
-
-    /** 聚合 user 内容的子任务节头（与 {@link #aggregateUserPrompt} 的拼接格式对应） */
-    private static final Pattern AGG_SECTION_HEADER = Pattern.compile("【子任务\\d+】");
 
     /**
      * lead 拆解：按 agent 表 lead 行的提示词/模型执行（无配置时回退内置兜底）；目标超长尾截至 lead 预算。
@@ -692,7 +559,7 @@ public class MultiAgentGraphAgent implements Agent {
      */
     private String predictLead(String sessionId, String objective, AtomicBoolean cancelled,
                                BudgetLedger budgetLedger) {
-        return chatCaller.call(sessionId, ROLE_LEAD, LEAD_FALLBACK_PROMPT, "拆解目标：" + objective,
+        return chatCaller.call(sessionId, ROLE_LEAD, OrchestrationPrompts.LEAD_FALLBACK_PROMPT, "拆解目标：" + objective,
                 null, new PromptBudgetAdvisor[]{PromptBudgetAdvisor.tail(budgets.getLeadBudget())},
                 cancelled == null ? null : cancelled::get, budgetLedger);
     }
@@ -726,28 +593,19 @@ public class MultiAgentGraphAgent implements Agent {
 
     /**
      * 聚合阻塞语义调用，仅服务同步编排路径（execute，liveTokens=null）；
-     * 流式路径的失败自愈已改为带护栏的流式重试（见 {@link #predictAggregateStreaming}），不再经此兜底。
+     * 流式路径的失败自愈已改为带护栏的流式重试（见 {@link AggregateStreamGuard}），不再经此兜底。
      * budgetLedger 为 record-only 句柄（聚合不受熔断，仅记账；可 null）。
      */
     private String predictAggregate(String sessionId, String user, AtomicBoolean cancelled,
                                     BudgetLedger budgetLedger) {
-        return chatCaller.call(sessionId, ROLE_AGGREGATOR, AGGREGATOR_FALLBACK_PROMPT, user,
+        return chatCaller.call(sessionId, ROLE_AGGREGATOR, OrchestrationPrompts.AGGREGATOR_FALLBACK_PROMPT, user,
                 null, new PromptBudgetAdvisor[]{aggregateBudgetAdvisor()},
                 cancelled == null ? null : cancelled::get, budgetLedger);
     }
 
     /** 聚合预算 advisor：按「【子任务N】」节边界等份额截断（禁止先到先得挤掉后面的子任务） */
     private PromptBudgetAdvisor aggregateBudgetAdvisor() {
-        return PromptBudgetAdvisor.sections(budgets.getAggregateBudget(), AGG_SECTION_HEADER);
-    }
-
-    /** 聚合请求的 user 内容：各子任务结果顺序拼接（阻塞/流式两版共用） */
-    private static String aggregateUserPrompt(List<String> results) {
-        StringBuilder sb = new StringBuilder("以下是各子任务结果，请汇总为一份完整、连贯的最终回答：\n");
-        for (int i = 0; i < results.size(); i++) {
-            sb.append("【子任务").append(i + 1).append("】\n").append(results.get(i)).append("\n\n");
-        }
-        return sb.toString();
+        return PromptBudgetAdvisor.sections(budgets.getAggregateBudget(), OrchestrationPrompts.AGG_SECTION_HEADER);
     }
 
     private static String safe(Throwable t) {
