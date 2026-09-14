@@ -204,13 +204,23 @@ docker build \
 **2️⃣ 启动三件套**
 
 ```bash
-# 项目根执行；敏感项走环境变量（或 docker/.env），勿写死在 compose
-QWEN_API_KEY=sk-你的key \
+# ① 启动三件套（项目根执行；首次使用先配好 docker/.env，见下方说明）
 docker compose -f docker/docker-compose.yml up -d
 
-# 日志确认 Flyway 建表 + 应用就绪（看到 Started JavaHarnessApplication 即成功）
+# ② 看应用日志确认就绪：Flyway 建表 → 出现 Started JavaHarnessApplication 即成功
+#    （logs 是"看日志"不是再启动一次；Ctrl+C 只是退出滚动，容器照常运行）
 docker compose -f docker/docker-compose.yml logs -f app
 ```
+
+**docker/.env 说明**
+
+compose 启动时自动读取 compose 文件同目录的 `docker/.env`（`-f` 指定路径或 `cd docker` 两种方式都会读），配好后日常启动无需手动传 key。注意事项：
+
+- **优先级**：shell 环境变量 > `docker/.env` > compose 内默认值——临时覆盖某个值时前缀即可：`QWEN_API_KEY=sk-xxx docker compose ...`
+- **安全**：`.env` 含 API key 与数据库口令，已在 `.gitignore` 排除，**禁止提交**；换机器部署时把它一起拷走（变量清单与逐项注释见 `docker/.env` 本体）
+- **改库口令**：`MYSQL_ROOT_PASSWORD` / `PGVECTOR_PASSWORD` 修改后必须 `docker compose down -v` 删数据卷再 up，已初始化的旧卷不会自动应用新口令
+- **基础镜像**：`BUILD_BASE` / `RUN_BASE` 仅 `--build` 重建镜像时生效，默认已指向 daocloud 加速通道
+- **QQ 渠道**：不用 QQ 就设 `NAPCAT_ENABLED=false`；`NAPCAT_API_TOKEN` / `NAPCAT_EVENT_SECRET` 必须与 NapCat 侧配置一致，否则消息收不到/上报被拒
 
 | 服务 | 容器名 | 说明 |
 |---|---|---|
@@ -229,6 +239,30 @@ curl -X POST http://localhost:8080/api/knowledge/sync   # 需真实 QWEN_API_KEY
 > [!NOTE]
 > - 全新 MySQL 由 Flyway 建表 + 种子 agent；旧库存量数据（自调的 agent 行、聊天历史）迁移：`mysqldump -uroot harness --no-create-info --skip-triggers --ignore-table=harness.flyway_schema_history > seed.sql`，再 `docker exec -i harness-mysql mysql -uroot -p<口令> harness < seed.sql`
 > - 知识库/技能文档默认已打进镜像（`/workspace/knowledge`）；日常改文档可在 compose 挂载 `../knowledge:/workspace/knowledge:ro` 后调 sync 增量摄取（mtime 对比，免重启免重打镜像）
+
+**4️⃣ 离线部署：导出镜像到目标 Linux 服务器**
+
+构建机与运行机不同（如构建在 Windows Docker Desktop、运行在 Linux 服务器）时，镜像包内含完整镜像层，目标机无需源码/Maven/JDK：
+
+```bash
+# 构建机：导出为单文件镜像包（Windows PowerShell / Linux 通用）
+docker save java-harness -o java-harness.tar
+scp java-harness.tar user@服务器IP:/opt/java-harness/
+```
+
+```bash
+# 目标机：导入镜像（.tar / .tar.gz 通用，无需解压）
+docker load -i java-harness.tar
+# 看到 Loaded image: java-harness:latest 即成功，标签与 compose 对上，up 不触发重建
+QWEN_API_KEY=sk-你的key \
+docker compose -f docker/docker-compose.yml up -d
+```
+
+> [!IMPORTANT]
+> - 镜像包是给 `docker load` 读取的 OCI 格式（内含 blobs/、index.json、manifest.json），**不是压缩包——别用解压软件打开它**，`load` 直接读原封的 .tar / .tar.gz；Linux 构建机可 `docker save java-harness | gzip > java-harness.tar.gz` 减小传输体积，load 同样直接读
+> - **目标机必须同时拷贝 `docker/docker-compose.yml` 和 `docker/pg-init/`**——compose 把 `pg-init/` 挂载进 pgvector 容器，首次建库时预装 vector 扩展，缺了它知识库起不来；`Dockerfile`/`Dockerfile.dockerignore` 仅重建镜像时需要（整个 `docker/` 目录才几 KB，直接全拷也行）
+> - mysql/pgvector 基础镜像仍在目标机现拉：国内服务器先配 `/etc/docker/daemon.json` 的 `registry-mirrors` 并重启 docker，或同样 save/load 带过去
+> - 架构需一致：Docker Desktop（WSL2）产物为 `linux/amd64`，x86_64 服务器通用；ARM 服务器用不了此镜像包，需在目标机重新构建
 
 ## 🎮 CLI 使用
 
