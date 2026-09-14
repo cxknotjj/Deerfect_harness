@@ -183,7 +183,7 @@ napcat:
     enabled: true               # 总开关；false 时整个模块零行为（不读映射文件/目录、不检测、不发送）
     dir: channel/emojis         # 表情包根目录（相对启动工作目录，支持绝对路径）；图片需自行放置，不进 git
     index-file: channel/emoji-index.json  # 情绪-表情映射表 JSON（表情名 → {path, tags}）；缺失/损坏按空映射降级
-    max-per-reply: 2            # 单次回复最多发送张数；0 = 不限制
+    max-per-reply: 1            # 单次回复最多发送张数；0 = 不限制
     probability: 1.0            # 命中后发送概率（0.0~1.0）；1.0 = 必发，0 = 从不发送
     send-delay-ms: 800          # 表情发送前停顿毫秒数（模拟「找图」节奏）；0 = 不等待
     cheer-emoji: happy_01       # 句尾 ~ / ！ / ! 兜底触发的默认表情名（须为映射表中已有的表情名）

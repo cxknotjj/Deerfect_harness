@@ -63,7 +63,7 @@
 
 ## P1 · 能力扩展主线（产品核心价值）
 
-- [ ] **Web Search 接入**：注册搜索服务商 API（博查/Tavily/SerpAPI 等任一），新增 `search` 工具归入 `WebTools`，分配给 researcher/general——补「调研」第一步空缺，浏览器组退居 JS 渲染兜底
+- [x] **Web Search 接入**：注册搜索服务商 API（博查/Tavily/SerpAPI 等任一），新增 `search` 工具归入 `WebTools`，分配给 researcher/general——补「调研」第一步空缺，浏览器组退居 JS 渲染兜底
   - 验收：researcher 对「近期事件」类问题能返回带来源的检索结果
   - 进度（2026-09-12）：改走 MCP hosted 路线——Tavily 远程 MCP（Streamable HTTP）经 `mcp-config.json` 接入（该文件含 key 转本地不入库，模板见 README「MCP 工具接入」），general/researcher 的 agent 表 `tools` 列追加 `tavily_search`（数据路径分配；注意真实注册名是下划线 `tavily_search` 而非文档宣传的 `tavily-search`，另有 SDK baseUri.resolve 丢 query 的坑已修，见 spec）；待端到端验收后勾选
 - [ ] **知识库增强余项**（拆自 RAG 条目遗留）：目录文件监听（WatchService 免手动 sync）、BM25 混合检索与重排、web 管理页
@@ -93,8 +93,8 @@
 - [ ] **Actuator + 监控**：加 `spring-boot-starter-actuator`，暴露健康/指标端点，接 Prometheus + Grafana
   - 验收：`/actuator/health` 可用，指标可被 Prometheus 抓取
 - [ ] **完整链路追踪（Micrometer Tracing）**：接 Spring AI 原生 observation（micrometer-tracing + Zipkin exporter + Zipkin 容器），补齐 `llm_call_log`（成本账本）不具备的**单次请求耗时瀑布**——HTTP → 路由 → lead 拆解 → 各专家 → 聚合每段耗时与父子 span 关系；建议与「Actuator + 监控」同批实施（共享 Micrometer 基建）
-  - 验收：Zipkin UI 能看到一次聊天请求的完整瀑布图，观测埋点代码不重写（llm_call_log 与 Tracing 互补共存）
-- [ ] **工具调用查询端点 `/api/tool-calls`**（拆自工具日志条目验收尾巴）：`/api/tool-calls?sessionId=` 可查询一次编排内全部工具调用（含 MCP 工具及来源 server）；MCP 某 server 故障时能从日志定位到该 server
+  - 验收：Zipkin UI 能看到一次聊天请求的完整瀑布图，观测埋点代码不重写（llm\_call\_log 与 Tracing 互补共存）
+- [ ] **工具调用查询端点** **`/api/tool-calls`**（拆自工具日志条目验收尾巴）：`/api/tool-calls?sessionId=` 可查询一次编排内全部工具调用（含 MCP 工具及来源 server）；MCP 某 server 故障时能从日志定位到该 server
   - 验收：与 `GET /api/llm-calls` 同风格的分页查询可用
 - [ ] **会话缓存**：`spring-boot-starter-data-redis` 缓存会话快照，降低 MySQL 压力
   - 验收：会话上下文命中 Redis，DB 读次数下降
@@ -115,7 +115,7 @@
 - [ ] **安全**：Spring Security + JWT 接口鉴权；API Key 走 KMS/Vault 管理
   - 验收：未带 token 的请求被拒绝
 - [ ] **WebSocket**：如需全双工交互（如任务进度推送）可扩展
-- [ ] **多实例水平扩展**：解除单实例假设——`failAllRunning` 启动清理、本地 `goalExecutor`、GRAPH_CHECKPOINT 单写者；分布式锁（如 ShedLock）或消息队列派发二选一，与「消息队列」条目同批评估
+- [ ] **多实例水平扩展**：解除单实例假设——`failAllRunning` 启动清理、本地 `goalExecutor`、GRAPH\_CHECKPOINT 单写者；分布式锁（如 ShedLock）或消息队列派发二选一，与「消息队列」条目同批评估
   - 验收：双实例同时运行，同一 Goal 不被双重执行，重启清理只影响本实例
 - [ ] **Agent 行为回归评测集**：固定输入集 + 断言（路由 SIMPLE/COMPLEX 判定、专家派遣、输出约定），prompt / 模型参数改动后一条命令跑完防回归
   - 验收：评测脚本输出每项通过与耗时，可选纳入 CI
@@ -132,7 +132,7 @@
 - [x] **加载会话原始数据**：`SessionService.loadContext(sessionId)` 还原 `List<Message>`。
 - [x] **执行上下文组装**：`ContextAssemblingAdvisor` 按 token 预算裁剪（保留 system + 最近 N 轮）、过滤噪声、规范 role 顺序；测试见 `ContextAssemblingAdvisorTest`。
 - [x] **主 Agent 前置判断**：`RouteJudge`/`LlmRouteJudge` 输出 SIMPLE/COMPLEX 结构化决策；异常兜底 SIMPLE（宁可简单）；测试见 `LlmRouteJudgeTest`。
-- [x] **路径 A 真流式**：`GeneralAssistantAgent.executeStreamReactive` 走 `.stream().content()` 逐 token 发射（实测 token 间隔 48~70ms 到达）。
+- [x] **路径 A 真流式**：`GeneralAssistantAgent.executeStreamReactive` 走 `.stream().content()` 逐 token 发射（实测 token 间隔 48\~70ms 到达）。
 - [x] **路径 B 多 Agent 编排**：`MultiAgentGraphAgent` 基于 `StateGraph`（lead 拆解上限 `MAX_SUBTASKS=4` → subtask-0..3 并行 → 聚合），已在 `ChatAgentConfig` 注册 bean，测试见 `MultiAgentGraphAgentTest` / `ChatServiceImplTest`。
 - [x] **执行进度实时推送**：graph-core 生命周期钩子旁路捕获并行分支完成事件（before/after 配对过滤短路槽位、串行发射防丢事件、关闸在 merge 前防死锁）；`ProgressLine` 统一线协议 `\0stage\1detail`；SSE 事件 event/data 单元素成对输出、内容行换行转义保完整性；CLI 实时渲染 `[stage] detail`。
 - [x] **两条路径统一出口与记忆写回**：SSE 出口一致；会话记忆经 `writeBackContext` 回写（进度行不计入摘要）。
@@ -153,15 +153,15 @@
 ## Prompt 动态装配（2026-09 完成）
 
 - [x] **prompt 的动态加载（六子项总览）**：
-  - [x] 1. skill 的动态装配：`SkillRepository` 扫描 `skills/` 目录 .md（front-matter 声明 name/description/agents，mtime 热重载免重启）+ `SkillManager` 两段式暴露——system prompt 只注入「名称：描述」索引段，模型按需调 `load_skill` 元工具取完整正文；越权防护按 agent 可见技能集服务端硬校验，返回全文按 tool-result-budget 截断
-  - [x] 2. tool 的动态装配：agent 表新增 `tools` 列（V10 迁移），`ToolAssignments` 优先按列声明分配（组名 `web`/`sandbox.base`… 或精确工具名，跨目录查找含 MCP 动态工具），改库即生效免重启；列 NULL/空白回退代码内置分配（legacy 语义不变）
-  - [x] 3. mcp 的动态装配：`McpToolProvider` 重构为多 server——解析 `mcp-config.json`（Claude/Cursor 同款 mcpServers 结构）全量条目（stdio/http 混合、`enabled:false` 跳过），每 server 独立懒连接 + 失败隔离，工具并集按名去重；文件缺失回退 legacy yaml 单 server。附带：流式真实 usage 统计——`OpenAiChatOptions.streamUsage(true)` 让末帧回传真实 usage（prompt/completion token），llm_call_log 优先记真实值、无 usage 回退估算；`load_skill` 与 `expand_tool` 同为元工具不占工具次数额度
-  - [x] 4. agent 角色 prompt 的组装（详见下条 Prompt 组装管线）
-  - [x] 5. 记忆上下文的动态注入（详见下条）
-  - [x] 6. 工具 Schema 的延迟加载（详见下条）
+  - [x] 1\. skill 的动态装配：`SkillRepository` 扫描 `skills/` 目录 .md（front-matter 声明 name/description/agents，mtime 热重载免重启）+ `SkillManager` 两段式暴露——system prompt 只注入「名称：描述」索引段，模型按需调 `load_skill` 元工具取完整正文；越权防护按 agent 可见技能集服务端硬校验，返回全文按 tool-result-budget 截断
+  - [x] 2\. tool 的动态装配：agent 表新增 `tools` 列（V10 迁移），`ToolAssignments` 优先按列声明分配（组名 `web`/`sandbox.base`… 或精确工具名，跨目录查找含 MCP 动态工具），改库即生效免重启；列 NULL/空白回退代码内置分配（legacy 语义不变）
+  - [x] 3\. mcp 的动态装配：`McpToolProvider` 重构为多 server——解析 `mcp-config.json`（Claude/Cursor 同款 mcpServers 结构）全量条目（stdio/http 混合、`enabled:false` 跳过），每 server 独立懒连接 + 失败隔离，工具并集按名去重；文件缺失回退 legacy yaml 单 server。附带：流式真实 usage 统计——`OpenAiChatOptions.streamUsage(true)` 让末帧回传真实 usage（prompt/completion token），llm\_call\_log 优先记真实值、无 usage 回退估算；`load_skill` 与 `expand_tool` 同为元工具不占工具次数额度
+  - [x] 4\. agent 角色 prompt 的组装（详见下条 Prompt 组装管线）
+  - [x] 5\. 记忆上下文的动态注入（详见下条）
+  - [x] 6\. 工具 Schema 的延迟加载（详见下条）
 - [x] **Prompt 组装管线（子项 4）**：新增 `prompt` 包 `PromptAssembler`——每请求按 agent 名段落化组装 system prompt（角色段→工具索引段→工具纪律段→输出约定段→skill 段），两路径（`GeneralAssistantAgent`/`AgentChatCaller.buildSpec`）统一接入；`predictSubtask` 的硬编码 persona/工具纪律拼接删除、收敛为组装段。角色段优先级保持：agent 表 prompt > 角色兜底 > 默认。skill 段为扩展点接口 `SkillSectionProvider`（当前空实现）——后续子项 1「skill Markdown 目录装配」只需实现该接口注入即可，不改组装管线；子项 2/3（tool/mcp 装配数据化）可复用 `ToolAssignments.purposeOf` 元数据与工具索引段机制。测试 `PromptAssemblerTest`
 - [x] **记忆上下文动态注入（子项 5）**：`MemoryPolicy` 按角色策略注入——编排 `lead` 注入会话记忆（与路径 A general 完全同口径：`SessionService` 同源 memoryStore + `MessageChatMemoryAdvisor` + `ContextAssemblingAdvisor` 预算裁剪，无会话 ID 跳过）；聚合节点与子任务专家不注入（聚合忠实于各子任务结果，子任务上下文由 lead 在子任务描述中传递）；编排内 general 兜底专家（未指派落点）不注入。测试 `MemoryPolicyTest` + `MultiAgentGraphAgentTest` 编排注入断言
-- [x] **工具 Schema 延迟加载（子项 6）**：`ToolLazyManager` 会话级两段式暴露——首轮未展开工具仅注入轻量态（名称+用途，inputSchema 置空，直接调用返回中文引导文本不执行真实逻辑），system 经工具索引段给全量工具清单；模型调 `expand_tool(toolName)` 后工具加入会话级展开集合并返回完整参数说明，其后请求按完整 schema 注入并可执行（同请求内 expand 后自动放行，避免自愈循环）；expand_tool 元工具不经 tracer/预算（零工具行噪声、不占执行额度）；越权展开未分配工具被拒绝。开关 `app.prompt.lazy-tools.enabled`（默认 true）关闭即回退全量注入现状。测试 `ToolLazyManagerTest`（13 用例）
+- [x] **工具 Schema 延迟加载（子项 6）**：`ToolLazyManager` 会话级两段式暴露——首轮未展开工具仅注入轻量态（名称+用途，inputSchema 置空，直接调用返回中文引导文本不执行真实逻辑），system 经工具索引段给全量工具清单；模型调 `expand_tool(toolName)` 后工具加入会话级展开集合并返回完整参数说明，其后请求按完整 schema 注入并可执行（同请求内 expand 后自动放行，避免自愈循环）；expand\_tool 元工具不经 tracer/预算（零工具行噪声、不占执行额度）；越权展开未分配工具被拒绝。开关 `app.prompt.lazy-tools.enabled`（默认 true）关闭即回退全量注入现状。测试 `ToolLazyManagerTest`（13 用例）
 
 ## 能力扩展（2026-09 完成）
 
@@ -191,10 +191,10 @@
 
 - [x] **后台 Goal 执行线程池治理**：`submit` 的 `CompletableFuture.runAsync`（commonPool）改为受管 `goalExecutor` 池（core=max=8、队列 50、优雅停机 30s），替代在 commonPool 上跑分钟级阻塞 LLM 调用（CPU-1 线程且 JVM 全局共用）；队列满 `RejectedExecutionException` 兜底把 Goal 落 FAILED（轮询可见，不再无声排队）；`run()` catch 从 Exception 放宽到 Throwable，Error 逃逸不再卡 RUNNING。测试：`AgentServiceImplTest` 新增 10 并发全 SUCCEEDED / 队列满兜底 / LinkageError 逃逸三用例（bdd2ac4）；失败重投经评估另立任务（见 P2「Goal 失败重投」）
 - [x] **MVC 异步执行器槽位补位**：定义 goalExecutor 后 Boot 自动配置的 applicationTaskExecutor 让位，MVC 流式 SSE 派发回退每请求一线程的 `MvcSimpleAsyncTaskExecutor` 并打生产告警（反汇编定位：Boot 按 bean 名 `containsBean("applicationTaskExecutor")` 接线）；显式补 `applicationTaskExecutor` 槽位 bean（`mvc-async-` 前缀），与 goal 长任务池分离（d4a4d96）
-- [x] **数据库迁移工具**：Flyway 替代 `spring.sql.init` 管理 schema 演进（V1 建表 / V2 goal 索引 / V3 llm_call_log；存量库经 baseline 无缝接入，`spring.sql.init` 已移除）
+- [x] **数据库迁移工具**：Flyway 替代 `spring.sql.init` 管理 schema 演进（V1 建表 / V2 goal 索引 / V3 llm\_call\_log；存量库经 baseline 无缝接入，`spring.sql.init` 已移除）
   - 验收 ✅：新增表结构变更通过迁移脚本自动应用（新增 `db/migration/V*__*.sql` 即可，启动自动执行）
 - [x] **API Key 装载链路修复与系统级分发**：非交互 bash 不执行 .bashrc export（开头守卫 early-return），run.sh 开窗（wt.exe 新 wsl 会话）与 run-wsl.bat 显式注入路径都拿不到 key → 服务 401。key 迁仓库根 `.env.local`（gitignored，run.sh / run-wsl.bat / .bashrc 三处 source 兜底）+ 主机制升级 Windows 用户环境变量 + `WSLENV` 透传（所有 wsl 会话自动带 key）；顺带修 cmd interop 传参引号污染（1e63a8a + 系统级 setx）
-- [x] **CLI 流式渲染增量直出**：渲染器每 token 整行擦除重绘（`\r\033[2K`+全缓冲）依赖终端转义支持，失效终端表现为同段文字带渐长尾巴重复（DB 取证：goal.summary 与 llm_call_log 干净、单次调用，排除模型/服务端）；改为只补打未上屏部分，纯文本行零重绘，着色行完成时才整行重绘升级。测试：`TerminalRendererTest` 重影回归用例（1ba27d6）
+- [x] **CLI 流式渲染增量直出**：渲染器每 token 整行擦除重绘（`\r\033[2K`+全缓冲）依赖终端转义支持，失效终端表现为同段文字带渐长尾巴重复（DB 取证：goal.summary 与 llm\_call\_log 干净、单次调用，排除模型/服务端）；改为只补打未上屏部分，纯文本行零重绘，着色行完成时才整行重绘升级。测试：`TerminalRendererTest` 重影回归用例（1ba27d6）
 
 ## 杂项修复与增强（2026-08/09 完成）
 
@@ -234,7 +234,7 @@
   - 输入体验：JLine 3——历史持久化、`/` 命令 Tab 补全、多行粘贴；无 TTY 自动降级。**JLine 3 不可替代性**：Windows 控制台无纯 Java 逐键 raw 输入；启动方式 `mvn -s .mvn/settings.xml -Pcli compile exec:exec`（fork 独立进程接管真实终端）
   - 乱码修复：CLI 输出统一收敛到 JLine `terminal.writer()` 宽字符通道（WriterBridge），GBK/65001 代码页均正常
   - 验收 ✅：全量 101 用例通过；文档 `docs/reports/2026-08-28-cli-output-optimization.md`
-- [x] **回答归属前缀（2026-09-06）**：SSE 流首新增 `stage=agent` 进度行——服务端下发实际路由到的 agent 名（智能分流与指定 agentId 两条路径都覆盖，续跑固定 multi-agent），CLI 在首个回答 token 前渲染着色「agentName> 」前缀，与用户侧「你> 」提示符对称，用户/智能体一眼可分；前缀计入渲染器行状态，首行着色重绘时原样补回（不被 CLEAR_LINE 擦掉）
+- [x] **回答归属前缀（2026-09-06）**：SSE 流首新增 `stage=agent` 进度行——服务端下发实际路由到的 agent 名（智能分流与指定 agentId 两条路径都覆盖，续跑固定 multi-agent），CLI 在首个回答 token 前渲染着色「agentName> 」前缀，与用户侧「你> 」提示符对称，用户/智能体一眼可分；前缀计入渲染器行状态，首行着色重绘时原样补回（不被 CLEAR\_LINE 擦掉）
 
 ## 项目基础（Roadmap P0 及能力项）
 
@@ -249,11 +249,12 @@
 - [x] **响应式流式改造**：流式端点已直接返回 `Flux<String>`（text/event-stream），DB 阻塞操作经 `Schedulers.boundedElastic()` 边界隔离；同步 `/api/chat` 保留
 - [x] **会话上下文管理与 Token 裁剪**：`ContextAssemblingAdvisor` 按 token 预算裁剪，长对话体积受控
 - [x] **Mockito 单测（核心场景）**：10 个测试类 / 50 用例覆盖路由判定、双路径执行、进度协议、SSE 契约（详见 docs/functional-testing.md）
-- [x] **Agent 表驱动自动注册（2026-09）**：新增 `AgentRegistry`——启动时读 agent 表把全部 `is_internal=0` 行自动注册为对话 Agent（`GeneralAssistantAgent` 按行配置生效），路由未命中惰性查表热注册（`ConcurrentHashMap.computeIfAbsent` 原子构造，运行中插行免重启）；V9 迁移加 `is_internal` 列（multi-agent/lead/aggregator 置 1，排除逻辑纯数据驱动，新增内部角色免改代码）；启动逐行 fail-safe（脏行 warn 跳过）；`general` 行缺失时代码兜底注册并 warn（DB 行存在则完全按 DB，两来源不合并）。`ChatAgentConfig` 删除 generalAgent/deepseekAgent 手工 bean，`AgentServiceImpl` 路由委托 Registry（构造 `@Lazy` 解创建期循环）。注册口径收敛为：**新增 Agent = agent 表一行（is_internal=0）**。测试：`AgentRegistryTest` 9 用例 + `AgentServiceImplTest` 适配扩展（全量 249 用例通过）
+- [x] **Agent 表驱动自动注册（2026-09）**：新增 `AgentRegistry`——启动时读 agent 表把全部 `is_internal=0` 行自动注册为对话 Agent（`GeneralAssistantAgent` 按行配置生效），路由未命中惰性查表热注册（`ConcurrentHashMap.computeIfAbsent` 原子构造，运行中插行免重启）；V9 迁移加 `is_internal` 列（multi-agent/lead/aggregator 置 1，排除逻辑纯数据驱动，新增内部角色免改代码）；启动逐行 fail-safe（脏行 warn 跳过）；`general` 行缺失时代码兜底注册并 warn（DB 行存在则完全按 DB，两来源不合并）。`ChatAgentConfig` 删除 generalAgent/deepseekAgent 手工 bean，`AgentServiceImpl` 路由委托 Registry（构造 `@Lazy` 解创建期循环）。注册口径收敛为：**新增 Agent = agent 表一行（is\_internal=0）**。测试：`AgentRegistryTest` 9 用例 + `AgentServiceImplTest` 适配扩展（全量 249 用例通过）
 
 ***
 
 ## 备注
 
-- 测试全景见 [docs/functional-testing.md](./functional-testing.md)，数据流详解见 [docs/data-flow.md](./data-flow.md)，技术栈对照见 [TECH_STACK.md](./TECH_STACK.md)。
+- 测试全景见 [docs/functional-testing.md](./functional-testing.md)，数据流详解见 [docs/data-flow.md](./data-flow.md)，技术栈对照见 [TECH\_STACK.md](./TECH_STACK.md)。
 - 每项完成后按对应"验收"标准验证后再勾选；完成的条目连同落地与验收记录移入本文件「二、已完成（存档）」对应主题节，若留有后续尾巴（余项/端点/优化）须拆出为未完成条目，避免尾巴被埋进存档。
+
