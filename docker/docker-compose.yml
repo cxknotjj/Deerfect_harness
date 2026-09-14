@@ -1,0 +1,114 @@
+# ============================================================
+# java-harness 三件套：app + MySQL 8.4（主库/Flyway）+ pgvector（RAG 知识库）
+#
+# 运行（在项目根）：
+#   QWEN_API_KEY=sk-xxx docker compose -f docker/docker-compose.yml up -d --build
+#   或：cd docker && QWEN_API_KEY=sk-xxx docker compose up -d --build
+#
+# 敏感项走 .env 或 shell 环境变量，勿写死在本文件：
+#   QWEN_API_KEY / DEEPSEEK_API_KEY   LLM 供应商 key
+#   NAPCAT_API_TOKEN / NAPCAT_EVENT_SECRET  QQ 渠道令牌
+#   MYSQL_ROOT_PASSWORD / PGVECTOR_PASSWORD  两库口令
+#   NAPCAT_BASE_URL / NAPCAT_ENABLED  NapCat 地址与总开关
+# ============================================================
+name: java-harness
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: harness-mysql
+    environment:
+      MYSQL_DATABASE: harness
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-harness123}
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql-data:/var/lib/mysql
+    ports:
+      - "3306:3306"          # 宿主机管理工具直连用；不需要可删除
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  pgvector:
+    image: pgvector/pgvector:pg16
+    container_name: harness-pgvector
+    environment:
+      POSTGRES_PASSWORD: ${PGVECTOR_PASSWORD:-postgresql}
+      TZ: Asia/Shanghai
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      # 首次建库时由官方入口脚本执行：预装 vector 扩展（应用侧只建表不建扩展）
+      - ./pg-init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"          # 宿主机 5432 已被占用时删除此行（容器间走服务名直连）
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  app:
+    build:
+      # context 必须是项目根（Dockerfile 的 COPY 依赖 pom/src/skills 等）
+      context: ..
+      dockerfile: docker/Dockerfile
+      # Docker Hub 不可达时设环境变量切加速通道，如：
+      #   BUILD_BASE=docker.m.daocloud.io/library/maven:3.9-eclipse-temurin-17
+      #   RUN_BASE=docker.m.daocloud.io/library/eclipse-temurin:17-jre
+      args:
+        BUILD_BASE: ${BUILD_BASE:-maven:3.9-eclipse-temurin-17}
+        RUN_BASE: ${RUN_BASE:-eclipse-temurin:17-jre}
+    # 复用手工 docker build 的同名镜像（否则 compose 默认找 java-harness-app 会强制重建）
+    image: java-harness
+    container_name: java-harness
+    depends_on:
+      mysql:
+        condition: service_healthy
+      pgvector:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      TZ: Asia/Shanghai
+      # —— 主库：连 compose 内 mysql（env 覆盖 yaml 的 localhost 硬编码）——
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/harness?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-harness123}
+      # —— 知识库：连 compose 内 pgvector ——
+      APP_KNOWLEDGE_PGVECTOR_URL: jdbc:postgresql://pgvector:5432/postgres
+      APP_KNOWLEDGE_PGVECTOR_PASSWORD: ${PGVECTOR_PASSWORD:-postgresql}
+      # —— LLM 供应商 key（yaml 已参数化，未配置也能启动、真实调用需真实 key）——
+      QWEN_API_KEY: ${QWEN_API_KEY:-dummy-key-for-startup}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-dummy-deepseek-key}
+      NAPCAT_API_TOKEN: ${NAPCAT_API_TOKEN:-napcat123}
+      NAPCAT_EVENT_SECRET: ${NAPCAT_EVENT_SECRET:-}
+    volumes:
+      # 沙箱工具（DooD）：应用经宿主 Docker 守护进程拉起沙箱容器。
+      # 沙箱在容器内默认走 unix socket 标准发现，无需配 DOCKER_HOST；
+      # 不需要沙箱可删除此行（启动打 warn，其余功能不受影响）
+      - /var/run/docker.sock:/var/run/docker.sock
+      # 知识库/技能文档挂载（免重打镜像改文档）：目录默认已 COPY 进镜像（/workspace/knowledge），
+      # 挂载即覆盖。sync 只读扫描、不回写文件；改完调 POST /api/knowledge/sync 增量摄取（mtime 对比，免重启）：
+      # - ../knowledge:/workspace/knowledge:ro
+      # - ../skills:/workspace/skills:ro
+      # 批量覆盖 jar 内 yaml 属性（无需重打镜像）：Spring Boot 默认扫描工作目录 ./config/，
+      # 外置文件按键叠加在 jar 内 yaml 之上，只写要改的键、其余沿用默认值：
+      # - ./application-docker.yaml:/workspace/config/application.yaml:ro
+      # mcp-config.json 不进 git（含 API key）；需要外部 MCP server 时解除注释：
+      # - ../mcp-config.json:/workspace/mcp-config.json:ro
+      # 表情图片不进镜像（.dockerignore 已排除），需要时挂载：
+      # - ../channel/emojis:/workspace/channel/emojis:ro
+    extra_hosts:
+      # 容器内访问宿主机服务（如宿主 Docker 里的 NapCat）用 host.docker.internal
+      - "host.docker.internal:host-gateway"
+    # 命令行参数覆盖 yaml（最高优先级）：NapCat 在宿主 Docker 默认网桥且已发布 3000 时
+    # 走 host-gateway；NapCat 在远端机器则设 NAPCAT_BASE_URL=http://<host>:3000
+    command:
+      - "--napcat.api-base-url=${NAPCAT_BASE_URL:-http://host.docker.internal:3000}"
+      - "--napcat.enabled=${NAPCAT_ENABLED:-true}"
+
+volumes:
+  mysql-data:
+  pg-data:

@@ -30,6 +30,7 @@
 - [🏗️ 架构总览](#%EF%B8%8F-架构总览)
 - [🧰 技术栈](#-技术栈)
 - [🚀 快速开始](#-快速开始)
+- [🐳 Docker 部署](#-docker-部署)
 - [🎮 CLI 使用](#-cli-使用)
 - [🌐 REST 接口](#-rest-接口)
 - [📡 SSE 流式协议](#-sse-流式协议)
@@ -180,6 +181,54 @@ $env:QWEN_API_KEY = "sk-你的key"    # Windows PowerShell；WSL 用 export QWEN
 
 > [!NOTE]
 > 不接入 QQ 渠道？在 `application.yaml` 设 `napcat.enabled: false`（QQ 渠道为可选组件，但当前默认开启——关闭后不再有 NapCat 连接告警，其余功能不受影响）。接入与能力清单见 [🤖 QQ 机器人](#-qq-机器人)。
+
+## 🐳 Docker 部署
+
+不想装 JDK/Maven/数据库？`docker/` 目录提供三件套一键起：**app + MySQL 8.4（主库）+ pgvector（RAG 知识库）**，数据库连接等配置全部经环境变量注入，`application.yaml` 零改动。主库建表由应用内置 Flyway 在启动时自动完成（镜像自包含 DDL，DB 容器无需挂 init 脚本）；pgvector 扩展由 `docker/pg-init/` 在首次建库时自动启用。
+
+**1️⃣ 构建镜像**
+
+```bash
+# 基础镜像可直连 Docker Hub 时：
+docker build -f docker/Dockerfile -t java-harness .
+
+# Docker Hub 不可达（国内常见）时，经加速通道覆盖基础镜像：
+docker build \
+  --build-arg BUILD_BASE=docker.m.daocloud.io/library/maven:3.9-eclipse-temurin-17 \
+  --build-arg RUN_BASE=docker.m.daocloud.io/library/eclipse-temurin:17-jre \
+  -f docker/Dockerfile -t java-harness .
+```
+
+多阶段构建：构建阶段在容器内 `mvn package`（沿用 `.mvn/settings.xml` 阿里云镜像，pom 不变时层缓存秒级重建）→ 运行阶段仅 JRE + jar + `skills/knowledge/channel` 运行期资源。
+
+**2️⃣ 启动三件套**
+
+```bash
+# 项目根执行；敏感项走环境变量（或 docker/.env），勿写死在 compose
+QWEN_API_KEY=sk-你的key \
+docker compose -f docker/docker-compose.yml up -d
+
+# 日志确认 Flyway 建表 + 应用就绪（看到 Started JavaHarnessApplication 即成功）
+docker compose -f docker/docker-compose.yml logs -f app
+```
+
+| 服务 | 容器名 | 说明 |
+|---|---|---|
+| app | `java-harness` | 8080 对外；挂载 docker.sock 沙箱可用（不需要可删该挂载） |
+| mysql | `harness-mysql` | 口令 `MYSQL_ROOT_PASSWORD`（默认 `harness123`）；3306 映射仅供宿主机管理工具，不需要可删 |
+| pgvector | `harness-pgvector` | 口令 `PGVECTOR_PASSWORD`（默认 `postgresql`）；宿主机 5432 被占时删映射（容器间走服务名直连） |
+
+常用环境变量：`DEEPSEEK_API_KEY`；QQ 渠道 `NAPCAT_API_TOKEN` / `NAPCAT_EVENT_SECRET`，不用 QQ 设 `NAPCAT_ENABLED=false`；NapCat 在远端机器时设 `NAPCAT_BASE_URL=http://<host>:3000`（默认经 host-gateway 连宿主 Docker 里的 NapCat）。
+
+**3️⃣ 验证与知识库初始化**
+
+```bash
+curl -X POST http://localhost:8080/api/knowledge/sync   # 需真实 QWEN_API_KEY；向量数据入 pgvector
+```
+
+> [!NOTE]
+> - 全新 MySQL 由 Flyway 建表 + 种子 agent；旧库存量数据（自调的 agent 行、聊天历史）迁移：`mysqldump -uroot harness --no-create-info --skip-triggers --ignore-table=harness.flyway_schema_history > seed.sql`，再 `docker exec -i harness-mysql mysql -uroot -p<口令> harness < seed.sql`
+> - 知识库/技能文档默认已打进镜像（`/workspace/knowledge`）；日常改文档可在 compose 挂载 `../knowledge:/workspace/knowledge:ro` 后调 sync 增量摄取（mtime 对比，免重启免重打镜像）
 
 ## 🎮 CLI 使用
 
