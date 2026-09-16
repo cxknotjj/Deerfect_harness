@@ -3,10 +3,13 @@ package com.dark.javaHarness.service.impl;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+
+import java.util.List;
 
 import com.dark.javaHarness.domain.LlmCallLog;
 import com.dark.javaHarness.domain.ToolCallLog;
@@ -39,7 +42,7 @@ class LlmCallRecorderTest {
         LlmCallRecorder recorder = new LlmCallRecorder(mapper, mock(ToolCallLogMapper.class));
 
         recorder.record(new LlmCallLog("s1", "lead", "qwen3.8-27b", false, true,
-                100, 20, 120, false, 1500, null));
+                100, 20, 120, false, 1500, null, null, null, null));
 
         verify(mapper, timeout(2000)).insert(org.mockito.ArgumentMatchers.argThat((LlmCallLogEntity e) -> {
             return "s1".equals(e.getSessionId())
@@ -60,7 +63,7 @@ class LlmCallRecorderTest {
 
         // 不应向调用方抛出（异步边界吞掉并 warn）
         recorder.record(new LlmCallLog(null, "route-judge", "qwen3.8-27b", true, false,
-                null, 5, 5, true, 80, "boom"));
+                null, 5, 5, true, 80, "boom", null, null, null));
         // 给异步线程留出执行窗口；若抛出则测试线程已失败
         try {
             Thread.sleep(300);
@@ -68,6 +71,33 @@ class LlmCallRecorderTest {
             Thread.currentThread().interrupt();
         }
         assertTrue(true, "落库异常被观测层吞掉，未影响调用方");
+    }
+
+    @Test
+    void record_promptAttachments_mappedAsCsv() {
+        LlmCallLogMapper mapper = mock(LlmCallLogMapper.class);
+        LlmCallRecorder recorder = new LlmCallRecorder(mapper, mock(ToolCallLogMapper.class));
+
+        recorder.record(new LlmCallLog("s1", "general", "qwen3.8-27b", false, true,
+                10, 5, 15, false, 100, null,
+                List.of("pdf-handling"), List.of("fetchUrl", "tavily_search"), List.of("tavily_search")));
+
+        verify(mapper, timeout(2000)).insert(argThat((LlmCallLogEntity e) ->
+                "pdf-handling".equals(e.getSkillNames())
+                        && "fetchUrl,tavily_search".equals(e.getToolNames())
+                        && "tavily_search".equals(e.getMcpToolNames())));
+    }
+
+    @Test
+    void record_emptyAttachments_mappedAsNull() {
+        LlmCallLogMapper mapper = mock(LlmCallLogMapper.class);
+        LlmCallRecorder recorder = new LlmCallRecorder(mapper, mock(ToolCallLogMapper.class));
+
+        recorder.record(new LlmCallLog("s1", "route-judge", "m", false, true,
+                1, 1, 2, false, 5, null, List.of(), List.of(), List.of()));
+
+        verify(mapper, timeout(2000)).insert(argThat((LlmCallLogEntity e) ->
+                e.getSkillNames() == null && e.getToolNames() == null && e.getMcpToolNames() == null));
     }
 
     @Test

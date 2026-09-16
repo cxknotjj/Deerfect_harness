@@ -261,6 +261,7 @@ public class GeneralAssistantAgent implements Agent {
         recorder.record(new LlmCallLog(sessionId, agentName,
                 agentService.getAgentConfig(agentName).map(AgentConfig::model).orElse(null),
                 stream, ok, prompt, completionVal, totalVal, estimated,
-                System.currentTimeMillis() - start, LlmCallRecorder.describeError(error)));
+                System.currentTimeMillis() - start, LlmCallRecorder.describeError(error),
+                null, null, null));
     }
 }

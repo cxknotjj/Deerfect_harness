@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.dark.javaHarness.tool.TokenEstimator;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -19,6 +20,7 @@ import org.springframework.ai.tool.ToolCallback;
  * - 空技能面：provide 返回 null、load_skill 不注册（空工具面不追加元工具）
  * - 开关关闭：app.prompt.skills.enabled=false 时索引段与元工具同时消失
  * - load_skill 元工具：命中返回全文 / 越权拒绝 / 缺参报错 / 超长正文按 tool-result-budget 截断
+ * - skillNames：prompt 装配技能名单（llm_call_log 观测口径，与索引段同开关同过滤）
  */
 class SkillManagerTest {
 
@@ -72,6 +74,36 @@ class SkillManagerTest {
         SkillManager m = new SkillManager(new SkillRepository(dir.toString()), false, 5000);
         assertNull(m.provide("researcher"));
         assertEquals(Optional.empty(), m.loadSkillTool("researcher"));
+    }
+
+    // ================================================================
+    // skillNames（llm_call_log prompt 装配名单）
+    // ================================================================
+
+    @Test
+    void skillNames_visibleSkills_returnsNamesInOrder() throws Exception {
+        writeSkill("a.md", "---\nname: alpha\ndescription: 第一个技能\n---\n正文A");
+        writeSkill("b.md", "---\nname: beta\n---\n正文B");
+        assertEquals(List.of("alpha", "beta"), manager(5000).skillNames("researcher"));
+    }
+
+    @Test
+    void skillNames_noVisibleSkills_returnsEmpty() {
+        assertTrue(manager(5000).skillNames("researcher").isEmpty(), "无可见技能返回空表（落库口径 null）");
+    }
+
+    @Test
+    void skillNames_agentsFilterApplies() throws Exception {
+        writeSkill("c.md", "---\nname: coder-only\nagents: coder\n---\n正文");
+        assertTrue(manager(5000).skillNames("researcher").isEmpty(), "不可见技能不计入名单");
+        assertEquals(List.of("coder-only"), manager(5000).skillNames("coder"));
+    }
+
+    @Test
+    void skillNames_disabled_returnsEmpty() throws Exception {
+        writeSkill("a.md", "---\nname: alpha\n---\n正文");
+        SkillManager m = new SkillManager(new SkillRepository(dir.toString()), false, 5000);
+        assertTrue(m.skillNames("researcher").isEmpty(), "开关关闭返回空表");
     }
 
     // ================================================================

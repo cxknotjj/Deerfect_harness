@@ -18,7 +18,6 @@ import com.dark.javaHarness.enums.GoalStatus;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.GoalService;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -91,29 +90,6 @@ class AgentServiceImplTest {
         Goal g = new Goal("goal-x", "hi", sessionId);
         when(goalService.create(any(), any())).thenReturn(g);
         return g;
-    }
-
-    @Test
-    void executeStreamReactiveByAgentId_withWriterAgent_routesToWriter() {
-        when(agentConfigProvider.findAgentNameById(2L)).thenReturn(Optional.of("writer"));
-        when(agentRegistry.require("writer")).thenReturn(recordingAgent("writer"));
-        stubGoal("writer", null);
-
-        List<String> tokens = agentService.executeStreamReactiveByAgentId(2L, "hi", null).collectList().block();
-
-        assertEquals(List.of("ok-writer"), tokens, "响应式也应产出 writer 的完整结果");
-        assertEquals("writer", routedTo.get(), "应按 agentId 路由到 writer");
-    }
-
-    @Test
-    void executeStreamReactiveByAgentId_withMissingAgent_999_shouldFallbackToGeneral() {
-        when(agentConfigProvider.findAgentNameById(999L)).thenReturn(Optional.empty());
-        when(agentRegistry.require("general")).thenReturn(recordingAgent("general"));
-        stubGoal("general", null);
-
-        agentService.executeStreamReactiveByAgentId(999L, "hi", null).collectList().block();
-
-        assertEquals("general", routedTo.get(), "agentId 未命中应回退默认 general");
     }
 
     @Test

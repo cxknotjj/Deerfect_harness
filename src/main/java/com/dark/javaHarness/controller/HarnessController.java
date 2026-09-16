@@ -60,7 +60,8 @@ public class HarnessController {
     }
 
     /**
-     * 会话内切换 Agent：更新 session 表 agent_id（当前会话此后固定路由到该 Agent）。
+     * 会话内切换 Agent：更新 session 表 agent_id（SIMPLE 判定后由该 Agent 直答；
+     * COMPLEX 编排失败降级重答的落点）。后续聊天请求仍统一经 RouteJudge 判定。
      * agentId 不存在/会话不存在抛 IllegalArgumentException（全局处理器映射 400）。
      */
     @PostMapping("/sessions/{sessionId}/agent")

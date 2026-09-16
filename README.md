@@ -296,7 +296,7 @@ CLI 是纯 HTTP 客户端（**不监听任何端口**），通过 REST 调用主
 |---|---|
 | 直接输入文本 | 与当前 Agent（默认 general）聊天，多轮记忆自动延续 |
 | `/new [名称]` | 🆕 新建会话并切换（旧会话保留） |
-| `/agent <id>` | 🎭 切换到指定 Agent（agent 表主键）；`/agent` 查看当前；`/agent off` 恢复智能分流 |
+| `/agent <id>` | 🎭 切换到指定 Agent（agent 表主键，同步会话绑定）；简单问题由该 Agent 直答，复杂问题仍自动编排；`/agent` 查看当前；`/agent off` 恢复智能分流 |
 | `/resume <goalId>` | 🔁 复杂编排断点续跑：从上次检查点继续（goalId 见每回合末尾会话信息） |
 | `/help` / `/exit` | ❓ 帮助 / 🚪 退出 |
 
@@ -431,7 +431,7 @@ curl -N -X POST "http://localhost:8080/api/chat/resume?goalId=<goalId>"
 | 🧵 会话记忆 | 同一 QQ 用户自动延续多轮上下文；`@机器人 /reset`（群聊）或 `/reset`（私聊）重置会话 |
 | 🚦 防刷 | 同用户限频（`rate-limit.per-user-seconds`）+ 私聊白名单（`private-allow-users`，空 = 不限制） |
 | ␥ 聊天超时 | `chat-timeout-seconds` 超时放弃回复（后台跑完仍落会话记忆），防 LLM 卡死占满线程池 |
-| 🎯 指定 Agent | `agent-id` 填 agent 表主键后 QQ 渠道直连该 Agent（其 knowledge 绑定自动生效，跳过路由判定） |
+| 🎯 指定 Agent | `agent-id` 填 agent 表主键后会话绑定该 Agent（knowledge 绑定自动生效），仍走统一路由判定：简单问题直答、复杂问题编排，编排失败降级回该 Agent 重答 |
 
 **接入步骤**（NapCat 侧建议 Docker 部署，只允许 HTTP POST、不用 WebSocket）：
 

@@ -144,17 +144,6 @@ public class AgentServiceImpl implements AgentService {
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
-    /**
-     * 按 agentId 响应式流式执行：解析出 agentName 后路由，未命中回退默认 Agent（general）。
-     */
-    @Override
-    public Flux<String> executeStreamReactiveByAgentId(Long agentId, String objective, String sessionId) {
-        String agentName = findAgentNameById(agentId).orElse(AgentConstants.DEFAULT_AGENT);
-        log.info("[agent切换] agentId={} -> agentName='{}'{}", agentId, agentName,
-                agentId != null && AgentConstants.DEFAULT_AGENT.equals(agentName) ? " (未命中，回退默认)" : "");
-        return executeStreamReactive(agentName, objective, sessionId);
-    }
-
     /** 列出已注册的 Agent 名称（委托 AgentRegistry 动态路由表） */
     @Override
     public Set<String> agentNames() {

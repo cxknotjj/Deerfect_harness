@@ -227,7 +227,7 @@ public class ChatCli {
             this.agentId = id;
             ui.println("已切换到 Agent #" + agentId
                     + (sessionId == null ? "（新会话建档时将登记该 Agent）" : "（会话 " + sessionId + " 已同步）")
-                    + "；此后请求固定路由到该 Agent，不再自动分流；/agent off 可恢复");
+                    + "；简单问题由该 Agent 直答，复杂问题仍自动编排；/agent off 可恢复");
         } catch (NumberFormatException e) {
             ui.println("agent 编号无效，用法: /agent <数字Id> | /agent off | /agent");
         }

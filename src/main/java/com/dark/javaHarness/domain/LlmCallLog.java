@@ -1,5 +1,7 @@
 package com.dark.javaHarness.domain;
 
+import java.util.List;
+
 /**
  * 一次 LLM 调用的观测记录（不可变值对象，由调用出口组装、LlmCallRecorder 落库）。
  *
@@ -14,10 +16,16 @@ package com.dark.javaHarness.domain;
  * @param tokensEstimated token 是否为近似估算
  * @param durationMs      调用耗时（毫秒）
  * @param errorMsg        失败原因（成功为 null）
+ * @param skillNames      prompt 装配的技能名单（装配名单口径，非实际调用；未采集为 null）
+ * @param toolNames       prompt 装配的工具名单（disableTools 时为空表；未采集为 null）
+ * @param mcpToolNames    prompt 装配的 MCP 工具名单（toolNames 子集；未采集为 null）
  */
 public record LlmCallLog(String sessionId, String agentName, String model,
                          boolean stream, boolean ok,
                          Integer promptTokens, Integer completionTokens, Integer totalTokens,
                          boolean tokensEstimated,
-                         long durationMs, String errorMsg) {
+                         long durationMs, String errorMsg,
+                         List<String> skillNames,
+                         List<String> toolNames,
+                         List<String> mcpToolNames) {
 }

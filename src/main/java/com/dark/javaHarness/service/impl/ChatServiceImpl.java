@@ -91,11 +91,18 @@ public class ChatServiceImpl implements ChatService {
             newSession = true;
         }
 
-        // Agent 解析：显式 agentId（QQ 渠道等）直连指定 Agent 并跳过路由分流；
-        // 未指定时走主 Agent 前置判断：分流「场景A简单(会话绑定 Agent) / 场景B复杂(multi-agent)」
-        String resolvedAgent = request.agentId() != null
-                ? resolveExplicitAgent(request, sessionId)
-                : resolveAgent(request.message(), sessionId);
+        // agentId 仅作会话绑定副作用（失败告警不中断，口径不变）；路由一律统一判定：
+        // 指定 Agent 不再跳过 RouteJudge——SIMPLE 由会话绑定 Agent（即刚切换的）直答，
+        // COMPLEX 照常进 multi-agent 编排（指定 Agent 仅是编排失败降级重答的落点）
+        if (request.agentId() != null) {
+            try {
+                sessionService.switchAgent(sessionId, request.agentId());
+            } catch (Exception e) {
+                log.warn("[chat] 会话 Agent 同步失败（不影响本次路由）sid={} agentId={}: {}",
+                        sessionId, request.agentId(), safeMessage(e));
+            }
+        }
+        String resolvedAgent = resolveAgent(request.message(), sessionId);
 
         Goal goal = agentService.executeSync(resolvedAgent, request.message(), sessionId);
         // COMPLEX 编排失败降级（同步路径无客户端断开，FAILED 即编排自身失败）：
@@ -178,7 +185,7 @@ public class ChatServiceImpl implements ChatService {
         return sessionMono.flatMapMany(ctx -> {
             // 请求携带 agentId 即视为「会话内切换 Agent」：同步更新 session 表 agent_id，
             // 会话档案与实际路由保持一致（新建会话则从默认 1 修正为请求指定的 Agent）。
-            // 失败只告警不中断：路由侧 executeStreamReactiveByAgentId 对非法 agentId 已回退默认 Agent
+            // 失败只告警不中断：随后统一判定按会话绑定（无绑定/失效回退 general）继续路由
             if (request.agentId() != null) {
                 try {
                     sessionService.switchAgent(ctx.sid(), request.agentId());
@@ -186,15 +193,9 @@ public class ChatServiceImpl implements ChatService {
                     log.warn("[chat] 会话 Agent 同步失败（不影响本次路由）sid={} agentId={}: {}",
                             ctx.sid(), request.agentId(), safeMessage(e));
                 }
-                // 显式指定 agentId 时跳过路由判断：分流结果在该分支用不上，而判断本身是一次
-                // 同步 LLM 调用（思考型模型失控时曾阻塞请求 14 分钟，见 llm_call_log #198），
-                // 指定 Agent 的请求不必陪跑这段延时与风险
-                return toSseBody(withAgentProgress(agentService.findAgentNameById(request.agentId())
-                                .orElse(AgentConstants.DEFAULT_AGENT),
-                        agentService.executeStreamReactiveByAgentId(request.agentId(), request.message(), ctx.sid())),
-                        ctx.sid(), ctx.newSession(), request.message(), null);
             }
-            // 主 Agent 前置判断：分流「场景A简单(会话绑定 Agent) / 场景B复杂(multi-agent)」
+            // 路由统一判定（指定 Agent 不再跳过）：SIMPLE → 会话绑定 Agent 直答，
+            // COMPLEX → multi-agent 编排（指定 Agent 仅是编排失败降级重答的落点）
             String resolvedAgent = resolveAgent(request.message(), ctx.sid());
             Flux<String> agentStream = agentService.executeStreamReactive(resolvedAgent, request.message(), ctx.sid());
             // COMPLEX 编排失败降级：编排自身异常（客户端断开走 cancel，不触发 onErrorResume）时
@@ -374,25 +375,8 @@ public class ChatServiceImpl implements ChatService {
     }
 
     /**
-     * 显式 agentId 的同步路径解析（与 {@code streamReactive} 的 agentId 分支同口径）：
-     * 先把会话档案同步到指定 Agent（失败仅告警不中断），再解析 agent 名执行；
-     * agent 行未命中回退默认 general——与 {@code sessionAgentName} 回退语义一致。
-     */
-    private String resolveExplicitAgent(ChatRequest request, String sessionId) {
-        try {
-            sessionService.switchAgent(sessionId, request.agentId());
-        } catch (Exception e) {
-            log.warn("[chat] 会话 Agent 同步失败（不影响本次路由）sid={} agentId={}: {}",
-                    sessionId, request.agentId(), safeMessage(e));
-        }
-        return agentService.findAgentNameById(request.agentId())
-                .orElse(AgentConstants.DEFAULT_AGENT);
-    }
-
-    /**
      * 解析会话绑定的 Agent 名（session.agent_id → agent 表 agent_name）。
-     * 会话不存在/未绑定/查询失败/agent 行已删时回退默认 general——与
-     * {@code executeStreamReactiveByAgentId} 未命中回退的语义一致。
+     * 会话不存在/未绑定/查询失败/agent 行已删时回退默认 general。
      */
     private String sessionAgentName(String sessionId) {
         if (sessionId == null || sessionId.isBlank()) {

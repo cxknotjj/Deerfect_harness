@@ -85,6 +85,17 @@ public class SkillManager implements SkillSectionProvider {
         return sb.toString();
     }
 
+    /** 技能名单：与 provide 同开关同过滤，供 llm_call_log 记录 prompt 装配名单 */
+    @Override
+    public List<String> skillNames(String agentName) {
+        if (!enabled) {
+            return List.of();
+        }
+        return repository.skillsFor(agentName).stream()
+                .map(SkillRepository.Skill::name)
+                .toList();
+    }
+
     /**
      * load_skill 元工具：该 agent 有可见技能时返回回调（无可见技能不注册——
      * 与「空工具面不追加 expand_tool」同一原则，避免空技能面场景行为漂移）。

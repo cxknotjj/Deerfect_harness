@@ -144,8 +144,6 @@ mock `ChatClientRegistry` / `ChatClient` 固定 content（lead 固定返回两�
 
 | 用例 | 验证点 |
 | --- | --- |
-| `executeStreamReactiveByAgentId_withWriterAgent_routesToWriter` | agentId=2(writer) 正确切换到 writer |
-| `executeStreamReactiveByAgentId_withMissingAgent_999_shouldFallbackToGeneral` | 不存在的 agentId 回退 general |
 | `executeStreamReactive_emitsTokensAndSucceeds` | goal 创建 → RUNNING → SUCCEEDED 全链路 |
 | `executeStreamReactive_onError_marksFailed` | Agent 抛错 → goal 标记 FAILED |
 

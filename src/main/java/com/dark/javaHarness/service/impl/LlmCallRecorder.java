@@ -70,8 +70,19 @@ public class LlmCallRecorder {
         // 库列 VARCHAR(512)，超长截断防写入失败
         String err = c.errorMsg();
         e.setErrorMsg(err != null && err.length() > 500 ? err.substring(0, 500) : err);
+        e.setSkillNames(toCsv(c.skillNames()));
+        e.setToolNames(toCsv(c.toolNames()));
+        e.setMcpToolNames(toCsv(c.mcpToolNames()));
         e.setCreatedAt(LocalDateTime.now());
         mapper.insert(e);
+    }
+
+    /** 名单 CSV 化：null/空表落 NULL（包内可见便于单测） */
+    static String toCsv(java.util.List<String> names) {
+        if (names == null || names.isEmpty()) {
+            return null;
+        }
+        return String.join(",", names);
     }
 
     private void doInsertToolCall(ToolCallLog c) {

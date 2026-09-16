@@ -47,6 +47,7 @@ build/
 
 # docker compose 环境变量(含 API key/数据库口令,compose 自动读取;勿提交)
 docker/.env
+docs/superpowers/
 
 # MCP server 连接配置（含各 server 的 API key，转本地配置；模板见 README「MCP 工具接入」）
 mcp-config.json

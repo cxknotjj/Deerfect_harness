@@ -184,33 +184,57 @@ class ChatServiceImplTest {
     }
 
     @Test
-    void streamReactive_withAgentId_shouldRouteByAgentId() {
+    void streamReactive_withAgentId_simple_shouldJudgeAndRouteToSessionAgent() {
+        // 指定 agentId：先同步会话绑定，再统一判定；SIMPLE 流由会话绑定 Agent 产出
         ChatRequest req = new ChatRequest("hi", "50", 2L);
-        when(agentService.executeStreamReactiveByAgentId(2L, "hi", "50"))
+        SessionEntity session = new SessionEntity();
+        session.setAgentId(2);
+        when(sessionService.getSession("50")).thenReturn(session);
+        when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("writer"));
+        when(routeJudge.judge("hi")).thenReturn(RouteDecision.SIMPLE);
+        when(agentService.executeStreamReactive("writer", "hi", "50"))
                 .thenReturn(Flux.just("writer-token"));
 
         List<String> lines = chatService.streamReactive(req).collectList().block();
 
-        assertTrue(lines.contains("event: token\ndata: writer-token"), "应按 agentId 路由到对应 Agent 的流");
-        verify(agentService, never()).executeStreamReactive(anyString(), anyString(), anyString());
-        // 请求携带 agentId 即视为会话内切换：session 表 agent_id 需同步
+        assertTrue(lines.contains("event: token\ndata: writer-token"), "SIMPLE 应由会话绑定 Agent 流式直答");
         verify(sessionService).switchAgent("50", 2L);
-        // 显式指定 agentId 时不得再走路由判断：分流结果用不上，白付一次同步 LLM 调用的延时与风险
-        verify(routeJudge, never()).judge(anyString());
+        verify(routeJudge).judge("hi");
+        verify(agentService).executeStreamReactive("writer", "hi", "50");
     }
 
     @Test
     void streamReactive_withAgentId_switchSyncFails_shouldNotBreakStream() {
-        // 会话 Agent 同步失败（如 agentId 不存在）只告警不中断：路由侧自行回退默认 Agent
+        // 会话 Agent 同步失败只告警不中断：判定后 SIMPLE 按会话绑定（无绑定回退 general）
         ChatRequest req = new ChatRequest("hi", "50", 99L);
         doThrow(new IllegalArgumentException("agent 不存在: 99"))
                 .when(sessionService).switchAgent("50", 99L);
-        when(agentService.executeStreamReactiveByAgentId(99L, "hi", "50"))
+        when(routeJudge.judge("hi")).thenReturn(RouteDecision.SIMPLE);
+        when(agentService.executeStreamReactive("general", "hi", "50"))
                 .thenReturn(Flux.just("fallback-token"));
 
         List<String> lines = chatService.streamReactive(req).collectList().block();
 
         assertTrue(lines.contains("event: token\ndata: fallback-token"), "同步失败不得影响本次聊天流");
+        verify(routeJudge).judge("hi");
+    }
+
+    @Test
+    void streamReactive_withAgentId_complex_shouldOrchestrate() {
+        // 指定 agentId + COMPLEX：照常进 multi-agent 编排（含 complexFallback 接线）
+        ChatRequest req = new ChatRequest("调研竞品", "50", 2L);
+        when(routeJudge.judge("调研竞品")).thenReturn(RouteDecision.COMPLEX);
+        when(agentService.executeStreamReactive("multi-agent", "调研竞品", "50"))
+                .thenReturn(Flux.just("编排结果"));
+
+        List<String> lines = chatService.streamReactive(req).collectList().block();
+
+        verify(sessionService).switchAgent("50", 2L);
+        verify(routeJudge).judge("调研竞品");
+        verify(agentService).executeStreamReactive("multi-agent", "调研竞品", "50");
+        assertTrue(lines.stream().anyMatch(l -> l.contains("\"stage\":\"agent\"")
+                        && l.contains("\"detail\":\"multi-agent\"")),
+                "流首 agent 进度行应为 multi-agent（编排归属）");
     }
 
     @Test
@@ -227,50 +251,57 @@ class ChatServiceImplTest {
     }
 
     @Test
-    void chat_withAgentId_shouldRouteByAgentId() {
-        // QQ 渠道等显式指定 agentId 的同步调用：直连该 Agent，不走路由分流
+    void chat_withAgentId_simple_shouldJudgeAndRouteToSessionAgent() {
+        // 指定 agentId 仅同步会话绑定，路由仍统一判定：SIMPLE → 会话绑定 Agent 直答
         ChatRequest req = new ChatRequest("hi", "50", 2L);
+        SessionEntity session = new SessionEntity();
+        session.setAgentId(2);
+        when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("writer"));
+        when(routeJudge.judge("hi")).thenReturn(RouteDecision.SIMPLE);
         when(agentService.executeSync("writer", "hi", "50"))
                 .thenReturn(succeededGoal("50", "writer 的回答"));
 
         ChatResponse resp = chatService.chat(req);
 
         assertEquals("SUCCEEDED", resp.status());
-        verify(agentService).executeSync(eq("writer"), eq("hi"), eq("50"));
-        // 请求携带 agentId 即视为会话内切换：session 表 agent_id 需同步
         verify(sessionService).switchAgent("50", 2L);
-        // 显式指定 agentId 时不得再走路由判断：分流结果用不上，白付一次同步 LLM 调用的延时与风险
-        verify(routeJudge, never()).judge(anyString());
-    }
-
-    @Test
-    void chat_withAgentId_nameMissing_shouldFallbackToGeneral() {
-        // agent 行已删等未命中场景：回退默认 general，不让请求失败
-        ChatRequest req = new ChatRequest("hi", "50", 99L);
-        when(agentService.findAgentNameById(99L)).thenReturn(Optional.empty());
-        when(agentService.executeSync(eq("general"), eq("hi"), eq("50")))
-                .thenReturn(succeededGoal("50", "general 的回答"));
-
-        ChatResponse resp = chatService.chat(req);
-
-        assertEquals("SUCCEEDED", resp.status());
-        verify(agentService).executeSync(eq("general"), eq("hi"), eq("50"));
+        verify(routeJudge).judge("hi");
+        verify(agentService).executeSync("writer", "hi", "50");
     }
 
     @Test
     void chat_withAgentId_switchSyncFails_shouldNotBreakChat() {
-        // 会话 Agent 同步失败（如 agentId 非法）只告警不中断：本次聊天按解析结果继续
-        ChatRequest req = new ChatRequest("hi", "50", 2L);
-        doThrow(new IllegalArgumentException("agent 不存在: 2"))
-                .when(sessionService).switchAgent("50", 2L);
-        when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("writer"));
-        when(agentService.executeSync("writer", "hi", "50"))
-                .thenReturn(succeededGoal("50", "writer 的回答"));
+        // switchAgent 失败（如 agentId 非法）只告警不中断：判定后 SIMPLE 按会话绑定
+        // （会话无绑定/失效时回退 general），请求照常出响应
+        ChatRequest req = new ChatRequest("hi", "50", 99L);
+        doThrow(new IllegalArgumentException("agent 不存在: 99"))
+                .when(sessionService).switchAgent("50", 99L);
+        when(routeJudge.judge("hi")).thenReturn(RouteDecision.SIMPLE);
+        when(agentService.executeSync("general", "hi", "50"))
+                .thenReturn(succeededGoal("50", "general 的回答"));
 
         ChatResponse resp = chatService.chat(req);
 
         assertEquals("SUCCEEDED", resp.status(), "会话同步失败不得影响本次聊天");
+        verify(routeJudge).judge("hi");
+        verify(agentService).executeSync("general", "hi", "50");
+    }
+
+    @Test
+    void chat_withAgentId_complex_shouldOrchestrate() {
+        // 指定 agentId + COMPLEX：不再钉死单 Agent，照常进 multi-agent 编排
+        ChatRequest req = new ChatRequest("调研竞品", "50", 2L);
+        when(routeJudge.judge("调研竞品")).thenReturn(RouteDecision.COMPLEX);
+        when(agentService.executeSync("multi-agent", "调研竞品", "50"))
+                .thenReturn(succeededGoal("50", "编排结果"));
+
+        ChatResponse resp = chatService.chat(req);
+
+        assertEquals("SUCCEEDED", resp.status());
+        verify(sessionService).switchAgent("50", 2L);
+        verify(routeJudge).judge("调研竞品");
+        verify(agentService).executeSync("multi-agent", "调研竞品", "50");
     }
 
     /* ---------------- COMPLEX 编排失败降级重答（同步 + 流式） ---------------- */
@@ -474,12 +505,16 @@ class ChatServiceImplTest {
                 "进度行不应以内容 token 形式泄漏");
     }
 
-    /** 流首 agent 进度行：指定 agentId 时带上解析出的 agent 名（CLI 据此渲染回答前缀） */
+    /** 流首 agent 进度行：指定 agentId + SIMPLE 时带上判定后实际路由的会话绑定 Agent 名 */
     @Test
     void streamReactive_agentIdPath_emitsAgentProgressWithResolvedName() {
         ChatRequest req = new ChatRequest("hi", "50", 2L);
-        when(agentService.findAgentNameById(2L)).thenReturn(java.util.Optional.of("writer"));
-        when(agentService.executeStreamReactiveByAgentId(2L, "hi", "50"))
+        SessionEntity session = new SessionEntity();
+        session.setAgentId(2);
+        when(sessionService.getSession("50")).thenReturn(session);
+        when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("writer"));
+        when(routeJudge.judge("hi")).thenReturn(RouteDecision.SIMPLE);
+        when(agentService.executeStreamReactive("writer", "hi", "50"))
                 .thenReturn(Flux.just("writer 的回答"));
 
         List<String> lines = chatService.streamReactive(req).collectList().block();

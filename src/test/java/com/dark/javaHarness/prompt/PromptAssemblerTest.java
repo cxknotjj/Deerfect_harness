@@ -14,6 +14,7 @@ import com.dark.javaHarness.domain.AgentConfig;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.tool.McpToolProvider;
 import com.dark.javaHarness.tool.SandboxToolProvider;
+import com.dark.javaHarness.tool.ServerTaggedCallback;
 import com.dark.javaHarness.tool.ToolAssignments;
 import com.dark.javaHarness.tool.WebTools;
 import java.util.List;
@@ -32,6 +33,7 @@ import org.springframework.ai.tool.definition.ToolDefinition;
  * - 角色段优先级：agent 表 prompt &gt; 调用方兜底 &gt; 默认 system prompt
  * - skill 段扩展点：注入 SkillSectionProvider 时其文本出现在 skill 段位，无注入时该段为空
  * - 子任务 persona 组装结果包含专家名与工具纪律文本
+ * - attachmentsOf：prompt 装配名单（技能/工具/MCP 子集三名单，llm_call_log 观测口径）
  */
 @ExtendWith(MockitoExtension.class)
 class PromptAssemblerTest {
@@ -221,5 +223,56 @@ class PromptAssemblerTest {
         assertEquals("在沙箱容器内执行 Python 代码并返回输出", toolAssignments.purposeOf("run_ipython_cell"));
         assertEquals("", toolAssignments.purposeOf("no_such_tool"), "未登记返回空串");
         assertEquals("", toolAssignments.purposeOf(null), "空名返回空串");
+    }
+
+    /** 装配名单：tools 复用 toolNamesOf 口径（回调在前、注解在后），mcpTools 仅含 ServerTaggedCallback 子集 */
+    @Test
+    void attachmentsOf_splitsMcpToolsFromLocalTools() {
+        ToolCallback mcpCb = mock(ToolCallback.class);
+        when(mcpCb.getToolDefinition()).thenReturn(ToolDefinition.builder()
+                .name("browser_click").description("s").inputSchema("{}").build());
+        when(mcp.toolCallbacks()).thenReturn(List.of(new ServerTaggedCallback("tavily", mcpCb)));
+
+        PromptAssembler.PromptAttachments att = assembler.attachmentsOf("general");
+
+        assertEquals(List.of("browser_click", "fetchUrl"), att.tools(),
+                "tools 应含 MCP 标注回调（browser_click）与 @Tool 注解工具（fetchUrl）");
+        assertEquals(List.of("browser_click"), att.mcpTools(),
+                "mcpTools 仅含 ServerTaggedCallback 标注的工具");
+        assertTrue(att.skills().isEmpty(), "无 skill 提供者时技能名单为空");
+    }
+
+    /** 装配名单：技能名单从各 SkillSectionProvider.skillNames 聚合（与 provide 同源不同口径） */
+    @Test
+    void attachmentsOf_aggregatesSkillNamesFromProviders() {
+        PromptAssembler withSkill = new PromptAssembler(agentService, toolAssignments,
+                List.of(new SkillSectionProvider() {
+                    @Override
+                    public String provide(String agentName) {
+                        return "SKILL：demo";
+                    }
+
+                    @Override
+                    public List<String> skillNames(String agentName) {
+                        return List.of("demo");
+                    }
+                }));
+
+        PromptAssembler.PromptAttachments att = withSkill.attachmentsOf("general");
+
+        assertEquals(List.of("demo"), att.skills());
+    }
+
+    /** blankTools 变体：工具/MCP 两列置空、技能名单保留（disableTools 与去工具重试场景） */
+    @Test
+    void promptAttachments_blankTools_keepsSkillsOnly() {
+        PromptAssembler.PromptAttachments att = new PromptAssembler.PromptAttachments(
+                List.of("s"), List.of("t1"), List.of("t1"));
+
+        PromptAssembler.PromptAttachments blanked = att.blankTools();
+
+        assertEquals(List.of("s"), blanked.skills());
+        assertTrue(blanked.tools().isEmpty());
+        assertTrue(blanked.mcpTools().isEmpty());
     }
 }

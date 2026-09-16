@@ -50,6 +50,15 @@ public class LlmCallLogEntity {
     /** 失败原因（status=ERROR 时） */
     private String errorMsg;
 
+    /** prompt 装配的技能名单（CSV，空为 NULL） */
+    private String skillNames;
+
+    /** prompt 装配的工具名单（CSV，空为 NULL） */
+    private String toolNames;
+
+    /** prompt 装配的 MCP 工具名单（tool_names 子集，CSV，空为 NULL） */
+    private String mcpToolNames;
+
     /** 调用结束时间 */
     private LocalDateTime createdAt;
 }

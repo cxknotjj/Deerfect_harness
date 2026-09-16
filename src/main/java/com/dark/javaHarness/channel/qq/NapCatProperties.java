@@ -27,7 +27,7 @@ public class NapCatProperties {
     /** 机器人自身 QQ 号（自消息过滤 + 群聊 @ 触发判据） */
     private String selfId;
 
-    /** 回复使用的 Agent（agent 表主键）；空 = 默认 Agent。该 agent 的 knowledge 绑定自动生效 */
+    /** 回复使用的 Agent（agent 表主键）；空 = 默认。会话绑定该 Agent 后仍走统一路由判定（SIMPLE 直答 / COMPLEX 编排）；其 knowledge 绑定自动生效 */
     private Long agentId;
 
     /** 上报验签密钥（与 onebot11 httpClients.token 一致；空 = 不校验，联调期先留空） */

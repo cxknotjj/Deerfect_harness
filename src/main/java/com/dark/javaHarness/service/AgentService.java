@@ -4,7 +4,6 @@ import com.dark.javaHarness.domain.AgentConfig;
 import com.dark.javaHarness.domain.Goal;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Consumer;
 import reactor.core.publisher.Flux;
 
 /**
@@ -27,12 +26,6 @@ public interface AgentService {
      * 完成后回写 goal 为 SUCCEEDED，出错时回写为 FAILED。
      */
     Flux<String> executeStreamReactive(String agentName, String objective, String sessionId);
-
-    /**
-     * 按 agentId 响应式流式执行：先解析出对应 agentName 再路由到该 Agent。
-     * agentId 为空或未命中时回退到默认 Agent（general）。
-     */
-    Flux<String> executeStreamReactiveByAgentId(Long agentId, String objective, String sessionId);
 
     /**
      * 复杂编排断点续跑：复用既有 goal（id 即检查点 threadId），从上次检查点继续执行。

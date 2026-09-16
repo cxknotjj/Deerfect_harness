@@ -2,6 +2,7 @@ package com.dark.javaHarness.prompt;
 
 import com.dark.javaHarness.domain.AgentConfig;
 import com.dark.javaHarness.service.AgentService;
+import com.dark.javaHarness.tool.ServerTaggedCallback;
 import com.dark.javaHarness.tool.ToolAssignments;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -30,6 +31,15 @@ public class PromptAssembler {
     /** 默认 system prompt（角色段兜底链的最终兜底） */
     private static final String DEFAULT_SYSTEM_PROMPT =
             "你是一个执行任务的 AI 助手，请直接给出简洁、可执行的完成结果。";
+
+    /** prompt 装配名单（llm_call_log 观测用）：skills=技能名；tools=全部工具名；mcpTools=其中 MCP 来源子集 */
+    public record PromptAttachments(List<String> skills, List<String> tools, List<String> mcpTools) {
+
+        /** 工具列置空变体（disableTools / 去工具重试场景）：技能名单保留 */
+        public PromptAttachments blankTools() {
+            return new PromptAttachments(skills, List.of(), List.of());
+        }
+    }
 
     private final AgentService agentService;
     private final ToolAssignments toolAssignments;
@@ -103,6 +113,42 @@ public class PromptAssembler {
         return "你是「" + expert + "」专家 Agent，以该领域专家的方式执行子任务。"
                 + "只能调用系统提供的工具列表中的工具；专家名（researcher/coder/analyst/writer 等）"
                 + "只是你的身份标识，绝不是可调用的工具。";
+    }
+
+    /**
+     * 计算 prompt 装配名单（llm_call_log 落库用）：单次计算同时产出技能/工具/MCP 三名单，
+     * 不重渲染 prompt。tools 复用 {@link #toolNamesOf} 口径（回调 + @Tool 注解双通道）；
+     * MCP 子集按 {@link ServerTaggedCallback} 来源标注拆分。
+     * 任何异常降级空表——观测计算绝不影响调用主链路。
+     */
+    public PromptAttachments attachmentsOf(String agentName) {
+        try {
+            List<String> skills = skillProviders.stream()
+                    .flatMap(p -> p.skillNames(agentName).stream())
+                    .toList();
+            List<String> tools = toolNamesOf(agentName);
+            List<String> mcpTools = mcpToolNamesOf(agentName);
+            return new PromptAttachments(skills, tools, mcpTools);
+        } catch (Exception e) {
+            return new PromptAttachments(List.of(), List.of(), List.of());
+        }
+    }
+
+    /** MCP 来源工具名：分配面回调中带 ServerTaggedCallback 标注者（@Tool 注解通道天然非 MCP） */
+    private List<String> mcpToolNamesOf(String agentName) {
+        if (toolAssignments == null || agentName == null) {
+            return List.of();
+        }
+        ToolAssignments.ToolSet toolSet = toolAssignments.forAgent(agentName);
+        if (toolSet.isEmpty()) {
+            return List.of();
+        }
+        return toolSet.callbacks().stream()
+                .filter(cb -> cb instanceof ServerTaggedCallback)
+                .map(ToolCallback::getToolDefinition)
+                .map(def -> def == null ? "" : def.name())
+                .filter(name -> !name.isEmpty())
+                .toList();
     }
 
     /**

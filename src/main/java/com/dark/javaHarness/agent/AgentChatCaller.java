@@ -194,6 +194,7 @@ final class AgentChatCaller {
     String callWithAssembly(String sessionId, String forAgent, String fallbackSystem, String user,
                             AgentRequestSpecFactory.Assembly assembly, Advisor[] extraAdvisors,
                             BooleanSupplier cancelled, BudgetLedger ledger) {
+        PromptAssembler.PromptAttachments attachments = attachmentsFor(forAgent, assembly);
         AgentConfig config = configOf(forAgent);
         String model = config != null ? config.model() : null;
         // 模型调用失败自动重试（最多 3 次、指数退避）；单次调用含观测埋点
@@ -204,26 +205,26 @@ final class AgentChatCaller {
                         new java.util.concurrent.atomic.AtomicReference<>();
                 String content = streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
                         assembly, extraAdvisors, null, cancelled, usageRef, ledger);
-                observer.okStream(sessionId, forAgent, model, start, content, usageRef.get());
+                observer.okStream(sessionId, forAgent, model, start, content, usageRef.get(), attachments);
                 recordEstimatedIfNoUsage(ledger, content, usageRef.get());
                 return content;
             } catch (RuntimeException e) {
                 // 客户端断连中止：记录后立即上抛（CancellationException 不可重试，直接放行）
                 if (e instanceof CancellationException) {
-                    observer.error(sessionId, forAgent, model, true, start, e);
+                    observer.error(sessionId, forAgent, model, true, start, e, attachments);
                     throw e;
                 }
                 // 编排预算熔断：政策性中止（非模型错误），记录后立即上抛（不可重试，
                 // 编排节点捕获后写「预算超限跳过」占位）
                 if (e instanceof BudgetExceededException) {
-                    observer.error(sessionId, forAgent, model, true, start, e);
+                    observer.error(sessionId, forAgent, model, true, start, e, attachments);
                     throw e;
                 }
                 // 账户级硬错误（余额不足/配额耗尽 402/403、鉴权失败 401）：重试无意义，
                 // 立即转人话异常向上传播（分类口径收敛于 LlmErrorClassifier）
                 RuntimeException translated = LlmErrorClassifier.translate(e, model);
                 if (translated != null) {
-                    observer.error(sessionId, forAgent, model, true, start, e);
+                    observer.error(sessionId, forAgent, model, true, start, e, attachments);
                     throw translated;
                 }
                 // 模型可能把提示词里的专家名（researcher 等）误当工具发起调用——
@@ -237,15 +238,15 @@ final class AgentChatCaller {
                                 new java.util.concurrent.atomic.AtomicReference<>();
                         String content = streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
                                 noToolsVariant(assembly), extraAdvisors, null, cancelled, usageRef2, ledger);
-                        observer.okStream(sessionId, forAgent, model, start2, content, usageRef2.get());
+                        observer.okStream(sessionId, forAgent, model, start2, content, usageRef2.get(), attachments.blankTools());
                         recordEstimatedIfNoUsage(ledger, content, usageRef2.get());
                         return content;
                     } catch (RuntimeException e2) {
-                        observer.error(sessionId, forAgent, model, true, start2, e2);
+                        observer.error(sessionId, forAgent, model, true, start2, e2, attachments.blankTools());
                         throw e2;
                     }
                 }
-                observer.error(sessionId, forAgent, model, true, start, e);
+                observer.error(sessionId, forAgent, model, true, start, e, attachments);
                 throw e;
             }
         });
@@ -255,12 +256,14 @@ final class AgentChatCaller {
     String invokeAndRecord(AgentConfig config, String sessionId, String forAgent,
                            String fallbackSystem, String user, Consumer<String> toolEmitter,
                            boolean disableTools, String model, long start, Advisor... extraAdvisors) {
+        AgentRequestSpecFactory.Assembly assembly = assemblyForRole(forAgent, sessionId, toolEmitter, disableTools);
+        PromptAssembler.PromptAttachments attachments = attachmentsFor(forAgent, assembly);
         java.util.concurrent.atomic.AtomicReference<Usage> usageRef =
                 new java.util.concurrent.atomic.AtomicReference<>();
         String content = streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
-                assemblyForRole(forAgent, sessionId, toolEmitter, disableTools),
+                assembly,
                 extraAdvisors, null, null, usageRef, null);
-        observer.okStream(sessionId, forAgent, model, start, content, usageRef.get());
+        observer.okStream(sessionId, forAgent, model, start, content, usageRef.get(), attachments);
         return content;
     }
 
@@ -471,9 +474,10 @@ final class AgentChatCaller {
     String streamWithAssembly(String sessionId, String forAgent, String fallbackSystem, String user,
                               Consumer<String> onToken, AgentRequestSpecFactory.Assembly assembly,
                               Advisor[] extraAdvisors, BooleanSupplier cancelled, BudgetLedger ledger) {
+        PromptAssembler.PromptAttachments attachments = attachmentsFor(forAgent, assembly);
         if (cancelled != null && cancelled.getAsBoolean()) {
             observer.error(sessionId, forAgent, null, true, System.currentTimeMillis(),
-                    CallCancellation.cancelException());
+                    CallCancellation.cancelException(), attachments);
             throw CallCancellation.cancelException();
         }
         if (ledger != null && ledger.overBudget()) {
@@ -497,7 +501,7 @@ final class AgentChatCaller {
                         extraAdvisors, collected, onToken, cancelled, usageRef, prevTotal, ledger);
                 // streamUsage 回传真实 usage 时记真实值，无则按已收输出文本近似估算（原口径兜底）；
                 // 账本兜底入账：无真实 usage 帧时按输出估算补记（有则增量已在流帧上记账，不重复）
-                observer.okStream(sessionId, forAgent, model, start, out, usageRef.get());
+                observer.okStream(sessionId, forAgent, model, start, out, usageRef.get(), attachments);
                 recordEstimatedIfNoUsage(ledger, out, usageRef.get());
                 return out;
             } catch (RuntimeException e) {
@@ -505,10 +509,10 @@ final class AgentChatCaller {
                         || (cancelled != null && cancelled.getAsBoolean());
                 if (isCancel) {
                     observer.error(sessionId, forAgent, model, true, start,
-                            CallCancellation.cancelException());
+                            CallCancellation.cancelException(), attachments);
                     throw CallCancellation.cancelException();
                 }
-                observer.error(sessionId, forAgent, model, true, start, e);
+                observer.error(sessionId, forAgent, model, true, start, e, attachments);
                 // 账户级硬错误：与阻塞（call）路径同口径转换，不重试直接抛人话异常
                 RuntimeException translated = LlmErrorClassifier.translate(e, model);
                 if (translated != null) {
@@ -559,6 +563,13 @@ final class AgentChatCaller {
     private AgentConfig configOf(String forAgent) {
         return agentService == null ? null
                 : agentService.getAgentConfig(forAgent).orElse(null);
+    }
+
+    /** 观测名单计算（llm_call_log 装配名单列）：assembly.disableTools 时工具/子集置空、技能保留 */
+    private PromptAssembler.PromptAttachments attachmentsFor(String forAgent,
+            AgentRequestSpecFactory.Assembly assembly) {
+        PromptAssembler.PromptAttachments att = promptAssembler.attachmentsOf(forAgent);
+        return assembly != null && assembly.disableTools() ? att.blankTools() : att;
     }
 
     /**

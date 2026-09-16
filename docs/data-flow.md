@@ -53,9 +53,10 @@
 ```
 ChatService.chat(request)
   1. 无 sessionId → sessionService.createSession() 建档
-  2. resolveAgent(message)                    ← 主 Agent 前置分流
-       └─ routeJudge.judge(message) → COMPLEX → "multi-agent" / 否则 "general"
-  3. agentService.executeSync(selectedAgent, message, sessionId)
+  2. agentId 有值 → sessionService.switchAgent()（会话绑定副作用，失败仅告警）
+  3. resolveAgent(message)                    ← 主 Agent 前置分流（统一判定，agentId 不跳过）
+       └─ routeJudge.judge(message) → COMPLEX → "multi-agent" / 否则 会话绑定 Agent（未绑定/失效回退 general）
+  4. agentService.executeSync(selectedAgent, message, sessionId)
        ├─ general（A）→ GeneralAssistantAgent.execute(goal)（薄适配）
        │     → AgentChatCaller.callWithAssembly()：按 agent 表 model 取 ChatClient（Registry）
        │       + MessageChatMemoryAdvisor 注入历史 + ContextAssemblingAdvisor 裁剪
@@ -77,11 +78,10 @@ ChatService.streamReactive(request)
                                                （resume 入口同口径；上限 app.chat.max-stream-connections，0=不限制）
   1. resolveAgent(message)                    ← 主 Agent 分流（同步旁路）
   2. 无 sessionId → boundedElastic 上 createSession() 建档
-  3. agent 选择：
-       agentId 有值 → executeStreamReactiveByAgentId()
-       无 agentId → 按 resolveAgent 结果：
-         SIMPLE  → executeStreamReactive(会话绑定 Agent, ...)
-         COMPLEX → executeStreamReactive(multi-agent, ...)
+  3. agentId 有值 → sessionService.switchAgent()（会话绑定副作用，失败仅告警）
+     agent 选择（统一判定，agentId 不跳过）：
+       resolveAgent → SIMPLE  → executeStreamReactive(会话绑定 Agent, ...)
+                    → COMPLEX → executeStreamReactive(multi-agent, ...)
        └─ AgentService：create(sessionId) → markRunning → 订阅 Agent 流
        └─ COMPLEX 编排流异常（非客户端断开）→ 降级为会话绑定 Agent 单模型重答一次
          （先发「降级」进度行；重答失败保留「编排失败 + 重答失败」两段错误；

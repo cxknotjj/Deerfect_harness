@@ -99,7 +99,8 @@ private final ChatClientRegistry clientRegistry;
                 + LlmCallRecorder.estimateTokens(message);
         recorder.record(new LlmCallLog(null, "route-judge", ROUTE_MODEL, false, ok,
                 promptTokens, null, null, true,
-                durationMs, LlmCallRecorder.describeError(e)));
+                durationMs, LlmCallRecorder.describeError(e),
+                null, null, null));
     }
 
     /** 解析 LLM 返回内容中的 route 字段；非法/缺失一律兜底 SIMPLE。 */
