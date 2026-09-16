@@ -3,14 +3,21 @@ package com.dark.javaHarness.agent;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.Goal;
+import com.dark.javaHarness.domain.entity.LlmCallLogEntity;
+import com.dark.javaHarness.mapper.LlmCallLogMapper;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.SessionService;
+import com.dark.javaHarness.service.impl.LlmCallRecorder;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,12 +29,15 @@ import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.definition.ToolDefinition;
 import reactor.core.publisher.Flux;
 
 /**
  * GeneralAssistantAgent 响应式流式单测：
  * 核心契约 —— executeStreamReactive 必须**真·逐 token 发射**（stream 内容序列原样透传），
  * 不得退化为「同步整段生成完后一次性产出」（接口 default 的行为）。
+ * 流式终结钩子落库需携带 prompt 装配名单（llm_call_log 三名单列）。
  */
 @ExtendWith(MockitoExtension.class)
 class GeneralAssistantAgentTest {
@@ -105,5 +115,32 @@ class GeneralAssistantAgentTest {
                 .block();
 
         assertEquals(tokens, out, "空 usage 末帧应被跳过，token 序列不变");
+    }
+
+    /** 流式终结钩子（recordCall）须携带 prompt 装配名单：tool_names 落 CSV，技能/MCP 空表落 NULL */
+    @Test
+    void executeStreamReactive_recordsToolNamesColumn() {
+        ToolCallback localCb = mock(ToolCallback.class);
+        when(localCb.getToolDefinition()).thenReturn(ToolDefinition.builder()
+                .name("fetchUrl").description("s").inputSchema("{}").build());
+        when(toolAssignments.forAgent("general")).thenReturn(
+                new com.dark.javaHarness.tool.ToolAssignments.ToolSet(List.of(), List.of(localCb)));
+        when(toolAssignments.purposeOf(any())).thenReturn("");
+        when(requestSpec.advisors(any(Advisor.class))).thenReturn(requestSpec);
+        when(requestSpec.system(anyString())).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        when(requestSpec.stream()).thenReturn(streamSpec);
+        when(streamSpec.chatResponse()).thenReturn(fluxOf("你好"));
+
+        LlmCallLogMapper mapper = mock(LlmCallLogMapper.class);
+        GeneralAssistantAgent observed = new GeneralAssistantAgent("general", clientRegistry, memoryStore,
+                agentService, toolAssignments,
+                new LlmCallRecorder(mapper, mock(com.dark.javaHarness.mapper.ToolCallLogMapper.class)));
+        observed.executeStreamReactive(new Goal("g3", "自我介绍")).collectList().block();
+
+        verify(mapper, timeout(2000)).insert(argThat((LlmCallLogEntity e) ->
+                "fetchUrl".equals(e.getToolNames())
+                        && e.getSkillNames() == null
+                        && e.getMcpToolNames() == null));
     }
 }

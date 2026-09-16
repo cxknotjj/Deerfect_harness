@@ -565,8 +565,9 @@ final class AgentChatCaller {
                 : agentService.getAgentConfig(forAgent).orElse(null);
     }
 
-    /** 观测名单计算（llm_call_log 装配名单列）：assembly.disableTools 时工具/子集置空、技能保留 */
-    private PromptAssembler.PromptAttachments attachmentsFor(String forAgent,
+    /** 观测名单计算（llm_call_log 装配名单列）：assembly.disableTools 时工具/子集置空、技能保留。
+     *  包级可见：路径 A 响应式流的终结钩子（GeneralAssistantAgent.recordCall）同口径复用 */
+    PromptAssembler.PromptAttachments attachmentsFor(String forAgent,
             AgentRequestSpecFactory.Assembly assembly) {
         PromptAssembler.PromptAttachments att = promptAssembler.attachmentsOf(forAgent);
         return assembly != null && assembly.disableTools() ? att.blankTools() : att;

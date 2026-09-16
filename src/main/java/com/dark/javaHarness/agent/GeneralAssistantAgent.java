@@ -199,10 +199,14 @@ public class GeneralAssistantAgent implements Agent {
         AgentConfig config = agentService.getAgentConfig(agentName)
                 .orElse(new AgentConfig(null, null, null, null));
         // 关闸挂 merge 之前的主干段（多 Agent 侧同款死锁教训：关闸在 merge 后会循环等待）
+        AgentRequestSpecFactory.Assembly assembly =
+                assemblyPathA(row -> BranchProgressListener.tryEmitSerialized(toolEvents, row));
+        // 观测名单装配期计算一次（llm_call_log 三名单列，与 AgentChatCaller 内聚口径一致）
+        PromptAssembler.PromptAttachments attachments = chatCaller.attachmentsFor(agentName, assembly);
         Flux<String> content = AgentChatCaller.tokenStream(
                         chatCaller.buildSpec(config, goal.sessionId(), agentName, DEFAULT_SYSTEM_PROMPT,
                                 goal.objective(),
-                                assemblyPathA(row -> BranchProgressListener.tryEmitSerialized(toolEvents, row))),
+                                assembly),
                         usageRef, null, null)
                 .doOnNext(collected::append)
                 .doOnError(streamError::set)
@@ -224,7 +228,7 @@ public class GeneralAssistantAgent implements Agent {
                         err = null;
                     }
                     recordCall(goal.sessionId(), true, err == null,
-                            usageRef.get(), collected, start, err);
+                            usageRef.get(), collected, start, err, attachments);
                     BranchProgressListener.tryCompleteSerialized(toolEvents);
                 });
         return content.mergeWith(toolEvents.asFlux());
@@ -240,10 +244,12 @@ public class GeneralAssistantAgent implements Agent {
      * execute/executeStream 的记录由 AgentChatCaller 内聚）。
      * 流式 usage 非 null 时记真实 token，无则按已收输出文本近似估算。
      * 错误描述经 {@link LlmCallRecorder#describeError} 展开原因链（含供应商响应体）。
+     * 装配名单（技能/工具/MCP）由调用方装配期经 {@code chatCaller.attachmentsFor} 计算传入。
      */
     private void recordCall(String sessionId, boolean stream, boolean ok,
                             Usage usage,
-                            StringBuilder collected, long start, Throwable error) {
+                            StringBuilder collected, long start, Throwable error,
+                            PromptAssembler.PromptAttachments attachments) {
         if (recorder == null) {
             return;
         }
@@ -262,6 +268,8 @@ public class GeneralAssistantAgent implements Agent {
                 agentService.getAgentConfig(agentName).map(AgentConfig::model).orElse(null),
                 stream, ok, prompt, completionVal, totalVal, estimated,
                 System.currentTimeMillis() - start, LlmCallRecorder.describeError(error),
-                null, null, null));
+                attachments == null ? null : attachments.skills(),
+                attachments == null ? null : attachments.tools(),
+                attachments == null ? null : attachments.mcpTools()));
     }
 }
