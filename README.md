@@ -184,7 +184,7 @@ $env:QWEN_API_KEY = "sk-你的key"    # Windows PowerShell；WSL 用 export QWEN
 
 ## 🐳 Docker 部署
 
-不想装 JDK/Maven/数据库？`docker/` 目录提供三件套一键起：**app + MySQL 8.4（主库）+ pgvector（RAG 知识库）**，数据库连接等配置全部经环境变量注入，`application.yaml` 零改动。主库建表由应用内置 Flyway 在启动时自动完成（镜像自包含 DDL，DB 容器无需挂 init 脚本）；pgvector 扩展由 `docker/pg-init/` 在首次建库时自动启用。
+不想装 JDK/Maven/数据库？`docker/` 目录提供三件套一键起：**app + MySQL 8.4（主库）+ pgvector（RAG 知识库）**，数据库连接等配置全部经环境变量注入，`application.yaml` 零改动。主库建表由应用内置 Flyway 在启动时自动完成（镜像自包含 DDL，DB 容器无需挂 init 脚本）；pgvector 扩展由 `docker/pg-init/` 在首次建库时自动启用。镜像获取有三种方式：**本地构建**（1️⃣）、**阿里云 ACR 拉取**（4️⃣，免构建推荐）、**离线 tar 导入**（5️⃣，无外网环境）。
 
 **1️⃣ 构建镜像**
 
@@ -243,7 +243,22 @@ curl -X POST http://localhost:8080/api/knowledge/sync   # 需真实 QWEN_API_KEY
 > - 全新 MySQL 由 Flyway 建表 + 种子 agent；旧库存量数据（自调的 agent 行、聊天历史）迁移：`mysqldump -uroot harness --no-create-info --skip-triggers --ignore-table=harness.flyway_schema_history > seed.sql`，再 `docker exec -i harness-mysql mysql -uroot -p<口令> harness < seed.sql`
 > - 知识库/技能/表情/MCP 配置已**默认外挂**（compose volumes：`../knowledge`、`../skills`、`../channel`、`../mcp-config.json`），改宿主机文件免重打镜像：`knowledge/` 改完调 sync 增量摄取（mtime 对比，免重启）；表情映射表改后 `restart app`、新增图片即时生效；`mcp-config.json` 改后 `up -d --force-recreate app`；批量调参写 `docker/config/application.yaml`（只写要改的键，改后 `restart app`，用法见该文件头注释）
 
-**4️⃣ 离线部署：导出镜像到目标 Linux 服务器**
+**4️⃣ 从阿里云镜像仓库拉取（免构建、免传 tar）**
+
+镜像已托管在阿里云个人版 ACR **公开仓库**（国内服务器直连快，无需登录、无需 registry-mirrors），多台部署或频繁更新时比离线 tar 省事：
+
+```bash
+REG=crpi-udfqmnkb69y8dx8r.cn-hangzhou.personal.cr.aliyuncs.com/java-harness/harness
+
+docker pull $REG:latest
+docker tag $REG:latest java-harness:latest   # 对齐 compose 的 image: java-harness（也可直接改 compose 的 image: 为仓库地址，省去 tag）
+docker compose -f docker/docker-compose.yml up -d
+```
+
+> [!TIP]
+> 目标机仍需 `docker/` 目录（compose + pg-init + config）与两样不进 git 的文件——`mcp-config.json` 和 `channel/emojis/` 表情图片，拷贝清单见 5️⃣。
+
+**5️⃣ 离线部署：导出镜像到目标 Linux 服务器**
 
 构建机与运行机不同（如构建在 Windows Docker Desktop、运行在 Linux 服务器）时，镜像包内含完整镜像层，目标机无需源码/Maven/JDK：
 
@@ -300,12 +315,14 @@ CLI 是纯 HTTP 客户端（**不监听任何端口**），通过 REST 调用主
 | `GET` | `/api/llm-calls?sessionId=&limit=` | 🧮 LLM 调用观测：耗时 / token / 成败（默认 50 条） |
 | `POST` | `/api/knowledge/sync` | 📚 知识库增量摄取：扫描 knowledge/ 目录，mtime 变更文档重嵌入，并清理磁盘已删文档的孤儿向量 |
 | `GET` | `/api/knowledge/documents?page=&size=` | 📚 知识库摄取台账分页 |
-| `GET` | `/api/knowledge/search?q=` | 📚 调试检索：向量检索命中片段与相关度（不注入 prompt） |
+| `GET` | `/api/knowledge/search?q=&kb=&full=` | 📚 调试检索：检索命中片段与相关度（不注入 prompt）；`full=true` 额外返回片段原文 |
+| `POST` | `/api/knowledge/upload` | 📚 multipart 上传 .md/.txt（≤1MB，可选 `kb` 表单字段归库），只落盘不摄取，重名覆盖 |
 | `DELETE` | `/api/knowledge/documents/{name}` | 📚 删除指定知识文档（向量 chunk + 台账） |
 
 > [!NOTE]
 > `agentId` 可选（对应 agent 表主键）：为空走默认 Agent（general）。
 > 知识库端点需 `app.knowledge.enabled=true`（默认 true）且配置好 pgvector/嵌入端点；未启用时返回 503。
+> 知识库另有单文件 Web 管理页：浏览器打开 **`http://localhost:8080/knowledge.html`**（台账/删除/同步/上传/调试检索，未启用时展示降级指引）。
 
 ### 📚 知识库问答（RAG）
 
@@ -330,6 +347,23 @@ curl -X POST http://localhost:8080/api/knowledge/sync
 ```
 
 在 `agent` 表 `knowledge` 列填写逗号分隔的 kb 标识（如 `java,frontend`）即可把 agent 绑定到指定知识库——检索时按向量 metadata 的 `kb` 字段过滤，agent 只读绑定的库，防止读串；列留空/NULL = 未绑定，不触发知识库检索。文档在子目录间移动（kb 变更）会在下次 sync 自动重摄取补齐。
+
+#### ⚙️ 知识库增强配置（app.knowledge.*）
+
+```yaml
+app.knowledge:
+  watch-enabled: false            # 目录监听自动摄取总开关：开启后 knowledge/ 增删改文件，
+                                  # 静默期过后自动触发一次增量摄取（免手动 sync；并发安全，
+                                  # 与手动 sync 同时到达时后到者跳过、由下一轮事件补齐）
+  watch-debounce-seconds: 3       # 文件事件静默期（秒）：批量拷贝/编辑器原子写合并为一次
+  hybrid-enabled: false           # BM25 混合检索总开关：开启后向量 + BM25 双路 RRF 融合重排，
+                                  # 关键词/编号/专有名词类查询字面精确召回更好（默认关 = 纯向量）
+  bm25-max-chunks: 20000          # BM25 内存索引规模护栏：chunk 总数超过则不建索引、退化为纯向量；0 = 不限
+```
+
+- **目录监听**（`watch-enabled`）：默认关。开启要求启动时 `knowledge/` 目录已存在（Docker 挂载天然保证）；监听范围 = 根目录 + 一级子目录，监听期间新建的一级子目录自动补注册；监听线程异常仅告警并自动恢复，绝不影响应用。
+- **混合检索**（`hybrid-enabled`）：默认关，关闭时行为与纯向量完全一致。开启后 BM25 索引从 PG 向量表按需懒构建（`sync`/`delete` 后自动失效重建），检索输出仍受 `top-k` 约束，融合分数归一化到 (0,1] 保持「相关度 %.2f」渲染口径。
+- **上传**：`POST /api/knowledge/upload`（multipart，`.md`/`.txt` ≤1MB，`kb` 可选且仅允许小写字母/数字/-/_）只落盘不自动摄取——随后调 sync 或依赖目录监听生效；管理页上传成功会自动链同步。
 
 ## 📡 SSE 流式协议
 

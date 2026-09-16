@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,16 +45,42 @@ public class KnowledgeServiceImpl implements KnowledgeService, ApplicationRunner
     /** 相邻 chunk 重叠字符数（语义边界缓冲） */
     static final int OVERLAP_CHARS = 100;
 
+    /** RRF 融合常数（业界常规 k=60，排名越靠前贡献越大、名次差异被 k 平滑） */
+    static final int RRF_K = 60;
+
+    /**
+     * BM25 leg 候选窗倍数：融合需要两路都有足够候选，BM25 leg 取比 top-k 更宽的窗口
+     * （max(topK×4, 20)；topK=0 不限），最终输出仍受 top-k 总条数约束
+     */
+    static final int BM25_CANDIDATE_FACTOR = 4;
+
     private final ObjectProvider<VectorStore> storeProvider;
+
+    /**
+     * BM25 内存索引（hybrid-enabled=true 时才有 bean）：经 ObjectProvider 注入，
+     * 关闭时 getIfAvailable 返回 null 走纯向量路径；getIfAvailable 可能抛
+     * BeanCreationException（PG 未就绪），由 search 外层 catch 统一降级空表
+     */
+    private final ObjectProvider<KnowledgeBm25Index> bm25Provider;
     private final KnowledgeDocumentScanner scanner;
     private final KbDocumentMapper mapper;
     private final KnowledgeProperties props;
 
+    /**
+     * sync 并发防护锁：手动 sync 与（后续）目录监听触发的自动 sync 可能并发到达，
+     * 需串行化保证同一时刻至多一个增量摄取在跑（向量库不出现并发写、不重复摄取）；
+     * tryLock 语义：后到者快速失败——立即抛可读异常，不阻塞等待排队
+     * （监听触发场景由静默期后的下一轮事件自然补齐，手动 API 场景可感知报错）。
+     */
+    private final ReentrantLock syncLock = new ReentrantLock();
+
     public KnowledgeServiceImpl(ObjectProvider<VectorStore> storeProvider,
+                                ObjectProvider<KnowledgeBm25Index> bm25Provider,
                                 KnowledgeDocumentScanner scanner,
                                 KbDocumentMapper mapper,
                                 KnowledgeProperties props) {
         this.storeProvider = storeProvider;
+        this.bm25Provider = bm25Provider;
         this.scanner = scanner;
         this.mapper = mapper;
         this.props = props;
@@ -61,52 +88,63 @@ public class KnowledgeServiceImpl implements KnowledgeService, ApplicationRunner
 
     @Override
     public KnowledgeSyncView sync() {
-        VectorStore store = requireStore();
-        List<KnowledgeDocumentScanner.KbFile> files = scanner.scan();
-        int updated = 0;
-        int skipped = 0;
-        int chunks = 0;
-        for (KnowledgeDocumentScanner.KbFile file : files) {
-            KbDocumentEntity row = rowOf(file.name());
-            if (row != null && row.getStatus() != null && row.getStatus() == 1
-                    && Objects.equals(row.getMtime(), file.mtime())
-                    && Objects.equals(row.getKb(), file.kb())) {
-                skipped++;
-                continue;
-            }
-            int oldChunkCount = row == null || row.getChunkCount() == null ? 0 : row.getChunkCount();
-            List<String> pieces = MarkdownChunker.chunk(file.text(), CHUNK_CHARS, OVERLAP_CHARS);
-            // 先删旧向量再写入（同 id 覆盖语义由删除保证；chunk 数减少时不留孤儿行）
-            deleteChunks(store, file.name(), oldChunkCount);
-            try {
-                List<Document> docs = new ArrayList<>(pieces.size());
-                for (int i = 0; i < pieces.size(); i++) {
-                    docs.add(new Document(chunkId(file.name(), i), pieces.get(i), Map.of(
-                            "source", file.name(),
-                            "title", file.title(),
-                            "chunkIndex", i,
-                            "kb", file.kb())));
-                }
-                if (!docs.isEmpty()) {
-                    addInBatches(store, docs);
-                }
-            } catch (Exception e) {
-                // 写入失败兜底：旧 chunk 已删、新 chunk 未写全——台账行置 0（失败待重试），
-                // 下次 sync 不再被「status=1 + mtime 未变」增量判据跳过，强制重摄取补齐向量；
-                // 新文件（无台账行）天然重扫，无需置位
-                if (row != null) {
-                    row.setStatus(0);
-                    mapper.updateById(row);
-                }
-                throw new IllegalStateException("向量库写入失败（" + file.name() + "）: " + rootMessage(e), e);
-            }
-            upsertRow(row, file, pieces.size());
-            updated++;
-            chunks += pieces.size();
-            log.info("[knowledge] 已摄取 '{}'：{} chunk（旧 {} chunk 已删）", file.name(), pieces.size(), oldChunkCount);
+        // 并发防护：手动 sync 与监听触发同时到达时，后到者 tryLock 快速失败、不阻塞等待
+        if (!syncLock.tryLock()) {
+            throw new IllegalStateException("已有知识库同步在执行，请稍后重试");
         }
-        cleanupOrphans(store, files);
-        return new KnowledgeSyncView(files.size(), updated, skipped, chunks);
+        try {
+            VectorStore store = requireStore();
+            List<KnowledgeDocumentScanner.KbFile> files = scanner.scan();
+            int updated = 0;
+            int skipped = 0;
+            int chunks = 0;
+            for (KnowledgeDocumentScanner.KbFile file : files) {
+                KbDocumentEntity row = rowOf(file.name());
+                if (row != null && row.getStatus() != null && row.getStatus() == 1
+                        && Objects.equals(row.getMtime(), file.mtime())
+                        && Objects.equals(row.getKb(), file.kb())) {
+                    skipped++;
+                    continue;
+                }
+                int oldChunkCount = row == null || row.getChunkCount() == null ? 0 : row.getChunkCount();
+                List<String> pieces = MarkdownChunker.chunk(file.text(), CHUNK_CHARS, OVERLAP_CHARS);
+                // 先删旧向量再写入（同 id 覆盖语义由删除保证；chunk 数减少时不留孤儿行）
+                deleteChunks(store, file.name(), oldChunkCount);
+                try {
+                    List<Document> docs = new ArrayList<>(pieces.size());
+                    for (int i = 0; i < pieces.size(); i++) {
+                        docs.add(new Document(chunkId(file.name(), i), pieces.get(i), Map.of(
+                                "source", file.name(),
+                                "title", file.title(),
+                                "chunkIndex", i,
+                                "kb", file.kb())));
+                    }
+                    if (!docs.isEmpty()) {
+                        addInBatches(store, docs);
+                    }
+                } catch (Exception e) {
+                    // 写入失败兜底：旧 chunk 已删、新 chunk 未写全——台账行置 0（失败待重试），
+                    // 下次 sync 不再被「status=1 + mtime 未变」增量判据跳过，强制重摄取补齐向量；
+                    // 新文件（无台账行）天然重扫，无需置位
+                    if (row != null) {
+                        row.setStatus(0);
+                        mapper.updateById(row);
+                    }
+                    throw new IllegalStateException("向量库写入失败（" + file.name() + "）: " + rootMessage(e), e);
+                }
+                upsertRow(row, file, pieces.size());
+                updated++;
+                chunks += pieces.size();
+                log.info("[knowledge] 已摄取 '{}'：{} chunk（旧 {} chunk 已删）", file.name(), pieces.size(), oldChunkCount);
+            }
+            cleanupOrphans(store, files);
+            return new KnowledgeSyncView(files.size(), updated, skipped, chunks);
+        } finally {
+            syncLock.unlock();
+            // BM25 索引失效（成功/失败路径都失效）：成功=数据已变；失败=旧 chunk 可能已删、
+            // 内容与索引不一致——宁可重建也不让混合检索读到陈旧索引（懒重建不阻塞摄取路径）
+            invalidateBm25();
+        }
     }
 
     /**
@@ -149,6 +187,7 @@ public class KnowledgeServiceImpl implements KnowledgeService, ApplicationRunner
         deleteChunks(store, row.getDocName(), row.getChunkCount() == null ? 0 : row.getChunkCount());
         mapper.deleteById(row.getId());
         log.info("[knowledge] 已删除 '{}'（{} chunk）", row.getDocName(), row.getChunkCount());
+        invalidateBm25();
         return true;
     }
 
@@ -166,24 +205,131 @@ public class KnowledgeServiceImpl implements KnowledgeService, ApplicationRunner
             return List.of();
         }
         try {
-            // getIfAvailable 触发 vectorStore 首次懒创建（含 initializeSchema 建表 DDL）：
-            // PG 未就绪时此处抛 BeanCreationException——必须与检索失败同样降级空表，
-            // 否则首次 chat 即被 bean 创建异常打断（降级口径：检索是增强信息不阻断主链路）
-            VectorStore store = storeProvider.getIfAvailable();
+            // 混合检索分发：hybrid-enabled 且 BM25 索引 bean 可用 → 双路 RRF 融合；
+            // 关闭/未装配走纯向量路径（逐字节现状逻辑，不查 PG content、不建索引）
+            if (props.isHybridEnabled()) {
+                KnowledgeBm25Index bm25 = bm25Provider.getIfAvailable();
+                if (bm25 != null) {
+                    return searchHybrid(query, kbs, bm25);
+                }
+            }
+            VectorStore store = resolveStore();
             if (store == null) {
                 return List.of();
             }
             return store.similaritySearch(searchRequest(query, kbs)).stream()
-                    .map(doc -> new KnowledgeHit(
-                            String.valueOf(doc.getMetadata().getOrDefault("source", "")),
-                            String.valueOf(doc.getMetadata().getOrDefault("title", "")),
-                            doc.getScore() == null ? 0 : doc.getScore(),
-                            doc.getText()))
+                    .map(this::toHit)
                     .toList();
         } catch (Exception e) {
-            // 调试检索降级空表：PG 不可用不影响主链路（与 KnowledgeRetriever 同口径）
+            // 调试检索降级空表：PG 不可用不影响主链路（与 KnowledgeRetriever 同口径）；
+            // 含 bm25Provider.getIfAvailable 的 BeanCreationException（懒创建 PG 未就绪）
             log.warn("[knowledge] 检索失败（向量库不可用？）: {}", rootMessage(e));
             return List.of();
+        }
+    }
+
+    /**
+     * 混合检索：向量 leg（现状逻辑，min-score/top-k 照旧作用于本路）+ BM25 leg
+     * （关键词/编号/专有名词字面精确匹配，不受 min-score 约束——两路分数语义不同
+     * 不可混用阈值）→ RRF（k=60）倒数排名融合 → 分数归一化 (0,1] 输出。
+     *
+     * <p>降级口径：向量 leg 抛异常走外层 catch 降级空表；BM25 leg 内部自降级空表
+     * （护栏触发/PG 抖动），效果等价纯向量排序，融合是增强不是义务。
+     */
+    private List<KnowledgeHit> searchHybrid(String query, List<String> kbs, KnowledgeBm25Index bm25) {
+        VectorStore store = resolveStore();
+        if (store == null) {
+            return List.of();
+        }
+        List<Document> vectorDocs = store.similaritySearch(searchRequest(query, kbs));
+        // BM25 leg 候选窗：比 top-k 宽（融合需要候选余量），最终输出条数仍受 top-k 约束
+        int bm25Limit = props.getTopK() > 0
+                ? Math.max(props.getTopK() * BM25_CANDIDATE_FACTOR, 20)
+                : 0;
+        List<KnowledgeBm25Index.Bm25Hit> bm25Hits = bm25.search(query, kbs, bm25Limit);
+        return rrfFuse(vectorDocs, bm25Hits);
+    }
+
+    /**
+     * RRF 融合：score = Σ_leg 1/(k+rank)（每路 rank 从 1 起），按 chunk id 聚合
+     * （两路都命中的 chunk 得分叠加置顶）；融合分除以理论最大值 2/(k+1) 归一化到
+     * (0,1]（单路 rank1 = 0.5，双路 rank1 = 1.0），保持「相关度 %.2f」渲染契约。
+     * 输出条数受 top-k 约束（top-k=0 不限）；同分按 docName 升序保证顺序确定。
+     */
+    List<KnowledgeHit> rrfFuse(List<Document> vectorDocs, List<KnowledgeBm25Index.Bm25Hit> bm25Hits) {
+        record Fused(String docName, String title, String text, double rrf) {
+        }
+        Map<String, Fused> fused = new java.util.HashMap<>();
+        int rank = 1;
+        for (Document doc : vectorDocs) {
+            // id 缺失（病态场景）给合成 key：仍可输出，只是不与 BM25 聚合
+            String key = doc.getId() != null && !doc.getId().isBlank() ? doc.getId() : "vec@" + rank;
+            double contribution = 1.0 / (RRF_K + rank);
+            Fused f = fused.get(key);
+            if (f == null) {
+                fused.put(key, new Fused(
+                        String.valueOf(doc.getMetadata().getOrDefault("source", "")),
+                        String.valueOf(doc.getMetadata().getOrDefault("title", "")),
+                        doc.getText(),
+                        contribution));
+            } else {
+                fused.put(key, new Fused(f.docName(), f.title(), f.text(), f.rrf() + contribution));
+            }
+            rank++;
+        }
+        rank = 1;
+        for (KnowledgeBm25Index.Bm25Hit hit : bm25Hits) {
+            double contribution = 1.0 / (RRF_K + rank);
+            Fused f = fused.get(hit.chunkId());
+            if (f == null) {
+                fused.put(hit.chunkId(), new Fused(hit.docName(), hit.title(), hit.text(), contribution));
+            } else {
+                // 两路命中同 chunk：文本取向量 leg 的（同 id 同内容，语义等价），分数叠加
+                fused.put(hit.chunkId(), new Fused(f.docName(), f.title(), f.text(), f.rrf() + contribution));
+            }
+            rank++;
+        }
+        // 归一化基准 = 双路 rank1 叠加的理论最大 2/(k+1)；rankWeightSum 兜底空表场景
+        double maxScore = 2.0 / (RRF_K + 1);
+        return fused.values().stream()
+                .sorted(java.util.Comparator.<Fused>comparingDouble(Fused::rrf).reversed()
+                        .thenComparing(Fused::docName))
+                .limit(props.getTopK() > 0 ? props.getTopK() : Long.MAX_VALUE)
+                .map(f -> new KnowledgeHit(f.docName(), f.title(),
+                        Math.min(1.0, f.rrf() / maxScore), f.text()))
+                .toList();
+    }
+
+    /** 向量库惰性解析（检索路径）：未装配返回 null，调用方降级空表 */
+    private VectorStore resolveStore() {
+        return storeProvider.getIfAvailable();
+    }
+
+    /** 向量命中 → KnowledgeHit（metadata source/title 提取口径统一） */
+    private KnowledgeHit toHit(Document doc) {
+        return new KnowledgeHit(
+                String.valueOf(doc.getMetadata().getOrDefault("source", "")),
+                String.valueOf(doc.getMetadata().getOrDefault("title", "")),
+                doc.getScore() == null ? 0 : doc.getScore(),
+                doc.getText());
+    }
+
+    /**
+     * BM25 索引失效标记（sync/delete 后调用，best-effort）：仅置脏标记不重建，
+     * 重建发生在下次混合检索前；hybrid 关闭或 bean 未装配时为无操作。
+     */
+    private void invalidateBm25() {
+        if (!props.isHybridEnabled()) {
+            return;
+        }
+        try {
+            KnowledgeBm25Index bm25 = bm25Provider.getIfAvailable();
+            if (bm25 != null) {
+                bm25.invalidate();
+            }
+        } catch (Exception e) {
+            // 失效标记失败（懒创建失败等）不影响摄取主流程：下次检索前重建仍会拉到新数据
+            log.debug("[knowledge] BM25 索引失效标记失败（忽略）: {}", rootMessage(e));
         }
     }
 

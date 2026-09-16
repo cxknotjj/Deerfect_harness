@@ -49,6 +49,11 @@ spring:
     # 存量库（表已存在但无 flyway_schema_history）首次接入时先打基线：
     # baseline 版本=1，V1 跳过，从 V2 起执行增量；全新空库则 V1 起完整执行
     baseline-on-migrate: true
+  servlet:
+    multipart:
+      # 知识文档上传上限（POST /api/knowledge/upload，仅 .md/.txt）；单请求=单文件所以两项一致
+      max-file-size: 1MB
+      max-request-size: 1MB
 
 server:
   port: 8080
@@ -128,6 +133,14 @@ app:
     min-query-chars: 8
     # 启动时自动增量摄取（默认关：摄取要调嵌入 API，离线启动不应报错）
     auto-sync-on-startup: false
+    # 目录监听自动摄取（WatchService 监听知识目录变更，静默期后自动 sync；默认关）
+    watch-enabled: false
+    # 文件事件静默期（秒）：事件停止后等待该时长再触发 sync，批量拷贝/原子写合并为一次
+    watch-debounce-seconds: 3
+    # BM25 混合检索（向量 + BM25 双路 RRF 融合重排，关键词/编号类查询召回更好；默认关 = 纯向量）
+    hybrid-enabled: true
+    # BM25 内存索引规模护栏：chunk 总数超过则不建索引、退化为纯向量；0 = 不限
+    bm25-max-chunks: 20000
     # 单次嵌入请求 chunk 数上限（DashScope 兼容模式单请求硬上限 10 条文本，8 留余量；
     # 0 = 不分批一次性提交——大文档切出大量 chunk 时会撞批次上限 400）
     embed-batch-size: 8

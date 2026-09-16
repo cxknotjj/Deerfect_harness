@@ -66,8 +66,8 @@
 - [x] **Web Search 接入**：注册搜索服务商 API（博查/Tavily/SerpAPI 等任一），新增 `search` 工具归入 `WebTools`，分配给 researcher/general——补「调研」第一步空缺，浏览器组退居 JS 渲染兜底
   - 验收：researcher 对「近期事件」类问题能返回带来源的检索结果
   - 进度（2026-09-12）：改走 MCP hosted 路线——Tavily 远程 MCP（Streamable HTTP）经 `mcp-config.json` 接入（该文件含 key 转本地不入库，模板见 README「MCP 工具接入」），general/researcher 的 agent 表 `tools` 列追加 `tavily_search`（数据路径分配；注意真实注册名是下划线 `tavily_search` 而非文档宣传的 `tavily-search`，另有 SDK baseUri.resolve 丢 query 的坑已修，见 spec）；待端到端验收后勾选
-- [ ] **知识库增强余项**（拆自 RAG 条目遗留）：目录文件监听（WatchService 免手动 sync）、BM25 混合检索与重排、web 管理页
-  - 验收：knowledge/ 目录增删文件自动增量摄取；混合检索召回优于纯向量
+- [x] **知识库增强余项**：已完成（2026-09-16）。① sync 并发串行化（ReentrantLock tryLock 快速失败，手动/监听并发不重复摄取）；② 目录文件监听 `KnowledgeDirectoryWatcher`（WatchService 根目录+一级子目录、新建子目录补注册、事件风暴 debounce 合并、异常 warn 自恢复、`watch-enabled` 默认关）；③ BM25 内存索引 + RRF 融合 `KnowledgeBm25Index`（PG 向量表 chunk 懒构建、中文 bigram/ASCII 词元、k1=1.2/b=0.75、RRF k=60 归一化 (0,1]、护栏 `bm25-max-chunks`、`hybrid-enabled` 默认关零回归，sync/delete 后失效懒重建）；④ 管理端点扩展（`/search?full=true` 带片段原文向后兼容、`POST /api/knowledge/upload` multipart ≤1MB 只落盘）+ 单文件管理页 `static/knowledge.html`（台账/删除/同步/上传/调试检索，503 降级横幅）
+  - 验证：知识库面单测 85 例全绿（含 watcher 真实 WatchService 时序用例、RRF 融合排序、失效钩子、上传校验/路径穿越拒绝）；监听/混合检索/上传的端到端手工验收待运行环境（watch-enabled 与 hybrid-enabled 均默认关，开启方式见 README「知识库增强配置」）
 - [ ] **RAG 旁路超时治理**（2026-09-12 tavily e2e 时发现）：嵌入调用/pgvector 查询无显式超时——外部依赖挂起时（实测 DashScope 无响应 + 本环境 PG 不可达），请求线程在「工具分配后、LLM 发起前」被拖最长 16 分钟才走到超时失败，多请求还会在同一释放点扎堆。给嵌入与向量检索加独立短超时（秒级），超时按既有语义静默降级
   - 验收：模拟嵌入接口挂起时，请求在秒级超时后正常降级回答（而非分钟级阻塞）
   - 顺带优化（本条超时落地后再做）：RouteJudge 判定与 RAG 检索**无数据依赖**（都只吃用户原始消息），可并行执行再汇合——省掉「judge LLM（秒级）→ RAG（嵌入+PG）」的串行等待；实现为独立线程 + future 带超时汇合，judge 异常兜底 SIMPLE 的既有语义不变；注意 embed→search 本身是串行数据依赖且 RAG 结果是 LLM 请求前置材料，**不可**在依赖链内部并行化

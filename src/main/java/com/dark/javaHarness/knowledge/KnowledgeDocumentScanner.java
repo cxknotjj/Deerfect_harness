@@ -56,6 +56,11 @@ public class KnowledgeDocumentScanner {
         }
     }
 
+    /** 知识目录根路径（目录监听等组件复用同一解析结果，避免重复解析配置默认值） */
+    public Path dir() {
+        return dir;
+    }
+
     /** 扫描知识目录全部有效文档（根目录 + 一级子目录，按名称排序）；目录缺失/为空返回空表 */
     public List<KbFile> scan() {
         if (!Files.isDirectory(dir)) {

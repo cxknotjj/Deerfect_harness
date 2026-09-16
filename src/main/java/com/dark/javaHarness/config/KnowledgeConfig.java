@@ -128,10 +128,39 @@ public class KnowledgeConfig {
 
     @Bean
     public KnowledgeService knowledgeService(ObjectProvider<VectorStore> vectorStore,
+                                             ObjectProvider<com.dark.javaHarness.knowledge.KnowledgeBm25Index> bm25Index,
                                              com.dark.javaHarness.knowledge.KnowledgeDocumentScanner scanner,
                                              com.dark.javaHarness.mapper.KbDocumentMapper kbDocumentMapper,
                                              KnowledgeProperties props) {
-        return new KnowledgeServiceImpl(vectorStore, scanner, kbDocumentMapper, props);
+        return new KnowledgeServiceImpl(vectorStore, bm25Index, scanner, kbDocumentMapper, props);
+    }
+
+    /**
+     * BM25 内存索引（hybrid-enabled=true 才装配）：@Lazy 保持首次混合检索才真实连 PG
+     * 拉取 chunk 建索引，与既有降级语义一致（hybrid 关闭时 bean 不存在，服务层走纯向量路径）。
+     */
+    @Bean
+    @Lazy
+    @ConditionalOnProperty(prefix = "app.knowledge", name = "hybrid-enabled", havingValue = "true")
+    public com.dark.javaHarness.knowledge.KnowledgeBm25Index knowledgeBm25Index(
+            @Lazy JdbcTemplate vectorJdbcTemplate, KnowledgeProperties props) {
+        return new com.dark.javaHarness.knowledge.KnowledgeBm25Index(
+                vectorJdbcTemplate, props.getPgvector().getTableName(), props.getBm25MaxChunks());
+    }
+
+    /**
+     * 知识目录监听器（watch-enabled=true 才装配）：文件变更静默期后自动 sync。
+     * 不做 @Lazy——无消费方注入，懒加载会静默不启动；构造不触碰 PG/嵌入端点
+     * （目录不存在时内部降级 warn + 不建线程），与「启动零依赖连接」语义不冲突。
+     */
+    @Bean(destroyMethod = "close")
+    @ConditionalOnProperty(prefix = "app.knowledge", name = "watch-enabled", havingValue = "true")
+    public com.dark.javaHarness.knowledge.KnowledgeDirectoryWatcher knowledgeDirectoryWatcher(
+            KnowledgeService knowledgeService,
+            com.dark.javaHarness.knowledge.KnowledgeDocumentScanner scanner,
+            KnowledgeProperties props) {
+        return new com.dark.javaHarness.knowledge.KnowledgeDirectoryWatcher(
+                knowledgeService, scanner.dir(), props.getWatchDebounceSeconds());
     }
 
     /** 检索增强器（挂 AgentRequestSpecFactory，路径 A/B 唯一请求组装汇合点） */

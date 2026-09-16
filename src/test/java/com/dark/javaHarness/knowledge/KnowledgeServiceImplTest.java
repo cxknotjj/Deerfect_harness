@@ -2,22 +2,35 @@ package com.dark.javaHarness.knowledge;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.config.KnowledgeProperties;
 import com.dark.javaHarness.domain.entity.KbDocumentEntity;
 import com.dark.javaHarness.mapper.KbDocumentMapper;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -41,7 +54,11 @@ class KnowledgeServiceImplTest {
     @Mock
     private ObjectProvider<VectorStore> storeProvider;
     @Mock
+    private ObjectProvider<KnowledgeBm25Index> bm25Provider;
+    @Mock
     private VectorStore store;
+    @Mock
+    private KnowledgeBm25Index bm25;
     @Mock
     private KnowledgeDocumentScanner scanner;
     @Mock
@@ -51,7 +68,7 @@ class KnowledgeServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        service = new KnowledgeServiceImpl(storeProvider, scanner, mapper, new KnowledgeProperties());
+        service = new KnowledgeServiceImpl(storeProvider, bm25Provider, scanner, mapper, new KnowledgeProperties());
     }
 
     private KnowledgeDocumentScanner.KbFile file(String name, String kb, long mtime, String text) {
@@ -170,7 +187,7 @@ class KnowledgeServiceImplTest {
         // embed-batch-size=2：5 chunk → 3 次 add（2+2+1），规避 DashScope 单请求 10 条硬上限
         KnowledgeProperties props = new KnowledgeProperties();
         props.setEmbedBatchSize(2);
-        KnowledgeServiceImpl batched = new KnowledgeServiceImpl(storeProvider, scanner, mapper, props);
+        KnowledgeServiceImpl batched = new KnowledgeServiceImpl(storeProvider, bm25Provider, scanner, mapper, props);
         when(storeProvider.getIfAvailable()).thenReturn(store);
         when(scanner.scan()).thenReturn(List.of(file("a.md", "default", 100L, "字".repeat(2400))));
         when(mapper.selectOne(any())).thenReturn(null);
@@ -227,6 +244,63 @@ class KnowledgeServiceImplTest {
 
         verify(mapper, never()).selectList(any());
         verify(store, never()).delete(anyList());
+    }
+
+    @Test
+    void sync_concurrentCall_loserFailsFast_withoutDuplicateEmbedding() throws Exception {
+        // 并发防护：两线程 CyclicBarrier 对齐同时 sync，持锁方阻塞在向量库写入处，
+        // 后到者 tryLock 快速失败——恰好一个成功、一个抛可读异常，向量库只写一次
+        when(storeProvider.getIfAvailable()).thenReturn(store);
+        when(scanner.scan()).thenReturn(List.of(file("a.md", "default", 100L, "短正文")));
+        when(mapper.selectOne(any())).thenReturn(null);
+        CountDownLatch enteredAdd = new CountDownLatch(1);
+        CountDownLatch releaseAdd = new CountDownLatch(1);
+        CountDownLatch loserAttempted = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            enteredAdd.countDown();
+            releaseAdd.await(10, TimeUnit.SECONDS);
+            return null;
+        }).when(store).add(anyList());
+
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        Callable<KnowledgeSyncView> syncTask = () -> {
+            barrier.await(10, TimeUnit.SECONDS);
+            try {
+                return service.sync();
+            } catch (IllegalStateException e) {
+                loserAttempted.countDown();
+                throw e;
+            }
+        };
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<KnowledgeSyncView> first = pool.submit(syncTask);
+            Future<KnowledgeSyncView> second = pool.submit(syncTask);
+
+            // 持锁方已进入向量库写入、且后到者已 tryLock 快速失败后，才放行持锁方完成摄取
+            //（保证后到者的 tryLock 尝试必然落在持锁窗口内，用例无时序竞态）
+            assertTrue(enteredAdd.await(10, TimeUnit.SECONDS), "应有一个线程持锁进入向量库写入");
+            assertTrue(loserAttempted.await(10, TimeUnit.SECONDS), "后到者应 tryLock 快速失败");
+            releaseAdd.countDown();
+
+            KnowledgeSyncView okView = null;
+            List<Throwable> errors = new ArrayList<>();
+            for (Future<KnowledgeSyncView> f : List.of(first, second)) {
+                try {
+                    okView = f.get(10, TimeUnit.SECONDS);
+                } catch (ExecutionException e) {
+                    errors.add(e.getCause());
+                }
+            }
+            assertNotNull(okView, "应恰好一个线程正常返回");
+            assertEquals(new KnowledgeSyncView(1, 1, 0, 1), okView);
+            assertEquals(1, errors.size(), "应恰好一个线程失败");
+            IllegalStateException loser = assertInstanceOf(IllegalStateException.class, errors.get(0));
+            assertEquals("已有知识库同步在执行，请稍后重试", loser.getMessage());
+            verify(store, times(1)).add(anyList());
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     @Test
@@ -316,6 +390,162 @@ class KnowledgeServiceImplTest {
 
         verify(store).similaritySearch(reqCaptor.capture());
         assertNull(reqCaptor.getValue().getFilterExpression(), "未绑定 = 不限，不应携带 filter");
+    }
+
+    /* ---------------- 混合检索（hybrid-enabled=true） ---------------- */
+
+    /** 混合检索专用服务：hybrid 开启的独立 props（不影响其余用例的默认关闭语义） */
+    private KnowledgeServiceImpl hybridService() {
+        KnowledgeProperties props = new KnowledgeProperties();
+        props.setHybridEnabled(true);
+        return new KnowledgeServiceImpl(storeProvider, bm25Provider, scanner, mapper, props);
+    }
+
+    private Document vectorDoc(String id, String source, String text) {
+        return new Document(id, text, Map.of("source", source, "title", "标题-" + source));
+    }
+
+    @Test
+    void search_hybrid_disabledGoesVectorOnly_withoutTouchingBm25() {
+        // 开关关闭零回归：不走 ObjectProvider 解析、不查 BM25，输出与纯向量路径一致
+        when(storeProvider.getIfAvailable()).thenReturn(store);
+        when(store.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(
+                vectorDoc("a.md#0", "a.md", "向量片段")));
+
+        List<KnowledgeService.KnowledgeHit> hits = service.search("问题", null);
+
+        assertEquals(1, hits.size());
+        assertEquals(0, hits.get(0).score(), "纯向量路径保留原始相似度分数语义");
+        verifyNoInteractions(bm25Provider);
+    }
+
+    @Test
+    void search_hybrid_dualLegHit_topsWithNormalizedScoreOne() {
+        // 两路都命中同 chunk（rank1+rank1）：RRF 叠加后归一化到 1.0 置顶
+        KnowledgeServiceImpl hybrid = hybridService();
+        when(bm25Provider.getIfAvailable()).thenReturn(bm25);
+        when(storeProvider.getIfAvailable()).thenReturn(store);
+        when(store.similaritySearch(any(SearchRequest.class)))
+                .thenReturn(List.of(vectorDoc("a.md#0", "a.md", "双路片段")));
+        when(bm25.search(any(), any(), anyInt())).thenReturn(List.of(
+                new KnowledgeBm25Index.Bm25Hit("a.md#0", "a.md", "标题-a.md", 9.0, "双路片段"),
+                new KnowledgeBm25Index.Bm25Hit("b.md#0", "b.md", "标题-b.md", 3.0, "仅关键词命中")));
+
+        List<KnowledgeService.KnowledgeHit> hits = hybrid.search("编号查询", null);
+
+        assertEquals(2, hits.size(), "topK=0 = 不限条数");
+        assertEquals("a.md", hits.get(0).docName());
+        assertEquals(1.0, hits.get(0).score(), 1e-9, "双路 rank1 叠加 = 理论最大分，归一化到 1.0");
+        assertEquals("b.md", hits.get(1).docName());
+        assertEquals((KnowledgeServiceImpl.RRF_K + 1.0) / (2.0 * (KnowledgeServiceImpl.RRF_K + 2.0)), hits.get(1).score(), 1e-9,
+                "单路 rank2 = (1/(k+2)) / (2/(k+1))，落在 (0,1]");
+    }
+
+    @Test
+    void search_hybrid_bm25OnlyHit_entersResults() {
+        // 关键词场景：向量 leg 无命中（低于阈值被过滤），BM25 leg 命中进入融合结果
+        KnowledgeServiceImpl hybrid = hybridService();
+        when(bm25Provider.getIfAvailable()).thenReturn(bm25);
+        when(storeProvider.getIfAvailable()).thenReturn(store);
+        when(store.similaritySearch(any(SearchRequest.class))).thenReturn(List.of());
+        when(bm25.search(any(), any(), anyInt())).thenReturn(List.of(
+                new KnowledgeBm25Index.Bm25Hit("spec.md#2", "spec.md", "标题-spec.md", 5.0, "编号片段")));
+
+        List<KnowledgeService.KnowledgeHit> hits = hybrid.search("ERR-4021 是什么", null);
+
+        assertEquals(1, hits.size());
+        assertEquals("spec.md", hits.get(0).docName());
+        assertEquals(0.5, hits.get(0).score(), 1e-9, "单路 rank1 归一化 = 0.5");
+    }
+
+    @Test
+    void search_hybrid_topKCapsFusedOutput() {
+        // top-k 约束最终输出条数（两路候选再宽，输出仍按 top-k 截断）
+        KnowledgeProperties props = new KnowledgeProperties();
+        props.setHybridEnabled(true);
+        props.setTopK(1);
+        KnowledgeServiceImpl hybrid = new KnowledgeServiceImpl(storeProvider, bm25Provider, scanner, mapper, props);
+        when(bm25Provider.getIfAvailable()).thenReturn(bm25);
+        when(storeProvider.getIfAvailable()).thenReturn(store);
+        when(store.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(
+                vectorDoc("a.md#0", "a.md", "片段a")));
+        when(bm25.search(any(), any(), anyInt())).thenReturn(List.of(
+                new KnowledgeBm25Index.Bm25Hit("b.md#0", "b.md", "标题-b.md", 2.0, "片段b")));
+
+        List<KnowledgeService.KnowledgeHit> hits = hybrid.search("问题", null);
+
+        assertEquals(1, hits.size());
+        assertEquals("a.md", hits.get(0).docName(), "双路 rank1 置顶且被 top-k 截留");
+    }
+
+    @Test
+    void search_hybrid_bm25LegFailure_degradesToVectorOrdering() {
+        // BM25 leg 内部降级空表（护栏/PG 抖动）：融合退化为纯向量排序，检索不失败
+        KnowledgeServiceImpl hybrid = hybridService();
+        when(bm25Provider.getIfAvailable()).thenReturn(bm25);
+        when(storeProvider.getIfAvailable()).thenReturn(store);
+        when(store.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(
+                vectorDoc("a.md#0", "a.md", "片段")));
+        when(bm25.search(any(), any(), anyInt())).thenReturn(List.of());
+
+        List<KnowledgeService.KnowledgeHit> hits = hybrid.search("问题", null);
+
+        assertEquals(1, hits.size());
+        assertEquals("a.md", hits.get(0).docName());
+    }
+
+    /* ---------------- BM25 索引失效钩子 ---------------- */
+
+    @Test
+    void sync_hybridEnabled_invalidatesBm25Index() {
+        KnowledgeServiceImpl hybrid = hybridService();
+        when(bm25Provider.getIfAvailable()).thenReturn(bm25);
+        when(storeProvider.getIfAvailable()).thenReturn(store);
+        when(scanner.scan()).thenReturn(List.of(file("a.md", "default", 100L, "短正文")));
+        when(mapper.selectOne(any())).thenReturn(null);
+
+        hybrid.sync();
+
+        verify(bm25).invalidate();
+    }
+
+    @Test
+    void sync_failure_stillInvalidatesBm25Index() {
+        // 失败路径也失效：旧 chunk 可能已删、索引与库内容不一致——宁可重建不读陈旧索引
+        KnowledgeServiceImpl hybrid = hybridService();
+        when(bm25Provider.getIfAvailable()).thenReturn(bm25);
+        when(storeProvider.getIfAvailable()).thenReturn(store);
+        when(scanner.scan()).thenReturn(List.of(file("a.md", "default", 100L, "短正文")));
+        when(mapper.selectOne(any())).thenReturn(null);
+        org.mockito.Mockito.doThrow(new RuntimeException("pg down")).when(store).add(anyList());
+
+        assertThrows(IllegalStateException.class, hybrid::sync);
+
+        verify(bm25).invalidate();
+    }
+
+    @Test
+    void delete_hybridEnabled_invalidatesBm25Index() {
+        KnowledgeServiceImpl hybrid = hybridService();
+        when(bm25Provider.getIfAvailable()).thenReturn(bm25);
+        when(mapper.selectOne(any())).thenReturn(row("a.md", "default", 100L, 2, 1));
+        when(storeProvider.getIfAvailable()).thenReturn(store);
+
+        hybrid.delete("a.md");
+
+        verify(bm25).invalidate();
+    }
+
+    @Test
+    void sync_hybridDisabled_neverTouchesBm25Provider() {
+        // 关闭开关：摄取路径零 BM25 交互（不解析 bean、不标记失效）
+        when(storeProvider.getIfAvailable()).thenReturn(store);
+        when(scanner.scan()).thenReturn(List.of(file("a.md", "default", 100L, "短正文")));
+        when(mapper.selectOne(any())).thenReturn(null);
+
+        service.sync();
+
+        verifyNoInteractions(bm25Provider);
     }
 
     @Test

@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>知识库管理</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; background: #f5f6f8; color: #2c3e50; padding: 24px; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: #7f8c8d; font-size: 13px; margin-bottom: 20px; }
+  .card { background: #fff; border-radius: 10px; padding: 18px; margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .card h2 { font-size: 15px; margin-bottom: 12px; color: #34495e; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  .row:last-child { margin-bottom: 0; }
+  input[type=text], input[type=file] { padding: 7px 10px; border: 1px solid #d5dbdb; border-radius: 6px; font-size: 13px; }
+  input[type=text] { width: 220px; }
+  button { padding: 7px 16px; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; background: #3498db; color: #fff; }
+  button:hover { opacity: .88; }
+  button.secondary { background: #95a5a6; }
+  button.danger { background: #e74c3c; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #ecf0f1; }
+  th { color: #7f8c8d; font-weight: 500; background: #fafbfc; }
+  td .tag { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; }
+  .tag.ok { background: #e8f8f0; color: #27ae60; }
+  .tag.bad { background: #fdeaea; color: #e74c3c; }
+  .pager { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 12px; font-size: 13px; color: #7f8c8d; }
+  .hit { border: 1px solid #ecf0f1; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+  .hit .meta { font-size: 13px; color: #34495e; margin-bottom: 6px; }
+  .hit .meta b { color: #2980b9; }
+  .hit .score { color: #27ae60; }
+  .hit pre { white-space: pre-wrap; word-break: break-word; background: #f8f9fa; padding: 10px; border-radius: 6px; font-size: 12.5px; line-height: 1.6; max-height: 260px; overflow: auto; }
+  #banner { display: none; background: #fdf2e9; border: 1px solid #f5b041; color: #b9770e; border-radius: 8px; padding: 14px 18px; margin-bottom: 18px; font-size: 14px; line-height: 1.7; }
+  #toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: #2c3e50; color: #fff; padding: 10px 22px; border-radius: 8px; font-size: 13px; display: none; z-index: 9; max-width: 80%; }
+  #toast.err { background: #c0392b; }
+  .empty { color: #95a5a6; text-align: center; padding: 24px; font-size: 13px; }
+  label.kb { font-size: 13px; color: #7f8c8d; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>知识库管理</h1>
+  <div class="sub">knowledge/ 目录文档的摄取台账、上传、同步与检索调试（RAG 知识面）</div>
+
+  <div id="banner"></div>
+
+  <div class="card">
+    <h2>调试检索（不注入 prompt，仅观察命中）</h2>
+    <div class="row">
+      <input type="text" id="q" placeholder="检索词，如：ERR-4021 / 事务传播" style="width:320px">
+      <input type="text" id="qKb" placeholder="kb 过滤（逗号分隔，空=全部）">
+      <button onclick="doSearch()">检索</button>
+    </div>
+    <div id="hits"><div class="empty">输入检索词查看命中片段</div></div>
+  </div>
+
+  <div class="card">
+    <h2>文档台账</h2>
+    <div class="row">
+      <button onclick="doSync()">触发同步</button>
+      <input type="file" id="file" accept=".md,.txt">
+      <label class="kb">kb：<input type="text" id="upKb" placeholder="空=根目录" style="width:120px"></label>
+      <button class="secondary" onclick="doUpload()">上传</button>
+    </div>
+    <table>
+      <thead>
+        <tr><th>kb</th><th>标题</th><th>文件名</th><th>修改时间</th><th>chunk 数</th><th>状态</th><th>操作</th></tr>
+      </thead>
+      <tbody id="rows"><tr><td colspan="7" class="empty">加载中…</td></tr></tbody>
+    </table>
+    <div class="pager">
+      <button class="secondary" id="prev" onclick="loadDocs(page-1)">上一页</button>
+      <span id="pageInfo">- / -</span>
+      <button class="secondary" id="next" onclick="loadDocs(page+1)">下一页</button>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+let page = 1;
+let totalPages = 1;
+const SIZE = 20;
+
+function toast(msg, isErr) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = isErr ? 'err' : '';
+  t.style.display = 'block';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.display = 'none'; }, isErr ? 5000 : 3000);
+}
+
+/** 统一请求封装：503 → 全局降级横幅（不白屏），其余错误 toast */
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (res.status === 503) {
+    let msg = '知识库未启用';
+    try { msg = (await res.json()).message || msg; } catch (e) { /* 保留默认文案 */ }
+    disableAll(msg);
+    throw new Error(msg);
+  }
+  if (!res.ok) {
+    let msg = '请求失败（HTTP ' + res.status + '）';
+    try { msg = (await res.json()).message || msg; } catch (e) { /* 保留默认文案 */ }
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+function disableAll(message) {
+  const banner = document.getElementById('banner');
+  banner.innerHTML = '<b>知识库未启用</b><br>' + message
+      + '<br>开启后重启应用，再刷新本页。';
+  banner.style.display = 'block';
+  document.querySelectorAll('button, input').forEach(el => { el.disabled = true; });
+}
+
+function fmtTime(millis) {
+  if (!millis) return '-';
+  return new Date(millis).toLocaleString('zh-CN', { hour12: false });
+}
+
+async function loadDocs(p) {
+  if (p < 1 || (totalPages && p > totalPages)) return;
+  try {
+    const data = await api('/api/knowledge/documents?page=' + p + '&size=' + SIZE);
+    page = data.page;
+    totalPages = Math.max(1, Math.ceil(data.total / data.size));
+    document.getElementById('pageInfo').textContent = data.total === 0
+        ? '共 0 条' : '第 ' + page + ' / ' + totalPages + ' 页（共 ' + data.total + ' 条）';
+    const tbody = document.getElementById('rows');
+    if (!data.list || data.list.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty">暂无文档：向 knowledge/ 目录放入 .md/.txt 后点「触发同步」</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.list.map(r =>
+        '<tr>'
+        + '<td>' + esc(r.kb || 'default') + '</td>'
+        + '<td>' + esc(r.title || '-') + '</td>'
+        + '<td>' + esc(r.docName) + '</td>'
+        + '<td>' + fmtTime(r.mtime) + '</td>'
+        + '<td>' + (r.chunkCount ?? '-') + '</td>'
+        + '<td><span class="tag ' + (r.status === 1 ? 'ok">已摄取' : 'bad">失败/下线') + '</span></td>'
+        + '<td><button class="danger" onclick="doDelete(\'' + esc(r.docName) + '\')">删除</button></td>'
+        + '</tr>').join('');
+  } catch (e) { /* 503 已转横幅，其余 toast */ toast(e.message, true); }
+}
+
+async function doSync() {
+  try {
+    const v = await api('/api/knowledge/sync', { method: 'POST' });
+    toast('同步完成：扫描 ' + v.scanned + '，更新 ' + v.updated + '，跳过 ' + v.skipped + '（入库 chunk ' + v.chunks + '）');
+    loadDocs(1);
+  } catch (e) { toast(e.message, true); }
+}
+
+async function doUpload() {
+  const fileInput = document.getElementById('file');
+  if (!fileInput.files || !fileInput.files.length) {
+    toast('请先选择 .md/.txt 文件', true);
+    return;
+  }
+  const fd = new FormData();
+  fd.append('file', fileInput.files[0]);
+  const kb = document.getElementById('upKb').value.trim();
+  if (kb) fd.append('kb', kb);
+  try {
+    const docName = await api('/api/knowledge/upload', { method: 'POST', body: fd });
+    fileInput.value = '';
+    document.getElementById('upKb').value = '';
+    toast('已上传 ' + docName + '，自动触发同步…');
+    await doSync();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function doDelete(name) {
+  if (!confirm('确定删除「' + name + '」？将同时删除向量 chunk 与台账记录。')) return;
+  try {
+    const ok = await api('/api/knowledge/documents/' + encodeURIComponent(name), { method: 'DELETE' });
+    toast(ok ? '已删除 ' + name : '文档不存在（可能已删除）', !ok);
+    loadDocs(page);
+  } catch (e) { toast(e.message, true); }
+}
+
+async function doSearch() {
+  const q = document.getElementById('q').value.trim();
+  if (!q) { toast('请输入检索词', true); return; }
+  const params = new URLSearchParams({ q, full: 'true' });
+  document.getElementById('qKb').value.trim().split(/[,，\s]+/).filter(Boolean)
+      .forEach(kb => params.append('kb', kb));
+  const box = document.getElementById('hits');
+  box.innerHTML = '<div class="empty">检索中…</div>';
+  try {
+    const hits = await api('/api/knowledge/search?' + params.toString());
+    if (!hits.length) {
+      box.innerHTML = '<div class="empty">无命中（可尝试放宽 kb 过滤或更换检索词）</div>';
+      return;
+    }
+    box.innerHTML = hits.map(h =>
+        '<div class="hit">'
+        + '<div class="meta"><b>' + esc(h.title || '-') + '</b>（' + esc(h.docName) + '，'
+        + '<span class="score">相关度 ' + Number(h.score).toFixed(2) + '</span>）</div>'
+        + '<pre>' + esc(h.text || '') + '</pre>'
+        + '</div>').join('');
+  } catch (e) {
+    box.innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
+  }
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+loadDocs(1);
+</script>
+</body>
+</html>

@@ -40,6 +40,18 @@ public class KnowledgeProperties {
     /** 启动时自动增量摄取（需嵌入端点可达，默认关：离线启动不应报错） */
     private boolean autoSyncOnStartup;
 
+    /** 目录监听自动摄取总开关（WatchService 监听 knowledge/ 变更后自动 sync；默认关） */
+    private boolean watchEnabled;
+
+    /** 文件事件静默期（秒）：事件停止后等待该时长再触发 sync，批量拷贝/编辑器原子写合并为一次 */
+    private int watchDebounceSeconds = 3;
+
+    /** BM25 混合检索总开关（true 时向量 + BM25 双路 RRF 融合；默认关 = 纯向量，零回归） */
+    private boolean hybridEnabled;
+
+    /** BM25 索引规模护栏：chunk 总数超过则不建索引、检索退化为纯向量；0 = 不限 */
+    private int bm25MaxChunks = 20000;
+
     private final Embedding embedding = new Embedding();
     private final Pgvector pgvector = new Pgvector();
 
@@ -105,6 +117,38 @@ public class KnowledgeProperties {
 
     public void setAutoSyncOnStartup(boolean autoSyncOnStartup) {
         this.autoSyncOnStartup = autoSyncOnStartup;
+    }
+
+    public boolean isWatchEnabled() {
+        return watchEnabled;
+    }
+
+    public void setWatchEnabled(boolean watchEnabled) {
+        this.watchEnabled = watchEnabled;
+    }
+
+    public int getWatchDebounceSeconds() {
+        return watchDebounceSeconds;
+    }
+
+    public void setWatchDebounceSeconds(int watchDebounceSeconds) {
+        this.watchDebounceSeconds = watchDebounceSeconds;
+    }
+
+    public boolean isHybridEnabled() {
+        return hybridEnabled;
+    }
+
+    public void setHybridEnabled(boolean hybridEnabled) {
+        this.hybridEnabled = hybridEnabled;
+    }
+
+    public int getBm25MaxChunks() {
+        return bm25MaxChunks;
+    }
+
+    public void setBm25MaxChunks(int bm25MaxChunks) {
+        this.bm25MaxChunks = bm25MaxChunks;
     }
 
     public Embedding getEmbedding() {
