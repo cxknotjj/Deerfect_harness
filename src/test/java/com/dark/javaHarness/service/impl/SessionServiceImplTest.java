@@ -70,6 +70,35 @@ class SessionServiceImplTest {
         assertTrue(uw.getParamNameValuePairs().containsValue(3L), "目标值应为新 agentId");
     }
 
+    /* ---------------- 画像提取支持：session 表时间列（V19） ---------------- */
+
+    /** 建档初始化画像扫描依据列：last_active_at=now、profile_extracted=0（待提炼） */
+    @Test
+    void createSession_initializesProfileColumns() {
+        org.mockito.ArgumentCaptor<SessionEntity> captor =
+                org.mockito.ArgumentCaptor.forClass(SessionEntity.class);
+
+        sessionService.createSession("cli", "你好");
+
+        verify(sessionMapper).insert(captor.capture());
+        SessionEntity inserted = captor.getValue();
+        assertTrue(inserted.getLastActiveAt() != null, "建档应初始化 last_active_at");
+        assertTrue(inserted.getProfileExtracted() != null && inserted.getProfileExtracted() == 0,
+                "建档应初始化 profile_extracted=0（待提炼）");
+    }
+
+    /** touchSession 应同步刷新 last_active_at（画像扫描的活跃依据） */
+    @Test
+    void touchSession_updatesLastActiveAt() {
+        sessionService.touchSession("9", "最新提问");
+
+        ArgumentCaptor<Wrapper<SessionEntity>> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(sessionMapper).update(eq(null), captor.capture());
+        UpdateWrapper<?> uw = (UpdateWrapper<?>) captor.getValue();
+        assertTrue(uw.getSqlSet().contains("last_active_at"), "应刷新 last_active_at 字段");
+        assertTrue(uw.getSqlSet().contains("last_question"), "保留既有 last_question 更新");
+    }
+
     @Test
     void switchAgent_sameAgent_skipsUpdate() {
         when(sessionMapper.selectOne(any())).thenReturn(session(9L, 3));

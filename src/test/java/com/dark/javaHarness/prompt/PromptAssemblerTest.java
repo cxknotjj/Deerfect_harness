@@ -29,9 +29,10 @@ import org.springframework.ai.tool.definition.ToolDefinition;
 
 /**
  * PromptAssembler 单测：
- * - 段落固定次序（角色 → 工具索引 → 工具纪律 → 输出约定 → skill）、空段跳过无多余空行
+ * - 段落固定次序（角色 → 画像 → 工具索引 → 工具纪律 → 输出约定 → skill）、空段跳过无多余空行
  * - 角色段优先级：agent 表 prompt &gt; 调用方兜底 &gt; 默认 system prompt
  * - skill 段扩展点：注入 SkillSectionProvider 时其文本出现在 skill 段位，无注入时该段为空
+ * - 画像段扩展点：注入 UserProfileSectionProvider 时 general 角色渲染【用户偏好画像】段（order 150）
  * - 子任务 persona 组装结果包含专家名与工具纪律文本
  * - attachmentsOf：prompt 装配名单（技能/工具/MCP 子集三名单，llm_call_log 观测口径）
  */
@@ -179,6 +180,47 @@ class PromptAssemblerTest {
         assertFalse(system.endsWith("\n"), "skill 空段被跳过，无尾随空行");
     }
 
+    /** 画像段扩展点：general 角色渲染【用户偏好画像】段（order 150，位于角色段与工具索引段之间） */
+    @Test
+    void assemble_profileProvider_generalRendersProfileSection() {
+        PromptAssembler withProfile = new PromptAssembler(agentService, toolAssignments,
+                List.of(), List.of(agentName -> "【用户偏好画像】\n- 偏好简洁回复"), false);
+        when(agentService.getAgentConfig("general")).thenReturn(Optional.empty());
+        ToolCallback readOnlyCb = callbackNamed("fs_read_file");
+        when(sandbox.readOnlyFileTools()).thenReturn(List.of(readOnlyCb));
+
+        String system = withProfile.assemble("general", "兜底角色");
+        String[] parts = system.split("\n\n", -1);
+
+        assertEquals(5, parts.length, "角色 + 画像 + 工具索引 + 纪律 + 输出约定");
+        assertEquals("兜底角色", parts[0], "角色段仍在最前");
+        assertTrue(parts[1].startsWith("【用户偏好画像】"), "画像段位于角色段之后");
+        assertTrue(parts[1].contains("- 偏好简洁回复"), "画像正文完整保留");
+        assertTrue(parts[2].startsWith("可用工具索引"), "画像段之后是工具索引段");
+    }
+
+    /** 画像段角色过滤：provider 对子任务角色返回 null（实现侧 MemoryPolicy 口径）→ 该段跳过 */
+    @Test
+    void assemble_profileProvider_subtaskRoleSkipped() {
+        PromptAssembler withProfile = new PromptAssembler(agentService, toolAssignments,
+                List.of(), List.of(agentName -> "general".equals(agentName) ? "【用户偏好画像】" : null), false);
+        when(agentService.getAgentConfig("researcher")).thenReturn(Optional.empty());
+
+        String system = withProfile.assemble("researcher", "兜底角色");
+
+        assertFalse(system.contains("【用户偏好画像】"), "子任务角色不注入画像");
+        assertFalse(system.contains("\n\n\n"), "画像空段跳过无多余空行");
+    }
+
+    /** 画像段缺省为空：无提供者时该段输出空串、不影响既有段落次序 */
+    @Test
+    void assemble_withoutProfileProvider_profileSectionEmpty() {
+        String system = assembler.assemble("general", "兜底角色");
+
+        assertFalse(system.contains("【用户偏好画像】"), "无画像提供者时不应有画像内容");
+        assertFalse(system.endsWith("\n"), "画像空段被跳过，无尾随空行");
+    }
+
     /** 子任务 persona 组装结果包含专家名与工具纪律文本 */
     @Test
     void subtaskPersona_assembledSystemContainsExpertNameAndToolDiscipline() {
@@ -199,7 +241,7 @@ class PromptAssemblerTest {
      */
     @Test
     void assemble_lazyToolsEnabled_indexSectionCarriesExpandHint() {
-        PromptAssembler lazy = new PromptAssembler(agentService, toolAssignments, List.of(), true);
+        PromptAssembler lazy = new PromptAssembler(agentService, toolAssignments, List.of(), List.of(), true);
         when(agentService.getAgentConfig("general")).thenReturn(Optional.empty());
         ToolCallback readOnlyCb = callbackNamed("fs_read_file");
         when(sandbox.readOnlyFileTools()).thenReturn(List.of(readOnlyCb));

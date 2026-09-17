@@ -114,6 +114,10 @@ services:
       - ../skills:/workspace/skills:ro
       # 表情映射表 + 图片（图片不进 git/.dockerignore 已排除，index 改后 restart app）
       - ../channel:/workspace/channel:ro
+      # 用户偏好画像（跨对话长期记忆，app 可写）：UserProfileService 定时合并写入 +
+      # prompt 画像段全文读取；整目录挂载防单文件 inode 陷阱（原子替换产生新 inode 后
+      # 容器内旧文件挂载失效）；首次部署宿主目录可不存在（docker 自动创建，服务首写落盘）
+      - ../user-profile:/workspace/user-profile
       # MCP server 配置（不进 git，含 API key）：McpToolProvider 启动时读一次，
       # 改后需 up -d --force-recreate app（或 cat > 覆盖写保 inode 后 restart）
       - ../mcp-config.json:/workspace/mcp-config.json:ro

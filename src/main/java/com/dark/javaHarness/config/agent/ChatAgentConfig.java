@@ -15,6 +15,7 @@ import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.prompt.SkillManager;
 import com.dark.javaHarness.prompt.SkillSectionProvider;
 import com.dark.javaHarness.prompt.ToolLazyManager;
+import com.dark.javaHarness.prompt.UserProfileSectionProvider;
 import java.util.List;
 import javax.sql.DataSource;
 import org.springframework.beans.factory.ObjectProvider;
@@ -62,8 +63,10 @@ public class ChatAgentConfig {
     public PromptAssembler promptAssembler(@Lazy AgentService agentService,
                                            ToolAssignments toolAssignments,
                                            List<SkillSectionProvider> skillProviders,
+                                           List<UserProfileSectionProvider> profileProviders,
                                            ToolLazyManager toolLazyManager) {
-        return new PromptAssembler(agentService, toolAssignments, skillProviders, toolLazyManager.isEnabled());
+        return new PromptAssembler(agentService, toolAssignments, skillProviders,
+                profileProviders, toolLazyManager.isEnabled());
     }
 
     /**

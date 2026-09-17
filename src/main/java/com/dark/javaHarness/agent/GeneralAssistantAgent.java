@@ -135,7 +135,7 @@ public class GeneralAssistantAgent implements Agent {
         ToolLazyManager effectiveLazy = lazyTools != null ? lazyTools : new ToolLazyManager(toolAssignments, false);
         // 工具索引段与延迟加载同源：开启时索引段追加 expand_tool 使用引导（与轻量态工具面对齐）
         PromptAssembler effectiveAssembler = promptAssembler != null ? promptAssembler
-                : new PromptAssembler(agentService, toolAssignments, List.of(), effectiveLazy.isEnabled());
+                : new PromptAssembler(agentService, toolAssignments, List.of(), List.of(), effectiveLazy.isEnabled());
         // budgets 缺省时取配置类默认（与 application.yaml 生产默认一致的单一数值源），
         // 不在此处硬编码兜底数字，避免代码/yaml 双口径漂移
         com.dark.javaHarness.config.ContextBudgetProperties effectiveBudgets =

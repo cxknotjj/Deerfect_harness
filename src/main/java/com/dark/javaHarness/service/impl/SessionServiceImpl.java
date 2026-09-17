@@ -77,6 +77,9 @@ public class SessionServiceImpl implements SessionService {
         session.setCreator(creator == null || creator.isBlank() ? "anonymous" : creator);
         session.setLastQuestion(truncate(firstQuestion, 200));
         session.setIsDelete(0);
+        // 画像提取扫描依据：建档即活跃；标记待提炼
+        session.setLastActiveAt(LocalDateTime.now());
+        session.setProfileExtracted(0);
         sessionMapper.insert(session);
         log.info("创建会话 sessionId={}, name='{}'", session.getSessionId(), session.getSessionName());
         return String.valueOf(session.getSessionId());
@@ -171,7 +174,9 @@ public class SessionServiceImpl implements SessionService {
         }
         UpdateWrapper<SessionEntity> uw = new UpdateWrapper<>();
         uw.eq("session_id", sid)
-                .set("last_question", truncate(lastQuestion, 200));
+                .set("last_question", truncate(lastQuestion, 200))
+                // 活跃时间同步刷新（画像提取扫描依据）
+                .set("last_active_at", LocalDateTime.now());
         sessionMapper.update(null, uw);
     }
 

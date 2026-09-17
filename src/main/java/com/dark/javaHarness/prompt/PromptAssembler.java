@@ -13,7 +13,7 @@ import org.springframework.ai.tool.ToolCallback;
 
 /**
  * Prompt 组装管线：按 agent 名把 system prompt 按固定段落次序组装——
- * 角色段 → 工具索引段 → 工具纪律段 → 输出约定段 → skill 段（扩展点）。
+ * 角色段 → 用户偏好画像段 → 工具索引段 → 工具纪律段 → 输出约定段 → skill 段（扩展点）。
  * 段落之间用空行分隔，空段跳过、不产生多余空行。
  *
  * <p>角色段优先级（现状查表逻辑平移）：agent 表该行 prompt &gt; 调用方传入的角色兜底
@@ -23,8 +23,9 @@ import org.springframework.ai.tool.ToolCallback;
  * <p>工具索引段基于 {@link ToolAssignments} 的用途元数据（purposeOf）渲染；
  * 工具纪律段收敛自编排子任务原先硬编码的工具使用纪律文本。
  *
- * <p>skill 段是预留扩展点：实现 {@link SkillSectionProvider} 注入本类即可追加内容
- * （后续「skill Markdown 目录装配」的衔接点），当前无实现时该段输出空串。
+ * <p>画像段与 skill 段同为扩展点：实现 {@link UserProfileSectionProvider}（用户偏好
+ * 画像，仅 general/lead 注入，实现侧判定角色）或 {@link SkillSectionProvider}
+ * （后续「skill Markdown 目录装配」衔接点）注入本类即可追加内容，无实现时该段输出空串。
  */
 public class PromptAssembler {
 
@@ -44,18 +45,20 @@ public class PromptAssembler {
     private final AgentService agentService;
     private final ToolAssignments toolAssignments;
     private final List<SkillSectionProvider> skillProviders;
+    /** 画像段提供者（扩展点）：用户偏好画像全文注入，角色过滤由实现侧判定（general/lead） */
+    private final List<UserProfileSectionProvider> profileProviders;
     /** 工具 Schema 延迟加载开关（与 ToolLazyManager 同源）：开启时工具索引段追加 expand_tool 使用引导 */
     private final boolean lazyToolsEnabled;
     /** 固定段落集合（渲染时按 order 排序，次序声明即所得） */
     private final List<PromptSection> sections;
 
     public PromptAssembler(AgentService agentService, ToolAssignments toolAssignments) {
-        this(agentService, toolAssignments, List.of(), false);
+        this(agentService, toolAssignments, List.of(), List.of(), false);
     }
 
     public PromptAssembler(AgentService agentService, ToolAssignments toolAssignments,
                            List<SkillSectionProvider> skillProviders) {
-        this(agentService, toolAssignments, skillProviders, false);
+        this(agentService, toolAssignments, skillProviders, List.of(), false);
     }
 
     /**
@@ -64,12 +67,14 @@ public class PromptAssembler {
      *                         与轻量态工具面（schema 置空）语义对齐；关闭时维持现状渲染
      */
     public PromptAssembler(AgentService agentService, ToolAssignments toolAssignments,
-                           List<SkillSectionProvider> skillProviders, boolean lazyToolsEnabled) {
+                           List<SkillSectionProvider> skillProviders,
+                           List<UserProfileSectionProvider> profileProviders, boolean lazyToolsEnabled) {
         this.agentService = agentService;
         this.toolAssignments = toolAssignments;
         this.skillProviders = skillProviders == null ? List.of() : List.copyOf(skillProviders);
+        this.profileProviders = profileProviders == null ? List.of() : List.copyOf(profileProviders);
         this.lazyToolsEnabled = lazyToolsEnabled;
-        this.sections = List.of(new RoleSection(), new ToolIndexSection(),
+        this.sections = List.of(new RoleSection(), new ProfileSection(), new ToolIndexSection(),
                 new ToolDisciplineSection(), new OutputConventionSection(), new SkillSection());
     }
 
@@ -189,6 +194,31 @@ public class PromptAssembler {
     }
 
     /* ---------------- 内置段落（按 order 固定次序渲染） ---------------- */
+
+    /** 画像段：用户偏好画像全文（角色过滤由 provider 实现侧判定，general/lead 以外为空段） */
+    private class ProfileSection implements PromptSection {
+
+        @Override
+        public String name() {
+            return "用户偏好画像";
+        }
+
+        @Override
+        public int order() {
+            return 150;
+        }
+
+        @Override
+        public String render(PromptSection.Context context) {
+            for (UserProfileSectionProvider provider : profileProviders) {
+                String text = provider.provide(context.agentName());
+                if (text != null && !text.isBlank()) {
+                    return text;
+                }
+            }
+            return null;
+        }
+    }
 
     /** 角色段：角色 prompt 原文（来源解析在组装入口完成，恒非空） */
     private class RoleSection implements PromptSection {

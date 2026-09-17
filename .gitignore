@@ -59,3 +59,6 @@ mcp-config.json
 .zcode/
 
 channel/emojis/
+
+# 用户偏好画像（运行期由 UserProfileService 自动生成/合并的持久化数据，不入 git）
+user-profile/user-profile.md

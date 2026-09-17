@@ -94,6 +94,9 @@
 - [ ] **对话历史长期归档（RAG 记忆库）**：旧会话原文跨会话归档 + 向量化，按 query 检索召回（解决「上个月的 bug 最后怎么解决的」类提问）——大语料、按需召回，是长期记忆 RAG 的正确挂载点（用户偏好画像为常驻小数据，全量注入即可，不走 RAG）
   - 设计要点：旧会话（空闲超阈值/显式归档）原文从 session_messages 快照导出入归档表 + pgvector 向量化（复用知识库 embedding 批量链路与 PgVectorStore 设施）；与「长期记忆滚动摘要」互补——摘要压缩掉的原文先进归档库再删快照，信息零丢失
   - 验收：数月前旧会话的细节可被自然语言问题召回，并引用出处会话
+- [ ] **画像提取活跃重置（长青会话缺口）**：用户偏好画像当前设计为「一次会话只提炼一次」（`profile_extracted` 锁定），长青会话（QQ 渠道按用户固定 sessionId，用户反复回来聊）静默提炼后新增的对话内容不会再被捕捉
+  - 方案：会话写回时（`touchSession`）重置 `profile_extracted=0`，会话每静默 `profile-idle-minutes` 后重新全量快照提炼一次（LLM 合并幂等去重，画像不膨胀）；代价 = 长青会话每轮静默多一次 LLM 调用
+  - 验收：同一长青会话两轮间隔静默后，两轮的偏好都出现在 `user-profile/user-profile.md` 中
 
 ## P3 · 工程化与产品化（按需启动）
 
@@ -175,6 +178,9 @@
 - [x] **RAG 知识库**（2026-09 完成）：pgvector 向量库 + DashScope text-embedding-v4 嵌入（1024 维）；knowledge/ 目录 .md/.txt 增量摄取（mtime 比对→MarkdownChunker 切分→嵌入入向量库，`POST /api/knowledge/sync`）；路径 A/B 检索增强（AgentRequestSpecFactory 唯一汇合点注入【出处N】知识段，aggregator 角色策略跳过）；出处透出（meta.sources + CLI 来源尾注）；管理端点 /api/knowledge（sync/documents/search/delete）；PG 不可用静默降级不影响启动；多知识库隔离（knowledge/ 一级子目录=kb，agent 表 knowledge 列 CSV 绑定，检索按向量 metadata.kb filterExpression 过滤防读串，kb 变更重摄取自愈）
   - 验收：knowledge/ 放本地文档 → sync 摄取 → 知识库问答，回答带【出处N】内联引用 + meta.sources + CLI 尾注 ✓
   - 余项已拆出为未完成条目（P1「知识库增强余项」）
+- [x] **用户偏好画像（跨对话长期记忆，2026-09 完成）**：全局单份 Markdown 画像 `user-profile/user-profile.md`（工作区顶层目录，容器整目录挂载防单文件 inode 陷阱），`UserProfileService` 定时扫描（5 分钟 fixedDelay 不堆叠）静默超 30 分钟且未提炼的会话，全量快照经 LLM 提炼偏好并与既有画像合并（保留无关条目/冲突以新为准/无新偏好原样输出；空白输出不落盘防抹画像，写盘成功才标记 `profile_extracted`）；画像全文经 `UserProfileSectionProvider` 注入 general/lead 的 system 画像段（order 150，角色过滤 `MemoryPolicy` 口径防污染子任务）；`app.memory.profile-enabled` 总开关同闸服务与注入点。不建 DB 表不做 RAG——常驻小数据全量注入优于检索（RAG 属对话历史归档，见未完成条目）；单会话一次提炼锁定，长青会话缺口见未完成「画像提取活跃重置」
+  - 迁移：V19（session 表加 `last_active_at`/`profile_extracted` 两列，存量会话不回溯提炼）
+  - 测试：`UserProfileServiceTest`（扫描/提炼/合并/落盘 7 用例）+ `UserProfileSectionProviderTest`（5 用例）+ `PromptAssemblerTest` 画像段用例
 - [x] **MCP 工具接入**：让 Agent 通过 MCP 连接外部工具/服务，扩展工具生态（不再逐个自研）
   - 与 Sandbox 衔接：agentscope-runtime 内置 MCP 桥接，接入时优先评估复用（见存档「Spring AI Alibaba Sandbox 接入」条目）
   - 验收：模型可调用一个外部 MCP 工具完成真实任务 ✓

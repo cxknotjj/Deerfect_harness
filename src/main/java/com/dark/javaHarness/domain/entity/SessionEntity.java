@@ -32,4 +32,10 @@ public class SessionEntity {
     /** 软删除标记：0-正常 1-已删除 */
     @TableLogic
     private Integer isDelete;
+
+    /** 最近活跃时间（画像提取扫描依据；建档初始化，每轮写回刷新） */
+    private java.time.LocalDateTime lastActiveAt;
+
+    /** 画像提取标记：0-待提炼 1-已提炼（一次会话仅提炼一次） */
+    private Integer profileExtracted;
 }
