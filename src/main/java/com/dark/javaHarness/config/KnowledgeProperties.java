@@ -34,6 +34,9 @@ public class KnowledgeProperties {
     /** 触发检索的最短 user 文本长度（字符）；0 = 不设下限 */
     private int minQueryChars;
 
+    /** 检索限时（秒）：嵌入+向量查询在守护线程池限时执行，超时中断并降级 null；0 = 关闭包裹直通现状 */
+    private int searchTimeoutSeconds;
+
     /** 单次嵌入请求的 chunk 数上限（DashScope 兼容模式批次硬上限 10 条）；0 = 不分批一次提交 */
     private int embedBatchSize;
 
@@ -101,6 +104,14 @@ public class KnowledgeProperties {
 
     public void setMinQueryChars(int minQueryChars) {
         this.minQueryChars = minQueryChars;
+    }
+
+    public int getSearchTimeoutSeconds() {
+        return searchTimeoutSeconds;
+    }
+
+    public void setSearchTimeoutSeconds(int searchTimeoutSeconds) {
+        this.searchTimeoutSeconds = searchTimeoutSeconds;
     }
 
     public int getEmbedBatchSize() {

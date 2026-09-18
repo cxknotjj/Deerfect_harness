@@ -4,7 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -161,6 +166,110 @@ class KnowledgeRetrieverTest {
 
         assertNotNull(retriever.buildKnowledgeBlock("lead", null, "无会话场景", List.of("default")));
         assertTrue(retriever.recentSources(null).isEmpty());
+    }
+
+    // ===== 检索限时超时包裹（app.knowledge.search-timeout-seconds）=====
+
+    @Test
+    void timeoutEnabled_normalSearch_rendersAsBefore() {
+        props.setSearchTimeoutSeconds(5);
+        when(knowledgeService.search("如何部署", List.of("default"))).thenReturn(List.of(hit("a.md", 0.92)));
+
+        String block = retriever.buildKnowledgeBlock("lead", "s1", "如何部署", List.of("default"));
+
+        assertNotNull(block, "限时内正常完成应与治理前渲染一致");
+        assertTrue(block.contains("【出处1】"));
+    }
+
+    @Test
+    void timeoutEnabled_searchHangs_degradesNullWithinLimit() {
+        props.setSearchTimeoutSeconds(1);
+        when(knowledgeService.search("挂起问题", List.of("default"))).thenAnswer(inv -> {
+            Thread.sleep(5000); // 模拟嵌入端点挂起
+            return List.of(hit("a.md", 0.9));
+        });
+
+        long start = System.currentTimeMillis();
+        String block = retriever.buildKnowledgeBlock("lead", "s1", "挂起问题", List.of("default"));
+
+        assertNull(block, "超时应降级 null（不注入知识块不阻断主链路）");
+        assertTrue(System.currentTimeMillis() - start < 4000, "应秒级降级而非等满 5s");
+    }
+
+    @Test
+    void timeoutZero_passThrough_propagatesException() {
+        props.setSearchTimeoutSeconds(0);
+        when(knowledgeService.search("直通异常", List.of("default"))).thenThrow(new RuntimeException("嵌入挂了"));
+
+        assertThrows(RuntimeException.class,
+                () -> retriever.buildKnowledgeBlock("lead", "s1", "直通异常", List.of("default")),
+                "0 = 关闭包裹直通现状，异常语义与治理前一致（向上传播不吞）");
+    }
+
+    @Test
+    void timeoutEnabled_searchThrows_degradesNull() {
+        props.setSearchTimeoutSeconds(5);
+        when(knowledgeService.search("异常问题", List.of("default"))).thenThrow(new RuntimeException("PG 不可达"));
+
+        assertNull(retriever.buildKnowledgeBlock("lead", "s1", "异常问题", List.of("default")),
+                "限时模式检索异常应静默降级 null");
+    }
+
+    // ===== 预取缓存与命中短路（prefetch + buildKnowledgeBlock 短路）=====
+
+    @Test
+    void prefetch_sameQueryAndKbs_shortCircuitsSearch() {
+        when(knowledgeService.search("如何部署", List.of("default"))).thenReturn(List.of(hit("a.md", 0.92)));
+
+        retriever.prefetch("lead", "s1", "如何部署", List.of("default"));
+        String block = retriever.buildKnowledgeBlock("lead", "s1", "如何部署", List.of("default"));
+
+        assertNotNull(block, "命中短路应返回预取知识块");
+        assertTrue(block.contains("【出处1】"));
+        verify(knowledgeService, times(1)).search("如何部署", List.of("default"));
+    }
+
+    @Test
+    void prefetch_differentQuery_missesAndSearches() {
+        when(knowledgeService.search(anyString(), anyList())).thenReturn(List.of(hit("a.md", 0.92)));
+
+        retriever.prefetch("lead", "s1", "如何部署", List.of("default"));
+        assertNotNull(retriever.buildKnowledgeBlock("lead", "s1", "子任务描述", List.of("default")));
+
+        verify(knowledgeService, times(2)).search(anyString(), anyList());
+    }
+
+    @Test
+    void prefetch_differentKbs_missesAndSearches() {
+        when(knowledgeService.search(anyString(), anyList())).thenReturn(List.of(hit("a.md", 0.92)));
+
+        retriever.prefetch("lead", "s1", "如何部署", List.of("default"));
+        assertNotNull(retriever.buildKnowledgeBlock("lead", "s1", "如何部署", List.of("java")));
+
+        verify(knowledgeService, times(2)).search(anyString(), anyList());
+    }
+
+    @Test
+    void prefetch_noHits_notCached() {
+        when(knowledgeService.search("无命中问题", List.of("default"))).thenReturn(List.of());
+
+        retriever.prefetch("lead", "s1", "无命中问题", List.of("default"));
+        assertNull(retriever.buildKnowledgeBlock("lead", "s1", "无命中问题", List.of("default")));
+
+        verify(knowledgeService, times(2)).search("无命中问题", List.of("default"));
+    }
+
+    @Test
+    void prefetchCache_overflow_clearsAll() {
+        when(knowledgeService.search(anyString(), anyList())).thenReturn(List.of(hit("a.md", 0.92)));
+
+        for (int i = 0; i < 513; i++) {
+            retriever.prefetch("lead", "sid-" + i, "如何部署", List.of("default"));
+        }
+        assertNotNull(retriever.buildKnowledgeBlock("lead", "sid-0", "如何部署", List.of("default")));
+
+        // 513 次预取各查一次；容量超限整体清空后 sid-0 未命中，组装时再现查 1 次
+        verify(knowledgeService, times(514)).search(anyString(), anyList());
     }
 
     @Test

@@ -68,9 +68,9 @@
   - 进度（2026-09-12）：改走 MCP hosted 路线——Tavily 远程 MCP（Streamable HTTP）经 `mcp-config.json` 接入（该文件含 key 转本地不入库，模板见 README「MCP 工具接入」），general/researcher 的 agent 表 `tools` 列追加 `tavily_search`（数据路径分配；注意真实注册名是下划线 `tavily_search` 而非文档宣传的 `tavily-search`，另有 SDK baseUri.resolve 丢 query 的坑已修，见 spec）；待端到端验收后勾选
 - [x] **知识库增强余项**：已完成（2026-09-16）。① sync 并发串行化（ReentrantLock tryLock 快速失败，手动/监听并发不重复摄取）；② 目录文件监听 `KnowledgeDirectoryWatcher`（WatchService 根目录+一级子目录、新建子目录补注册、事件风暴 debounce 合并、异常 warn 自恢复、`watch-enabled` 默认关）；③ BM25 内存索引 + RRF 融合 `KnowledgeBm25Index`（PG 向量表 chunk 懒构建、中文 bigram/ASCII 词元、k1=1.2/b=0.75、RRF k=60 归一化 (0,1]、护栏 `bm25-max-chunks`、`hybrid-enabled` 默认关零回归，sync/delete 后失效懒重建）；④ 管理端点扩展（`/search?full=true` 带片段原文向后兼容、`POST /api/knowledge/upload` multipart ≤1MB 只落盘）+ 单文件管理页 `static/knowledge.html`（台账/删除/同步/上传/调试检索，503 降级横幅）
   - 验证：知识库面单测 85 例全绿（含 watcher 真实 WatchService 时序用例、RRF 融合排序、失效钩子、上传校验/路径穿越拒绝）；监听/混合检索/上传的端到端手工验收待运行环境（watch-enabled 与 hybrid-enabled 均默认关，开启方式见 README「知识库增强配置」）
-- [ ] **RAG 旁路超时治理**（2026-09-12 tavily e2e 时发现）：嵌入调用/pgvector 查询无显式超时——外部依赖挂起时（实测 DashScope 无响应 + 本环境 PG 不可达），请求线程在「工具分配后、LLM 发起前」被拖最长 16 分钟才走到超时失败，多请求还会在同一释放点扎堆。给嵌入与向量检索加独立短超时（秒级），超时按既有语义静默降级
-  - 验收：模拟嵌入接口挂起时，请求在秒级超时后正常降级回答（而非分钟级阻塞）
-  - 顺带优化（本条超时落地后再做）：RouteJudge 判定与 RAG 检索**无数据依赖**（都只吃用户原始消息），可并行执行再汇合——省掉「judge LLM（秒级）→ RAG（嵌入+PG）」的串行等待；实现为独立线程 + future 带超时汇合，judge 异常兜底 SIMPLE 的既有语义不变；注意 embed→search 本身是串行数据依赖且 RAG 结果是 LLM 请求前置材料，**不可**在依赖链内部并行化
+- [x] **RAG 旁路超时治理**（2026-09-12 tavily e2e 时发现）：已完成（2026-09-18，spec 见 .trae/specs/add-rag-bypass-timeout-prefetch/）。① 检索限时：`searchWithTimeout` 包裹（`app.knowledge.search-timeout-seconds` 默认 10，0=关闭直通；守护线程池 + Future 限时，超时/异常 warn 降级 null 走既有静默语义）；② 入口预取：`KnowledgeRetriever.prefetch` 请求级缓存（sessionId 键 + query/kb 双重校验命中短路，专家节点 query=子任务描述天然不命中仍精准现查）；③ judge/预取并行汇合：ChatServiceImpl 同步与流式两入口预取先行提交与 judge 并行，judge 语义零改动，汇合窗口 2s 超时放弃
+  - 验收：模拟嵌入接口挂起时，请求在秒级超时后正常降级回答（而非分钟级阻塞）——单测以 sleep 挂起 mock 验证 1s 限时降级；KnowledgeRetrieverTest 24 例 + ChatServiceImplTest 33 例全绿
+  - 顺带优化：RouteJudge 判定与 RAG 检索**无数据依赖**（都只吃用户原始消息），可并行执行再汇合——省掉「judge LLM（秒级）→ RAG（嵌入+PG）」的串行等待；实现为独立线程 + future 带超时汇合，judge 异常兜底 SIMPLE 的既有语义不变；注意 embed→search 本身是串行数据依赖且 RAG 结果是 LLM 请求前置材料，**不可**在依赖链内部并行化
 - [ ] **聚合前子任务结果预算分摊裁剪**（拆自 Token 预算条目遗留）：子任务结果喂聚合前按预算分摊裁剪，前移聚合侧 sections 兜底——避免输出都长时靠后子任务整段被剪
   - 验收：多子任务结果超预算时各结果按分摊裁剪而非靠后者整段丢失
 - [ ] **对话内 Goal 命令（跨轮长期目标）**：在现有 goal 异步台账之上补「目标记忆」形态——用户在对话中声明长期目标（CLI `/goal <objective>` 起步，自然语言识别后续增强），落 goal 表并绑定 `session_id`；每轮对话 `ContextAssemblingAdvisor` 把活跃目标及最近进展注入上下文，agent 主动推进并汇报；完成由 LLM 自评 + 用户 `/goal done <id>` 双通道确认

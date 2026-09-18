@@ -19,6 +19,11 @@ import com.dark.javaHarness.service.RouteJudge;
 import com.dark.javaHarness.service.SessionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -54,6 +59,9 @@ public class ChatServiceImpl implements ChatService {
 
     /** COMPLEX 编排失败降级开关（app.chat.complex-fallback.enabled）：开启时编排失败降级为会话 Agent 单模型重答一次 */
     private final boolean complexFallbackEnabled;
+
+    /** 预取汇合窗口（秒）：预取内部已被 app.knowledge.search-timeout-seconds 限时，本值仅为快速 judge 场景的等待上限 */
+    private static final long PREFETCH_GRACE_SECONDS = 2;
 
     public ChatServiceImpl(AgentService agentService, SessionService sessionService,
                            RouteJudge routeJudge, GoalService goalService) {
@@ -102,7 +110,22 @@ public class ChatServiceImpl implements ChatService {
                         sessionId, request.agentId(), safeMessage(e));
             }
         }
-        String resolvedAgent = resolveAgent(request.message(), sessionId);
+        // judge 与 RAG 预取无数据依赖（都只吃用户原始消息）：预取先行提交、与 judge 并行，
+        // judge 完成后小幅汇合——预取结果进 KnowledgeRetriever 请求级缓存，组装期短路命中
+        ExecutorService prefetchPool = newPrefetchPool();
+        // sessionId 上方可能被重新赋值（新建会话），lambda 捕获需 effectively final 快照
+        final String prefetchSid = sessionId;
+        Future<?> prefetch = prefetchPool == null ? null
+                : prefetchPool.submit(() -> doPrefetch(request.message(), prefetchSid));
+        String resolvedAgent;
+        try {
+            resolvedAgent = resolveAgent(request.message(), sessionId);
+            awaitPrefetch(prefetch);
+        } finally {
+            if (prefetchPool != null) {
+                prefetchPool.shutdown();
+            }
+        }
 
         Goal goal = agentService.executeSync(resolvedAgent, request.message(), sessionId);
         // COMPLEX 编排失败降级（同步路径无客户端断开，FAILED 即编排自身失败）：
@@ -196,7 +219,20 @@ public class ChatServiceImpl implements ChatService {
             }
             // 路由统一判定（指定 Agent 不再跳过）：SIMPLE → 会话绑定 Agent 直答，
             // COMPLEX → multi-agent 编排（指定 Agent 仅是编排失败降级重答的落点）
-            String resolvedAgent = resolveAgent(request.message(), ctx.sid());
+            // judge 与 RAG 预取同样并行汇合（与同步 chat 同口径）：预取先行提交，judge 完成后
+            // 小幅等待——此处本就是同步阻塞 judge，≤2s 的汇合等待不改变线程语义
+            ExecutorService prefetchPool = newPrefetchPool();
+            Future<?> prefetch = prefetchPool == null ? null
+                    : prefetchPool.submit(() -> doPrefetch(request.message(), ctx.sid()));
+            String resolvedAgent;
+            try {
+                resolvedAgent = resolveAgent(request.message(), ctx.sid());
+                awaitPrefetch(prefetch);
+            } finally {
+                if (prefetchPool != null) {
+                    prefetchPool.shutdown();
+                }
+            }
             Flux<String> agentStream = agentService.executeStreamReactive(resolvedAgent, request.message(), ctx.sid());
             // COMPLEX 编排失败降级：编排自身异常（客户端断开走 cancel，不触发 onErrorResume）时
             // 降级为会话 Agent 单模型重答一次，一层兜底不递归
@@ -342,6 +378,53 @@ public class ChatServiceImpl implements ChatService {
         }
         List<KnowledgeSource> sources = knowledgeRetriever.recentSources(sessionId);
         return sources.isEmpty() ? null : sources;
+    }
+
+    /** RAG 预取专用单线程池（守护线程）：每次请求独立创建用完即弃，生命周期自洽零泄漏 */
+    private ExecutorService newPrefetchPool() {
+        if (knowledgeRetriever == null) {
+            return null;
+        }
+        return Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "rag-prefetch");
+            t.setDaemon(true);
+            return t;
+        });
+    }
+
+    /** 入口预取：解析会话绑定 agent 的知识库绑定并发起预取（任何失败静默，不影响主流程） */
+    private void doPrefetch(String message, String sessionId) {
+        try {
+            String agentName = sessionAgentName(sessionId);
+            com.dark.javaHarness.domain.AgentConfig config =
+                    agentName == null ? null : agentService.getAgentConfig(agentName).orElse(null);
+            List<String> kbs = com.dark.javaHarness.knowledge.KnowledgeRetriever
+                    .parseBinding(config == null ? null : config.knowledge());
+            if (kbs == null) {
+                return; // 未绑定知识库，无事发生
+            }
+            knowledgeRetriever.prefetch(agentName, sessionId, message, kbs);
+        } catch (Exception e) {
+            log.debug("[chat] RAG 预取跳过（静默）：{}", safeMessage(e));
+        }
+    }
+
+    /** 汇合预取：judge 完成后小幅等待；超时取消放弃（预取是纯加速，失败退化为组装期现查） */
+    private void awaitPrefetch(Future<?> prefetch) {
+        if (prefetch == null) {
+            return;
+        }
+        try {
+            prefetch.get(PREFETCH_GRACE_SECONDS, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            prefetch.cancel(true);
+            log.debug("[chat] RAG 预取未在汇合窗口内完成，放弃");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            prefetch.cancel(true);
+        } catch (Exception e) {
+            log.debug("[chat] RAG 预取失败（静默）：{}", safeMessage(e));
+        }
     }
 
     /** 安全取异常信息，避免 getMessage 为空导致行文本不规范；换行替换为空格避免破坏逐行解析 */

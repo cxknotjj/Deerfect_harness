@@ -7,6 +7,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,8 +57,20 @@ public class KnowledgeRetriever {
     private final KnowledgeService knowledgeService;
     private final KnowledgeProperties props;
 
+    /** 检索守护线程序号（线程命名 knowledge-search-N，JVM 内唯一） */
+    private static final AtomicInteger SEARCH_THREAD_SEQ = new AtomicInteger();
+
+    /** 检索限时执行池：固定 2 线程守护线程（knowledge-search-N），懒创建复用 */
+    private volatile ExecutorService searchPool;
+
     /** session → 最近一次命中的来源（保序，命中分数降序）；出处透出用 */
     private final ConcurrentHashMap<String, List<KnowledgeSource>> recentSources = new ConcurrentHashMap<>();
+
+    /** 一次预取结果：query 与 kb 绑定列表共同构成命中校验键（任一不同即视为未命中） */
+    public record PrefetchedKnowledge(String query, List<String> kbs, String block) {}
+
+    /** 入口预取缓存（sessionId 键，容量仿 recentSources 超限整体清空） */
+    private final ConcurrentHashMap<String, PrefetchedKnowledge> prefetchCache = new ConcurrentHashMap<>();
 
     public KnowledgeRetriever(KnowledgeService knowledgeService, KnowledgeProperties props) {
         this.knowledgeService = knowledgeService;
@@ -81,7 +101,15 @@ public class KnowledgeRetriever {
         if (props.getMinQueryChars() > 0 && query.length() < props.getMinQueryChars()) {
             return null;
         }
-        List<KnowledgeService.KnowledgeHit> hits = knowledgeService.search(query, kbs);
+        // 预取命中短路：同会话 + query 与 kb 绑定完全相等 → 直接复用预取块不再检索
+        //（命中后不删缓存：编排 lead 节点 user=用户原文可复用；专家节点 query=子任务描述天然不命中）
+        PrefetchedKnowledge prefetched = sessionId == null || sessionId.isBlank()
+                ? null : prefetchCache.get(sessionId);
+        if (prefetched != null && prefetched.query().equals(query) && prefetched.kbs().equals(kbs)) {
+            log.debug("[knowledge] 预取命中，跳过检索：sid={} query='{}'", sessionId, summarize(query));
+            return prefetched.block();
+        }
+        List<KnowledgeService.KnowledgeHit> hits = searchWithTimeout(query, kbs);
         if (hits == null || hits.isEmpty()) {
             return null;
         }
@@ -107,6 +135,28 @@ public class KnowledgeRetriever {
         }
         remember(sessionId, hits.subList(0, cited));
         return BLOCK_HEADER + body + BLOCK_FOOTER;
+    }
+
+    /**
+     * 入口预取：提前完成一次完整检索并缓存（复用 buildKnowledgeBlock 全部前置检查、
+     * 超时包裹与预算截留），随后同会话同 query 同 kb 绑定的组装请求短路命中。
+     * 无命中/异常静默——预取是纯加速，失败退化为后续现查。
+     */
+    public void prefetch(String agentName, String sessionId, String query, List<String> kbs) {
+        try {
+            // 缓存键与 buildKnowledgeBlock 内部 strip 口径对齐（存原文会因首尾空白导致命中判定失败）
+            String normalized = query == null ? "" : query.strip();
+            String block = buildKnowledgeBlock(agentName, sessionId, normalized, kbs);
+            if (block != null && sessionId != null && !sessionId.isBlank()) {
+                if (prefetchCache.size() >= MAX_SESSIONS && !prefetchCache.containsKey(sessionId)) {
+                    prefetchCache.clear();
+                }
+                prefetchCache.put(sessionId, new PrefetchedKnowledge(normalized, List.copyOf(kbs), block));
+                log.debug("[knowledge] 预取完成 sid={} query='{}'", sessionId, summarize(normalized));
+            }
+        } catch (Exception e) {
+            log.debug("[knowledge] 预取失败（静默，后续现查）：{}", String.valueOf(e));
+        }
     }
 
     /**
@@ -155,5 +205,68 @@ public class KnowledgeRetriever {
             sources.add(hit.toSource());
         }
         recentSources.put(sessionId, List.copyOf(sources));
+    }
+
+    /**
+     * 检索限时执行：searchTimeoutSeconds &gt; 0 时把 {@code knowledgeService.search} 包裹到
+     * 守护线程池限时执行，超时/异常降级 null（命中既有「无命中返回 null」语义，不阻断主链路）；
+     * 0 = 关闭包裹直通现状（行为与治理前逐字节一致，异常照常向上传播）。
+     */
+    private List<KnowledgeService.KnowledgeHit> searchWithTimeout(String query, List<String> kbs) {
+        int timeoutSeconds = props.getSearchTimeoutSeconds();
+        if (timeoutSeconds <= 0) {
+            return knowledgeService.search(query, kbs);
+        }
+        ExecutorService pool = ensureSearchPool();
+        Future<List<KnowledgeService.KnowledgeHit>> future;
+        try {
+            future = pool.submit(() -> knowledgeService.search(query, kbs));
+        } catch (RejectedExecutionException e) {
+            log.warn("[knowledge] 检索池拒绝，降级跳过：query='{}'", summarize(query));
+            return null;
+        }
+        long start = System.currentTimeMillis();
+        try {
+            return future.get(timeoutSeconds, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            log.warn("[knowledge] 知识检索超时（限时 {}s，实际 {}ms），降级跳过：query='{}'",
+                    timeoutSeconds, System.currentTimeMillis() - start, summarize(query));
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            future.cancel(true);
+            return null;
+        } catch (ExecutionException e) {
+            log.warn("[knowledge] 知识检索异常，降级跳过：{}", String.valueOf(e.getCause()));
+            return null;
+        }
+    }
+
+    /** 懒创建检索执行池（双重检查锁）：固定 2 守护线程，进程生命周期内复用 */
+    private ExecutorService ensureSearchPool() {
+        ExecutorService pool = searchPool;
+        if (pool == null) {
+            synchronized (this) {
+                if (searchPool == null) {
+                    searchPool = Executors.newFixedThreadPool(2, r -> {
+                        Thread t = new Thread(r, "knowledge-search-" + SEARCH_THREAD_SEQ.incrementAndGet());
+                        t.setDaemon(true);
+                        return t;
+                    });
+                }
+                pool = searchPool;
+            }
+        }
+        return pool;
+    }
+
+    /** 日志用 query 摘要：压平换行并截断 50 字符，避免长查询刷屏 */
+    private static String summarize(String query) {
+        if (query == null) {
+            return "";
+        }
+        String singleLine = query.replaceAll("\\s+", " ").strip();
+        return singleLine.length() <= 50 ? singleLine : singleLine.substring(0, 50) + "…";
     }
 }

@@ -140,6 +140,8 @@ app:
     context-budget: 3000
     # 触发检索的最短 user 文本长度（过短问题检索意义小，直接跳过）
     min-query-chars: 8
+    # 检索限时（秒）：嵌入+向量查询限时执行，超时中断降级（不注入知识块不阻断聊天）；0 = 关闭包裹
+    search-timeout-seconds: 10
     # 启动时自动增量摄取（默认关：摄取要调嵌入 API，离线启动不应报错）
     auto-sync-on-startup: false
     # 目录监听自动摄取（WatchService 监听知识目录变更，静默期后自动 sync；默认关）

@@ -16,6 +16,7 @@ import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.agent.ProgressLine;
 import com.dark.javaHarness.config.StreamConnectionLimiter;
+import com.dark.javaHarness.domain.AgentConfig;
 import com.dark.javaHarness.domain.Goal;
 import com.dark.javaHarness.domain.RouteDecision;
 import com.dark.javaHarness.domain.dto.ChatRequest;
@@ -24,6 +25,7 @@ import com.dark.javaHarness.domain.entity.SessionEntity;
 import com.dark.javaHarness.enums.GoalStatus;
 import com.dark.javaHarness.exception.ConcurrentRequestException;
 import com.dark.javaHarness.exception.ResumeConflictException;
+import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.GoalService;
 import com.dark.javaHarness.service.RouteJudge;
@@ -58,6 +60,8 @@ class ChatServiceImplTest {
     private RouteJudge routeJudge;
     @Mock
     private GoalService goalService;
+    @Mock
+    private KnowledgeRetriever knowledgeRetriever;
 
     private ChatServiceImpl chatService;
 
@@ -601,5 +605,68 @@ class ChatServiceImplTest {
         assertTrue(meta.contains("\"status\":\"SUCCEEDED\""));
         // 成功后写回会话记忆（user=objective + assistant=续跑完整回复，共 2 条）
         verify(sessionService, times(2)).saveContext(eq("s9"), any());
+    }
+
+    /* ---------------- RouteJudge 与 RAG 预取并行汇合 ---------------- */
+
+    /** 绑定知识库的会话聊天：judge 前提交预取、judge 后汇合——prefetch 应以会话 Agent 的 kb 绑定被调用 */
+    @Test
+    void chat_withKnowledgeBinding_shouldPrefetchBeforeJudge() {
+        chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
+                knowledgeRetriever, new StreamConnectionLimiter(0), true);
+        SessionEntity session = new SessionEntity();
+        session.setAgentId(1);
+        when(sessionService.getSession("42")).thenReturn(session);
+        when(agentService.findAgentNameById(1L)).thenReturn(Optional.of("general"));
+        when(agentService.getAgentConfig("general")).thenReturn(Optional.of(
+                new AgentConfig(1L, "gpt", null, "kb1")));
+        when(routeJudge.judge("什么是知识库")).thenReturn(RouteDecision.SIMPLE);
+        when(agentService.executeSync("general", "什么是知识库", "42"))
+                .thenReturn(succeededGoal("42", "回答"));
+
+        ChatResponse resp = chatService.chat(new ChatRequest("什么是知识库", "42", null));
+
+        assertEquals("SUCCEEDED", resp.status());
+        verify(knowledgeRetriever).prefetch(eq("general"), anyString(), eq("什么是知识库"), eq(List.of("kb1")));
+    }
+
+    /** 流式路径同样并行预取：绑定知识库会话的 streamReactive 亦提交预取 */
+    @Test
+    void streamReactive_withKnowledgeBinding_shouldPrefetchBeforeJudge() {
+        chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
+                knowledgeRetriever, new StreamConnectionLimiter(0), true);
+        SessionEntity session = new SessionEntity();
+        session.setAgentId(1);
+        when(sessionService.getSession("50")).thenReturn(session);
+        when(agentService.findAgentNameById(1L)).thenReturn(Optional.of("general"));
+        when(agentService.getAgentConfig("general")).thenReturn(Optional.of(
+                new AgentConfig(1L, "gpt", null, "kb1")));
+        when(agentService.executeStreamReactive("general", "hi", "50"))
+                .thenReturn(Flux.just("a"));
+
+        chatService.streamReactive(new ChatRequest("hi", "50", null)).collectList().block();
+
+        verify(knowledgeRetriever).prefetch(eq("general"), anyString(), eq("hi"), eq(List.of("kb1")));
+    }
+
+    /** 预取异常静默：预取任务抛异常只记日志，聊天主流程照常返回（纯加速语义） */
+    @Test
+    void chat_prefetchFails_shouldNotBreakChat() {
+        chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
+                knowledgeRetriever, new StreamConnectionLimiter(0), true);
+        SessionEntity session = new SessionEntity();
+        session.setAgentId(1);
+        when(sessionService.getSession("42")).thenReturn(session);
+        when(agentService.findAgentNameById(1L)).thenReturn(Optional.of("general"));
+        when(agentService.getAgentConfig("general")).thenReturn(Optional.of(
+                new AgentConfig(1L, "gpt", null, "kb1")));
+        when(agentService.executeSync("general", "hi", "42"))
+                .thenReturn(succeededGoal("42", "回答"));
+        doThrow(new RuntimeException("boom")).when(knowledgeRetriever)
+                .prefetch(eq("general"), anyString(), eq("hi"), eq(List.of("kb1")));
+
+        ChatResponse resp = chatService.chat(new ChatRequest("hi", "42", null));
+
+        assertEquals("SUCCEEDED", resp.status(), "预取异常不得影响聊天主流程");
     }
 }
