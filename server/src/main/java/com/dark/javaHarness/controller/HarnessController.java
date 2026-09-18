@@ -1,5 +1,6 @@
 package com.dark.javaHarness.controller;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dark.javaHarness.domain.Goal;
 import com.dark.javaHarness.domain.dto.AgentsView;
 import java.util.List;
@@ -9,6 +10,7 @@ import com.dark.javaHarness.domain.dto.SessionAgentView;
 import com.dark.javaHarness.domain.dto.SessionCreatedView;
 import com.dark.javaHarness.domain.dto.SessionPageView;
 import com.dark.javaHarness.domain.dto.SubmitView;
+import com.dark.javaHarness.domain.entity.SessionEntity;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.GoalService;
 import com.dark.javaHarness.service.SessionService;
@@ -46,7 +48,7 @@ public class HarnessController {
     @GetMapping("/sessions")
     public SessionPageView sessions(@RequestParam(defaultValue = "1") long page,
                                     @RequestParam(defaultValue = "10") long size) {
-        return SessionPageView.from(sessionService.page(page, size));
+        return sessionPageView(sessionService.page(page, size));
     }
 
     /**
@@ -84,12 +86,35 @@ public class HarnessController {
     public GoalView goal(@PathVariable String id) {
         Goal goal = goalService.get(id)
                 .orElseThrow(() -> new IllegalArgumentException("未找到目标: " + id));
-        return GoalView.from(goal);
+        return goalView(goal);
     }
 
     /** 查询全部目标 */
     @GetMapping("/goals")
     public GoalsView goals() {
-        return new GoalsView(goalService.all().stream().map(GoalView::from).toList());
+        return new GoalsView(goalService.all().stream().map(HarnessController::goalView).toList());
+    }
+
+    // ---- 视图装配（原 shared DTO 静态工厂收编至此：DTO 保持纯 record，实体/分页依赖留在 server） ----
+
+    private static GoalView goalView(Goal goal) {
+        return new GoalView(goal.id(), goal.objective(), goal.status().name(), goal.summary());
+    }
+
+    private static SessionPageView sessionPageView(Page<SessionEntity> p) {
+        return new SessionPageView(
+                p.getCurrent(),
+                p.getSize(),
+                p.getTotal(),
+                p.getPages(),
+                p.getRecords().stream().map(HarnessController::sessionItem).toList());
+    }
+
+    private static SessionPageView.Item sessionItem(SessionEntity e) {
+        return new SessionPageView.Item(
+                e.getSessionId() == null ? null : String.valueOf(e.getSessionId()),
+                e.getSessionName(),
+                e.getCreator(),
+                e.getLastQuestion());
     }
 }

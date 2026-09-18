@@ -46,7 +46,8 @@ cd '$PROJ'
 if [ -f .env.local ]; then . ./.env.local; fi
 export JAVA_HOME="$JAVA_HOME"
 export PATH="$PATH"
-$MVN spring-boot:run
+$MVN -DskipTests install -pl shared
+$MVN -pl server spring-boot:run
 echo
 echo '--- 服务已退出，按回车关闭窗口 ---'
 read _
@@ -62,7 +63,7 @@ EOF
         return 0
     fi
     echo "[WARN] 无法开新窗口，服务转入后台模式（日志: /tmp/javaHarness-server.log，tail -f 查看）"
-    nohup $MVN spring-boot:run > /tmp/javaHarness-server.log 2>&1 &
+    nohup $MVN -pl server spring-boot:run > /tmp/javaHarness-server.log 2>&1 &
 }
 
 wait_ready() {
@@ -84,8 +85,8 @@ wait_ready() {
 case "${1:-}" in
   ""|full)
     echo "==== javaHarness 全流程启动 ===="
-    echo "[1/4] 编译..."
-    $MVN -DskipTests compile
+    echo "[1/4] 编译（多模块 install：单模块启动依赖本地仓库中的 shared）..."
+    $MVN -DskipTests install
     echo "[1/4] 编译 OK"
     if port_listening; then
         echo "[2/4] 服务已在运行，跳过启动"
@@ -99,11 +100,12 @@ case "${1:-}" in
         exit 1
     fi
     echo "[4/4] 进入 CLI 聊天（/exit 退出）"
-    $MVN -Pcli compile exec:exec
+    $MVN -pl cli -Pcli compile exec:exec
     echo "--- CLI 已退出。服务窗口仍在运行（停止: 在该窗口 Ctrl+C 或 ./run.sh stop）---"
     ;;
   server)
-    $MVN spring-boot:run
+    $MVN -pl shared -DskipTests install
+    $MVN -pl server spring-boot:run
     ;;
   stop)
     fuser -k 8080/tcp 2>/dev/null || true
@@ -121,10 +123,10 @@ case "${1:-}" in
     echo "服务已停止"
     ;;
   cli)
-    $MVN -Pcli compile exec:exec
+    $MVN -pl cli -Pcli compile exec:exec
     ;;
   build)
-    $MVN -DskipTests compile
+    $MVN -DskipTests install
     ;;
   test)
     $MVN test

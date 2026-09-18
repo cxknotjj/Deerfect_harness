@@ -131,13 +131,14 @@ CREATE DATABASE IF NOT EXISTS harness DEFAULT CHARACTER SET utf8mb4;
 **1️⃣ 启动主服务**
 
 ```powershell
-mvn -s .mvn/settings.xml spring-boot:run
+mvn -s .mvn/settings.xml -pl shared -DskipTests install
+mvn -s .mvn/settings.xml -pl server spring-boot:run
 ```
 
 **2️⃣ 另开终端，启动 CLI**
 
 ```powershell
-mvn -s .mvn/settings.xml exec:java
+mvn -s .mvn/settings.xml -pl cli -Pcli compile exec:exec
 ```
 
 **3️⃣ 或直接用 REST 聊天（无需 CLI）**

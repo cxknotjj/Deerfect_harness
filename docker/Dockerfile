@@ -34,7 +34,7 @@ FROM ${RUN_BASE}
 WORKDIR /workspace
 ENV TZ=Asia/Shanghai
 
-COPY --from=build /build/target/javaHarness-*.jar /app/app.jar
+COPY --from=build /build/server/target/javaHarness-server-*.jar /app/app.jar
 # 运行期相对路径资源（相对启动工作目录 /workspace）：
 #   skills/    —— skill 动态装配目录（app.prompt.skills.dir）
 #   knowledge/ —— RAG 知识库文档目录（app.knowledge.dir）

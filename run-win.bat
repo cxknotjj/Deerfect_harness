@@ -21,7 +21,7 @@ echo.
 
 REM ---- 1. Compile first to avoid startup failure ----
 echo [1/3] Compiling project...
-call mvn -s .mvn\settings.xml -DskipTests compile
+call mvn -s .mvn\settings.xml -DskipTests install
 if errorlevel 1 (
     echo [ERROR] Compilation failed. Fix errors and retry.
     pause
@@ -32,7 +32,7 @@ echo.
 
 REM ---- 2. Start server in a new window ----
 echo [2/3] Starting server...
-start "javaHarness-server" cmd /k "cd /d %~dp0 && mvn -s .mvn\settings.xml spring-boot:run"
+start "javaHarness-server" cmd /k "cd /d %~dp0 && mvn -s .mvn\settings.xml -pl shared -DskipTests install && mvn -s .mvn\settings.xml -pl server spring-boot:run"
 echo Server window opened.
 echo.
 
@@ -59,7 +59,7 @@ echo Opening CLI chat window...
 echo Type text to chat, /exit to quit.
 REM exec:java is not part of the compile lifecycle - compile must run first,
 REM otherwise stale classes stay in target\classes (caused mojibake regression once)
-start "java_harness_cli" cmd /k "cd /d %~dp0 && mvn -s .mvn\settings.xml compile exec:java"
+start "java_harness_cli" cmd /k "cd /d %~dp0 && mvn -s .mvn\settings.xml -pl cli -Pcli compile exec:exec"
 
 echo.
 echo Server and CLI launched. Two windows opened.

@@ -3,7 +3,9 @@
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.2.0 https://maven.apache.org/xsd/settings-1.2.0.xsd">
 
-    <localRepository>${user.dir}/.mvn-repo</localRepository>
+    <!-- 多模块后常需在子目录（如 cli/）执行 mvn：user.dir 会漂移到子目录导致仓库裂成多份，
+         改用启动器注入的项目根目录（含 .mvn/ 的那层），任何子目录执行都指向同一仓库 -->
+    <localRepository>${maven.multiModuleProjectDirectory}/.mvn-repo</localRepository>
 
     <mirrors>
         <mirror>

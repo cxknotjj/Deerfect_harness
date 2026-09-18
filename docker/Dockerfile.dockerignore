@@ -12,8 +12,9 @@
 # 本地 Maven 仓库（数百 MB，镜像内按 pom 重新解析到独立缓存层）
 .mvn-repo
 
-# 构建产物
+# 构建产物（根与各子模块）
 target
+**/target
 
 # 文档（运行镜像不需要；*.md 仅匹配项目根，不影响 skills/、knowledge/ 内文档）
 docs

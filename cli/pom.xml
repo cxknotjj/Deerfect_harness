@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.dark</groupId>
+        <artifactId>javaHarness</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+    <artifactId>javaHarness-cli</artifactId>
+    <name>javaHarness :: cli</name>
+    <description>CLI 客户端：终端交互（JLine）+ HTTP 访问服务端 REST/SSE，与服务端零耦合（仅依赖 shared 契约）</description>
+
+    <dependencies>
+        <!-- 模块内契约：请求/响应 DTO 与 SSE 协议常量；server 的内部类编译期不可见，
+             从机制上杜绝 CLI 绕过 HTTP 直连服务端内部实现 -->
+        <dependency>
+            <groupId>com.dark</groupId>
+            <artifactId>javaHarness-shared</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- JLine 3：CLI 交互输入（上下键历史 / `/` 命令补全 / 多行粘贴）。
+             引入理由（不可替代性）：Windows 控制台无纯 Java 的逐键 raw 输入，
+             BufferedReader 行缓冲拿不到方向键事件，历史翻阅与补全菜单必须依赖终端库；
+             JLine 3 是事实标准（Spring Shell 同款）。版本由根 pom dependencyManagement 锁定 -->
+        <dependency>
+            <groupId>org.jline</groupId>
+            <artifactId>jline</artifactId>
+        </dependency>
+
+        <!-- OkHttp：CLI 网络请求（SSE 长连接 readTimeout/callTimeout 拉满防断连）。版本由根 pom 锁定 -->
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp</artifactId>
+        </dependency>
+
+        <!-- Jackson：SSE 事件帧与 REST 响应的 JSON 解析（ObjectMapper/TypeReference）。
+             版本由 spring-boot-starter-parent 的 BOM 管理，与服务端序列化口径一致 -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
+        <!-- 测试：纯 JUnit 5 + Mockito（CLI 无 Spring 上下文），版本由 spring-boot-starter-parent 的 BOM 管理 -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- CLI 入口固化：直接 mvn exec:java 即启动 ChatCli，免去 -D 参数在 PowerShell 中的引号问题 -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <mainClass>com.dark.javaHarness.cli.ChatCli</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <!-- CLI 完整输入体验（历史/补全需真实 TTY）：mvn -s .mvn/settings.xml -Pcli compile exec:exec
+         fork 出独立 java 进程并继承当前终端，JLine 可接管按键；exec:java 内嵌 JVM 无 TTY 会降级 -->
+    <profiles>
+        <profile>
+            <id>cli</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.5.0</version>
+                        <configuration>
+                            <executable>java</executable>
+                            <arguments>
+                                <argument>-Dfile.encoding=UTF-8</argument>
+                                <argument>-classpath</argument>
+                                <classpath/>
+                                <argument>com.dark.javaHarness.cli.ChatCli</argument>
+                            </arguments>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>
