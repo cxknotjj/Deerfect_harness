@@ -104,7 +104,7 @@
   - 验收：`/actuator/health` 可用，指标可被 Prometheus 抓取
 - [ ] **完整链路追踪（Micrometer Tracing）**：接 Spring AI 原生 observation（micrometer-tracing + Zipkin exporter + Zipkin 容器），补齐 `llm_call_log`（成本账本）不具备的**单次请求耗时瀑布**——HTTP → 路由 → lead 拆解 → 各专家 → 聚合每段耗时与父子 span 关系；建议与「Actuator + 监控」同批实施（共享 Micrometer 基建）
   - 验收：Zipkin UI 能看到一次聊天请求的完整瀑布图，观测埋点代码不重写（llm\_call\_log 与 Tracing 互补共存）
-- [ ] **工具调用查询端点** **`/api/tool-calls`**（拆自工具日志条目验收尾巴）：`/api/tool-calls?sessionId=` 可查询一次编排内全部工具调用（含 MCP 工具及来源 server）；MCP 某 server 故障时能从日志定位到该 server
+- [x] **工具调用查询端点** **`/api/tool-calls`**（拆自工具日志条目验收尾巴）：`/api/tool-calls?sessionId=` 可查询一次编排内全部工具调用（含 MCP 工具及来源 server）；MCP 某 server 故障时能从日志定位到该 server
   - 验收：与 `GET /api/llm-calls` 同风格的分页查询可用
 - [ ] **会话缓存**：`spring-boot-starter-data-redis` 缓存会话快照，降低 MySQL 压力
   - 验收：会话上下文命中 Redis，DB 读次数下降
