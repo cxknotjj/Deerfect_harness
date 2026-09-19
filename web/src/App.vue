@@ -98,6 +98,15 @@ async function onAgentChange(agentId: number | null): Promise<void> {
     showTip(`切换 Agent 失败:${errText(e)}`, true)
   }
 }
+
+/** 主题切换:夜间(Telemetry Dark,默认)⇄ 日间(蓝图图纸);持久化 localStorage */
+const theme = ref<'dark' | 'light'>(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark')
+function toggleTheme(): void {
+  theme.value = theme.value === 'dark' ? 'light' : 'dark'
+  localStorage.setItem('web-theme', theme.value)
+  document.documentElement.dataset.theme = theme.value
+  document.documentElement.style.colorScheme = theme.value
+}
 </script>
 
 <template>
@@ -124,6 +133,15 @@ async function onAgentChange(agentId: number | null): Promise<void> {
         <span v-if="tip" class="chat-tip" :class="{ 'chat-tip-error': tip.error }" role="status">{{
           tip.text
         }}</span>
+        <!-- 主题切换:夜间显示 ☀(进日间),日间显示 ☾(回夜间) -->
+        <button
+          class="theme-toggle"
+          type="button"
+          :title="theme === 'dark' ? '切换日间模式' : '切换夜间模式'"
+          @click="toggleTheme"
+        >
+          {{ theme === 'dark' ? '☀' : '☾' }}
+        </button>
       </header>
 
       <ChatWindow :messages="messages" :streaming="streaming" @send="send" @stop="stop" />

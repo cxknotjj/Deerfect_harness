@@ -30,6 +30,7 @@ watch(
   <section class="chat-window">
     <div ref="scrollEl" class="chat-scroll">
       <div v-if="messages.length === 0" class="chat-empty">
+        <img class="chat-empty-logo" src="/deer_logo.png" alt="" />
         <p class="chat-empty-title">开始新的对话</p>
         <p class="chat-empty-sub">在下方输入消息发送,或从左侧选择会话</p>
       </div>

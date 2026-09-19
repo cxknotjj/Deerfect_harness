@@ -21,8 +21,12 @@
   --blueprint: #7fa6cc;   /* 蓝图蓝:链接/引用/次级强调 */
 
   /* 派生色 */
+  --accent-hover: #74d6c8;                 /* 主按钮 hover */
   --accent-lift: rgba(90, 200, 184, 0.06); /* 选中项背景微抬升 */
+  --accent-lift-strong: rgba(90, 200, 184, 0.09); /* 选中项 hover 再抬一档 */
+  --accent-warm-soft: rgba(224, 142, 69, 0.12);   /* 橙底软填充 */
   --hover-veil: rgba(255, 255, 255, 0.03); /* 常规 hover 微亮 */
+  --selection: rgba(90, 200, 184, 0.28);   /* 文本选区 */
   --thumb: #26313f;                        /* 滚动条 thumb:grid-line 提亮一档 */
   --on-accent: #0d1219;                    /* 青底上的深色字 */
 
@@ -40,14 +44,17 @@ body {
   font-size: 14px;
   color: var(--ink);
   background-color: var(--bg-base);
-  /* 全画布图纸网格:1px 线 × 24px 方格,对比度低到只是质感 */
+}
+
+/* 夜间专属:全画布图纸网格(日间为纯色,干净不装饰) */
+html[data-theme='dark'] body {
   background-image:
     linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
     linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
   background-size: 24px 24px;
 }
 
-::selection { background: rgba(90, 200, 184, 0.28); }
+::selection { background: var(--selection); }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -67,12 +74,12 @@ button:disabled { cursor: not-allowed; }
   transition: background 0.15s, border-color 0.15s, color 0.15s, opacity 0.15s;
 }
 .btn-primary { background: var(--accent); color: var(--on-accent); font-weight: 600; }
-.btn-primary:hover:not(:disabled) { background: #74d6c8; }
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
 .btn-primary:disabled { opacity: 0.4; }
 .btn-ghost { border: 1px solid var(--grid-line); color: var(--ink-dim); }
 .btn-ghost:hover:not(:disabled) { border-color: var(--ink-dim); color: var(--ink); }
 .btn-stop { border: 1px solid var(--accent-warm); color: var(--accent-warm); }
-.btn-stop:hover { background: rgba(224, 142, 69, 0.12); }
+.btn-stop:hover { background: var(--accent-warm-soft); }
 
 /* ---------- 布局骨架:左栏会话列表 + 右侧聊天窗 ---------- */
 .app-shell { display: flex; height: 100%; overflow: hidden; }
@@ -108,7 +115,7 @@ button:disabled { cursor: not-allowed; }
 }
 .session-item:hover { background: var(--hover-veil); }
 .session-item-active { background: var(--accent-lift); border-left-color: var(--accent); }
-.session-item-active:hover { background: rgba(90, 200, 184, 0.09); }
+.session-item-active:hover { background: var(--accent-lift-strong); }
 .session-item-body { flex: 1; min-width: 0; }
 .session-item-name {
   font-weight: 500;
@@ -179,6 +186,7 @@ button:disabled { cursor: not-allowed; }
 .chat-empty { margin: auto; text-align: center; color: var(--ink-dim); }
 .chat-empty-title { font-size: 15px; font-weight: 600; letter-spacing: 0.12em; margin-bottom: 8px; }
 .chat-empty-sub { font-size: 13px; }
+.chat-empty-logo { width: 100px; height: 100px; margin-bottom: 12px; }
 
 /* ---------- 消息行 ---------- */
 .msg-row { display: flex; flex-direction: column; }
@@ -352,3 +360,43 @@ button:disabled { cursor: not-allowed; }
     animation: none;
   }
 }
+
+/* ---------- 日间模式:蓝白(DeepSeek 配色) ----------
+   布局与组件与夜间完全一致,只换配色:纯白基底、DS 蓝 #4D6BFE 主强调、
+   浅灰蓝面板与边框;无网格装饰,干净留白 */
+:root[data-theme='light'] {
+  --bg-base: #ffffff;      /* 主区纯白 */
+  --bg-panel: #f9fafb;     /* 左栏极浅灰 */
+  --bg-inset: #f5f7fa;     /* 输入框/代码块内嵌 */
+  --grid-line: #e5e9f0;    /* 边框浅灰蓝 */
+  --ink: #232a33;          /* 近黑正文 */
+  --ink-dim: #81858c;      /* 次级灰 */
+  --accent: #4d6bfe;       /* DS 蓝:选中态/状态灯/发送键/链接 */
+  --accent-warm: #c0392b;  /* 警示红:错误 */
+  --blueprint: #4d6bfe;    /* 链接与主强调同色(单蓝语言) */
+
+  --accent-hover: #6c85ff;
+  --accent-lift: rgba(77, 107, 254, 0.06);
+  --accent-lift-strong: rgba(77, 107, 254, 0.1);
+  --accent-warm-soft: rgba(192, 57, 43, 0.08);
+  --hover-veil: rgba(0, 0, 0, 0.03);
+  --selection: rgba(77, 107, 254, 0.18);
+  --thumb: #d3d9e0;
+  --on-accent: #ffffff;    /* 蓝底白字 */
+}
+
+/* 主题切换按钮(mono 方形小钮,顶栏右侧) */
+.theme-toggle {
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--ink-dim);
+  border: 1px solid var(--grid-line);
+  border-radius: 4px;
+}
+.theme-toggle:hover { color: var(--accent); border-color: var(--accent); }
