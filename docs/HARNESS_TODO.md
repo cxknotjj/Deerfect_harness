@@ -123,8 +123,13 @@
   - CD（可选后置）：分支镜像打 tag 推送镜像仓库，服务器 `docker compose pull && up -d` 拉起；上线前是否人工确认决定 Delivery/Deployment 形态
   - 验收：PR 红灯可见（测试失败 / fat jar 混入 cli class / 镜像构建失败均可拦截）；全绿后产物可直接部署
   - 验收：push 后流水线全绿并产出镜像
-- [ ] **前端 + EventSource**：Vue3/React 页面消费 SSE 实时展示，替代/补充 CLI
-  - 验收：浏览器能看到打字机式流式回复
+- [ ] **web 端 MVP（完全自包含）**：顶层 `web/` 目录，Vue3 + Vite + TypeScript；`npm install && npm run dev` 即跑，不进 Maven 反应堆、不依赖项目任何文件，整目录可拷走独立部署（2026-09-19 定稿，升级原「前端 + EventSource」条目）
+  - 定位：server 的第二个客户端（与 cli 平级），只消费 REST + SSE，把 server 当外部服务对待
+  - 独立性约束：TS 类型完全独立定义，不参照 shared 源码，以 server HTTP JSON 实际响应为准；代价是 server 改字段 web 端编译期零感知，靠 mock 回归 + server 侧 DTO 变更视为 breaking change 的纪律兜底
+  - mock 模式：内置 mock（含 SSE 流式 mock），server 不启动也能开发调试 UI
+  - MVP 范围：会话列表 + 聊天窗（SSE 流式打字机渲染）+ agent 切换 + 新建会话；provider/知识库管理后台后置
+  - 认证：一期沿用 API-Key（`@microsoft/fetch-event-source` 带 header，原生 EventSource 不支持自定义 header）；多用户登录后置单独立条
+  - 验收：`npm run dev`（mock 开/关两种模式）均可完成一轮流式对话；`npm run build` 产物为纯静态文件可 nginx 直托管
 - [ ] **PDF 输出（报告导出）**：把最终回答/会话记录（Markdown）渲染为 PDF 供下载——flexmark（MD→HTML）+ openhtmltopdf（HTML→PDF，纯 Java 免外部依赖、无 AGPL 风险），中文字体内嵌资源目录（不依赖系统字体，避免容器/跨机乱码）；新增 `GET /api/export/pdf?sessionId=` 导出会话，CLI 加 `/export` 命令拉取保存
   - 验收：一次多 Agent 任务完成后可导出排版正常的中文 PDF（标题/列表/代码块/表格不乱码、不缺字）
 - [ ] **消息队列**：RabbitMQ / Kafka 异步派发 Goal，长任务解耦
