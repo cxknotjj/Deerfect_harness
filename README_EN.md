@@ -121,15 +121,24 @@ flowchart TD
 
 **1️⃣ Start the main service**
 
-```powershell
-mvn -s .mvn/settings.xml spring-boot:run
+```bash
+# Build then run (recommended): package from the project root, fat jar lands in server/target/
+mvn -DskipTests package
+java -jar server/target/javaHarness-server-0.0.1-SNAPSHOT.jar
+
+# Or run in dev mode (install the shared module first)
+mvn -pl shared -DskipTests install
+mvn -pl server spring-boot:run
 ```
 
 **2️⃣ In another terminal, start the CLI**
 
-```powershell
-mvn -s .mvn/settings.xml exec:java
+```bash
+mvn -pl cli -Pcli compile exec:exec
 ```
+
+> [!TIP]
+> The commands above use your own Maven environment (global settings + default repository). On slow networks you may append `-s .mvn/settings.xml` to go through the Aliyun mirror — note it also switches the local repository to the in-project `.mvn-repo/` (gitignored; the first run re-downloads everything).
 
 **3️⃣ Or chat directly over REST (no CLI needed)**
 
