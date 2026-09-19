@@ -20,14 +20,19 @@ WORKDIR /build
 
 # 先拷贝 pom 与 Maven 配置：依赖层与源码层分离，改代码不重下依赖
 COPY pom.xml ./
+COPY shared/pom.xml ./shared/pom.xml
+COPY server/pom.xml ./server/pom.xml
+COPY cli/pom.xml ./cli/pom.xml
 COPY .mvn/settings.xml .mvn/settings.xml
 # dependency:go-offline 尽力预拉全部依赖与插件（个别插件依赖拉不全是已知行为，
 # 失败不阻断——下一步 package 会继续补齐）
 RUN mvn -s .mvn/settings.xml -B -q dependency:go-offline || true
 
-COPY src ./src
+COPY shared/src ./shared/src
+COPY server/src ./server/src
+# 仅构建 server（-am 连带 shared；cli 客户端不进服务端镜像）
 # 测试需真实数据库环境，镜像构建跳过（本地全量回归单独跑）
-RUN mvn -s .mvn/settings.xml -B -q -DskipTests package
+RUN mvn -s .mvn/settings.xml -B -q -DskipTests -pl server -am package
 
 # ---------- 运行阶段 ----------
 FROM ${RUN_BASE}

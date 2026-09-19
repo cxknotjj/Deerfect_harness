@@ -114,10 +114,14 @@
   - 验收：`/swagger-ui.html` 可浏览所有接口
 - [ ] **多模块 Maven 拆分（shared + server + cli）**（2026-09-18 立项）：单模块下 CLI 源码与 jline/okhttp 依赖全打进服务端 fat jar——拆为 parent（packaging=pom，dependencyManagement 统一管版本）+ **shared**（API 契约层：`domain.dto` 整包 17 类 + `enums.SseProtocol`，包名不变全项目 import 零改动）+ **server**（现 src 全套减 cli 包，依赖 shared）+ **cli**（`com.dark.javaHarness.cli` 包，依赖 shared + jline + okhttp，classpath ~5MB 不再传递 spring-ai 全家桶，编译期看不到 server 内部类防绕过 HTTP 直调）。**channel/qq 评估后决定不拆**：其对 server 存在双向依赖（编译期要用 mapper/entity/接口，server fat jar 又要装它的类），且 QQ 渠道本质是服务端可选组件（`napcat.enabled` 条件装配），拆分需下沉 contract 底层模块或部署期外挂 jar，收益不抵复杂度；未来加第二个渠道时再引入契约层。shared 契约层为未来 web 端、app 端铺路（DTO 单一来源）
   - 关键点：cli 依赖 shared 而非 server（server 只出 fat jar 无需双产物 classifier）；jline 移至 cli（okhttp 因 QQ 渠道 NapCat HTTP 调用 server 侧同样需要而双保留，版本由根 pom dependencyManagement 统一锁定）；exec-maven-plugin / `mvn -Pcli` 启动命令挪至 cli 模块并以 `-pl cli` 限定；docker/Dockerfile 构建路径适配多模块（-pl server -am package，产物 server/target）；.mvn/settings.xml 的 localRepository 由 `${user.dir}` 修为 `${maven.multiModuleProjectDirectory}`（子目录执行 mvn 时仓库不再漂移裂库）；单模块启动依赖本地仓库中的 shared，故 run.sh/README 的编译步由 compile 改 install
-  - 验收：`mvn clean package` 全模块编译 + 全部测试通过；server fat jar 不含 cli 包 class 与 jline/okhttp；cli 依赖树仅 shared + jline/okhttp；cli 启动正常、`docker compose build` 构建镜像正常
-- [ ] **容器化交付**：Dockerfile + docker-compose（app + MySQL + Redis）一键启动
+  - 验收：`mvn clean package` 全模块编译 + 全部测试通过；server fat jar 不含 cli 包 class 与 jline（okhttp 因 QQ 渠道合法保留）；cli 依赖树仅 shared + jline/okhttp/jackson；cli 启动正常、`docker compose build` 构建镜像正常
+- [ ] **容器化交付**：Dockerfile + docker-compose（app + MySQL + pgvector）一键启动
   - 验收：`docker compose up` 后完整可访问
-- [ ] **CI/CD**：GitHub Actions / Gitee Go：编译 → 测试 → 构建镜像
+- [ ] **CI/CD**：GitHub Actions / Gitee Go 自动流水线（2026-09-18 充实，检查项取自多模块拆分验收清单）
+  - CI（push/PR 触发）：`mvn -s .mvn/settings.xml clean package` 全模块编译 + 测试（当前 server 545 + cli 25 例）→ 断言 server fat jar 无 `com/dark/javaHarness/cli/` 目录与 jline → 断言 cli `dependency:tree` 无 spring/spring-ai 传递依赖 → `docker build -f docker/Dockerfile .` 验证镜像可构建（基础镜像走 BUILD_BASE/RUN_BASE ARG，CI 侧按网络环境注入加速通道）
+  - 缓存：`actions/setup-java` 内置 maven 缓存对齐 `.mvn-repo`（localRepository 由 `maven.multiModuleProjectDirectory` 定位项目根，CI 工作区即仓库）
+  - CD（可选后置）：分支镜像打 tag 推送镜像仓库，服务器 `docker compose pull && up -d` 拉起；上线前是否人工确认决定 Delivery/Deployment 形态
+  - 验收：PR 红灯可见（测试失败 / fat jar 混入 cli class / 镜像构建失败均可拦截）；全绿后产物可直接部署
   - 验收：push 后流水线全绿并产出镜像
 - [ ] **前端 + EventSource**：Vue3/React 页面消费 SSE 实时展示，替代/补充 CLI
   - 验收：浏览器能看到打字机式流式回复
