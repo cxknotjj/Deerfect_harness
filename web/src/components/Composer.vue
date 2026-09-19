@@ -1,6 +1,7 @@
 /**
- * 输入区:textarea(Enter 发送、Shift+Enter 换行、输入法组词中的 Enter 不发送)+ 发送按钮。
- * streaming 时按钮变「停止」(触发 stop),并禁止再次发送(输入仍可继续,便于预写下一条)。
+ * 输入区(卡片式):无边框 textarea(Enter 发送、Shift+Enter 换行、输入法组词中的
+ * Enter 不发送)+ 底部控制行(左侧 controls 插槽放 Agent 选择,右侧圆形发送键)。
+ * streaming 时发送键变圆形停止键(触发 stop),并禁止再次发送(输入仍可继续)。
  */
 <script setup lang="ts">
 import { ref } from 'vue'
@@ -30,16 +31,34 @@ function submit(): void {
 </script>
 
 <template>
-  <footer class="composer">
+  <section class="composer">
     <textarea
       ref="inputEl"
       v-model="text"
       class="composer-input"
       rows="3"
-      :placeholder="disabled ? '回复生成中…' : '输入消息,Enter 发送,Shift+Enter 换行'"
+      :placeholder="disabled ? '回复生成中…' : '给智能体发消息'"
       @keydown="onKeydown"
     ></textarea>
-    <button v-if="!disabled" class="btn btn-primary" :disabled="text.trim() === ''" @click="submit">发送</button>
-    <button v-else class="btn btn-stop" @click="emit('stop')">停止</button>
-  </footer>
+    <div class="composer-controls">
+      <div class="composer-controls-left">
+        <slot name="controls" />
+      </div>
+      <button
+        v-if="!disabled"
+        class="composer-send"
+        type="button"
+        title="发送"
+        :disabled="text.trim() === ''"
+        @click="submit"
+      >↑</button>
+      <button
+        v-else
+        class="composer-send composer-send-stop"
+        type="button"
+        title="停止"
+        @click="emit('stop')"
+      >■</button>
+    </div>
+  </section>
 </template>

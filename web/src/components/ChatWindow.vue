@@ -1,6 +1,7 @@
 /**
- * 聊天窗主体:消息滚动区(任何消息变化自动滚底)+ 底部输入区。
+ * 聊天窗主体:消息滚动区(任何消息变化自动滚底)+ 底部输入卡片与状态栏。
  * 空消息时显示占位引导(切换会话后 API 无历史端点,统一空窗)。
+ * controls 插槽透传给 Composer 左下控制位(放 Agent 选择)。
  */
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
@@ -43,6 +44,15 @@ watch(
       />
     </div>
 
-    <Composer :disabled="streaming" @send="emit('send', $event)" @stop="emit('stop')" />
+    <footer class="composer-wrap">
+      <Composer :disabled="streaming" @send="emit('send', $event)" @stop="emit('stop')">
+        <template #controls><slot name="controls" /></template>
+      </Composer>
+      <!-- 状态栏:仅真实数据(消息数 / 流式状态),无会话内容时不显示 -->
+      <div v-if="messages.length > 0" class="chat-statusbar">
+        <span>{{ messages.length }} 条消息</span>
+        <span :class="{ 'chat-statusbar-live': streaming }">{{ streaming ? '生成中…' : '空闲' }}</span>
+      </div>
+    </footer>
   </section>
 </template>

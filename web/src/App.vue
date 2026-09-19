@@ -1,13 +1,14 @@
 /**
- * 应用骨架:三段布局 —— 左栏会话列表(260px)+ 右侧聊天窗(顶栏 AgentSelect + 消息区 + Composer)。
+ * 应用骨架:三段布局 —— 左栏会话列表(260px)+ 右侧聊天窗(顶栏会话标题 + 消息区 + 卡片式 Composer)。
  * 组合层只做联动:
  * - 切换/新建会话 → showChat(id) 把聊天视图切到该会话的消息桶(消息按会话保留,不清空),
  *   并重置 agent 选择(流式 onMeta 回写 sessionId 不经过此处,不会误清)
  * - onMeta 报告后端新建会话 → useChat 内已迁移消息桶,此处回写 sessionId 并刷新列表首页
- * - Agent 选中变化 → bindAgent(会话, 下标+1),成功/失败均以顶栏轻提示呈现(3 秒自动消失)
+ * - Agent 选中变化 → bindAgent(会话, 下标+1),成功/失败均以顶栏轻提示呈现(3 秒自动消失);
+ *   AgentSelect 位于 Composer 控制位(对齐截图模型选择位)
  */
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import SessionList from './components/SessionList.vue'
 import ChatWindow from './components/ChatWindow.vue'
 import AgentSelect from './components/AgentSelect.vue'
@@ -82,6 +83,11 @@ async function onCreate(): Promise<void> {
   }
 }
 
+/** 顶栏标题:当前会话名(会话未选中/已删除时回退「新对话」) */
+const currentSessionName = computed(
+  () => sessions.value.find((s) => s.id === currentSessionId.value)?.name ?? '新对话',
+)
+
 /** 当前选中的 agent id(数字,列表下标 + 1;null = 默认 Agent) */
 const selectedAgentId = ref<number | null>(null)
 
@@ -99,7 +105,7 @@ async function onAgentChange(agentId: number | null): Promise<void> {
   }
 }
 
-/** 主题切换:夜间(Telemetry Dark,默认)⇄ 日间(蓝图图纸);持久化 localStorage */
+/** 主题切换:夜间(Telemetry Dark,默认)⇄ 日间(DeepSeek 蓝白);持久化 localStorage,按钮在左栏底部 */
 const theme = ref<'dark' | 'light'>(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark')
 function toggleTheme(): void {
   theme.value = theme.value === 'dark' ? 'light' : 'dark'
@@ -116,35 +122,32 @@ function toggleTheme(): void {
       :current-id="currentSessionId"
       :has-more="hasMore"
       :loading="sessionsLoading"
+      :theme="theme"
       @select="onSelect"
       @create="onCreate"
       @more="loadMore"
+      @toggle-theme="toggleTheme"
     />
 
     <section class="chat-pane">
       <header class="chat-header">
-        <AgentSelect
-          :agents="agents"
-          :model-value="selectedAgentId"
-          :disabled="currentSessionId === ''"
-          @update:model-value="onAgentChange"
-        />
+        <span class="chat-title">{{ currentSessionName }}</span>
         <!-- 轻提示:无条件渲染容器,仅由 tip 是否为空决定显隐,避免被条件渲染链路吞掉 -->
         <span v-if="tip" class="chat-tip" :class="{ 'chat-tip-error': tip.error }" role="status">{{
           tip.text
         }}</span>
-        <!-- 主题切换:夜间显示 ☀(进日间),日间显示 ☾(回夜间) -->
-        <button
-          class="theme-toggle"
-          type="button"
-          :title="theme === 'dark' ? '切换日间模式' : '切换夜间模式'"
-          @click="toggleTheme"
-        >
-          {{ theme === 'dark' ? '☀' : '☾' }}
-        </button>
       </header>
 
-      <ChatWindow :messages="messages" :streaming="streaming" @send="send" @stop="stop" />
+      <ChatWindow :messages="messages" :streaming="streaming" @send="send" @stop="stop">
+        <template #controls>
+          <AgentSelect
+            :agents="agents"
+            :model-value="selectedAgentId"
+            :disabled="currentSessionId === ''"
+            @update:model-value="onAgentChange"
+          />
+        </template>
+      </ChatWindow>
     </section>
   </div>
 </template>

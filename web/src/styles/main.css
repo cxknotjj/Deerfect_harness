@@ -1,9 +1,13 @@
 /* ============================================================
-   聊天 UI 全局样式 —— 「终端仪器 + 图纸」暗色主题(无组件库、零外链)
+   聊天 UI 全局样式 —— DeepSeek 形态 × 双主题(无组件库、零外链)
    设计要点:
-   - 深蓝黑基底 + 极淡 24px 图纸网格(1px 线,低对比质感)
-   - 面板一律 1px var(--grid-line) 边框、4px 圆角,无装饰阴影
-   - mono 字体仅用于数据语义(时间戳/状态文本/agent 标签/代码)
+   - 布局形态对齐 DeepSeek Harness:左栏 brand 行 + 通栏「新会话」+
+     圆角会话块 + 底部主题行;主区会话标题顶栏 + 卡片式输入区 +
+     圆形发送键 + 底部状态栏;消息列窄栏(820px)居中
+   - 双主题:夜间「终端仪器」深蓝黑 + 图纸网格 + 示波器青;
+     日间 DeepSeek 蓝白(纯白主区 + #4D6BFE 主强调),只换 token
+   - 圆角体系:控件 8px / 气泡 12px / 输入卡片 16px
+   - mono 字体仅用于数据语义(时间戳/状态栏/代码)
    - 唯一动效花哨点:流式输出块状光标;状态灯呼吸与光标闪烁均
      尊重 prefers-reduced-motion(降级为常亮)
    ============================================================ */
@@ -29,6 +33,12 @@
   --selection: rgba(90, 200, 184, 0.28);   /* 文本选区 */
   --thumb: #26313f;                        /* 滚动条 thumb:grid-line 提亮一档 */
   --on-accent: #0d1219;                    /* 青底上的深色字 */
+
+  /* 几何 */
+  --radius-ctl: 8px;     /* 按钮/下拉/会话块等控件 */
+  --radius-bubble: 12px; /* 消息气泡 */
+  --radius-card: 16px;   /* 输入卡片 */
+  --bg-user: rgba(90, 200, 184, 0.12); /* 用户气泡:青系浅底 */
 
   /* 字体栈(零外链) */
   --font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
@@ -64,12 +74,12 @@ html[data-theme='dark'] body {
 
 button { font: inherit; cursor: pointer; border: none; background: none; color: inherit; }
 button:disabled { cursor: not-allowed; }
-.btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 
 /* ---------- 通用按钮 ---------- */
 .btn {
   padding: 6px 12px;
-  border-radius: 4px;
+  border-radius: var(--radius-ctl);
   font-size: 13px;
   transition: background 0.15s, border-color 0.15s, color 0.15s, opacity 0.15s;
 }
@@ -93,28 +103,43 @@ button:disabled { cursor: not-allowed; }
   background: var(--bg-panel);
   border-right: 1px solid var(--grid-line);
 }
-.session-list-head {
+/* 顶部:brand 行(小鹿 logo + Harness) */
+.session-list-head { padding: 14px 14px 10px; }
+.session-brand { display: flex; align-items: center; gap: 8px; }
+.session-brand-logo { width: 26px; height: 26px; }
+.session-brand-name { font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
+/* 通栏「新会话」(白底边框圆角,对齐截图) */
+.session-new { margin: 2px 14px 4px; }
+.btn-new {
+  width: 100%;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px;
-  border-bottom: 1px solid var(--grid-line);
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 0;
+  background: var(--bg-base);
+  border: 1px solid var(--grid-line);
+  border-radius: var(--radius-ctl);
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink);
+  transition: border-color 0.15s, color 0.15s;
 }
-.session-list-title { font-size: 13px; font-weight: 600; letter-spacing: 0.08em; }
-.session-items { list-style: none; flex: 1; overflow-y: auto; padding: 6px; }
+.btn-new:hover { border-color: var(--accent); color: var(--accent); }
+.session-section { padding: 12px 16px 6px; font-size: 12px; color: var(--ink-dim); }
+.session-items { list-style: none; flex: 1; overflow-y: auto; padding: 4px 8px 8px; }
 .session-item {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 8px 10px;
-  border-radius: 4px;
+  padding: 9px 10px;
+  border-radius: var(--radius-ctl);
   cursor: pointer;
   margin-bottom: 2px;
-  border-left: 2px solid transparent; /* 选中竖标线占位,避免选中时布局抖动 */
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s;
 }
 .session-item:hover { background: var(--hover-veil); }
-.session-item-active { background: var(--accent-lift); border-left-color: var(--accent); }
+.session-item-active { background: var(--accent-lift); }
 .session-item-active:hover { background: var(--accent-lift-strong); }
 .session-item-body { flex: 1; min-width: 0; }
 .session-item-name {
@@ -131,9 +156,23 @@ button:disabled { cursor: not-allowed; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.session-list-foot { padding: 10px 12px; border-top: 1px solid var(--grid-line); }
+.session-list-foot { padding: 6px 14px 2px; }
 .session-list-foot .btn-ghost { width: 100%; }
-.session-list-foot-tip { font-size: 12px; color: var(--ink-dim); text-align: center; border-top: none; }
+.session-list-foot-tip { font-size: 12px; color: var(--ink-dim); text-align: center; padding: 8px 0 12px; }
+
+/* 左栏底部:主题切换行(对齐截图「设置」位) */
+.theme-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 14px;
+  padding: 12px 2px 14px;
+  font-size: 13px;
+  color: var(--ink-dim);
+  border-top: 1px solid var(--grid-line);
+}
+.theme-row:hover { color: var(--ink); }
+.theme-row-icon { font-family: var(--font-mono); font-size: 14px; }
 
 /* ---------- 状态灯(6px 圆点,常态示波器青) ---------- */
 .status-dot {
@@ -166,10 +205,11 @@ button:disabled { cursor: not-allowed; }
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 16px;
+  padding: 12px 20px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--grid-line);
 }
+.chat-title { font-size: 15px; font-weight: 600; }
 .chat-tip { font-size: 13px; color: var(--blueprint); }
 .chat-tip-error { color: var(--accent-warm); }
 
@@ -188,9 +228,15 @@ button:disabled { cursor: not-allowed; }
 .chat-empty-sub { font-size: 13px; }
 .chat-empty-logo { width: 100px; height: 100px; margin-bottom: 12px; }
 
-/* ---------- 消息行 ---------- */
-.msg-row { display: flex; flex-direction: column; }
-.msg-row-user { align-self: flex-end; align-items: flex-end; max-width: 72ch; }
+/* ---------- 消息行(窄栏 820px 居中,对齐截图) ---------- */
+.msg-row {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 820px;
+  margin: 0 auto;
+}
+.msg-row-user { align-self: flex-end; width: auto; max-width: 72ch; align-items: flex-end; }
 .msg-row-assistant { align-self: stretch; }
 
 /* 消息头:mono 小字标注时间(数据语义) */
@@ -206,11 +252,10 @@ button:disabled { cursor: not-allowed; }
   line-height: 1.65;
   word-break: break-word;
   white-space: pre-wrap; /* 纯文本(user/错误)保留换行 */
-  border-radius: 4px;
+  border-radius: var(--radius-bubble);
 }
 .msg-row-user .msg-bubble-user {
-  background: var(--bg-panel);
-  border: 1px solid var(--grid-line);
+  background: var(--bg-user);
   padding: 10px 14px;
 }
 .msg-bubble-assistant {
@@ -228,17 +273,33 @@ button:disabled { cursor: not-allowed; }
   max-width: 80ch;
 }
 
-/* 进度徽标:mono 小字,内嵌底 1px 边框 */
-.msg-progress { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+/* 执行进度:图标 + 灰字行式(对齐截图「上下文注入」行) */
+.msg-progress { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
 .msg-progress-item {
-  font-family: var(--font-mono);
-  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
   color: var(--ink-dim);
-  background: var(--bg-inset);
-  border: 1px solid var(--grid-line);
-  border-radius: 4px;
-  padding: 2px 8px;
 }
+.msg-progress-item::before { content: '▤'; font-size: 12px; opacity: 0.8; }
+
+/* 消息操作栏:hover 显现(对齐截图复制/赞踩位,仅实现复制) */
+.msg-actions { display: flex; gap: 2px; margin-top: 8px; }
+.msg-action-btn {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--ink-dim);
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+.msg-row:hover .msg-action-btn { opacity: 1; }
+.msg-action-btn:hover { background: var(--hover-veil); color: var(--ink); }
 
 /* ---------- 流式输出光标(全设计唯一动效花哨点) ---------- */
 /* 末尾块状青色光标:落在最后一个块级元素的行内末尾;内容为空时落在空容器上 */
@@ -304,49 +365,99 @@ button:disabled { cursor: not-allowed; }
 .md-body th { background: var(--bg-panel); font-weight: 600; }
 .md-body hr { border: none; border-top: 1px solid var(--grid-line); margin: 12px 0; }
 
-/* ---------- Composer(输入区) ---------- */
+/* ---------- Composer(卡片式输入区 + 底部状态栏) ---------- */
+.composer-wrap { padding: 8px 20px 0; background: var(--bg-base); }
 .composer {
-  display: flex;
-  gap: 10px;
-  align-items: flex-end;
-  padding: 12px 16px;
+  max-width: 860px;
+  margin: 0 auto;
   background: var(--bg-panel);
-  border-top: 1px solid var(--grid-line);
-}
-.composer-input {
-  flex: 1;
-  resize: none;
   border: 1px solid var(--grid-line);
-  border-radius: 4px;
-  padding: 8px 12px;
-  font: inherit;
-  line-height: 1.5;
-  outline: none;
-  max-height: 160px;
-  background: var(--bg-inset);
-  color: var(--ink);
+  border-radius: var(--radius-card);
+  padding: 12px 14px 10px;
   transition: border-color 0.15s;
 }
+.composer:focus-within { border-color: var(--accent); }
+.composer-input {
+  display: block;
+  width: 100%;
+  resize: none;
+  border: none;
+  border-radius: 0;
+  padding: 2px 4px 8px;
+  font: inherit;
+  line-height: 1.55;
+  outline: none;
+  max-height: 160px;
+  background: transparent;
+  color: var(--ink);
+}
 .composer-input::placeholder { color: var(--ink-dim); }
-.composer-input:focus { border-color: var(--accent); }
-.composer .btn { height: 38px; min-width: 72px; }
+.composer-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.composer-controls-left { display: flex; align-items: center; min-width: 0; }
+.composer-send {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 14px;
+  line-height: 1;
+  transition: background 0.15s, opacity 0.15s;
+}
+.composer-send:hover:not(:disabled) { background: var(--accent-hover); }
+.composer-send:disabled { opacity: 0.35; }
+.composer-send-stop { background: transparent; color: var(--accent-warm); border: 1px solid var(--accent-warm); }
+.composer-send-stop:hover { background: var(--accent-warm-soft); }
 
-/* ---------- Agent 下拉 ---------- */
-.agent-select { display: flex; align-items: center; gap: 8px; }
-.agent-select-label { font-family: var(--font-mono); font-size: 12px; color: var(--ink-dim); letter-spacing: 0.05em; }
+/* 底部状态栏:mono 小字真实数据(消息数 / 流式状态) */
+.chat-statusbar {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 6px 4px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  letter-spacing: 0.03em;
+}
+.chat-statusbar-live { color: var(--accent); }
+
+/* ---------- Agent 下拉(composer 内行式无框形态) ---------- */
+.agent-select {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: var(--radius-ctl);
+  transition: background 0.15s;
+}
+.agent-select:hover { background: var(--hover-veil); }
+.agent-select-label { font-size: 13px; color: var(--ink-dim); }
 .agent-select-input {
   font: inherit;
   font-size: 13px;
-  padding: 5px 8px;
-  border: 1px solid var(--grid-line);
+  padding: 2px 2px;
+  border: none;
   border-radius: 4px;
-  background: var(--bg-inset);
+  background: transparent;
   color: var(--ink);
   outline: none;
-  transition: border-color 0.15s;
+  max-width: 180px;
+  cursor: pointer;
 }
-.agent-select-input:focus { border-color: var(--accent); }
-.agent-select-input:disabled { color: var(--ink-dim); opacity: 0.5; }
+.agent-select-input:focus { color: var(--accent); }
+.agent-select-input:disabled { color: var(--ink-dim); opacity: 0.5; cursor: not-allowed; }
 .agent-select-input option { background: var(--bg-panel); color: var(--ink); }
 
 /* ---------- 动效降级:呼吸灯与光标闪烁降为常亮 ---------- */
@@ -383,20 +494,6 @@ button:disabled { cursor: not-allowed; }
   --selection: rgba(77, 107, 254, 0.18);
   --thumb: #d3d9e0;
   --on-accent: #ffffff;    /* 蓝底白字 */
+  --bg-user: #e8effd;      /* 用户气泡:DS 浅蓝 */
 }
 
-/* 主题切换按钮(mono 方形小钮,顶栏右侧) */
-.theme-toggle {
-  margin-left: auto;
-  width: 30px;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-mono);
-  font-size: 14px;
-  color: var(--ink-dim);
-  border: 1px solid var(--grid-line);
-  border-radius: 4px;
-}
-.theme-toggle:hover { color: var(--accent); border-color: var(--accent); }
