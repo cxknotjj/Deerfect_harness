@@ -3,9 +3,9 @@
    设计要点:
    - 布局形态对齐 DeepSeek Harness:左栏 brand 行 + 通栏「新会话」+
      圆角会话块 + 底部主题行;主区会话标题顶栏 + 卡片式输入区 +
-     圆形发送键 + 底部状态栏;消息列窄栏(820px)居中
-   - 双主题:夜间「终端仪器」深蓝黑 + 图纸网格 + 示波器青;
-     日间 DeepSeek 蓝白(纯白主区 + #4D6BFE 主强调),只换 token
+     圆形发送键 + 底部状态栏;消息两端对齐(assistant 靠左/user 靠右)
+   - 双主题共用 DS 蓝 #4D6BFE 主强调:夜间深蓝黑 + 图纸网格,
+     日间纯白蓝白,只换中性色 token
    - 圆角体系:控件 8px / 气泡 12px / 输入卡片 16px
    - mono 字体仅用于数据语义(时间戳/状态栏/代码)
    - 唯一动效花哨点:流式输出块状光标;状态灯呼吸与光标闪烁均
@@ -20,25 +20,25 @@
   --grid-line: #1c2735;   /* 图纸网格线,兼作 1px 边框色 */
   --ink: #c8d2dc;         /* 正文 */
   --ink-dim: #6b7a8c;     /* 次级文本 */
-  --accent: #5ac8b8;      /* 示波器青:选中态/状态灯/发送键 */
+  --accent: #4d6bfe;      /* DS 蓝(与日间一致):选中态/状态灯/发送键 */
   --accent-warm: #e08e45; /* 信号橙:错误/警示 */
   --blueprint: #7fa6cc;   /* 蓝图蓝:链接/引用/次级强调 */
 
   /* 派生色 */
-  --accent-hover: #74d6c8;                 /* 主按钮 hover */
-  --accent-lift: rgba(90, 200, 184, 0.06); /* 选中项背景微抬升 */
-  --accent-lift-strong: rgba(90, 200, 184, 0.09); /* 选中项 hover 再抬一档 */
+  --accent-hover: #6c85ff;                 /* 主按钮 hover */
+  --accent-lift: rgba(77, 107, 254, 0.08); /* 选中项背景微抬升 */
+  --accent-lift-strong: rgba(77, 107, 254, 0.12); /* 选中项 hover 再抬一档 */
   --accent-warm-soft: rgba(224, 142, 69, 0.12);   /* 橙底软填充 */
   --hover-veil: rgba(255, 255, 255, 0.03); /* 常规 hover 微亮 */
-  --selection: rgba(90, 200, 184, 0.28);   /* 文本选区 */
+  --selection: rgba(77, 107, 254, 0.3);    /* 文本选区 */
   --thumb: #26313f;                        /* 滚动条 thumb:grid-line 提亮一档 */
-  --on-accent: #0d1219;                    /* 青底上的深色字 */
+  --on-accent: #ffffff;                    /* 蓝底白字(同日间) */
 
   /* 几何 */
   --radius-ctl: 8px;     /* 按钮/下拉/会话块等控件 */
   --radius-bubble: 12px; /* 消息气泡 */
   --radius-card: 16px;   /* 输入卡片 */
-  --bg-user: rgba(90, 200, 184, 0.12); /* 用户气泡:青系浅底 */
+  --bg-user: rgba(77, 107, 254, 0.16); /* 用户气泡:蓝系半透明 */
 
   /* 字体栈(零外链) */
   --font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
@@ -93,6 +93,7 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 
 /* ---------- 布局骨架:左栏会话列表 + 右侧聊天窗 ---------- */
 .app-shell { display: flex; height: 100%; overflow: hidden; }
+.app-shell.sidebar-collapsed .session-list { display: none; }
 
 /* ---------- 会话列表(左栏 260px) ---------- */
 .session-list {
@@ -104,7 +105,27 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   border-right: 1px solid var(--grid-line);
 }
 /* 顶部:brand 行(小鹿 logo + Harness) */
-.session-list-head { padding: 14px 14px 10px; }
+.session-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 10px 10px 14px;
+}
+
+/* 侧栏折叠/展开小图标钮(左栏头部与顶栏共用) */
+.icon-btn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--ink-dim);
+  font-size: 14px;
+  transition: background 0.15s, color 0.15s;
+}
+.icon-btn:hover { background: var(--hover-veil); color: var(--ink); }
 .session-brand { display: flex; align-items: center; gap: 8px; }
 .session-brand-logo { width: 26px; height: 26px; }
 .session-brand-name { font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
@@ -160,19 +181,26 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .session-list-foot .btn-ghost { width: 100%; }
 .session-list-foot-tip { font-size: 12px; color: var(--ink-dim); text-align: center; padding: 8px 0 12px; }
 
-/* 左栏底部:主题切换行(对齐截图「设置」位) */
-.theme-row {
+/* 左栏底部:设置行(主题切换在顶栏右上角) */
+.settings-row {
   display: flex;
   align-items: center;
   gap: 8px;
   margin: 0 14px;
-  padding: 12px 2px 14px;
+  padding: 12px 2px;
   font-size: 13px;
   color: var(--ink-dim);
+  transition: color 0.15s;
   border-top: 1px solid var(--grid-line);
+  margin-top: 4px;
 }
-.theme-row:hover { color: var(--ink); }
-.theme-row-icon { font-family: var(--font-mono); font-size: 14px; }
+.settings-row:hover { color: var(--ink); }
+.row-icon {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  width: 16px;
+  text-align: center;
+}
 
 /* ---------- 状态灯(6px 圆点,常态示波器青) ---------- */
 .status-dot {
@@ -210,6 +238,7 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   border-bottom: 1px solid var(--grid-line);
 }
 .chat-title { font-size: 15px; font-weight: 600; }
+.chat-header .icon-btn { margin-left: auto; } /* 主题切换钮靠右 */
 .chat-tip { font-size: 13px; color: var(--blueprint); }
 .chat-tip-error { color: var(--accent-warm); }
 
@@ -229,14 +258,8 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .chat-empty-logo { width: 100px; height: 100px; margin-bottom: 12px; }
 
 /* ---------- 消息行(窄栏 820px 居中,对齐截图) ---------- */
-.msg-row {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  max-width: 820px;
-  margin: 0 auto;
-}
-.msg-row-user { align-self: flex-end; width: auto; max-width: 72ch; align-items: flex-end; }
+.msg-row { display: flex; flex-direction: column; width: 100%; }
+.msg-row-user { align-self: flex-end; max-width: 72ch; align-items: flex-end; }
 .msg-row-assistant { align-self: stretch; }
 
 /* 消息头:mono 小字标注时间(数据语义) */
@@ -477,7 +500,7 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
    浅灰蓝面板与边框;无网格装饰,干净留白 */
 :root[data-theme='light'] {
   --bg-base: #ffffff;      /* 主区纯白 */
-  --bg-panel: #f9fafb;     /* 左栏极浅灰 */
+  --bg-panel: #fafafb;     /* 左栏极浅灰 */
   --bg-inset: #f5f7fa;     /* 输入框/代码块内嵌 */
   --grid-line: #e5e9f0;    /* 边框浅灰蓝 */
   --ink: #232a33;          /* 近黑正文 */

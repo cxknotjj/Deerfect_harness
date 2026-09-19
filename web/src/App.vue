@@ -105,7 +105,10 @@ async function onAgentChange(agentId: number | null): Promise<void> {
   }
 }
 
-/** 主题切换:夜间(Telemetry Dark,默认)⇄ 日间(DeepSeek 蓝白);持久化 localStorage,按钮在左栏底部 */
+/** 侧栏收起/展开(收起后入口在顶栏左侧) */
+const sidebarCollapsed = ref(false)
+
+/** 主题切换:夜间(Telemetry Dark,默认)⇄ 日间(DeepSeek 蓝白);持久化 localStorage,按钮在顶栏右上角 */
 const theme = ref<'dark' | 'light'>(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark')
 function toggleTheme(): void {
   theme.value = theme.value === 'dark' ? 'light' : 'dark'
@@ -116,22 +119,38 @@ function toggleTheme(): void {
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'app-streaming': streaming }">
+  <div class="app-shell" :class="{ 'app-streaming': streaming, 'sidebar-collapsed': sidebarCollapsed }">
     <SessionList
       :sessions="sessions"
       :current-id="currentSessionId"
       :has-more="hasMore"
       :loading="sessionsLoading"
-      :theme="theme"
       @select="onSelect"
       @create="onCreate"
       @more="loadMore"
-      @toggle-theme="toggleTheme"
+      @collapse="sidebarCollapsed = true"
+      @settings="showTip('设置功能开发中')"
     />
 
     <section class="chat-pane">
       <header class="chat-header">
+        <!-- 侧栏收起时的展开入口 -->
+        <button
+          v-if="sidebarCollapsed"
+          class="icon-btn"
+          type="button"
+          title="展开侧栏"
+          @click="sidebarCollapsed = false"
+        >☰</button>
         <span class="chat-title">{{ currentSessionName }}</span>
+        <!-- 主题切换:右上角;夜间显示 ☀(进日间),日间显示 ☾(回夜间) -->
+        <button
+          v-if="!sidebarCollapsed"
+          class="icon-btn"
+          type="button"
+          :title="theme === 'dark' ? '切换日间模式' : '切换夜间模式'"
+          @click="toggleTheme"
+        >{{ theme === 'dark' ? '☀' : '☾' }}</button>
         <!-- 轻提示:无条件渲染容器,仅由 tip 是否为空决定显隐,避免被条件渲染链路吞掉 -->
         <span v-if="tip" class="chat-tip" :class="{ 'chat-tip-error': tip.error }" role="status">{{
           tip.text
