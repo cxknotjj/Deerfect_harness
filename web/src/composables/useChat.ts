@@ -9,13 +9,15 @@ import { ref } from 'vue'
 import { api } from '../api'
 import type { ProgressPayload } from '../api'
 
-/** 单条聊天消息:role 决定对齐;progress 为执行阶段轨迹(流结束后清空);error 标记错误样式 */
+/** 单条聊天消息:role 决定对齐;progress 为执行阶段轨迹(流结束后清空);error 标记错误样式;
+ *  ts 为纯展示字段(消息头时间标注),不参与任何请求/逻辑 */
 export interface MessageItem {
   id: number
   role: 'user' | 'assistant'
   content: string
   progress: ProgressPayload[]
   error: boolean
+  ts: number
 }
 
 /** 与会话列表联动所需的最小钩子(避免组合函数相互依赖) */
@@ -79,8 +81,8 @@ export function useChat(hooks: ChatHooks) {
 
     // user 消息与 assistant 占位立即进当前会话桶
     const list = messages.value
-    list.push({ id: ++seq, role: 'user', content: text, progress: [], error: false })
-    list.push({ id: ++seq, role: 'assistant', content: '', progress: [], error: false })
+    list.push({ id: ++seq, role: 'user', content: text, progress: [], error: false, ts: Date.now() })
+    list.push({ id: ++seq, role: 'assistant', content: '', progress: [], error: false, ts: Date.now() })
     // 从数组取回 reactive 代理引用:直接持有原始对象修改不会触发视图更新
     const assistant = list[list.length - 1]
 

@@ -1,30 +1,78 @@
 /* ============================================================
-   聊天 UI 全局样式(浅色、圆角气泡、代码块深色背景,无组件库)
+   聊天 UI 全局样式 —— 「终端仪器 + 图纸」暗色主题(无组件库、零外链)
+   设计要点:
+   - 深蓝黑基底 + 极淡 24px 图纸网格(1px 线,低对比质感)
+   - 面板一律 1px var(--grid-line) 边框、4px 圆角,无装饰阴影
+   - mono 字体仅用于数据语义(时间戳/状态文本/agent 标签/代码)
+   - 唯一动效花哨点:流式输出块状光标;状态灯呼吸与光标闪烁均
+     尊重 prefers-reduced-motion(降级为常亮)
    ============================================================ */
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  /* ---- 设计 token ---- */
+  --bg-base: #0d1219;     /* 深蓝黑基底,非纯黑 */
+  --bg-panel: #141b26;    /* 面板/会话列表 */
+  --bg-inset: #0a0f16;    /* 输入框/代码块内嵌 */
+  --grid-line: #1c2735;   /* 图纸网格线,兼作 1px 边框色 */
+  --ink: #c8d2dc;         /* 正文 */
+  --ink-dim: #6b7a8c;     /* 次级文本 */
+  --accent: #5ac8b8;      /* 示波器青:选中态/状态灯/发送键 */
+  --accent-warm: #e08e45; /* 信号橙:错误/警示 */
+  --blueprint: #7fa6cc;   /* 蓝图蓝:链接/引用/次级强调 */
+
+  /* 派生色 */
+  --accent-lift: rgba(90, 200, 184, 0.06); /* 选中项背景微抬升 */
+  --hover-veil: rgba(255, 255, 255, 0.03); /* 常规 hover 微亮 */
+  --thumb: #26313f;                        /* 滚动条 thumb:grid-line 提亮一档 */
+  --on-accent: #0d1219;                    /* 青底上的深色字 */
+
+  /* 字体栈(零外链) */
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
+  --font-sans: -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; scrollbar-width: thin; scrollbar-color: var(--thumb) transparent; }
 
 html, body, #app { height: 100%; }
 
 body {
-  font-family: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-size: 14px;
-  color: #1f2328;
-  background: #f6f8fa;
+  color: var(--ink);
+  background-color: var(--bg-base);
+  /* 全画布图纸网格:1px 线 × 24px 方格,对比度低到只是质感 */
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 24px 24px;
 }
 
-button { font: inherit; cursor: pointer; border: none; background: none; }
+::selection { background: rgba(90, 200, 184, 0.28); }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--thumb); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #33404f; }
+::-webkit-scrollbar-corner { background: transparent; }
+
+button { font: inherit; cursor: pointer; border: none; background: none; color: inherit; }
 button:disabled { cursor: not-allowed; }
+.btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 
 /* ---------- 通用按钮 ---------- */
-.btn { padding: 6px 12px; border-radius: 6px; font-size: 13px; transition: background .15s, opacity .15s; }
-.btn-primary { background: #1f6feb; color: #fff; }
-.btn-primary:hover:not(:disabled) { background: #1a5ecc; }
-.btn-primary:disabled { opacity: .5; }
-.btn-ghost { background: #fff; border: 1px solid #d0d7de; color: #1f2328; }
-.btn-ghost:hover:not(:disabled) { background: #f3f4f6; }
-.btn-stop { background: #d1242f; color: #fff; }
-.btn-stop:hover { background: #b31d27; }
+.btn {
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, opacity 0.15s;
+}
+.btn-primary { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.btn-primary:hover:not(:disabled) { background: #74d6c8; }
+.btn-primary:disabled { opacity: 0.4; }
+.btn-ghost { border: 1px solid var(--grid-line); color: var(--ink-dim); }
+.btn-ghost:hover:not(:disabled) { border-color: var(--ink-dim); color: var(--ink); }
+.btn-stop { border: 1px solid var(--accent-warm); color: var(--accent-warm); }
+.btn-stop:hover { background: rgba(224, 142, 69, 0.12); }
 
 /* ---------- 布局骨架:左栏会话列表 + 右侧聊天窗 ---------- */
 .app-shell { display: flex; height: 100%; overflow: hidden; }
@@ -35,34 +83,75 @@ button:disabled { cursor: not-allowed; }
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  background: #fff;
-  border-right: 1px solid #d8dee4;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--grid-line);
 }
 .session-list-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 12px;
-  border-bottom: 1px solid #eaeef2;
+  border-bottom: 1px solid var(--grid-line);
 }
-.session-list-title { font-weight: 600; }
+.session-list-title { font-size: 13px; font-weight: 600; letter-spacing: 0.08em; }
 .session-items { list-style: none; flex: 1; overflow-y: auto; padding: 6px; }
-.session-item { padding: 8px 10px; border-radius: 8px; cursor: pointer; margin-bottom: 2px; }
-.session-item:hover { background: #f3f4f6; }
-.session-item-active { background: #e7f1ff; }
-.session-item-active:hover { background: #dceaff; }
-.session-item-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.session-item-meta {
-  font-size: 12px;
-  color: #8b949e;
-  margin-top: 2px;
+.session-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 2px;
+  border-left: 2px solid transparent; /* 选中竖标线占位,避免选中时布局抖动 */
+  transition: background 0.15s, border-color 0.15s;
+}
+.session-item:hover { background: var(--hover-veil); }
+.session-item-active { background: var(--accent-lift); border-left-color: var(--accent); }
+.session-item-active:hover { background: rgba(90, 200, 184, 0.09); }
+.session-item-body { flex: 1; min-width: 0; }
+.session-item-name {
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.session-list-foot { padding: 10px 12px; border-top: 1px solid #eaeef2; }
+.session-item-meta {
+  font-size: 12px;
+  color: var(--ink-dim);
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-list-foot { padding: 10px 12px; border-top: 1px solid var(--grid-line); }
 .session-list-foot .btn-ghost { width: 100%; }
-.session-list-foot-tip { font-size: 12px; color: #8b949e; text-align: center; border-top: none; }
+.session-list-foot-tip { font-size: 12px; color: var(--ink-dim); text-align: center; border-top: none; }
+
+/* ---------- 状态灯(6px 圆点,常态示波器青) ---------- */
+.status-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.session-item .status-dot { margin-top: 5px; }
+
+/* 流式生成中:agent 灯与当前会话灯呼吸;错误(最后一条消息为错误块)时转信号橙 */
+.app-shell.app-streaming .agent-select .status-dot,
+.app-shell.app-streaming .session-item-active .status-dot {
+  animation: dot-breathe 1.6s ease-in-out infinite;
+}
+@keyframes dot-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.app-shell:has(.msg-row:last-child .msg-bubble-error) .agent-select .status-dot,
+.app-shell:has(.msg-row:last-child .msg-bubble-error) .session-item-active .status-dot {
+  background: var(--accent-warm);
+  animation: none;
+}
 
 /* ---------- 聊天面板 ---------- */
 .chat-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -71,92 +160,141 @@ button:disabled { cursor: not-allowed; }
   align-items: center;
   gap: 12px;
   padding: 10px 16px;
-  background: #fff;
-  border-bottom: 1px solid #d8dee4;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--grid-line);
 }
-.chat-tip { font-size: 13px; color: #1a7f37; }
-.chat-tip-error { color: #d1242f; }
+.chat-tip { font-size: 13px; color: var(--blueprint); }
+.chat-tip-error { color: var(--accent-warm); }
 
 /* 消息滚动区 */
 .chat-window { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .chat-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 20px 24px;
+  padding: 24px 28px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
 }
-.chat-empty { margin: auto; text-align: center; color: #8b949e; }
-.chat-empty-title { font-size: 16px; margin-bottom: 6px; }
+.chat-empty { margin: auto; text-align: center; color: var(--ink-dim); }
+.chat-empty-title { font-size: 15px; font-weight: 600; letter-spacing: 0.12em; margin-bottom: 8px; }
 .chat-empty-sub { font-size: 13px; }
 
-/* 消息行与气泡 */
-.msg-row { display: flex; flex-direction: column; max-width: 78%; }
-.msg-row-user { align-self: flex-end; align-items: flex-end; }
-.msg-row-assistant { align-self: flex-start; align-items: flex-start; }
+/* ---------- 消息行 ---------- */
+.msg-row { display: flex; flex-direction: column; }
+.msg-row-user { align-self: flex-end; align-items: flex-end; max-width: 72ch; }
+.msg-row-assistant { align-self: stretch; }
+
+/* 消息头:mono 小字标注时间(数据语义) */
+.msg-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
 
 .msg-bubble {
-  padding: 10px 14px;
-  border-radius: 12px;
-  line-height: 1.6;
+  line-height: 1.65;
   word-break: break-word;
   white-space: pre-wrap; /* 纯文本(user/错误)保留换行 */
+  border-radius: 4px;
 }
-.msg-bubble-user { background: #1f6feb; color: #fff; border-bottom-right-radius: 4px; }
+.msg-row-user .msg-bubble-user {
+  background: var(--bg-panel);
+  border: 1px solid var(--grid-line);
+  padding: 10px 14px;
+}
 .msg-bubble-assistant {
-  background: #fff;
-  border: 1px solid #e4e8ec;
-  border-bottom-left-radius: 4px;
   white-space: normal; /* markdown 正文换行交给渲染 */
+  max-width: 80ch;     /* 正文行宽上限 */
+  padding: 0;
 }
 .msg-bubble-error {
-  background: #fff5f5;
-  border: 1px solid #f1b8b4;
-  color: #c93c37;
-  border-bottom-left-radius: 4px;
+  background: var(--bg-inset);
+  border: 1px solid var(--grid-line);
+  border-left: 2px solid var(--accent-warm);
+  color: var(--accent-warm);
+  padding: 10px 14px;
+  font-size: 13px;
+  max-width: 80ch;
 }
 
-/* 进度徽标:小字灰色 */
+/* 进度徽标:mono 小字,内嵌底 1px 边框 */
 .msg-progress { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
 .msg-progress-item {
-  font-size: 12px;
-  color: #8b949e;
-  background: #f0f2f4;
-  border-radius: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  background: var(--bg-inset);
+  border: 1px solid var(--grid-line);
+  border-radius: 4px;
   padding: 2px 8px;
 }
 
-/* ---------- markdown 正文(assistant 气泡) ---------- */
+/* ---------- 流式输出光标(全设计唯一动效花哨点) ---------- */
+/* 末尾块状青色光标:落在最后一个块级元素的行内末尾;内容为空时落在空容器上 */
+.msg-row-streaming .md-body > :last-child::after,
+.msg-row-streaming .md-body:empty::after {
+  content: '';
+  display: inline-block;
+  width: 0.6em;
+  height: 1.1em;
+  margin-left: 3px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  animation: cursor-blink 1.1s ease-in-out infinite;
+}
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ---------- markdown 正文(assistant 全宽排版) ---------- */
 .md-body :first-child { margin-top: 0; }
 .md-body :last-child { margin-bottom: 0; }
-.md-body h1, .md-body h2, .md-body h3, .md-body h4 { margin: 12px 0 8px; line-height: 1.4; }
-.md-body h1 { font-size: 18px; }
-.md-body h2 { font-size: 16px; }
-.md-body h3 { font-size: 15px; }
+.md-body h1, .md-body h2, .md-body h3, .md-body h4 {
+  margin: 14px 0 8px;
+  line-height: 1.4;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.md-body h1 { font-size: 17px; }
+.md-body h2 { font-size: 15px; }
+.md-body h3 { font-size: 14px; }
 .md-body p { margin: 6px 0; }
 .md-body ul, .md-body ol { margin: 6px 0; padding-left: 20px; }
 .md-body li { margin: 2px 0; }
-.md-body a { color: #1f6feb; }
+.md-body a { color: var(--blueprint); text-decoration: none; }
+.md-body a:hover { text-decoration: underline; }
 .md-body code {
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
-  font-size: 13px;
-  background: #f0f2f4;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  background: var(--bg-inset);
   border-radius: 4px;
   padding: 1px 5px;
 }
 .md-body pre {
-  background: #0d1117; /* 代码块深色背景 */
-  color: #e6edf3;
-  border-radius: 8px;
+  background: var(--bg-inset);
+  border: 1px solid var(--grid-line);
+  border-radius: 4px;
   padding: 12px 14px;
   overflow-x: auto;
-  margin: 8px 0;
+  margin: 10px 0;
+  font-size: 12.5px;
+  line-height: 1.6;
 }
-.md-body pre code { background: none; color: inherit; padding: 0; }
-.md-body blockquote { border-left: 3px solid #d0d7de; padding-left: 10px; color: #57606a; margin: 8px 0; }
-.md-body table { border-collapse: collapse; margin: 8px 0; }
-.md-body th, .md-body td { border: 1px solid #d8dee4; padding: 4px 10px; }
+.md-body pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
+.md-body blockquote {
+  border-left: 2px solid var(--blueprint);
+  padding: 2px 0 2px 12px;
+  color: var(--ink-dim);
+  margin: 10px 0;
+}
+.md-body table { border-collapse: collapse; margin: 10px 0; font-size: 13px; }
+.md-body th, .md-body td { border: 1px solid var(--grid-line); padding: 4px 10px; }
+.md-body th { background: var(--bg-panel); font-weight: 600; }
+.md-body hr { border: none; border-top: 1px solid var(--grid-line); margin: 12px 0; }
 
 /* ---------- Composer(输入区) ---------- */
 .composer {
@@ -164,35 +302,53 @@ button:disabled { cursor: not-allowed; }
   gap: 10px;
   align-items: flex-end;
   padding: 12px 16px;
-  background: #fff;
-  border-top: 1px solid #d8dee4;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--grid-line);
 }
 .composer-input {
   flex: 1;
   resize: none;
-  border: 1px solid #d0d7de;
-  border-radius: 8px;
+  border: 1px solid var(--grid-line);
+  border-radius: 4px;
   padding: 8px 12px;
   font: inherit;
   line-height: 1.5;
   outline: none;
   max-height: 160px;
+  background: var(--bg-inset);
+  color: var(--ink);
+  transition: border-color 0.15s;
 }
-.composer-input:focus { border-color: #1f6feb; box-shadow: 0 0 0 3px rgba(31, 111, 235, .12); }
+.composer-input::placeholder { color: var(--ink-dim); }
+.composer-input:focus { border-color: var(--accent); }
 .composer .btn { height: 38px; min-width: 72px; }
 
 /* ---------- Agent 下拉 ---------- */
 .agent-select { display: flex; align-items: center; gap: 8px; }
-.agent-select-label { font-size: 13px; color: #57606a; }
+.agent-select-label { font-family: var(--font-mono); font-size: 12px; color: var(--ink-dim); letter-spacing: 0.05em; }
 .agent-select-input {
   font: inherit;
   font-size: 13px;
   padding: 5px 8px;
-  border: 1px solid #d0d7de;
-  border-radius: 6px;
-  background: #fff;
-  color: #1f2328;
+  border: 1px solid var(--grid-line);
+  border-radius: 4px;
+  background: var(--bg-inset);
+  color: var(--ink);
   outline: none;
+  transition: border-color 0.15s;
 }
-.agent-select-input:focus { border-color: #1f6feb; }
-.agent-select-input:disabled { background: #f6f8fa; color: #8b949e; }
+.agent-select-input:focus { border-color: var(--accent); }
+.agent-select-input:disabled { color: var(--ink-dim); opacity: 0.5; }
+.agent-select-input option { background: var(--bg-panel); color: var(--ink); }
+
+/* ---------- 动效降级:呼吸灯与光标闪烁降为常亮 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .app-shell.app-streaming .agent-select .status-dot,
+  .app-shell.app-streaming .session-item-active .status-dot {
+    animation: none;
+  }
+  .msg-row-streaming .md-body > :last-child::after,
+  .msg-row-streaming .md-body:empty::after {
+    animation: none;
+  }
+}

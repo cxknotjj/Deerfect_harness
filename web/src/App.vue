@@ -101,7 +101,7 @@ async function onAgentChange(agentId: number | null): Promise<void> {
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'app-streaming': streaming }">
     <SessionList
       :sessions="sessions"
       :current-id="currentSessionId"

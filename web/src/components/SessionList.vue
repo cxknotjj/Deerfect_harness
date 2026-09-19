@@ -28,8 +28,11 @@ const emit = defineEmits<{ select: [id: string]; create: []; more: [] }>()
         :class="{ 'session-item-active': s.id === currentId }"
         @click="emit('select', s.id)"
       >
-        <div class="session-item-name">{{ s.name }}</div>
-        <div class="session-item-meta">{{ s.lastQuestion ?? '暂无对话' }}</div>
+        <span class="status-dot" aria-hidden="true"></span>
+        <div class="session-item-body">
+          <div class="session-item-name">{{ s.name }}</div>
+          <div class="session-item-meta">{{ s.lastQuestion ?? '暂无对话' }}</div>
+        </div>
       </li>
     </ul>
 

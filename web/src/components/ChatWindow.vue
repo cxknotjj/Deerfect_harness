@@ -33,7 +33,13 @@ watch(
         <p class="chat-empty-title">开始新的对话</p>
         <p class="chat-empty-sub">在下方输入消息发送,或从左侧选择会话</p>
       </div>
-      <MessageBubble v-for="m in messages" :key="m.id" :message="m" />
+      <!-- msg-row-streaming 落到最后一条消息上,CSS 据此追加流式光标 -->
+      <MessageBubble
+        v-for="m in messages"
+        :key="m.id"
+        :message="m"
+        :class="{ 'msg-row-streaming': streaming && m.id === messages[messages.length - 1]?.id }"
+      />
     </div>
 
     <Composer :disabled="streaming" @send="emit('send', $event)" @stop="emit('stop')" />

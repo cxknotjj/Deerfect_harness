@@ -16,6 +16,7 @@ function onChange(e: Event): void {
 
 <template>
   <label class="agent-select">
+    <span class="status-dot" aria-hidden="true"></span>
     <span class="agent-select-label">Agent</span>
     <select
       class="agent-select-input"

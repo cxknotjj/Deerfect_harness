@@ -28,17 +28,22 @@ const html = computed(() => {
 
 <template>
   <div class="msg-row" :class="message.role === 'user' ? 'msg-row-user' : 'msg-row-assistant'">
-    <!-- 执行进度轨迹(小字灰色徽标) -->
+    <!-- assistant 消息头:mono 小字标注时间 -->
+    <div v-if="message.role === 'assistant'" class="msg-meta">{{
+      new Date(message.ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
+    }}</div>
+
+    <!-- 执行进度轨迹(mono 小字徽标) -->
     <div v-if="message.progress.length > 0" class="msg-progress">
       <span v-for="(p, i) in message.progress" :key="i" class="msg-progress-item">
         {{ p.stage }}<template v-if="p.detail"> · {{ p.detail }}</template>
       </span>
     </div>
 
-    <!-- 错误消息:红色样式 -->
+    <!-- 错误消息:警示橙样式 -->
     <div v-if="message.error" class="msg-bubble msg-bubble-error">{{ message.content }}</div>
 
-    <!-- user:右对齐纯文本 -->
+    <!-- user:右对齐纯文本小块 -->
     <div v-else-if="message.role === 'user'" class="msg-bubble msg-bubble-user">{{ message.content }}</div>
 
     <!-- assistant:markdown 渲染(内容已经 DOMPurify 净化) -->
