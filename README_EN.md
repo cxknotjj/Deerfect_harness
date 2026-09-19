@@ -6,7 +6,9 @@
 
 <div align="center">
 
-# ☕ javaHarness
+<img src="web/public/deer_logo.png" width="88" alt="Deerfect Harness" />
+
+# Deerfect Harness
 
 **An AI Agent orchestration framework built on Spring AI — a goal-driven, multi-agent execution harness**
 
@@ -30,11 +32,14 @@
 - [🏗️ Architecture Overview](#%EF%B8%8F-architecture-overview)
 - [🧰 Tech Stack](#-tech-stack)
 - [🚀 Quick Start](#-quick-start)
+- [🐳 Docker Deployment](#-docker-deployment)
 - [🎮 CLI Usage](#-cli-usage)
 - [🌐 REST API](#-rest-api)
 - [📡 SSE Streaming Protocol](#-sse-streaming-protocol)
 - [🔁 Resume from Checkpoint](#-resume-from-checkpoint)
+- [🤖 QQ Bot](#-qq-bot)
 - [🔌 Multi-Model & Multi-Provider](#-multi-model--multi-provider)
+- [🔌 MCP Tools](#-mcp-tools)
 - [📁 Project Structure](#-project-structure)
 - [🧪 Running Tests](#-running-tests)
 - [🙏 References & Acknowledgements](#-references--acknowledgements)
@@ -152,6 +157,13 @@ setx WSLENV "QWEN_API_KEY/u:DEEPSEEK_API_KEY/u"   # pass into WSL (needed when r
 $env:QWEN_API_KEY = "sk-your-key"    # Windows PowerShell; use export QWEN_API_KEY=... in WSL
 ```
 
+## 🐳 Docker Deployment
+
+No JDK/Maven/database on the box? The `docker/` directory brings up a trio in one go: **app + MySQL 8.4 (primary) + pgvector (RAG knowledge base)**, with all configuration injected via environment variables — zero changes to `application.yaml`; primary-schema creation is self-contained via in-image Flyway. Images can be obtained by **local build**, **Aliyun ACR pull (build-free)** or **offline tar import**.
+
+> [!TIP]
+> Full walkthrough (build / `.env` / knowledge init / ACR pull / offline deploy): **[`docs/docker-deploy.md`](./docs/docker-deploy.md)** (Chinese).
+
 ## 🎮 CLI Usage
 
 The CLI is a pure HTTP client (**listens on no port**) and talks to the main service over REST:
@@ -194,115 +206,17 @@ The CLI is a pure HTTP client (**listens on no port**) and talks to the main ser
 
 ### 📚 Knowledge Base QA (RAG)
 
-Drop documents into the `knowledge/` directory (`.md` / `.txt`, optional front-matter `title:`); after ingestion both paths automatically retrieve & inject before answering:
+Drop documents into the `knowledge/` directory (`.md` / `.txt`, optional front-matter `title:`); after ingestion both paths automatically retrieve & inject before answering, with inline `【Source N】` citations and a source footnote. Retrieval runs as a side check before prompt assembly — if any of the five gating conditions fails it silently degrades with zero impact on the main path.
 
-```bash
-mkdir -p knowledge && cp your-doc.md knowledge/
-curl -X POST http://localhost:8080/api/knowledge/sync          # incremental ingestion (only mtime-changed docs re-embedded)
-curl 'http://localhost:8080/api/knowledge/search?q=deploy'     # debug retrieval hit view
-```
-
-Answers carry `【Source N】` inline citations, the CLI prints a "Sources:" footer, and `meta.sources` / `ChatResponse.sources` expose structured provenance (doc name / title / score). Configuration (top-k / min score / injection budget) lives under `app.knowledge.*` in `application.yaml`.
-
-#### 🗂️ Multiple Knowledge Bases & Agent Binding
-
-Each first-level subdirectory of `knowledge/` is a standalone knowledge base (kb id); loose files at the root belong to the shared `default` base:
-
-```bash
-mkdir -p knowledge/java knowledge/frontend        # subdirectory = knowledge base
-cp spring.md knowledge/java/ && cp vue.md knowledge/frontend/
-curl -X POST http://localhost:8080/api/knowledge/sync
-```
-
-Set the `agent` table's `knowledge` column to a comma-separated list of kb ids (e.g. `java,frontend`) to bind an agent to specific bases — retrieval filters on the vector metadata `kb` field (`kb in [...]`), so an agent only reads its bound bases; leave it empty/NULL to search all knowledge. Moving a document across subdirectories (kb change) triggers automatic re-ingestion on the next sync.
-
-#### 🔍 RAG Trigger Logic
-
-RAG is never triggered by explicit commands — it is a **bypass check before every prompt assembly**; unmet conditions degrade silently with zero side effects on the main flow.
-
-Trigger decision flow:
-
-```mermaid
-flowchart TD
-    A[User request<br/>Path A direct answer / Path B orchestration node] --> B["AgentRequestSpecFactory<br/>before assembling system prompt"]
-    B --> C{"app.knowledge.enabled?"}
-    C -->|false| X[Silent skip<br/>zero side effects]
-    C -->|true| D{"Agent role in skip list?<br/>aggregator: its material is subtask results"}
-    D -->|yes| X
-    D -->|no| E{"User text length ≥<br/>min-query-chars (8)?"}
-    E -->|no| X
-    E -->|yes| F["Vector search: user text → DashScope embedding<br/>→ pgvector cosine top-k (4)"]
-    F --> G{"Hits with score ≥<br/>min-score (0.5)?"}
-    G -->|no| X
-    G -->|yes| H["Accumulate tokens per hit:<br/>hits beyond context-budget (3000) are truncated"]
-    H --> I["Render knowledge block with 【Source N】<br/>append to system prompt"]
-    I --> J["Answer: inline 【Source N】 citations<br/>+ meta.sources + CLI source footer"]
-```
-
-Retrieval injection sequence:
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant F as AgentRequestSpecFactory
-    participant R as KnowledgeRetriever
-    participant S as KnowledgeService
-    participant E as DashScope Embedding
-    participant V as pgvector
-    participant L as LLM
-    U->>F: Request (Path A / Path B node)
-    F->>R: buildKnowledgeBlock(agent, sessionId, user)
-    R->>R: enabled / role / query-length short-circuits
-    R->>S: search(query)
-    S->>E: Embed query
-    S->>V: cosine similarity top-k
-    V-->>S: Hit chunks
-    S-->>R: List<KnowledgeHit>
-    R-->>F: Knowledge block (【Source N】 within budget) or null
-    F->>L: system prompt (+ knowledge block)
-    L-->>U: Answer with inline citations + meta.sources
-```
-
-Trigger conditions (fully config-driven, tune via `application.yaml`):
-
-| Trigger condition | Config key | Current value | When unmet |
-|---|---|---|---|
-| Knowledge base enabled | `enabled` | true | silent skip |
-| Role not in skip list | — (aggregator skipped by policy) | aggregator | silent skip |
-| Query length threshold | `min-query-chars` | 8 | silent skip |
-| Hit score threshold | `min-score` | 0.5 | drop the hit |
-| Within injection budget | `context-budget` | 3000 | truncate budget-exceeding hits |
+> [!TIP]
+> Multi-KB & agent binding, directory watching / BM25 hybrid retrieval and other enhanced settings: **[`docs/knowledge-rag_EN.md`](./docs/knowledge-rag_EN.md)**; decision flow & sequence diagram: [`docs/data-flow.md` section 5i](./docs/data-flow.md#5i-rag-知识检索注入数据流prompt-组装前旁路).
 
 ## 📡 SSE Streaming Protocol
 
-Response `Content-Type: text/plain` (an SSE-style line protocol; each Flux element is its own line, with `event:` + `data:` pairs). Example event stream:
+Streaming responses use an SSE-style line protocol (one element per line, `event:` + `data:` pairs): `token` for incremental text, `progress` for orchestration stages (not stored in session memory), `meta` for end-of-turn session info & knowledge sources, `error` for in-stream errors — terminated by `[DONE]`.
 
-```text
-event: progress
-data: {"stage":"编排","detail":"开始拆解复杂目标…"}
-event: progress
-data: {"stage":"拆解","detail":"4 个子任务已就绪"}
-event: token
-data: chunk-1
-event: token
-data: chunk-2
-...
-data: [DONE]
-event: meta
-data: {"sessionId":"9","newSession":true,"goalId":null,"status":"SUCCEEDED","error":null}
-```
-
-| Event | Meaning |
-|---|---|
-| 📺 `event: token` | Text chunks generated by the model (pushed token by token; in-line newlines are escaped so each event stays a single line) |
-| 📣 `event: progress` | Real-time orchestration progress (orchestration / decomposition / subtask done / aggregation); **not** written into session memory |
-| 🏷️ `event: meta` | Session info at the end of a turn: `sessionId` / `newSession` / `goalId` / `status`; on failure `status=FAILED` plus an `error` field; when knowledge hits exist, `sources` carries them (doc name / title / relevance) |
-| ⚠️ `event: error` | In-stream error message |
-
-> [!IMPORTANT]
-> - Each SSE event is emitted as a single atomic pair (`event:` + `data:` are never interleaved by other events)
-> - `[DONE]` is sent after everything has been pushed
-> - Use `curl -N` to watch chunks arrive one by one
+> [!TIP]
+> Full event stream example & field reference: **[`docs/sse-protocol_EN.md`](./docs/sse-protocol_EN.md)**; resume responses share the same format as `/stream`.
 
 ## 🔁 Resume from Checkpoint
 
@@ -325,6 +239,19 @@ curl -N -X POST "http://localhost:8080/api/chat/resume?goalId=<goalId>"
 
 > [!NOTE]
 > Missing `goal` returns 400; still running returns 409; with no checkpoint an `error` event is emitted in-stream.
+
+## 🤖 QQ Bot
+
+A third entry point besides CLI / REST: connects to QQ group & private chats via [NapCat](https://napneko.github.io/) over the **OneBot 11 protocol (HTTP POST mode)**. Incoming messages go through the same pipeline as REST (session memory → SIMPLE/COMPLEX routing → orchestration), and replies are sent progressively like a real person.
+
+| Capability | Notes |
+|---|---|
+| 💬 Group wake-up | `at` / `prefix` / `all` trigger modes; private chats answer directly |
+| 🚦 Anti-flooding | Per-user rate limit + private-chat whitelist (empty = unrestricted) |
+| 🎯 Pinned Agent | Bound sessions still go through unified routing; failed orchestrations fall back to that Agent |
+
+> [!TIP]
+> Setup steps (NapCat dual-channel config), progressive sending / emoji / humanized delays and all parameters: **[`docs/qq-channel.md`](./docs/qq-channel.md)** (Chinese); disable via `napcat.enabled: false` in `application.yaml`.
 
 ## 🔌 Multi-Model & Multi-Provider
 
@@ -355,96 +282,19 @@ flowchart LR
 >
 > Key **loading channels**: system-level environment variables (Windows side + `WSLENV` passthrough into WSL) > repo-root `.env.local` (auto-sourced by the launch scripts, gitignored) > current-session `export`; resolution priority is unaffected by the channel.
 
+## 🔌 MCP Tools
+
+The tool ecosystem is extended via MCP: the client supports stdio (local processes) and Streamable HTTP (remote servers) with lazy connection and per-server failure isolation. Connection config lives in the project-root `mcp-config.json` (Claude/Cursor-style `mcpServers` structure); **it contains API keys and is not committed** (gitignored, create your own after cloning).
+
+> [!TIP]
+> Config template, per-agent tool assignment and `general` least-privilege alignment: **[`docs/mcp-tools.md`](./docs/mcp-tools.md)** (Chinese).
+
 ## 📁 Project Structure
 
-Classic layered architecture (Controller → Service → Mapper/Entity), with the domain model grouped under the `domain` parent package:
+A multi-module Maven project: `shared` (domain model & SSE protocol) + `server` (Spring Boot main service) + `cli` (command-line client) + `web` (self-contained Vue3 frontend); the server follows the classic layered architecture (Controller → Service → Mapper/Entity) with domain models grouped under the `domain` parent package.
 
-<details>
-<summary><b>📂 Click to expand the full directory tree</b></summary>
-
-```text
-src/main/java/com/dark/javaHarness/
-├── JavaHarnessApplication.java   # Spring Boot entry (@MapperScan points to the mapper package)
-├── controller/                   # Presentation layer: REST endpoints + SSE streaming
-│   ├── ChatController.java       # Chat endpoints (/api/chat, /stream, /resume, /goal-status)
-│   ├── HarnessController.java    # Management endpoints (agents / submit / goals / sessions / session-bound agent)
-│   ├── ProviderAdminController.java  # Model-mapping management (/api/providers: list & hot-refresh add)
-│   └── LlmCallController.java    # LLM call observability queries (/api/llm-calls)
-├── service/                      # Business layer (interfaces + impl/)
-│   ├── AgentService / GoalService / SessionService / ChatService  # Orchestration, goals, session memory, chat use cases
-│   ├── RouteJudge.java           # Main-agent routing decision (SIMPLE / COMPLEX)
-│   ├── AgentConfigProvider.java  # Runtime config from the agent table (routing map)
-│   ├── ProviderAdminService.java # model_provider mapping management (hot refresh on add)
-│   └── impl/                     # Implementations (AgentServiceImpl / ChatServiceImpl / LlmRouteJudge / LlmCallRecorder etc.)
-├── advisor/                      # Spring AI Advisor interceptors (cross-cutting agent-flow management)
-│   ├── ContextAssemblingAdvisor.java  # Context assembly: filter / token-budget truncation / role normalization
-│   └── PromptBudgetAdvisor.java  # Prompt section budgets (history / user / tool-result truncation)
-├── config/                       # Application configuration
-│   ├── GoalExecutorConfig.java   # Execution pools: goal-exec- background goal pool + mvc-async- MVC async slot
-│   ├── ContextBudgetProperties.java  # Unified context budget config (app.context.*; yaml is the single source of numbers)
-│   ├── KnowledgeProperties.java  # RAG knowledge-base config carrier (app.knowledge.*)
-│   ├── KnowledgeConfig.java      # Knowledge-base wiring: vector datasource / embedding model / PgVectorStore (conditional + lazy connections)
-│   ├── PrimaryDataSourceConfig.java  # Explicit primary (MySQL) datasource declaration (@Primary; Flyway/MyBatis ownership with multiple datasources)
-│   ├── MybatisPlusConfig.java    # MyBatis-Plus configuration (pagination etc.)
-│   └── agent/                    # Agent configuration & assembly
-│       ├── ChatAgentConfig.java      # Registers agent beans + graph-core checkpoint store (MysqlSaver)
-│       ├── ChatClientFactory.java    # Builds OpenAI-compatible ChatClients per provider (Registry pattern)
-│       ├── ChatClientRegistry.java   # Model-name → ChatClient registry (hot-refreshable)
-│       └── ThinkingSwitchChatModel.java  # Injects thinking switch per model_provider.disable_thinking
-├── prompt/                       # Prompt assembly pipeline (shared by both paths)
-│   ├── PromptAssembler.java      # Five-section system prompt (role / tool index / discipline / output / skill)
-│   ├── MemoryPolicy.java         # Per-role session-memory injection matrix
-│   ├── SkillManager.java / SkillRepository.java  # Markdown skill library assembly (injected on demand)
-│   ├── ToolLazyManager.java      # Two-phase lazy tool-schema loading (lightweight index → expand_tool)
-│   └── PromptSection.java / SkillSectionProvider.java  # Section model and skill extension point
-├── mapper/                       # Data access: MyBatis-Plus mappers
-│   └── AgentMapper / GoalMapper / SessionMapper / SessionMessageMapper / ModelProviderMapper / LlmCallLogMapper
-├── domain/                       # Domain model (parent package)
-│   ├── Goal.java                 # Goal + status (PENDING/RUNNING/SUCCEEDED/FAILED)
-│   ├── AgentConfig.java          # Agent runtime config (model + prompt), from the agent table
-│   ├── RouteDecision.java        # Routing decision enum (SIMPLE / COMPLEX)
-│   ├── LlmCallLog.java           # Observability record of one LLM call (latency/tokens/outcome)
-│   ├── dto/                      # Transfer objects (ChatRequest/ChatResponse/SseMeta/pagination etc.)
-│   └── entity/                   # DB entities (agent / goal / session / model_provider / llm_call_log tables)
-├── enums/                        # Enums & shared constants: GoalStatus, AgentConstants, SseProtocol
-├── exception/                    # Global exception handling (@RestControllerAdvice, uniform {code, message})
-├── agent/                        # Agent abstractions, orchestration & LLM calls
-│   ├── Agent.java / AgentRegistry.java    # Agent interface and registry
-│   ├── GeneralAssistantAgent.java  # Path A: single-model chat (true token-by-token stream)
-│   ├── MultiAgentGraphAgent.java   # Path B: StateGraph orchestration facade (lead → parallel subtasks → aggregation + checkpoint resume)
-│   ├── AgentChatCaller.java        # LLM call wrapper (tool loop, hallucinated-tool fallback, BudgetLedger budget accounting & breaking)
-│   ├── AgentRequestSpecFactory.java  # Shared request-assembly factory (system / memory injection / tool decoration / output tier)
-│   ├── LeadOutputParser.java       # Lead decomposition JSON parsing (subtask count + expert dispatch whitelist)
-│   ├── OrchestrationBudget.java    # Orchestration budget ledger (AtomicLong shared accounting + degradation note)
-│   ├── MultiAgentStreamPipeline.java  # Orchestration streaming pipeline (progress lines → SSE events, resume checkpoint selection)
-│   ├── BranchProgressListener.java # graph-core lifecycle-hook sidecar (serializes parallel-branch completion events)
-│   ├── LlmRetry.java               # LLM call retry policy
-│   └── ProgressLine.java           # Progress line wire protocol (MARK+stage+SEP+detail) codec
-├── cli/                          # CLI client (standalone process, pure HTTP to 8080)
-│   ├── ChatCli.java              # Facade: main / chatLoop / command dispatch / turn execution
-│   ├── ResumeStateStore.java     # /resume target persistence (state-file IO + tolerant parsing)
-│   ├── input/TerminalInput.java  # Terminal input layer: JLine history/completion/paste; falls back to line reads without a TTY
-│   ├── api/ChatApiClient.java    # OkHttp wrapper for chat / streaming / resume / provider / session endpoints (SSE parsing)
-│   └── render/                   # Claude Code-style rendering
-│       ├── TerminalRenderer.java # Facade: incremental streaming output + spinner collapse + tool-call lines
-│       ├── MarkdownAnsiRenderer.java / Ansi.java  # Markdown line-level ANSI coloring
-│       └── Spinner.java          # Stage progress spinner (in-place refresh)
-└── tool/                         # Tools
-    ├── WebTools.java             # Web fetch facade (fetchUrl: fetch + 30-min content cache + query-relevant clipping)
-    ├── HtmlToMarkdown.java / ContentRelevance.java  # Noise removal / main-content Markdown extraction / query-intent clipping
-    ├── SandboxToolProvider.java  # Container-level sandbox tools (Python/Shell/file + browser; bounded lazy init, graceful degradation)
-    ├── McpToolProvider.java / McpConfigParser.java  # MCP tool access (multi-server lazy connect, failure isolation) / mcp-config.json parsing
-    ├── McpServerTools.java       # Demo tools exposed by the in-process MCP server (Streamable-HTTP /mcp)
-    ├── ToolAssignments.java      # Tool assignment table: per-expert toolsets (dual-channel injection, least privilege)
-    ├── ToolCallBudget.java / ToolCallTracer.java    # Tool count/result hard budget / start-stop progress lines
-    ├── TokenEstimator.java       # Project-wide token estimation standard
-    └── DemoTools.java            # Demo toolset (time / calculator / weather)
-```
-
-</details>
-
-> [!NOTE]
-> **Layer responsibilities**: `controller` handles REST/SSE and carries no business logic; `service` orchestrates the core logic (interfaces separated from implementations); `mapper` / `domain.entity` handle database reads, writes and mapping.
+> [!TIP]
+> Full server-side directory tree with per-file notes: **[`docs/project-structure_EN.md`](./docs/project-structure_EN.md)**.
 
 ## 🧪 Running Tests
 
@@ -490,6 +340,6 @@ This project's design was inspired by the following excellent open-source projec
 
 **⭐ If this project helps you, please give it a Star!**
 
- Made with ☕ and ❤️ by javaHarness contributors
+ Made with ☕ and ❤️ by Deerfect Harness contributors
 
 </div>
