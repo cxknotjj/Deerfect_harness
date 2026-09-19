@@ -64,6 +64,11 @@ html[data-theme='dark'] body {
   background-size: 24px 24px;
 }
 
+/* 主题切换平滑过渡(仅主容器;细节控件跳变可接受,避免与既有 transition 冲突) */
+body, .chat-header, .composer-wrap, .msg-bubble-user {
+  transition: background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease;
+}
+
 ::selection { background: var(--selection); }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -93,7 +98,13 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 
 /* ---------- 布局骨架:左栏会话列表 + 右侧聊天窗 ---------- */
 .app-shell { display: flex; height: 100%; overflow: hidden; }
-.app-shell.sidebar-collapsed .session-list { display: none; }
+.app-shell.sidebar-collapsed .session-list {
+  width: 0;
+  border-right-width: 0;
+  opacity: 0;
+  visibility: hidden;
+  transition: width 0.28s ease, opacity 0.28s ease, visibility 0s linear 0.28s;
+}
 
 /* ---------- 会话列表(左栏 260px) ---------- */
 .session-list {
@@ -103,6 +114,9 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   flex-direction: column;
   background: var(--bg-panel);
   border-right: 1px solid var(--grid-line);
+  overflow: hidden;          /* 收起动画:宽度收缩时裁切内容 */
+  white-space: nowrap;       /* 收缩过程中文字不折行,视觉平滑 */
+  transition: width 0.28s ease, opacity 0.28s ease;
 }
 /* 顶部:brand 行(小鹿 logo + Harness) */
 .session-list-head {
@@ -110,6 +124,13 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   align-items: center;
   justify-content: space-between;
   padding: 14px 10px 10px 14px;
+}
+
+/* 顶栏图标钮出现时淡入(收起→展开钮 / 展开→主题钮) */
+.chat-header .icon-btn { animation: btn-fade-in 0.2s ease; }
+@keyframes btn-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* 侧栏折叠/展开小图标钮(左栏头部与顶栏共用) */
@@ -238,7 +259,7 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   border-bottom: 1px solid var(--grid-line);
 }
 .chat-title { font-size: 15px; font-weight: 600; }
-.chat-header .icon-btn { margin-left: auto; } /* 主题切换钮靠右 */
+.chat-header > .icon-btn:last-child { margin-left: auto; } /* 仅主题切换钮(末位)推右,收起态展开钮靠左 */
 .chat-tip { font-size: 13px; color: var(--blueprint); }
 .chat-tip-error { color: var(--accent-warm); }
 
@@ -246,6 +267,9 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .chat-window { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .chat-scroll {
   flex: 1;
+  width: 100%;
+  max-width: 860px;
+  margin: 0 auto;
   overflow-y: auto;
   padding: 24px 28px;
   display: flex;
@@ -256,6 +280,16 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .chat-empty-title { font-size: 15px; font-weight: 600; letter-spacing: 0.12em; margin-bottom: 8px; }
 .chat-empty-sub { font-size: 13px; }
 .chat-empty-logo { width: 100px; height: 100px; margin-bottom: 12px; }
+.chat-empty-suggest { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 18px; }
+.suggest-chip {
+  padding: 7px 14px;
+  border: 1px solid var(--grid-line);
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--ink-dim);
+  transition: color 0.15s, border-color 0.15s;
+}
+.suggest-chip:hover { color: var(--accent); border-color: var(--accent); }
 
 /* ---------- 消息行(窄栏 820px 居中,对齐截图) ---------- */
 .msg-row { display: flex; flex-direction: column; width: 100%; }
@@ -323,6 +357,19 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 }
 .msg-row:hover .msg-action-btn { opacity: 1; }
 .msg-action-btn:hover { background: var(--hover-veil); color: var(--ink); }
+.msg-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--accent-warm);
+  border-radius: var(--radius-ctl);
+  font-size: 12.5px;
+  color: var(--accent-warm);
+  transition: background 0.15s, opacity 0.15s;
+}
+.msg-retry:hover:not(:disabled) { background: var(--accent-warm-soft); }
+.msg-retry:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ---------- 流式输出光标(全设计唯一动效花哨点) ---------- */
 /* 末尾块状青色光标:落在最后一个块级元素的行内末尾;内容为空时落在空容器上 */
@@ -377,6 +424,32 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   line-height: 1.6;
 }
 .md-body pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
+
+/* 代码块:头部(语言标签 + 复制按钮),声明顺序覆盖上方 pre 的边距与边框 */
+.code-block {
+  border: 1px solid var(--grid-line);
+  border-radius: var(--radius-ctl);
+  overflow: hidden;
+  margin: 10px 0;
+}
+.code-block pre { margin: 0; border: none; border-radius: 0; }
+.code-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: var(--bg-inset);
+  border-bottom: 1px solid var(--grid-line);
+}
+.code-lang { font-family: var(--font-mono); font-size: 11px; color: var(--ink-dim); letter-spacing: 0.05em; }
+.code-copy {
+  font-size: 12px;
+  color: var(--ink-dim);
+  padding: 2px 8px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+.code-copy:hover { color: var(--ink); background: var(--hover-veil); }
 .md-body blockquote {
   border-left: 2px solid var(--blueprint);
   padding: 2px 0 2px 12px;
@@ -485,6 +558,18 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 
 /* ---------- 动效降级:呼吸灯与光标闪烁降为常亮 ---------- */
 @media (prefers-reduced-motion: reduce) {
+  body, .chat-header, .composer-wrap, .msg-bubble-user {
+    transition: none;
+  }
+  .chat-header .icon-btn {
+    animation: none;
+  }
+  .session-list,
+  .app-shell.sidebar-collapsed .session-list,
+  .chat-header .icon-btn {
+    transition: none;
+    animation: none;
+  }
   .app-shell.app-streaming .agent-select .status-dot,
   .app-shell.app-streaming .session-item-active .status-dot {
     animation: none;

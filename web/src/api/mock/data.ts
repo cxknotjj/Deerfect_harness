@@ -104,37 +104,4 @@ export const initialSessions: MockSession[] = [
       },
     ],
   },
-  {
-    session: { id: '3', name: '知识库检索', creator: 'cli', lastQuestion: '命中出处怎么展示?' },
-    messages: [
-      { role: 'user', content: 'RAG 知识库是怎么工作的?' },
-      {
-        role: 'assistant',
-        content: [
-          '## RAG 检索增强',
-          '',
-          '回答前先对知识库做向量检索,把命中片段作为上下文喂给模型:',
-          '',
-          '- 文档切块后向量化入库',
-          '- 提问时检索最相似片段',
-          '- 回答内联标注【出处N】,回合尾透出 `sources`',
-        ].join('\n'),
-      },
-      { role: 'user', content: '命中出处怎么展示?' },
-      {
-        role: 'assistant',
-        content: [
-          '## 出处展示',
-          '',
-          'meta 事件的 `sources` 携带命中列表,元素形状如下:',
-          '',
-          '```json',
-          '[{ "docName": "deploy.md", "title": "部署指南", "score": 0.87 }]',
-          '```',
-          '',
-          '前端可直接按 `docName + title` 渲染为可点击引用。',
-        ].join('\n'),
-      },
-    ],
-  },
 ]

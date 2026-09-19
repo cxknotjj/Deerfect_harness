@@ -130,6 +130,14 @@ export function useChat(hooks: ChatHooks) {
     }
   }
 
+  /** 删除一条 user 消息(连同其后紧邻的 assistant 回复整轮移除;本地视图层,真模式的后端记忆清理待后端端点) */
+  function remove(id: number): void {
+    const list = messages.value
+    const i = list.findIndex((m) => m.id === id)
+    if (i === -1) return
+    list.splice(i, list[i + 1]?.role === 'assistant' ? 2 : 1)
+  }
+
   /** 停止当前流:AbortSignal 取消,主动取消不视为错误 */
   function stop(): void {
     controller?.abort()
@@ -137,5 +145,5 @@ export function useChat(hooks: ChatHooks) {
     streaming.value = false
   }
 
-  return { messages, streaming, send, stop, show }
+  return { messages, streaming, send, stop, show, remove }
 }

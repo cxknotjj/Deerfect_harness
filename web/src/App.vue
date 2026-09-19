@@ -27,7 +27,7 @@ const {
   select: selectSession,
 } = useSessions()
 
-const { messages, streaming, send, stop, show: showChat } = useChat({
+const { messages, streaming, send, stop, show: showChat, remove: deleteMessage } = useChat({
   getSessionId: () => currentSessionId.value,
   setSessionId: (id) => {
     currentSessionId.value = id
@@ -157,7 +157,7 @@ function toggleTheme(): void {
         }}</span>
       </header>
 
-      <ChatWindow :messages="messages" :streaming="streaming" @send="send" @stop="stop">
+      <ChatWindow :messages="messages" :streaming="streaming" @send="send" @stop="stop" @delete="deleteMessage">
         <template #controls>
           <AgentSelect
             :agents="agents"

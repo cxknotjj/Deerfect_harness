@@ -1,10 +1,10 @@
 /**
  * 消息气泡:
  * - user:右对齐浅色圆角气泡(纯文本,pre-wrap 保留换行)
- * - assistant:左对齐 markdown 渲染(marked.parse + DOMPurify.sanitize 后 v-html),
- *   hover 显现「复制」操作按钮
+ * - assistant:左对齐 markdown 渲染(marked.parse + DOMPurify.sanitize 后 v-html);
+ *   代码块带语言标签与复制按钮(v-html 内按钮走事件委托);hover 显现「复制原文」
  * - progress:气泡上方「图标 + 灰字」行式执行轨迹(stage · detail)
- * - error:红色错误样式(错误文案纯文本展示)
+ * - error:红色错误样式 + 「重试」按钮(交由父级重发最后一条 user 消息)
  */
 <script setup lang="ts">
 import { computed, ref } from 'vue'
@@ -15,16 +15,32 @@ import type { MessageItem } from '../composables/useChat'
 // 聊天场景:markdown 单换行渲染为 <br>,阅读更自然
 marked.setOptions({ breaks: true })
 
-const props = defineProps<{ message: MessageItem }>()
+const props = defineProps<{ message: MessageItem; streaming?: boolean }>()
+const emit = defineEmits<{ retry: []; delete: [] }>()
 
-/** assistant 正文 markdown → HTML(经 DOMPurify 净化);错误消息走纯文本样式,不渲染 markdown */
+/** assistant 正文 markdown → HTML(经 DOMPurify 净化后再包装代码块头部) */
 const html = computed(() => {
   const { role, content, error } = props.message
   if (role !== 'assistant' || error || content === '') return ''
   const parsed = marked.parse(content)
   // marked.parse 在非 async 配置下返回 string,此处类型收窄兜底
-  return DOMPurify.sanitize(typeof parsed === 'string' ? parsed : '')
+  return wrapCodeBlocks(DOMPurify.sanitize(typeof parsed === 'string' ? parsed : ''))
 })
+
+/** 给每个代码块包一层头部(语言标签 + 复制按钮);lang 做字符白名单收敛防注入 */
+function wrapCodeBlocks(html: string): string {
+  return html
+    .replace(/<pre><code([^>]*)>/g, (_, attrs: string) => {
+      const lang = (/language-([\w+#.-]+)/.exec(attrs)?.[1] ?? 'text').toLowerCase()
+      return (
+        '<div class="code-block"><div class="code-block-head">' +
+        `<span class="code-lang">${lang}</span>` +
+        '<button type="button" class="code-copy">复制</button></div>' +
+        `<pre><code${attrs}>`
+      )
+    })
+    .replace(/<\/code><\/pre>/g, '</code></pre></div>')
+}
 
 /** 复制原文到剪贴板,成功后按钮短暂变 ✓(剪贴板不可用时静默) */
 const copied = ref(false)
@@ -39,6 +55,25 @@ async function copyContent(): Promise<void> {
     }, 2000)
   } catch {
     /* 剪贴板不可用(非安全上下文/权限拒绝),忽略 */
+  }
+}
+
+/** v-html 内代码块复制按钮的事件委托 */
+let codeTimer: number | undefined
+async function onBodyClick(e: MouseEvent): Promise<void> {
+  const btn = (e.target as HTMLElement).closest('.code-copy')
+  if (!(btn instanceof HTMLButtonElement)) return
+  const pre = btn.closest('.code-block')?.querySelector('pre')
+  if (!pre) return
+  try {
+    await navigator.clipboard.writeText(pre.textContent ?? '')
+    btn.textContent = '已复制'
+    window.clearTimeout(codeTimer)
+    codeTimer = window.setTimeout(() => {
+      btn.textContent = '复制'
+    }, 1500)
+  } catch {
+    /* 剪贴板不可用,忽略 */
   }
 }
 </script>
@@ -57,15 +92,31 @@ async function copyContent(): Promise<void> {
       </span>
     </div>
 
-    <!-- 错误消息:警示橙样式 -->
-    <div v-if="message.error" class="msg-bubble msg-bubble-error">{{ message.content }}</div>
+    <!-- 错误消息:警示橙样式 + 重试 -->
+    <template v-if="message.error">
+      <div class="msg-bubble msg-bubble-error">{{ message.content }}</div>
+      <div class="msg-actions">
+        <button class="msg-retry" type="button" :disabled="streaming" @click="emit('retry')">↻ 重试</button>
+      </div>
+    </template>
 
-    <!-- user:右对齐浅色圆角小块 -->
-    <div v-else-if="message.role === 'user'" class="msg-bubble msg-bubble-user">{{ message.content }}</div>
+    <!-- user:右对齐浅色圆角小块 + 复制/删除(hover 显现) -->
+    <template v-else-if="message.role === 'user'">
+      <div class="msg-bubble msg-bubble-user">{{ message.content }}</div>
+      <div class="msg-actions">
+        <button
+          class="msg-action-btn"
+          type="button"
+          :title="copied ? '已复制' : '复制'"
+          @click="copyContent"
+        >{{ copied ? '✓' : '⧉' }}</button>
+        <button class="msg-action-btn" type="button" title="删除这轮对话" @click="emit('delete')">✕</button>
+      </div>
+    </template>
 
-    <!-- assistant:markdown 渲染(内容已经 DOMPurify 净化)+ 复制按钮 -->
+    <!-- assistant:markdown 渲染(已净化)+ 代码块复制(委托)+ 复制原文 -->
     <template v-else>
-      <div class="msg-bubble msg-bubble-assistant md-body" v-html="html"></div>
+      <div class="msg-bubble msg-bubble-assistant md-body" @click="onBodyClick" v-html="html"></div>
       <div class="msg-actions">
         <button
           class="msg-action-btn"
