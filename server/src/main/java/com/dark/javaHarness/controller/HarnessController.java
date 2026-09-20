@@ -8,6 +8,7 @@ import com.dark.javaHarness.domain.dto.GoalView;
 import com.dark.javaHarness.domain.dto.GoalsView;
 import com.dark.javaHarness.domain.dto.SessionAgentView;
 import com.dark.javaHarness.domain.dto.SessionCreatedView;
+import com.dark.javaHarness.domain.dto.SessionMessagesView;
 import com.dark.javaHarness.domain.dto.SessionPageView;
 import com.dark.javaHarness.domain.dto.SubmitView;
 import com.dark.javaHarness.domain.entity.SessionEntity;
@@ -71,6 +72,15 @@ public class HarnessController {
         sessionService.switchAgent(sessionId, agentId);
         String agentName = agentService.findAgentNameById(agentId).orElse(null);
         return new SessionAgentView(sessionId, agentId, agentName);
+    }
+
+    /**
+     * 读取指定会话的历史消息：切回旧会话时回显对话（时间顺序的 role/content 列表）。
+     * 会话不存在或无历史返回空列表（非错误：前端空窗即为空会话）。
+     */
+    @GetMapping("/sessions/{sessionId}/messages")
+    public SessionMessagesView sessionMessages(@PathVariable String sessionId) {
+        return new SessionMessagesView(sessionId, sessionService.listMessages(sessionId));
     }
 
     /** 提交一个目标给指定 Agent 异步执行 */

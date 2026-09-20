@@ -3,6 +3,7 @@ package com.dark.javaHarness.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dark.javaHarness.domain.dto.SessionMessagesView;
 import com.dark.javaHarness.domain.entity.SessionEntity;
 import com.dark.javaHarness.domain.entity.SessionMessageEntity;
 import com.dark.javaHarness.mapper.SessionMapper;
@@ -111,6 +112,14 @@ public class SessionServiceImpl implements SessionService {
             log.warn("解析会话上下文快照失败 sessionId={}，按空上下文处理", sessionId, e);
             return List.of();
         }
+    }
+
+    /** 读取会话历史消息（复用上下文快照解析，仅转换为 role/content 展示形态） */
+    @Override
+    public List<SessionMessagesView.Item> listMessages(String sessionId) {
+        return loadContext(sessionId).stream()
+                .map(message -> new SessionMessagesView.Item(roleOf(message), message.getText()))
+                .toList();
     }
 
     /** 追加保存单条会话消息到该会话唯一一行上下文（不存在则新建） */

@@ -1,5 +1,6 @@
 package com.dark.javaHarness.service.impl;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -11,11 +12,14 @@ import static org.mockito.Mockito.when;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
+import com.dark.javaHarness.domain.dto.SessionMessagesView;
 import com.dark.javaHarness.domain.entity.SessionEntity;
+import com.dark.javaHarness.domain.entity.SessionMessageEntity;
 import com.dark.javaHarness.mapper.SessionMapper;
 import com.dark.javaHarness.mapper.SessionMessageMapper;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -68,6 +72,31 @@ class SessionServiceImplTest {
         assertTrue(uw.getSqlSet().contains("agent_id"), "应更新 agent_id 字段");
         assertTrue(uw.getTargetSql().contains("session_id"), "更新条件应限定在该会话");
         assertTrue(uw.getParamNameValuePairs().containsValue(3L), "目标值应为新 agentId");
+    }
+
+    /** listMessages：会话上下文快照 JSON 按角色还原为 role/content 展示列表 */
+    @Test
+    void listMessages_mapsSnapshotToItems() {
+        SessionMessageEntity row = new SessionMessageEntity();
+        row.setContent("""
+                [{"role":"user","content":"你好"},{"role":"assistant","content":"在的"}]""");
+        when(messageMapper.selectOne(any())).thenReturn(row);
+
+        List<SessionMessagesView.Item> items = sessionService.listMessages("9");
+
+        assertEquals(2, items.size(), "应还原快照中的两条消息");
+        assertEquals("user", items.get(0).role());
+        assertEquals("你好", items.get(0).content());
+        assertEquals("assistant", items.get(1).role());
+        assertEquals("在的", items.get(1).content());
+    }
+
+    /** listMessages：无快照行时返回空列表（会话未产生历史） */
+    @Test
+    void listMessages_noSnapshot_returnsEmpty() {
+        when(messageMapper.selectOne(any())).thenReturn(null);
+
+        assertTrue(sessionService.listMessages("9").isEmpty(), "无历史应返回空列表");
     }
 
     /* ---------------- 画像提取支持：session 表时间列（V19） ---------------- */

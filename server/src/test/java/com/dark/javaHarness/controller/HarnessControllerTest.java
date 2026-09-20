@@ -4,8 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.dark.javaHarness.domain.dto.SessionMessagesView;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.SessionService;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -39,6 +41,21 @@ class HarnessControllerTest {
         assertEquals("51", view.sessionId(), "应返回服务端新建的会话 ID");
         assertEquals("新会话", view.sessionName(), "应回显占位会话名");
         verify(sessionService).createSession("cli", "新会话");
+    }
+
+    @Test
+    void sessionMessages_delegatesAndWrapsItems() {
+        when(sessionService.listMessages("9"))
+                .thenReturn(List.of(new SessionMessagesView.Item("user", "你好"),
+                        new SessionMessagesView.Item("assistant", "在的")));
+
+        var view = controller.sessionMessages("9");
+
+        verify(sessionService).listMessages("9");
+        assertEquals("9", view.sessionId());
+        assertEquals(2, view.messages().size(), "应原样透传历史消息");
+        assertEquals("assistant", view.messages().get(1).role());
+        assertEquals("在的", view.messages().get(1).content());
     }
 
     @Test

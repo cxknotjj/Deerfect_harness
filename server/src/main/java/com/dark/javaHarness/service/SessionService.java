@@ -1,6 +1,7 @@
 package com.dark.javaHarness.service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dark.javaHarness.domain.dto.SessionMessagesView;
 import com.dark.javaHarness.domain.entity.SessionEntity;
 import java.util.List;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -25,6 +26,14 @@ public interface SessionService extends ChatMemory {
      * 读取会话完整上下文，还原为 Spring AI Message 列表。
      */
     List<Message> loadContext(String sessionId);
+
+    /**
+     * 读取会话历史消息（时间顺序的 role/content 视图，供前端回显）。
+     * 数据源与 {@link #loadContext} 同一份上下文快照，仅做展示形态转换。
+     *
+     * @return 会话不存在或无历史时返回空列表
+     */
+    List<SessionMessagesView.Item> listMessages(String sessionId);
 
     /**
      * 追加保存单条会话消息（session_messages 与 session 一对一，该会话仅一行）。
