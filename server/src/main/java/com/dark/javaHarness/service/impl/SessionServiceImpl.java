@@ -4,8 +4,10 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dark.javaHarness.domain.dto.SessionMessagesView;
+import com.dark.javaHarness.domain.entity.OneBotSessionBinding;
 import com.dark.javaHarness.domain.entity.SessionEntity;
 import com.dark.javaHarness.domain.entity.SessionMessageEntity;
+import com.dark.javaHarness.mapper.OneBotSessionBindingMapper;
 import com.dark.javaHarness.mapper.SessionMapper;
 import com.dark.javaHarness.mapper.SessionMessageMapper;
 import com.dark.javaHarness.service.AgentConfigProvider;
@@ -58,15 +60,19 @@ public class SessionServiceImpl implements SessionService {
     private final ObjectMapper objectMapper;
     /** agent 表读取器：switchAgent 校验目标 agentId 存在性 */
     private final AgentConfigProvider agentConfigProvider;
+    /** QQ 会话绑定表：删除会话时清理绑定行，避免 QQ 用户带着旧 id 重建孤儿快照 */
+    private final OneBotSessionBindingMapper bindingMapper;
 
     public SessionServiceImpl(SessionMapper sessionMapper,
                               SessionMessageMapper messageMapper,
                               ObjectMapper objectMapper,
-                              AgentConfigProvider agentConfigProvider) {
+                              AgentConfigProvider agentConfigProvider,
+                              OneBotSessionBindingMapper bindingMapper) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
         this.objectMapper = objectMapper;
         this.agentConfigProvider = agentConfigProvider;
+        this.bindingMapper = bindingMapper;
     }
 
     /** 创建新会话（会话名取首条提问截断），返回自增主键的字符串形式 */
@@ -126,6 +132,11 @@ public class SessionServiceImpl implements SessionService {
     @Override
     public void saveContext(String sessionId, Message message) {
         if (sessionId == null || sessionId.isBlank() || message == null) {
+            return;
+        }
+        // 防复活守卫：会话已软删/不存在时跳过写回，避免已删会话在流收尾时重建孤儿快照
+        if (getSession(sessionId) == null) {
+            log.info("会话不存在或已删除，跳过上下文写回 sessionId={}", sessionId);
             return;
         }
         // 查询该会话唯一的上下文行（保留取最新一条以兼容历史多行数据）
@@ -234,6 +245,27 @@ public class SessionServiceImpl implements SessionService {
         QueryWrapper<SessionEntity> qw = new QueryWrapper<>();
         qw.orderByDesc("session_id");
         return sessionMapper.selectPage(new Page<>(Math.max(current, 1), Math.max(size, 1)), qw);
+    }
+
+    /**
+     * 删除会话：软删 session 行（@TableLogic 使 deleteById 转为 UPDATE is_delete=1，
+     * 已删行不匹配天然幂等）+ 物理删该会话的上下文快照行（残留会让 GET messages
+     * 仍可读到已删会话内容）+ 清 QQ 会话绑定行。不触碰调用日志与 goal 表。
+     */
+    @Override
+    public void deleteSession(String sessionId) {
+        Long sid = parseSessionId(sessionId);
+        if (sid == null) {
+            return;
+        }
+        sessionMapper.deleteById(sid);
+        QueryWrapper<SessionMessageEntity> qw = new QueryWrapper<>();
+        qw.eq("session_id", String.valueOf(sid));
+        messageMapper.delete(qw);
+        QueryWrapper<OneBotSessionBinding> bw = new QueryWrapper<>();
+        bw.eq("session_id", sid);
+        bindingMapper.delete(bw);
+        log.info("删除会话 sessionId={}", sid);
     }
 
     /* ---------------- Spring AI ChatMemory 接口实现（包装现有逻辑） ---------------- */

@@ -15,6 +15,7 @@ import com.dark.javaHarness.domain.entity.SessionEntity;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.GoalService;
 import com.dark.javaHarness.service.SessionService;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -81,6 +82,15 @@ public class HarnessController {
     @GetMapping("/sessions/{sessionId}/messages")
     public SessionMessagesView sessionMessages(@PathVariable String sessionId) {
         return new SessionMessagesView(sessionId, sessionService.listMessages(sessionId));
+    }
+
+    /**
+     * 删除会话：软删 session + 清上下文快照 + 清 QQ 绑定（幂等，会话不存在也成功）。
+     * 调用日志与 goal 保留不动。成功返回空体 200。
+     */
+    @DeleteMapping("/sessions/{sessionId}")
+    public void deleteSession(@PathVariable String sessionId) {
+        sessionService.deleteSession(sessionId);
     }
 
     /** 提交一个目标给指定 Agent 异步执行 */

@@ -69,4 +69,11 @@ class HarnessControllerTest {
         assertEquals(3L, view.agentId());
         assertEquals("deepseek", view.agentName(), "应回显 agentId 对应的 agent 名");
     }
+
+    @Test
+    void deleteSession_delegates() {
+        controller.deleteSession("9");
+
+        verify(sessionService).deleteSession("9");
+    }
 }

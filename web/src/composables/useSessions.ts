@@ -73,5 +73,12 @@ export function useSessions() {
     currentSessionId.value = id
   }
 
-  return { sessions, total, currentSessionId, loading, hasMore, loadFirst, loadMore, create, select }
+  /** 删除会话:服务端成功后才从本地列表移除并修正 total;失败原样抛错由调用方处理(列表不动) */
+  async function remove(id: string): Promise<void> {
+    await api.deleteSession(id)
+    sessions.value = sessions.value.filter((s) => s.id !== id)
+    total.value = Math.max(0, total.value - 1)
+  }
+
+  return { sessions, total, currentSessionId, loading, hasMore, loadFirst, loadMore, create, select, remove }
 }

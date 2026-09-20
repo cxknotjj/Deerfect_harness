@@ -68,6 +68,19 @@ export function listMessages(sessionId: string): Promise<SessionMessagesView> {
   return request(`/api/harness/sessions/${encodeURIComponent(sessionId)}/messages`)
 }
 
+/** 无响应体请求(DELETE):仅校验 2xx,不解析 JSON */
+async function requestVoid(path: string): Promise<void> {
+  const resp = await fetch(path, { method: 'DELETE', headers: baseHeaders() })
+  if (!resp.ok) {
+    throw new Error(`HTTP ${resp.status}: ${await resp.text()}`)
+  }
+}
+
+/** 删除会话(DELETE /api/harness/sessions/{id};服务端幂等,成功返回空体) */
+export function deleteSession(sessionId: string): Promise<void> {
+  return requestVoid(`/api/harness/sessions/${encodeURIComponent(sessionId)}`)
+}
+
 /** 流式聊天回调集(全部可选,按需订阅) */
 export interface StreamHandlers {
   /** 流末元数据(sessionId/goalId/status/sources) */
@@ -220,8 +233,17 @@ export interface Api {
   createSession(name?: string): Promise<SessionCreatedView>
   bindAgent(sessionId: string, agentId: number): Promise<SessionAgentView>
   listMessages(sessionId: string): Promise<SessionMessagesView>
+  deleteSession(sessionId: string): Promise<void>
   streamChat(req: ChatRequest, handlers: StreamHandlers, signal?: AbortSignal): Promise<void>
 }
 
 /** 真实 HTTP 实现 */
-export const realApi: Api = { listAgents, listSessions, createSession, bindAgent, listMessages, streamChat }
+export const realApi: Api = {
+  listAgents,
+  listSessions,
+  createSession,
+  bindAgent,
+  listMessages,
+  deleteSession,
+  streamChat,
+}

@@ -207,6 +207,12 @@ export function useChat(hooks: ChatHooks) {
     persist()
   }
 
+  /** 会话被删除后清理其本地痕迹:丢弃消息桶 + 清 localStorage 缓存(视图切换由外层 show('') 负责) */
+  function drop(sessionId: string): void {
+    store.delete(sessionId)
+    saveCache(sessionId, [])
+  }
+
   /** 停止当前流:AbortSignal 取消,主动取消不视为错误 */
   function stop(): void {
     controller?.abort()
@@ -214,5 +220,5 @@ export function useChat(hooks: ChatHooks) {
     streaming.value = false
   }
 
-  return { messages, streaming, send, stop, show, remove, regenerate }
+  return { messages, streaming, send, stop, show, remove, regenerate, drop }
 }

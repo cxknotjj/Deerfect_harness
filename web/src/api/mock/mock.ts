@@ -157,5 +157,21 @@ async function bindAgent(sessionId: string, agentId: number): Promise<SessionAge
   return { sessionId, agentId, agentName }
 }
 
+/** 删除会话:移除内存态会话档案、转录与绑定(与真实现幂等语义一致) */
+async function deleteSession(sessionId: string): Promise<void> {
+  const idx = sessions.findIndex((s) => s.id === sessionId)
+  if (idx !== -1) sessions.splice(idx, 1)
+  memory.delete(sessionId)
+  boundAgents.delete(sessionId)
+}
+
 /** mock API 实现(与 realApi 同签名) */
-export const mockApi: Api = { listAgents, listSessions, createSession, bindAgent, listMessages, streamChat }
+export const mockApi: Api = {
+  listAgents,
+  listSessions,
+  createSession,
+  bindAgent,
+  listMessages,
+  deleteSession,
+  streamChat,
+}

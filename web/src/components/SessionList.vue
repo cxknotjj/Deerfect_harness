@@ -17,7 +17,16 @@ const emit = defineEmits<{
   more: []
   collapse: []
   settings: []
+  remove: [id: string]
 }>()
+
+/** 删除会话:阻断冒泡避免触发选中;确认后才 emit(由外层调 API 并联动清理) */
+function onRemove(id: string, e: Event): void {
+  e.stopPropagation()
+  if (window.confirm('确定删除该会话？其服务端记录与本地缓存将一并清除。')) {
+    emit('remove', id)
+  }
+}
 </script>
 
 <template>
@@ -50,6 +59,13 @@ const emit = defineEmits<{
           <div class="session-item-name">{{ s.name }}</div>
           <div class="session-item-meta">{{ s.lastQuestion ?? '暂无对话' }}</div>
         </div>
+        <!-- 删除入口:hover 显现;确认后交外层执行 -->
+        <button
+          class="session-item-del"
+          type="button"
+          title="删除会话"
+          @click="onRemove(s.id, $event)"
+        >✕</button>
       </li>
     </ul>
 

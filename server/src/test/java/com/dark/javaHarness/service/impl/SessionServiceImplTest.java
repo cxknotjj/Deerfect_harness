@@ -13,8 +13,10 @@ import static org.mockito.Mockito.when;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.dark.javaHarness.domain.dto.SessionMessagesView;
+import com.dark.javaHarness.domain.entity.OneBotSessionBinding;
 import com.dark.javaHarness.domain.entity.SessionEntity;
 import com.dark.javaHarness.domain.entity.SessionMessageEntity;
+import com.dark.javaHarness.mapper.OneBotSessionBindingMapper;
 import com.dark.javaHarness.mapper.SessionMapper;
 import com.dark.javaHarness.mapper.SessionMessageMapper;
 import com.dark.javaHarness.service.AgentConfigProvider;
@@ -27,6 +29,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.ai.chat.messages.UserMessage;
 
 /**
  * SessionServiceImpl 会话切换 Agent 单测：
@@ -43,13 +46,15 @@ class SessionServiceImplTest {
     private SessionMessageMapper messageMapper;
     @Mock
     private AgentConfigProvider agentConfigProvider;
+    @Mock
+    private OneBotSessionBindingMapper bindingMapper;
 
     private SessionServiceImpl sessionService;
 
     @BeforeEach
     void setUp() {
         sessionService = new SessionServiceImpl(sessionMapper, messageMapper,
-                new ObjectMapper(), agentConfigProvider);
+                new ObjectMapper(), agentConfigProvider, bindingMapper);
     }
 
     private SessionEntity session(long id, int agentId) {
@@ -166,5 +171,51 @@ class SessionServiceImplTest {
                 "agentId 为空应拒绝");
 
         verify(sessionMapper, never()).update(any(), any());
+    }
+
+    /* ---------------- 删除会话（软删 + 快照清理 + 绑定清理） ---------------- */
+
+    /** deleteSession：软删 session（deleteById 经 @TableLogic 转软删）+ 物理删快照行 + 清 QQ 绑定行 */
+    @Test
+    void deleteSession_softDeletesAndCleansSnapshotAndBinding() {
+        sessionService.deleteSession("9");
+
+        verify(sessionMapper).deleteById(9L);
+        ArgumentCaptor<Wrapper<SessionMessageEntity>> msgCaptor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(messageMapper).delete(msgCaptor.capture());
+        assertTrue(msgCaptor.getValue().getTargetSql().contains("session_id"), "快照删除应限定在该会话");
+        ArgumentCaptor<Wrapper<OneBotSessionBinding>> bindCaptor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(bindingMapper).delete(bindCaptor.capture());
+        assertTrue(bindCaptor.getValue().getTargetSql().contains("session_id"), "绑定删除应限定在该会话");
+    }
+
+    /** deleteSession：非法 sessionId 幂等静默返回，不触碰任何表 */
+    @Test
+    void deleteSession_illegalId_noop() {
+        sessionService.deleteSession("abc");
+
+        verifyNoInteractions(sessionMapper, messageMapper, bindingMapper);
+    }
+
+    /** saveContext 防复活守卫：会话已软删/不存在时跳过快照写回（不产生孤儿快照行） */
+    @Test
+    void saveContext_deletedSession_skipsWrite() {
+        when(sessionMapper.selectOne(any())).thenReturn(null);
+
+        sessionService.saveContext("9", new UserMessage("你好"));
+
+        verify(messageMapper, never()).insert(any(SessionMessageEntity.class));
+        verify(messageMapper, never()).update(any(), any());
+    }
+
+    /** saveContext：会话存在时守卫不误伤，正常落快照 */
+    @Test
+    void saveContext_sessionExists_writes() {
+        when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
+        when(messageMapper.selectOne(any())).thenReturn(null);
+
+        sessionService.saveContext("9", new UserMessage("你好"));
+
+        verify(messageMapper).insert(any(SessionMessageEntity.class));
     }
 }

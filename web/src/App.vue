@@ -25,6 +25,7 @@ const {
   loadMore,
   create: createSession,
   select: selectSession,
+  remove: removeSession,
 } = useSessions()
 
 const {
@@ -35,6 +36,7 @@ const {
   show: showChat,
   remove: deleteMessage,
   regenerate,
+  drop: dropChatOf,
 } = useChat({
   getSessionId: () => currentSessionId.value,
   setSessionId: (id) => {
@@ -78,6 +80,25 @@ function onSelect(id: string): void {
   showChat(id)
   selectedAgentId.value = null
   clearTip()
+}
+
+/** 删除会话:服务端成功后移除列表项;删的是当前会话时,终止流、切回草稿空态并清本地消息痕迹 */
+async function onRemoveSession(id: string): Promise<void> {
+  try {
+    await removeSession(id)
+  } catch (e) {
+    showTip(`删除会话失败:${errText(e)}`, true)
+    return
+  }
+  if (id === currentSessionId.value) {
+    stop()
+    dropChatOf(id)
+    showChat('')
+    selectedAgentId.value = null
+  } else {
+    dropChatOf(id)
+  }
+  showTip('会话已删除')
 }
 
 /** 新建会话:成功后自动选中(useSessions.create)并把聊天视图切到新会话空桶 */
@@ -138,6 +159,7 @@ function toggleTheme(): void {
       @more="loadMore"
       @collapse="sidebarCollapsed = true"
       @settings="showTip('设置功能开发中')"
+      @remove="onRemoveSession"
     />
 
     <section class="chat-pane">

@@ -61,4 +61,11 @@ public interface SessionService extends ChatMemory {
      * @return MyBatis-Plus 分页结果（含总数与页数）
      */
     Page<SessionEntity> page(long current, long size);
+
+    /**
+     * 删除会话：软删 session 行 + 物理删该会话的上下文快照行 + 清 QQ 会话绑定行。
+     * 不触碰调用日志（llm_call_log/tool_call_log）与异步目标（goal）。
+     * 幂等：会话不存在或已删除时静默成功。
+     */
+    void deleteSession(String sessionId);
 }
