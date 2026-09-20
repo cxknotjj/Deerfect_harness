@@ -5,10 +5,11 @@
  *   再拉服务端历史覆盖),并重置 agent 选择(流式 onMeta 回写 sessionId 不经过此处,不会误清)
  * - onMeta 报告后端新建会话 → useChat 内已迁移消息桶,此处回写 sessionId 并刷新列表首页
  * - Agent 选中变化 → bindAgent(会话, agent 真实主键),成功/失败均以顶栏轻提示呈现(3 秒自动消失);
+ * - 窄屏(≤768px):侧栏转抽屉模式(遮罩 + 滑入滑出),桌面内联折叠不变;选中/新建会话后自动收起
  *   AgentSelect 位于 Composer 控制位(对齐截图模型选择位)
  */
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import SessionList from './components/SessionList.vue'
 import ChatWindow from './components/ChatWindow.vue'
 import AgentSelect from './components/AgentSelect.vue'
@@ -73,8 +74,9 @@ function clearTip(): void {
   tip.value = null
 }
 
-/** 选中会话:聊天视图切到该会话(消息按会话保留),重置 agent 选择 */
+/** 选中会话:聊天视图切到该会话(消息按会话保留),重置 agent 选择;窄屏自动收抽屉 */
 function onSelect(id: string): void {
+  if (isNarrow.value) drawerOpen.value = false
   if (id === currentSessionId.value) return
   selectSession(id)
   showChat(id)
@@ -107,6 +109,7 @@ async function onCreate(): Promise<void> {
     await createSession()
     showChat(currentSessionId.value)
     selectedAgentId.value = null
+    if (isNarrow.value) drawerOpen.value = false
   } catch (e) {
     showTip(`新建会话失败:${errText(e)}`, true)
   }
@@ -134,8 +137,48 @@ async function onAgentChange(agentId: number | null): Promise<void> {
   }
 }
 
-/** 侧栏收起/展开(收起后入口在顶栏左侧) */
+/** 侧栏收起/展开(收起后入口在顶栏左侧;仅桌面内联折叠,窄屏走抽屉) */
 const sidebarCollapsed = ref(false)
+
+/** 窄屏判定(≤768px):侧栏由内联折叠切换为抽屉模式(遮罩 + 滑入滑出) */
+const narrowMql = window.matchMedia('(max-width: 768px)')
+const isNarrow = ref(narrowMql.matches)
+function onNarrowChange(e: MediaQueryListEvent): void {
+  isNarrow.value = e.matches
+  // 模式切换时互斥状态复位:桌面折叠/抽屉展开互不残留
+  if (e.matches) {
+    sidebarCollapsed.value = false
+    drawerOpen.value = false
+  } else {
+    drawerOpen.value = false
+  }
+}
+narrowMql.addEventListener('change', onNarrowChange)
+
+/** 抽屉开合(仅窄屏生效;桌面端该状态无样式效果) */
+const drawerOpen = ref(false)
+
+/** 侧栏头部收起钮:窄屏=收抽屉;桌面=内联折叠 */
+function onSidebarCollapse(): void {
+  if (isNarrow.value) drawerOpen.value = false
+  else sidebarCollapsed.value = true
+}
+
+/** 顶栏展开钮:窄屏常显(侧栏常态离屏)点击开抽屉;桌面仅折叠态显示 */
+function onSidebarExpand(): void {
+  if (isNarrow.value) drawerOpen.value = true
+  else sidebarCollapsed.value = false
+}
+
+/** Escape 关抽屉(窄屏可达性) */
+function onGlobalKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && drawerOpen.value) drawerOpen.value = false
+}
+window.addEventListener('keydown', onGlobalKeydown)
+onBeforeUnmount(() => {
+  narrowMql.removeEventListener('change', onNarrowChange)
+  window.removeEventListener('keydown', onGlobalKeydown)
+})
 
 /** 主题切换:夜间(Telemetry Dark,默认)⇄ 日间(DeepSeek 蓝白);持久化 localStorage,按钮在顶栏右上角 */
 const theme = ref<'dark' | 'light'>(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark')
@@ -148,7 +191,18 @@ function toggleTheme(): void {
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'app-streaming': streaming, 'sidebar-collapsed': sidebarCollapsed }">
+  <div
+    class="app-shell"
+    :class="{ 'app-streaming': streaming, 'sidebar-collapsed': sidebarCollapsed, 'drawer-open': drawerOpen }"
+  >
+    <!-- 窄屏抽屉遮罩:点击关闭(桌面端不渲染) -->
+    <button
+      v-if="isNarrow"
+      class="drawer-mask"
+      type="button"
+      aria-label="关闭侧栏"
+      @click="drawerOpen = false"
+    ></button>
     <SessionList
       :sessions="sessions"
       :current-id="currentSessionId"
@@ -157,7 +211,7 @@ function toggleTheme(): void {
       @select="onSelect"
       @create="onCreate"
       @more="loadMore"
-      @collapse="sidebarCollapsed = true"
+      @collapse="onSidebarCollapse"
       @settings="showTip('设置功能开发中')"
       @remove="onRemoveSession"
     />
@@ -166,11 +220,11 @@ function toggleTheme(): void {
       <header class="chat-header">
         <!-- 侧栏收起时的展开入口 -->
         <button
-          v-if="sidebarCollapsed"
+          v-if="sidebarCollapsed || isNarrow"
           class="icon-btn"
           type="button"
-          title="展开侧栏"
-          @click="sidebarCollapsed = false"
+          :title="isNarrow ? '打开侧栏' : '展开侧栏'"
+          @click="onSidebarExpand"
         >☰</button>
         <span class="chat-title">{{ currentSessionName }}</span>
         <!-- 主题切换:右上角;夜间显示 ☀(进日间),日间显示 ☾(回夜间) -->

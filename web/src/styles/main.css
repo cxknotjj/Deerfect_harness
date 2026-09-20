@@ -42,6 +42,7 @@
 
   /* 浮层阴影(弹层是全设计唯一使用阴影的层级元素) */
   --menu-shadow: 0 8px 28px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4);
+  --mask-veil: rgba(0, 0, 0, 0.55); /* 窄屏抽屉遮罩 */
 
   /* 字体栈(零外链) */
   --font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
@@ -101,12 +102,15 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 
 /* ---------- 布局骨架:左栏会话列表 + 右侧聊天窗 ---------- */
 .app-shell { display: flex; height: 100%; overflow: hidden; }
-.app-shell.sidebar-collapsed .session-list {
-  width: 0;
-  border-right-width: 0;
-  opacity: 0;
-  visibility: hidden;
-  transition: width 0.28s ease, opacity 0.28s ease, visibility 0s linear 0.28s;
+/* 内联折叠(桌面):宽度收缩 + 淡出;窄屏(≤768px)不适用,侧栏走抽屉模式 */
+@media (min-width: 769px) {
+  .app-shell.sidebar-collapsed .session-list {
+    width: 0;
+    border-right-width: 0;
+    opacity: 0;
+    visibility: hidden;
+    transition: width 0.28s ease, opacity 0.28s ease, visibility 0s linear 0.28s;
+  }
 }
 
 /* ---------- 会话列表(左栏 260px) ---------- */
@@ -241,6 +245,51 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   font-size: 14px;
   width: 16px;
   text-align: center;
+}
+
+/* ---------- 窄屏抽屉式侧栏(≤768px) ----------
+   桌面 260px 内联布局不变;窄屏侧栏转为离屏抽屉:transform 滑入滑出 +
+   遮罩点击关闭。宽度 min(300px, 85vw),小屏不顶满、大一点的窄窗口仍有
+   足够列表宽度;阴影沿用浮层 token(全设计唯一阴影层级) */
+.drawer-mask { display: none; }
+@media (max-width: 768px) {
+  .session-list {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 40;
+    width: min(300px, 85vw);
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform 0.28s ease, visibility 0s linear 0.28s;
+    box-shadow: var(--menu-shadow);
+  }
+  .app-shell.drawer-open .session-list {
+    transform: translateX(0);
+    visibility: visible;
+    transition: transform 0.28s ease;
+  }
+  .drawer-mask {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: var(--mask-veil);
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.28s ease, visibility 0s linear 0.28s;
+  }
+  .app-shell.drawer-open .drawer-mask {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.28s ease;
+  }
+  /* 抽屉展开时锁定聊天区滚动,防止背景跟着滚 */
+  .app-shell.drawer-open .chat-scroll { overflow: hidden; }
 }
 
 /* ---------- 状态灯(6px 圆点,常态示波器青) ---------- */
@@ -628,6 +677,9 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   }
   .session-list,
   .app-shell.sidebar-collapsed .session-list,
+  .app-shell.drawer-open .session-list,
+  .drawer-mask,
+  .app-shell.drawer-open .drawer-mask,
   .chat-header .icon-btn {
     transition: none;
     animation: none;
@@ -665,6 +717,7 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   --thumb: #d3d9e0;
   --on-accent: #ffffff;    /* 蓝底白字 */
   --menu-shadow: 0 8px 28px rgba(31, 42, 64, 0.14), 0 2px 8px rgba(31, 42, 64, 0.08);
+  --mask-veil: rgba(31, 42, 64, 0.28); /* 窄屏抽屉遮罩:日间用浅灰蓝 */
   --bg-user: #e8effd;      /* 用户气泡:DS 浅蓝 */
 }
 
