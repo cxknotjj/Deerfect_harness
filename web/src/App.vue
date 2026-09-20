@@ -1,10 +1,10 @@
 /**
  * 应用骨架:三段布局 —— 左栏会话列表(260px)+ 右侧聊天窗(顶栏会话标题 + 消息区 + 卡片式 Composer)。
  * 组合层只做联动:
- * - 切换/新建会话 → showChat(id) 把聊天视图切到该会话的消息桶(消息按会话保留,不清空),
- *   并重置 agent 选择(流式 onMeta 回写 sessionId 不经过此处,不会误清)
+ * - 切换/新建会话 → showChat(id):把聊天视图切到该会话的消息桶(先用 localStorage 缓存即时渲染,
+ *   再拉服务端历史覆盖),并重置 agent 选择(流式 onMeta 回写 sessionId 不经过此处,不会误清)
  * - onMeta 报告后端新建会话 → useChat 内已迁移消息桶,此处回写 sessionId 并刷新列表首页
- * - Agent 选中变化 → bindAgent(会话, 下标+1),成功/失败均以顶栏轻提示呈现(3 秒自动消失);
+ * - Agent 选中变化 → bindAgent(会话, agent 真实主键),成功/失败均以顶栏轻提示呈现(3 秒自动消失);
  *   AgentSelect 位于 Composer 控制位(对齐截图模型选择位)
  */
 <script setup lang="ts">
@@ -27,7 +27,15 @@ const {
   select: selectSession,
 } = useSessions()
 
-const { messages, streaming, send, stop, show: showChat, remove: deleteMessage } = useChat({
+const {
+  messages,
+  streaming,
+  send,
+  stop,
+  show: showChat,
+  remove: deleteMessage,
+  regenerate,
+} = useChat({
   getSessionId: () => currentSessionId.value,
   setSessionId: (id) => {
     currentSessionId.value = id
@@ -157,7 +165,14 @@ function toggleTheme(): void {
         }}</span>
       </header>
 
-      <ChatWindow :messages="messages" :streaming="streaming" @send="send" @stop="stop" @delete="deleteMessage">
+      <ChatWindow
+        :messages="messages"
+        :streaming="streaming"
+        @send="send"
+        @stop="stop"
+        @delete="deleteMessage"
+        @regenerate="regenerate"
+      >
         <template #controls>
           <AgentSelect
             :agents="agents"

@@ -360,6 +360,8 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 }
 .msg-row:hover .msg-action-btn { opacity: 1; }
 .msg-action-btn:hover { background: var(--hover-veil); color: var(--ink); }
+/* 生成中禁用「重新生成」:需覆盖 hover 的 opacity,故单独成条 */
+.msg-row:hover .msg-action-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 .msg-retry {
   display: inline-flex;
   align-items: center;

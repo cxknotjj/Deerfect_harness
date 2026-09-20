@@ -15,8 +15,8 @@ import type { MessageItem } from '../composables/useChat'
 // 聊天场景:markdown 单换行渲染为 <br>,阅读更自然
 marked.setOptions({ breaks: true })
 
-const props = defineProps<{ message: MessageItem; streaming?: boolean }>()
-const emit = defineEmits<{ retry: []; delete: [] }>()
+const props = defineProps<{ message: MessageItem; streaming?: boolean; canRegenerate?: boolean }>()
+const emit = defineEmits<{ retry: []; delete: []; regenerate: [] }>()
 
 /** assistant 正文 markdown → HTML(经 DOMPurify 净化后再包装代码块头部) */
 const html = computed(() => {
@@ -80,8 +80,8 @@ async function onBodyClick(e: MouseEvent): Promise<void> {
 
 <template>
   <div class="msg-row" :class="message.role === 'user' ? 'msg-row-user' : 'msg-row-assistant'">
-    <!-- assistant 消息头:mono 小字标注时间 -->
-    <div v-if="message.role === 'assistant'" class="msg-meta">{{
+    <!-- assistant 消息头:mono 小字标注时间(历史回显 ts=0,无原始时间故不展示) -->
+    <div v-if="message.role === 'assistant' && message.ts > 0" class="msg-meta">{{
       new Date(message.ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
     }}</div>
 
@@ -114,7 +114,7 @@ async function onBodyClick(e: MouseEvent): Promise<void> {
       </div>
     </template>
 
-    <!-- assistant:markdown 渲染(已净化)+ 代码块复制(委托)+ 复制原文 -->
+    <!-- assistant:markdown 渲染(已净化)+ 代码块复制(委托)+ 复制原文 / 重新生成 -->
     <template v-else>
       <div class="msg-bubble msg-bubble-assistant md-body" @click="onBodyClick" v-html="html"></div>
       <div class="msg-actions">
@@ -124,6 +124,15 @@ async function onBodyClick(e: MouseEvent): Promise<void> {
           :title="copied ? '已复制' : '复制'"
           @click="copyContent"
         >{{ copied ? '✓' : '⧉' }}</button>
+        <!-- 仅最后一条回复可重新生成:复用其上一条提问原地重跑 -->
+        <button
+          v-if="canRegenerate"
+          class="msg-action-btn"
+          type="button"
+          :title="streaming ? '生成中…' : '重新生成'"
+          :disabled="streaming"
+          @click="emit('regenerate')"
+        >↻</button>
       </div>
     </template>
   </div>

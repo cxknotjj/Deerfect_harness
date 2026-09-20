@@ -12,6 +12,7 @@ import type {
   ProgressPayload,
   SessionAgentView,
   SessionCreatedView,
+  SessionMessagesView,
   SessionPage,
   SseMeta,
 } from './types'
@@ -60,6 +61,11 @@ export function bindAgent(sessionId: string, agentId: number): Promise<SessionAg
   return request(`/api/harness/sessions/${encodeURIComponent(sessionId)}/agent?agentId=${agentId}`, {
     method: 'POST',
   })
+}
+
+/** 会话历史消息(GET /api/harness/sessions/{id}/messages;无历史返回空数组) */
+export function listMessages(sessionId: string): Promise<SessionMessagesView> {
+  return request(`/api/harness/sessions/${encodeURIComponent(sessionId)}/messages`)
 }
 
 /** 流式聊天回调集(全部可选,按需订阅) */
@@ -213,8 +219,9 @@ export interface Api {
   listSessions(page?: number, size?: number): Promise<SessionPage>
   createSession(name?: string): Promise<SessionCreatedView>
   bindAgent(sessionId: string, agentId: number): Promise<SessionAgentView>
+  listMessages(sessionId: string): Promise<SessionMessagesView>
   streamChat(req: ChatRequest, handlers: StreamHandlers, signal?: AbortSignal): Promise<void>
 }
 
 /** 真实 HTTP 实现 */
-export const realApi: Api = { listAgents, listSessions, createSession, bindAgent, streamChat }
+export const realApi: Api = { listAgents, listSessions, createSession, bindAgent, listMessages, streamChat }

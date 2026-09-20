@@ -9,6 +9,7 @@ import type {
   ChatRequest,
   SessionAgentView,
   SessionCreatedView,
+  SessionMessagesView,
   SessionPage,
   SseMeta,
 } from '../types'
@@ -137,6 +138,11 @@ async function createSession(name = '新会话'): Promise<SessionCreatedView> {
   return { sessionId, sessionName: name }
 }
 
+/** 会话历史消息:直接回吐内存态转录(与真实现同形) */
+async function listMessages(sessionId: string): Promise<SessionMessagesView> {
+  return { sessionId, messages: (memory.get(sessionId) ?? []).map((m) => ({ ...m })) }
+}
+
 async function bindAgent(sessionId: string, agentId: number): Promise<SessionAgentView> {
   if (!sessions.some((s) => s.id === sessionId)) {
     throw new Error(`会话不存在: ${sessionId}`)
@@ -152,4 +158,4 @@ async function bindAgent(sessionId: string, agentId: number): Promise<SessionAge
 }
 
 /** mock API 实现(与 realApi 同签名) */
-export const mockApi: Api = { listAgents, listSessions, createSession, bindAgent, streamChat }
+export const mockApi: Api = { listAgents, listSessions, createSession, bindAgent, listMessages, streamChat }

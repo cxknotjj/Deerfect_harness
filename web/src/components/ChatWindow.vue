@@ -10,7 +10,12 @@ import Composer from './Composer.vue'
 import type { MessageItem } from '../composables/useChat'
 
 const props = defineProps<{ messages: MessageItem[]; streaming: boolean }>()
-const emit = defineEmits<{ send: [text: string]; stop: []; delete: [id: number] }>()
+const emit = defineEmits<{
+  send: [text: string]
+  stop: []
+  delete: [id: number]
+  regenerate: [id: number]
+}>()
 
 const scrollEl = ref<HTMLDivElement | null>(null)
 /** 用户是否停在底部附近:是才自动跟随滚动;上翻阅读时不再强拉回底 */
@@ -72,9 +77,11 @@ function onRetry(): void {
         :key="m.id"
         :message="m"
         :streaming="streaming"
+        :can-regenerate="m.role === 'assistant' && m.id === messages[messages.length - 1]?.id"
         :class="{ 'msg-row-streaming': streaming && m.id === messages[messages.length - 1]?.id }"
         @retry="onRetry"
         @delete="emit('delete', m.id)"
+        @regenerate="emit('regenerate', m.id)"
       />
     </div>
 

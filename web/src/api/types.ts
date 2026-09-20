@@ -90,3 +90,15 @@ export interface SessionAgentView {
   agentId: number
   agentName: string | null
 }
+
+/** 单条历史消息(GET /api/harness/sessions/{id}/messages;快照只存 user / assistant) */
+export interface SessionMessageView {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+/** 会话历史响应(GET /api/harness/sessions/{id}/messages) */
+export interface SessionMessagesView {
+  sessionId: string
+  messages: SessionMessageView[]
+}
