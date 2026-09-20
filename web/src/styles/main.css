@@ -40,6 +40,9 @@
   --radius-card: 16px;   /* 输入卡片 */
   --bg-user: rgba(77, 107, 254, 0.16); /* 用户气泡:蓝系半透明 */
 
+  /* 浮层阴影(弹层是全设计唯一使用阴影的层级元素) */
+  --menu-shadow: 0 8px 28px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4);
+
   /* 字体栈(零外链) */
   --font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
   --font-sans: -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
@@ -529,32 +532,72 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 }
 .chat-statusbar-live { color: var(--accent); }
 
-/* ---------- Agent 下拉(composer 内行式无框形态) ---------- */
-.agent-select {
+/* ---------- Agent 选择器(自绘 drop-up 弹层) ---------- */
+.agent-select { position: relative; display: flex; align-items: center; }
+
+/* 触发器:胶囊(Agent + 当前值 + chevron) */
+.agent-trigger {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 5px 8px;
-  border-radius: var(--radius-ctl);
-  transition: background 0.15s;
-}
-.agent-select:hover { background: var(--hover-veil); }
-.agent-select-label { font-size: 13px; color: var(--ink-dim); }
-.agent-select-input {
-  font: inherit;
-  font-size: 13px;
-  padding: 2px 2px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
+  padding: 5px 12px;
+  border: 1px solid var(--grid-line);
+  border-radius: 999px;
+  background: var(--bg-base);
   color: var(--ink);
-  outline: none;
-  max-width: 180px;
-  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.25s, border-color 0.25s;
 }
-.agent-select-input:focus { color: var(--accent); }
-.agent-select-input:disabled { color: var(--ink-dim); opacity: 0.5; cursor: not-allowed; }
-.agent-select-input option { background: var(--bg-panel); color: var(--ink); }
+.agent-trigger:hover:not(:disabled) { border-color: var(--accent); }
+.agent-trigger:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.agent-trigger:disabled { cursor: not-allowed; opacity: 0.55; }
+.agent-select-label { font-size: 13px; color: var(--ink-dim); }
+.agent-trigger-value { font-size: 13px; font-weight: 500; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-trigger-placeholder { color: var(--ink-dim); font-weight: 400; }
+.agent-chevron { color: var(--ink-dim); transition: transform 0.18s ease; }
+.agent-chevron-open { transform: rotate(180deg); }
+
+/* 浮层:向上展开,主题面板底 + 菜单阴影 */
+.agent-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: 220px;
+  max-height: 280px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--bg-panel);
+  border: 1px solid var(--grid-line);
+  border-radius: var(--radius-ctl);
+  box-shadow: var(--menu-shadow);
+  z-index: 30;
+  transform-origin: bottom left;
+  animation: agent-menu-in 0.14s ease;
+}
+@keyframes agent-menu-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.agent-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.agent-option:hover { background: var(--hover-veil); }
+.agent-option-selected { color: var(--accent); background: var(--accent-lift); }
+.agent-option-selected:hover { background: var(--accent-lift-strong); }
+.agent-check { flex-shrink: 0; }
+.agent-option-placeholder { color: var(--ink-dim); cursor: default; }
+.agent-option-placeholder:hover { background: none; }
 
 /* ---------- 动效降级:呼吸灯与光标闪烁降为常亮 ---------- */
 @media (prefers-reduced-motion: reduce) {
@@ -602,6 +645,7 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   --selection: rgba(77, 107, 254, 0.18);
   --thumb: #d3d9e0;
   --on-accent: #ffffff;    /* 蓝底白字 */
+  --menu-shadow: 0 8px 28px rgba(31, 42, 64, 0.14), 0 2px 8px rgba(31, 42, 64, 0.08);
   --bg-user: #e8effd;      /* 用户气泡:DS 浅蓝 */
 }
 

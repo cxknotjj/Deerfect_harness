@@ -41,7 +41,7 @@ public class HarnessController {
     /** 列出已注册的 Agent */
     @GetMapping("/agents")
     public AgentsView agents() {
-        return new AgentsView(agentService.agentNames());
+        return new AgentsView(agentService.agentItems());
     }
 
     /** 分页列出全部会话 */

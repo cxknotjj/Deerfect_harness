@@ -150,6 +150,12 @@ public class AgentServiceImpl implements AgentService {
         return agentRegistry.agentNames();
     }
 
+    /** Agent 列表（数据库行 id + name，委托 AgentConfigProvider，web 端下拉使用） */
+    @Override
+    public java.util.List<com.dark.javaHarness.domain.dto.AgentItemView> agentItems() {
+        return agentConfigProvider.listAgentItems();
+    }
+
     /** 按 agentId 从 agent 表查询 agentName（委托 AgentConfigProvider，CLI 传入 agentId 时用于路由映射） */
     @Override
     public Optional<String> findAgentNameById(Long agentId) {

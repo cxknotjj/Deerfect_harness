@@ -2,6 +2,7 @@ package com.dark.javaHarness.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dark.javaHarness.domain.AgentConfig;
+import com.dark.javaHarness.domain.dto.AgentItemView;
 import com.dark.javaHarness.domain.entity.AgentEntity;
 import com.dark.javaHarness.domain.entity.ModelProviderEntity;
 import com.dark.javaHarness.mapper.AgentMapper;
@@ -61,6 +62,25 @@ public class AgentConfigProvider {
                     .toList();
         } catch (Exception e) {
             log.warn("列出 agent 表行名失败，返回空列表", e);
+            return List.of();
+        }
+    }
+
+    /**
+     * 列出对外可见的 Agent 条目（id = agent 表主键 agent_id + name）：过滤条件与
+     * {@link #listAgentNames()} 一致（is_internal=0、行名非空白），按 id 升序保证下拉顺序
+     * 稳定；异常时返回空列表不抛出（与既有容错风格一致）。
+     */
+    public List<AgentItemView> listAgentItems() {
+        try {
+            return agentMapper.selectList(new LambdaQueryWrapper<AgentEntity>()
+                            .eq(AgentEntity::getIsInternal, 0)
+                            .orderByAsc(AgentEntity::getAgentId)).stream()
+                    .filter(row -> row.getAgentId() != null && row.getAgentName() != null && !row.getAgentName().isBlank())
+                    .map(row -> new AgentItemView(row.getAgentId(), row.getAgentName()))
+                    .toList();
+        } catch (Exception e) {
+            log.warn("列出 agent 表条目失败，返回空列表", e);
             return List.of();
         }
     }

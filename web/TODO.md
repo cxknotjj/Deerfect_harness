@@ -4,7 +4,7 @@
 
 ## 功能补全
 
-- [ ] **真模式联调**(需后端):mock 已完善,真模式(server + SSE)未跑通;后端 `GET /api/harness/agents` 需补 id 字段,去掉前端「列表下标 + 1」的临时适配
+- [x] **真模式联调**(已完成 2026-09-20):后端 `GET /api/harness/agents` 返回 agent 表真实主键(`AgentItemView(id, name)`,is_internal=0 按 id 升序),前端 `AgentView` 改对象结构、下拉与绑定全部用真实 id;SSE 真实流式 + agent 切换绑定已浏览器端到端验证(general/deepseek 双模型自述正确)
 - [ ] **会话历史加载**(需后端):切回旧会话目前是空窗,后端补 `GET /api/harness/sessions/{id}/messages` 后前端接入
 - [ ] **重新生成**:assistant 回答操作栏加「重新生成」,复用最后一条 user 消息重新发送
 

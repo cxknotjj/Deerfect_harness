@@ -37,6 +37,11 @@ public interface AgentService {
     Set<String> agentNames();
 
     /**
+     * Agent 列表（数据库行 id + name，is_internal=0）：供 web 端下拉直接使用真实主键绑定会话。
+     */
+    java.util.List<com.dark.javaHarness.domain.dto.AgentItemView> agentItems();
+
+    /**
      * 按 agentId 从 agent 表查询 agentName（用于将 CLI 传入的 agentId 映射为路由名）。
      * 查不到或查询失败返回 empty。
      */

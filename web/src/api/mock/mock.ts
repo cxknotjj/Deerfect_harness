@@ -72,7 +72,7 @@ function ensureSession(req: ChatRequest): [string, boolean] {
 
 async function streamChat(req: ChatRequest, handlers: StreamHandlers, signal?: AbortSignal): Promise<void> {
   const [sessionId, newSession] = ensureSession(req)
-  const agentName = boundAgents.get(sessionId) ?? mockAgents[0]
+  const agentName = boundAgents.get(sessionId) ?? mockAgents[0].name
 
   // 流首 agent 归属进度 + 编排进度(形状与 server 的 progress 事件一致)
   handlers.onProgress?.({ stage: 'agent', detail: agentName })
@@ -115,7 +115,7 @@ async function streamChat(req: ChatRequest, handlers: StreamHandlers, signal?: A
 }
 
 async function listAgents(): Promise<AgentListView> {
-  return { agents: [...mockAgents] }
+  return { agents: mockAgents.map((a) => ({ ...a })) }
 }
 
 async function listSessions(page = 1, size = 10): Promise<SessionPage> {
@@ -141,10 +141,11 @@ async function bindAgent(sessionId: string, agentId: number): Promise<SessionAge
   if (!sessions.some((s) => s.id === sessionId)) {
     throw new Error(`会话不存在: ${sessionId}`)
   }
-  const agentName = mockAgents[agentId - 1]
-  if (agentName === undefined) {
+  const agent = mockAgents.find((a) => a.id === agentId)
+  if (agent === undefined) {
     throw new Error(`agentId 不存在: ${agentId}`)
   }
+  const agentName = agent.name
   // 绑定后该会话后续 mock 回复与流首进度均体现新 agent 名
   boundAgents.set(sessionId, agentName)
   return { sessionId, agentId, agentName }

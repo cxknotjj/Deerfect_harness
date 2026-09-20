@@ -1,16 +1,16 @@
 /**
- * Agent 列表与会话绑定。
- * 已知后端限制:GET /api/harness/agents 只返回名称集合(AgentView = string,无 id);
- * bindAgent 需要数字 agentId —— 约定 agentId = 列表下标 + 1(与 mock 保持一致)。
+ * Agent 列表与会话绑定:列表条目即后端 agent 表主键(id + name),
+ * bindAgent 直接用真实 id(旧「下标 + 1」约定已随后端补 id 字段废弃)。
  */
 import { ref } from 'vue'
 import { api } from '../api'
+import type { AgentView } from '../api/types'
 
 export function useAgents() {
-  const agents = ref<string[]>([])
+  const agents = ref<AgentView[]>([])
   const loading = ref(false)
 
-  /** 加载 Agent 名称列表 */
+  /** 加载 Agent 列表 */
   async function load(): Promise<void> {
     loading.value = true
     try {

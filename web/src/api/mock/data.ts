@@ -5,8 +5,11 @@
  */
 import type { SessionView } from '../types'
 
-/** mock Agent 名单(1 → general,2 → coder) */
-export const mockAgents = ['general', 'coder']
+/** mock Agent 名单(id 与「下标 + 1」约定一致;结构对齐真模式的 AgentItemView) */
+export const mockAgents = [
+  { id: 1, name: 'general' },
+  { id: 2, name: 'coder' },
+]
 
 /** mock 会话消息(role/content 与聊天上下文形状一致) */
 export interface MockMessage {

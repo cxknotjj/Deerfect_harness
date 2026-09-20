@@ -49,12 +49,17 @@ export interface ProgressPayload {
 }
 
 /** Agent 条目:真实响应为名称集合(无 id/描述等字段) */
-export type AgentView = string
+/** Agent 列表条目:后端返回 agent 表主键 id + 名称(web 下拉直接用真实 id 绑定会话) */
+export interface AgentView {
+  id: number
+  name: string
+}
 
 /** Agent 列表响应(GET /api/harness/agents) */
 export interface AgentListView {
   agents: AgentView[]
 }
+
 
 /** 单条会话(SessionPageView.Item;lastQuestion 首条提问前为 null) */
 export interface SessionView {
