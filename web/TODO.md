@@ -5,8 +5,9 @@
 ## 功能补全
 
 - [x] **真模式联调**(已完成 2026-09-20):后端 `GET /api/harness/agents` 返回 agent 表真实主键(`AgentItemView(id, name)`,is_internal=0 按 id 升序),前端 `AgentView` 改对象结构、下拉与绑定全部用真实 id;SSE 真实流式 + agent 切换绑定已浏览器端到端验证(general/deepseek 双模型自述正确)
-- [ ] **会话历史加载**(需后端):切回旧会话目前是空窗,后端补 `GET /api/harness/sessions/{id}/messages` 后前端接入
-- [ ] **重新生成**:assistant 回答操作栏加「重新生成」,复用最后一条 user 消息重新发送
+- [x] **会话历史加载**(已完成 2026-09-20):后端补 `GET /api/harness/sessions/{id}/messages`(`SessionMessagesView`,复用会话上下文快照解析为 role/content 列表);前端切回旧会话先渲染本地缓存、再拉服务端历史覆盖
+- [x] **重新生成**(已完成 2026-09-20):最后一条 assistant 回复操作栏加「重新生成」,复用其上一条 user 消息原地重跑(不新增 user 气泡;生成中禁用)
+- [x] **会话本地缓存**(已完成 2026-09-20):消息按会话存入 `localStorage`(`harness-chat-cache`),刷新页面/切回旧会话即时渲染;单会话限 200 条、最多 20 个会话,容量不足自动淘汰;进度与错误态不入库
 
 ## 体验增强
 
