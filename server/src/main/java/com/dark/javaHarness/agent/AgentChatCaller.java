@@ -310,6 +310,28 @@ final class AgentChatCaller {
     }
 
     /**
+     * 流式管道（含端点无响应兜底）：{@link #tokenStream} + 空闲超时 + 失败丢池。
+     *
+     * <p>路径 A（浏览器 SSE 主回答）与路径 B（阻塞收集）共用同一层兜底：此前超时只挂在
+     * 路径 B，路径 A 在端点在途无响应时会永久挂起（实测主回答挂 200s+ 无任何超时信号，
+     * 请求最终只能靠客户端断连收场）。
+     *
+     * <p>失败即丢池：连接可能已成网络黑洞（对端静默失活、不发 RST），丢池使下次调用
+     * 重建连接池，不再复用同一根死连接。
+     *
+     * @param model 失败时用于重建客户端的模型名（null/未命中注册表则跳过丢池）
+     */
+    Flux<String> tokenStreamWithWatchdog(ChatClient.ChatClientRequestSpec spec,
+                                         java.util.concurrent.atomic.AtomicReference<Usage> usageRef,
+                                         BudgetLedger ledger,
+                                         java.util.concurrent.atomic.AtomicLong prevTotal,
+                                         String model) {
+        return tokenStream(spec, usageRef, ledger, prevTotal)
+                .timeout(streamIdleTimeout)
+                .doOnError(e -> clientRegistry.invalidateByModel(model));
+    }
+
+    /**
      * 流式管道共用核（{@link #tokenStream} 之上的路径 B 段：空闲超时/取消拦截/阻塞收集）。
      * 取消语义：takeUntil 在下一个 token 边界中止订阅（取消向上传播关闭 HTTP 连接），
      * doOnNext 拦截 takeUntil 放行的终止前元素；流结束后取消竞态复检（不按成功返回）。
@@ -320,10 +342,9 @@ final class AgentChatCaller {
                               BooleanSupplier cancelled,
                               java.util.concurrent.atomic.AtomicReference<Usage> usageRef,
                               java.util.concurrent.atomic.AtomicLong prevTotal, BudgetLedger ledger) {
-        tokenStream(buildSpec(config, sessionId, forAgent, fallbackSystem, user, assembly, extraAdvisors),
-                        usageRef, ledger, prevTotal)
-                // 端点无响应兜底：JDK 连接器无读超时，流空闲超时由此处兜住（防永久挂起）
-                .timeout(streamIdleTimeout)
+        tokenStreamWithWatchdog(
+                        buildSpec(config, sessionId, forAgent, fallbackSystem, user, assembly, extraAdvisors),
+                        usageRef, ledger, prevTotal, config != null ? config.model() : null)
                 .takeUntil(__ -> cancelled != null && cancelled.getAsBoolean())
                 .doOnNext(token -> {
                     if (cancelled != null && cancelled.getAsBoolean()) {

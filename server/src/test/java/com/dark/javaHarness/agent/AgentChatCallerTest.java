@@ -389,4 +389,55 @@ class AgentChatCallerTest {
 
         verify(client, never()).prompt();
     }
+
+    /* ---------------- 端点无响应兜底（路径 A 主回答与路径 B 共用） ---------------- */
+
+    /**
+     * 端点在途无响应（流长期不吐 token）时应按流空闲超时中止，并丢弃该模型的连接池。
+     * 回归背景：超时此前只挂在路径 B，浏览器 SSE 主回答（路径 A）端点在途无响应会永久挂起。
+     */
+    @Test
+    @org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
+    void watchdog_timesOutOnSilentEndpointAndDropsPool() {
+        com.dark.javaHarness.config.ChatTimeoutProperties timeouts =
+                new com.dark.javaHarness.config.ChatTimeoutProperties();
+        timeouts.setStreamIdleTimeoutSeconds(1);
+        AgentChatCaller guarded = new AgentChatCaller(clientRegistry, agentService, null, null,
+                new LlmRetry(), new ContextBudgetProperties(), null, null, null, null, null, timeouts);
+        when(spec.stream()).thenReturn(streamSpec);
+        when(streamSpec.chatResponse()).thenReturn(Flux.never());
+
+        java.util.List<Throwable> errors = new ArrayList<>();
+        guarded.tokenStreamWithWatchdog(spec, new java.util.concurrent.atomic.AtomicReference<>(),
+                        null, null, "m1")
+                .doOnError(errors::add)
+                .onErrorResume(e -> Flux.empty())
+                .blockLast();
+
+        assertEquals(1, errors.size(), "端点在途无响应应触发超时中止");
+        assertTrue(errors.get(0) instanceof java.util.concurrent.TimeoutException,
+                "中止原因应为流空闲超时，实际: " + errors.get(0));
+        verify(clientRegistry).invalidateByModel("m1");
+    }
+
+    /** 正常吐字不被兜底打断：流式收集内容与 token 顺序不变 */
+    @Test
+    @org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
+    void watchdog_passesThroughNormalStream() {
+        com.dark.javaHarness.config.ChatTimeoutProperties timeouts =
+                new com.dark.javaHarness.config.ChatTimeoutProperties();
+        timeouts.setStreamIdleTimeoutSeconds(30);
+        AgentChatCaller guarded = new AgentChatCaller(clientRegistry, agentService, null, null,
+                new LlmRetry(), new ContextBudgetProperties(), null, null, null, null, null, timeouts);
+        when(spec.stream()).thenReturn(streamSpec);
+        when(streamSpec.chatResponse()).thenReturn(fluxOf("a", "b", "c"));
+
+        List<String> tokens = guarded.tokenStreamWithWatchdog(spec, new java.util.concurrent.atomic.AtomicReference<>(),
+                        null, null, "m1")
+                .collectList()
+                .block();
+
+        assertEquals(List.of("a", "b", "c"), tokens);
+        verify(clientRegistry, never()).invalidateByModel(anyString());
+    }
 }

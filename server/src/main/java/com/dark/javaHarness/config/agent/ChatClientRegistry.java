@@ -32,6 +32,8 @@ public class ChatClientRegistry {
     private volatile Map<Long, ChatClient> clients = new ConcurrentHashMap<>();
     /** 模型名 → 部署模型 id 索引（供无 agent 行的场景按名查找，如路由判断）；同名歧义取先加载行并告警 */
     private volatile Map<String, Long> idsByName = new ConcurrentHashMap<>();
+    /** 模型名 → 轻量客户端（路由判定用：短读超时、无默认工具）；懒构建，reload 时清空 */
+    private volatile Map<String, ChatClient> lightClients = new ConcurrentHashMap<>();
     private final ChatClient defaultClient;
     private final ChatClientFactory clientFactory;
     private final ModelProviderMapper modelProviderMapper;
@@ -83,6 +85,83 @@ public class ChatClientRegistry {
         this.idsByName = freshNames;
     }
 
+    /**
+     * 按模型名取轻量客户端（短读超时、无默认工具），懒构建后按模型名缓存。
+     * 未命中模型行或构建失败时回退默认 DashScope 客户端（与 {@link #getByModel} 同口径）。
+     */
+    public ChatClient getLightweightByModel(String model, Integer readTimeoutSeconds) {
+        if (model == null || model.isBlank()) {
+            return defaultClient;
+        }
+        String key = model.toLowerCase();
+        ChatClient cached = lightClients.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        ModelProviderEntity row = modelProviderMapper.selectOne(
+                new LambdaQueryWrapper<ModelProviderEntity>()
+                        .eq(ModelProviderEntity::getModel, model)
+                        .eq(ModelProviderEntity::getStatus, 1)
+                        .last("LIMIT 1"));
+        if (row == null) {
+            log.info("[registry] 模型 '{}' 未命中注册表，轻量调用回退默认 DashScope 客户端", model);
+            return defaultClient;
+        }
+        ChatClient built = clientFactory.buildLightweight(row.getProvider(), row.getApiUrl(), readTimeoutSeconds);
+        if (built == null) {
+            log.warn("[registry] 模型 '{}' 轻量客户端构建失败，回退默认 DashScope 客户端", model);
+            return defaultClient;
+        }
+        lightClients.putIfAbsent(key, built);
+        return lightClients.get(key);
+    }
+
+    /**
+     * 丢弃某模型的轻量客户端缓存：下次取用时重建（连同新的连接池）。
+     *
+     * <p>动机：长空闲后 HTTP 客户端连接池里的 keep-alive 连接可能已被网络路径静默丢弃
+     * （对端不发 RST，写进去的请求石沉大海），复用该连接的调用会一直挂到读超时。
+     * JDK 17 的 jdk.httpclient.keepalive.timeout 实测不淘汰空闲 HTTP/2 连接
+     * （且无 .h2 变体），故在调用失败后主动丢池，使下一次重试拿到全新连接。
+     */
+    public void invalidateLightweight(String model) {
+        if (model == null || model.isBlank()) {
+            return;
+        }
+        if (lightClients.remove(model.toLowerCase()) != null) {
+            log.info("[registry] 丢弃轻量客户端缓存（下次调用重建连接池）: model={}", model);
+        }
+    }
+
+    /**
+     * 按模型名重建客户端（丢弃其连接池）：agent 链路共用的长超时客户端，失败后调用。
+     *
+     * <p>与 {@link #invalidateLightweight} 同因不同物：后者作用于路由判定的轻量客户端，
+     * 本方法作用于 {@link #getByModel}/{@link #get} 返回的共用客户端。重建会产生一个
+     * 新的 HttpClient（旧实例由 GC 回收），故仅在调用失败（疑似连接黑洞）时触发。
+     *
+     * @param model 模型名；null/未命中注册表时不做处理
+     */
+    public void invalidateByModel(String model) {
+        if (model == null || model.isBlank()) {
+            return;
+        }
+        Long id = idsByName.get(model.toLowerCase());
+        if (id == null) {
+            return;
+        }
+        ModelProviderEntity row = modelProviderMapper.selectById(id);
+        if (row == null) {
+            return;
+        }
+        ChatClient rebuilt = clientFactory.build(row.getProvider(), row.getApiUrl(),
+                row.getDisableThinking() != null && row.getDisableThinking() == 1);
+        if (rebuilt != null) {
+            clients.put(id, rebuilt);
+            log.info("[registry] 重建客户端并丢弃旧连接池: model={} id={}", model, id);
+        }
+    }
+
     /** 热刷新：重新读取 model_provider 表并整体替换映射（供应商管理接口新增/修改后调用，免重启） */
     public void reload() {
         try {
@@ -91,6 +170,8 @@ public class ChatClientRegistry {
             loadInto(fresh, freshNames);
             this.clients = fresh;
             this.idsByName = freshNames;
+            // 轻量客户端随主映射一同失效：下次调用按新配置重建
+            this.lightClients = new ConcurrentHashMap<>();
         } catch (Exception e) {
             log.warn("热刷新 model_provider 表失败，保留原映射继续服务", e);
         }

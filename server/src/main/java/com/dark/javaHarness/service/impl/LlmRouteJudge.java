@@ -1,5 +1,7 @@
 package com.dark.javaHarness.service.impl;
 
+import com.dark.javaHarness.advisor.LlmRequestLogAdvisor;
+import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.LlmCallLog;
 import com.dark.javaHarness.domain.RouteDecision;
@@ -34,6 +36,9 @@ public class LlmRouteJudge implements RouteJudge {
      */
     private static final String ROUTE_MODEL = "qwen3.8-27b";
 
+    /** 观测/落库用的调用方标识（llm_call_log.agent_name 与发起日志一致） */
+    private static final String ROUTE_AGENT = "route-judge";
+
     private static final String SYSTEM_PROMPT =
             "你是 Harness 的主路由判断器。判断一条用户请求应该走「简单」还是「复杂」路径。\n"
             + "只输出一行 JSON，不要任何解释、前后缀。格式严格为："
@@ -47,9 +52,14 @@ private final ChatClientRegistry clientRegistry;
     /** 模型调用重试策略（最多执行 3 次、指数退避；重试耗尽或不可重试的解析错误才兜底 SIMPLE） */
     private final com.dark.javaHarness.agent.LlmRetry retry;
 
-    public LlmRouteJudge(ChatClientRegistry clientRegistry, LlmCallRecorder recorder) {
+    /** LLM 超时配置：判定调用用独立短读超时（app.chat.timeouts.judge-read-timeout-seconds） */
+    private final ChatTimeoutProperties timeouts;
+
+    public LlmRouteJudge(ChatClientRegistry clientRegistry, LlmCallRecorder recorder,
+                         ChatTimeoutProperties timeouts) {
         this.clientRegistry = clientRegistry;
         this.recorder = recorder;
+        this.timeouts = timeouts;
         this.retry = new com.dark.javaHarness.agent.LlmRetry();
     }
 
@@ -63,7 +73,13 @@ private final ChatClientRegistry clientRegistry;
             // 逐次尝试记录：每次真实 LLM 调用（含重试）单独落一行 llm_call_log，
             // 失败尝试带真实错误描述，不再只记重试链的聚合结果（重试曾完全不可见）
             String content = retry.executeWithRetry(() -> doCall(message),
-                    (attempt, durationMs, err) -> record(durationMs, err == null, err, message));
+                    (attempt, durationMs, err) -> {
+                        record(durationMs, err == null, err, message);
+                        // 失败即丢池：连接可能已成网络黑洞，让重试拿到全新连接而不是再挂一次
+                        if (err != null) {
+                            clientRegistry.invalidateLightweight(ROUTE_MODEL);
+                        }
+                    });
             return parse(content);
         } catch (Exception e) {
             // 判断失败（含重试耗尽或解析失败）不阻塞请求，兜底走简单路径
@@ -74,7 +90,9 @@ private final ChatClientRegistry clientRegistry;
 
     /** 单次 LLM 路由调用（不包含解析，可被重试）；返回模型原始输出文本 */
     private String doCall(String message) {
-        ChatClient client = clientRegistry.getByModel(ROUTE_MODEL);
+        // 轻量客户端：短读超时（带 SIMPLE 兜底，无需等长回答口径的 300s）+ 不挂默认工具
+        ChatClient client = clientRegistry.getLightweightByModel(ROUTE_MODEL,
+                timeouts == null ? null : timeouts.getJudgeReadTimeoutSeconds());
         // 请求级显式携带 model：ChatClientFactory 的 defaultOptions 不含模型名，
         // 缺失时 DashScope 返回 400「you must provide a model parameter」（与
         // AgentChatCaller/GeneralAssistantAgent 同款约定）
@@ -83,6 +101,8 @@ private final ChatClientRegistry clientRegistry;
                 .user(message)
                 .options(org.springframework.ai.openai.OpenAiChatOptions.builder()
                         .model(ROUTE_MODEL).build())
+                // 发起前观测：与 agent 链路同款日志（此前 route-judge 在发起瞬间无任何痕迹）
+                .advisors(new LlmRequestLogAdvisor(ROUTE_AGENT, null))
                 .call()
                 .chatResponse()
                 .getResult()
@@ -97,7 +117,7 @@ private final ChatClientRegistry clientRegistry;
         }
         int promptTokens = LlmCallRecorder.estimateTokens(SYSTEM_PROMPT)
                 + LlmCallRecorder.estimateTokens(message);
-        recorder.record(new LlmCallLog(null, "route-judge", ROUTE_MODEL, false, ok,
+        recorder.record(new LlmCallLog(null, ROUTE_AGENT, ROUTE_MODEL, false, ok,
                 promptTokens, null, null, true,
                 durationMs, LlmCallRecorder.describeError(e),
                 null, null, null));

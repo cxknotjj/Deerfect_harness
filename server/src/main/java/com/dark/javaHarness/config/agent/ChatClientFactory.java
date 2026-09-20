@@ -35,6 +35,9 @@ public class ChatClientFactory {
     /** HTTP 连接超时兜底默认（秒）：app.chat.timeouts.connect-timeout-seconds 未配置时生效 */
     private static final int DEFAULT_CONNECT_TIMEOUT_SECONDS = 10;
 
+    /** 轻量内部调用读超时兜底默认（秒）：路由判定等带兜底的短调用，不共用长回答读超时 */
+    private static final int DEFAULT_LIGHT_READ_TIMEOUT_SECONDS = 10;
+
     /** HTTP 读超时兜底默认（秒）：app.chat.timeouts.read-timeout-seconds 未配置时生效。
      * 默认 JdkClientHttpRequestFactory 无读超时，端点不响应会永久挂起
      * （实测：编排卡死在 CompletableFuture.get()），必须显式设置 */
@@ -88,6 +91,25 @@ public class ChatClientFactory {
      *                        非流式单轮推理数分钟/content 为空，流式 0 token，见 V7 迁移说明）
      */
     public ChatClient build(String provider, String apiUrl, boolean disableThinking) {
+        return build(provider, apiUrl, disableThinking, null, true);
+    }
+
+    /**
+     * 轻量调用客户端：短读超时 + 不挂默认工具（{@link DemoTools}）。
+     *
+     * <p>供路由判定这类「只发 system + user、要求一行 JSON」的内部轻量调用使用：
+     * 模型既不需要工具，附带工具 schema 只会撑大请求体，也给模型多一个跑偏调工具的机会。
+     *
+     * @param readTimeoutSeconds 读超时秒数；null 回退 {@link #DEFAULT_LIGHT_READ_TIMEOUT_SECONDS}
+     */
+    public ChatClient buildLightweight(String provider, String apiUrl, Integer readTimeoutSeconds) {
+        int seconds = readTimeoutSeconds != null ? readTimeoutSeconds : DEFAULT_LIGHT_READ_TIMEOUT_SECONDS;
+        return build(provider, apiUrl, false, seconds, false);
+    }
+
+    /** 客户端构建主体：读超时与默认工具由调用方决定（agent 通道长超时带工具，轻量通道反之） */
+    private ChatClient build(String provider, String apiUrl, boolean disableThinking,
+                             Integer readTimeoutSeconds, boolean withDemoTools) {
         if (provider == null || apiUrl == null || apiUrl.isBlank()) {
             return null;
         }
@@ -103,7 +125,10 @@ public class ChatClientFactory {
                     .connectTimeout(resolve(timeouts.getConnectTimeoutSeconds(), DEFAULT_CONNECT_TIMEOUT_SECONDS))
                     .build();
             JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(jdkClient);
-            requestFactory.setReadTimeout(resolve(timeouts.getReadTimeoutSeconds(), DEFAULT_READ_TIMEOUT_SECONDS));
+            // 未显式指定（null）时沿用全局读超时配置（agent 通道口径）
+            requestFactory.setReadTimeout(resolve(
+                    readTimeoutSeconds != null ? readTimeoutSeconds : timeouts.getReadTimeoutSeconds(),
+                    DEFAULT_READ_TIMEOUT_SECONDS));
             RestClient.Builder restBuilder = RestClient.builder().requestFactory(requestFactory);
             WebClient.Builder webBuilder = WebClient.builder()
                     .clientConnector(new JdkClientHttpConnector(jdkClient));
@@ -128,9 +153,8 @@ public class ChatClientFactory {
             // 思考端点：模型层包装器按请求注入 enable_thinking:false（defaultOptions.extraBody
             // 在带运行时选项的调用模式下不生效，见 ThinkingSwitchChatModel 类注释）
             ChatModel effective = disableThinking ? new ThinkingSwitchChatModel(model) : model;
-            return ChatClient.builder(effective)
-                    .defaultTools(new DemoTools())
-                    .build();
+            ChatClient.Builder clientBuilder = ChatClient.builder(effective);
+            return withDemoTools ? clientBuilder.defaultTools(new DemoTools()).build() : clientBuilder.build();
         } catch (Exception e) {
             log.warn("构建服务商客户端失败 provider={}, api_url={}", provider, apiUrl, e);
             return null;

@@ -203,11 +203,12 @@ public class GeneralAssistantAgent implements Agent {
                 assemblyPathA(row -> BranchProgressListener.tryEmitSerialized(toolEvents, row));
         // 观测名单装配期计算一次（llm_call_log 三名单列，与 AgentChatCaller 内聚口径一致）
         PromptAssembler.PromptAttachments attachments = chatCaller.attachmentsFor(agentName, assembly);
-        Flux<String> content = AgentChatCaller.tokenStream(
+        // 端点无响应兜底（空闲超时 + 失败丢池）：浏览器 SSE 主回答与阻塞路径共用同一层保护
+        Flux<String> content = chatCaller.tokenStreamWithWatchdog(
                         chatCaller.buildSpec(config, goal.sessionId(), agentName, DEFAULT_SYSTEM_PROMPT,
                                 goal.objective(),
                                 assembly),
-                        usageRef, null, null)
+                        usageRef, null, null, config.model())
                 .doOnNext(collected::append)
                 .doOnError(streamError::set)
                 .doFinally(sig -> {

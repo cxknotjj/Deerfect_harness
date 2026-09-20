@@ -25,6 +25,10 @@ public class ChatTimeoutProperties {
     /** 流式调用空闲超时（秒）：相邻信号间隔超过即判定端点挂起；null = 兜底 120 秒 */
     private Integer streamIdleTimeoutSeconds;
 
+    /** 路由判定读超时（秒）：route-judge 是带 SIMPLE 兜底的轻量内部调用，
+     * 不共用 300s 长回答读超时；null = 兜底 10 秒 */
+    private Integer judgeReadTimeoutSeconds;
+
     public Integer getConnectTimeoutSeconds() {
         return connectTimeoutSeconds;
     }
@@ -43,6 +47,14 @@ public class ChatTimeoutProperties {
 
     public Integer getStreamIdleTimeoutSeconds() {
         return streamIdleTimeoutSeconds;
+    }
+
+    public Integer getJudgeReadTimeoutSeconds() {
+        return judgeReadTimeoutSeconds;
+    }
+
+    public void setJudgeReadTimeoutSeconds(Integer judgeReadTimeoutSeconds) {
+        this.judgeReadTimeoutSeconds = judgeReadTimeoutSeconds;
     }
 
     public void setStreamIdleTimeoutSeconds(Integer streamIdleTimeoutSeconds) {
