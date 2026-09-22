@@ -1,7 +1,8 @@
 /**
  * 聊天窗主体:消息滚动区(智能跟随:仅当用户停在底部附近才自动滚底,上翻阅读不被拉回)
- * + 底部输入卡片与状态栏。空消息时显示占位引导与快捷提问(点击即发)。
- * controls 插槽透传给 Composer 左下控制位(放 Agent 选择)。
+ * + 底部输入卡片与分段式状态栏。空消息时显示占位引导与快捷提问(点击即发)。
+ * controls 插槽透传给 Composer 右下控制位(放 Agent 选择);MessageBubble 的
+ * feedback 与 Composer 的 placeholder 均向上冒泡,由 App 统一轻提示。
  */
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
@@ -15,6 +16,8 @@ const emit = defineEmits<{
   stop: []
   delete: [id: number]
   regenerate: [id: number]
+  feedback: [type: string]
+  placeholder: [label: string]
 }>()
 
 const scrollEl = ref<HTMLDivElement | null>(null)
@@ -37,6 +40,21 @@ watch(
     })
   },
   { deep: true },
+)
+
+/** 最近一次流式耗时:streaming 置 true 起表,false 结算(毫秒);无数据不显示分段 */
+const lastElapsedMs = ref<number | null>(null)
+let streamStartTs = 0
+watch(
+  () => props.streaming,
+  (on) => {
+    if (on) {
+      streamStartTs = performance.now()
+    } else if (streamStartTs > 0) {
+      lastElapsedMs.value = Math.round(performance.now() - streamStartTs)
+      streamStartTs = 0
+    }
+  },
 )
 
 /** 空会话快捷提问(点击即发) */
@@ -82,17 +100,28 @@ function onRetry(): void {
         @retry="onRetry"
         @delete="emit('delete', m.id)"
         @regenerate="emit('regenerate', m.id)"
+        @feedback="emit('feedback', $event)"
       />
     </div>
 
     <footer class="composer-wrap">
-      <Composer :disabled="streaming" @send="emit('send', $event)" @stop="emit('stop')">
+      <Composer
+        :disabled="streaming"
+        @send="emit('send', $event)"
+        @stop="emit('stop')"
+        @placeholder="emit('placeholder', $event)"
+      >
         <template #controls><slot name="controls" /></template>
       </Composer>
-      <!-- 状态栏:仅真实数据(消息数 / 流式状态),无会话内容时不显示 -->
+      <!-- 分段式状态栏:仅真实数据(消息数 / 流式状态 / 最近耗时),无会话内容时不显示 -->
       <div v-if="messages.length > 0" class="chat-statusbar">
         <span>{{ messages.length }} 条消息</span>
+        <span class="statusbar-sep">│</span>
         <span :class="{ 'chat-statusbar-live': streaming }">{{ streaming ? '生成中…' : '空闲' }}</span>
+        <template v-if="lastElapsedMs !== null">
+          <span class="statusbar-sep">│</span>
+          <span>上次 {{ (lastElapsedMs / 1000).toFixed(1) }}s</span>
+        </template>
       </div>
     </footer>
   </section>

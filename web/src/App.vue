@@ -1,12 +1,14 @@
 /**
- * 应用骨架:三段布局 —— 左栏会话列表(260px)+ 右侧聊天窗(顶栏会话标题 + 消息区 + 卡片式 Composer)。
+ * 应用骨架:三段布局 —— 左栏会话列表(260px)+ 右侧聊天窗(顶栏会话标题 + 模式标签 +
+ * Session log + 对话/轨迹 tab + 消息区 + 卡片式 Composer + 分段状态栏)。
  * 组合层只做联动:
  * - 切换/新建会话 → showChat(id):把聊天视图切到该会话的消息桶(先用 localStorage 缓存即时渲染,
  *   再拉服务端历史覆盖),并重置 agent 选择(流式 onMeta 回写 sessionId 不经过此处,不会误清)
  * - onMeta 报告后端新建会话 → useChat 内已迁移消息桶,此处回写 sessionId 并刷新列表首页
  * - Agent 选中变化 → bindAgent(会话, agent 真实主键),成功/失败均以顶栏轻提示呈现(3 秒自动消失);
- * - 窄屏(≤768px):侧栏转抽屉模式(遮罩 + 滑入滑出),桌面内联折叠不变;选中/新建会话后自动收起
- *   AgentSelect 位于 Composer 控制位(对齐截图模型选择位)
+ * - 窄屏(≤768px):左侧 56px 图标竖条栏,侧栏转抽屉模式(遮罩 + 滑入滑出),桌面内联折叠不变;
+ *   选中/新建会话后自动收起。AgentSelect 位于 Composer 控制位(对齐截图模型选择位)
+ * - 占位交互(附件/工作区权限/消息反馈/搜索/设置)统一顶栏轻提示「功能开发中」
  */
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
@@ -188,6 +190,21 @@ function toggleTheme(): void {
   document.documentElement.dataset.theme = theme.value
   document.documentElement.style.colorScheme = theme.value
 }
+
+/** 对话/轨迹 tab(轨迹为占位) */
+const activeTab = ref<'chat' | 'trace'>('chat')
+
+/** 下载当前会话纯文本日志:消息按角色拼接(【user】/【assistant】),Blob 触发 a.download */
+function downloadSessionLog(): void {
+  if (currentSessionId.value === '') return
+  const text = messages.value.map((m) => `【${m.role}】${m.content}`).join('\n\n')
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `session-${currentSessionId.value}.txt`
+  a.click()
+  URL.revokeObjectURL(url)
+}
 </script>
 
 <template>
@@ -195,6 +212,14 @@ function toggleTheme(): void {
     class="app-shell"
     :class="{ 'app-streaming': streaming, 'sidebar-collapsed': sidebarCollapsed, 'drawer-open': drawerOpen }"
   >
+    <!-- 窄屏左侧图标竖条栏:新会话/历史/搜索占位 + 底部设置占位(桌面端隐藏) -->
+    <nav v-if="isNarrow" class="icon-rail">
+      <img class="rail-logo" src="/deer_logo.png" alt="" />
+      <button class="rail-btn" type="button" title="新会话" @click="onCreate">⊕</button>
+      <button class="rail-btn" type="button" title="历史会话" @click="drawerOpen = true">☰</button>
+      <button class="rail-btn" type="button" title="搜索" @click="showTip('功能开发中')">🔍</button>
+      <button class="rail-btn rail-btn-bottom" type="button" title="设置" @click="showTip('功能开发中')">⚙</button>
+    </nav>
     <!-- 窄屏抽屉遮罩:点击关闭(桌面端不渲染) -->
     <button
       v-if="isNarrow"
@@ -227,27 +252,56 @@ function toggleTheme(): void {
           @click="onSidebarExpand"
         >☰</button>
         <span class="chat-title">{{ currentSessionName }}</span>
-        <!-- 主题切换:右上角;夜间显示 ☀(进日间),日间显示 ☾(回夜间) -->
-        <button
-          v-if="!sidebarCollapsed"
-          class="icon-btn"
-          type="button"
-          :title="theme === 'dark' ? '切换日间模式' : '切换夜间模式'"
-          @click="toggleTheme"
-        >{{ theme === 'dark' ? '☀' : '☾' }}</button>
+        <span class="chat-mode-tag">◈ 标准模式</span>
         <!-- 轻提示:无条件渲染容器,仅由 tip 是否为空决定显隐,避免被条件渲染链路吞掉 -->
         <span v-if="tip" class="chat-tip" :class="{ 'chat-tip-error': tip.error }" role="status">{{
           tip.text
         }}</span>
+        <!-- 右上控制组:会话日志下载(无会话时置灰)+ 主题切换 -->
+        <div class="chat-header-right">
+          <button
+            class="session-log"
+            type="button"
+            title="下载会话日志(纯文本)"
+            :disabled="currentSessionId === ''"
+            @click="downloadSessionLog"
+          >Session log ↓</button>
+          <button
+            v-if="!sidebarCollapsed"
+            class="icon-btn"
+            type="button"
+            :title="theme === 'dark' ? '切换日间模式' : '切换夜间模式'"
+            @click="toggleTheme"
+          >{{ theme === 'dark' ? '☀' : '☾' }}</button>
+        </div>
       </header>
 
+      <!-- 对话/轨迹 tab(轨迹为占位) -->
+      <div class="chat-tabs">
+        <button
+          class="chat-tab"
+          :class="{ 'chat-tab-active': activeTab === 'chat' }"
+          type="button"
+          @click="activeTab = 'chat'"
+        >对话</button>
+        <button
+          class="chat-tab"
+          :class="{ 'chat-tab-active': activeTab === 'trace' }"
+          type="button"
+          @click="activeTab = 'trace'"
+        >轨迹</button>
+      </div>
+
       <ChatWindow
+        v-if="activeTab === 'chat'"
         :messages="messages"
         :streaming="streaming"
         @send="send"
         @stop="stop"
         @delete="deleteMessage"
         @regenerate="regenerate"
+        @feedback="showTip('功能开发中')"
+        @placeholder="showTip('功能开发中')"
       >
         <template #controls>
           <AgentSelect
@@ -258,6 +312,7 @@ function toggleTheme(): void {
           />
         </template>
       </ChatWindow>
+      <div v-else class="trace-placeholder">轨迹功能开发中</div>
     </section>
   </div>
 </template>

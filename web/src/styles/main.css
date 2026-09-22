@@ -157,29 +157,67 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .session-brand { display: flex; align-items: center; gap: 8px; }
 .session-brand-logo { width: 26px; height: 26px; }
 .session-brand-name { font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
-/* 通栏「新会话」(白底边框圆角,对齐截图) */
+/* HARNESS 描边 mono 小徽章(deepseek 文字右侧) */
+.brand-badge {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border: 1px solid var(--grid-line);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--ink-dim);
+}
+/* 通栏「新会话」(同面板底色左对齐,对齐截图) */
 .session-new { margin: 2px 14px 4px; }
 .btn-new {
   width: 100%;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 6px;
-  padding: 9px 0;
-  background: var(--bg-base);
-  border: 1px solid var(--grid-line);
+  padding: 9px 10px;
+  background: var(--bg-panel);
+  border: none;
   border-radius: var(--radius-ctl);
   font-size: 13.5px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--ink);
-  transition: border-color 0.15s, color 0.15s;
+  transition: color 0.15s;
 }
-.btn-new:hover { border-color: var(--accent); color: var(--accent); }
-.session-section { padding: 12px 16px 6px; font-size: 12px; color: var(--ink-dim); }
+.btn-new:hover { color: var(--accent); }
+/* 工作区标签行:左标签 + 右侧三个装饰小图标(不接行为) */
+.workspace-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px 4px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+.workspace-icons { display: flex; gap: 2px; }
+.workspace-icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--ink-dim);
+}
+.workspace-icon svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .session-items { list-style: none; flex: 1; overflow-y: auto; padding: 4px 8px 8px; }
 .session-item {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   padding: 9px 10px;
   border-radius: var(--radius-ctl);
@@ -190,21 +228,16 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .session-item:hover { background: var(--hover-veil); }
 .session-item-active { background: var(--accent-lift); }
 .session-item-active:hover { background: var(--accent-lift-strong); }
-.session-item-body { flex: 1; min-width: 0; }
 .session-item-name {
+  flex: 1;
+  min-width: 0;
   font-weight: 500;
+  font-size: 13.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.session-item-meta {
-  font-size: 12px;
-  color: var(--ink-dim);
-  margin-top: 3px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.session-item-time { flex-shrink: 0; font-size: 12px; color: var(--ink-dim); }
 /* 会话删除入口:默认隐藏,hover 会话项时显现(与消息操作钮同款交互) */
 .session-item-del {
   flex: none;
@@ -226,40 +259,77 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .session-list-foot .btn-ghost { width: 100%; }
 .session-list-foot-tip { font-size: 12px; color: var(--ink-dim); text-align: center; padding: 8px 0 12px; }
 
-/* 左栏底部:设置行(主题切换在顶栏右上角) */
-.settings-row {
+/* 左栏底部:用户区(28px 圆形头像 + 我的工作区;主题切换在顶栏右上角) */
+.user-row {
   display: flex;
   align-items: center;
   gap: 8px;
   margin: 0 14px;
   padding: 12px 2px;
   font-size: 13px;
-  color: var(--ink-dim);
+  color: var(--ink);
   transition: color 0.15s;
   border-top: 1px solid var(--grid-line);
   margin-top: 4px;
 }
-.settings-row:hover { color: var(--ink); }
-.row-icon {
-  font-family: var(--font-mono);
-  font-size: 14px;
-  width: 16px;
-  text-align: center;
+.user-row:hover { color: var(--accent); }
+.user-avatar {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent-lift);
 }
+
+/* ---------- 移动端图标竖条栏(仅 ≤768px 媒体查询启用;桌面隐藏) ----------
+   注意:此条必须置于上方 .icon-rail 媒体查询块之前——同特异性下后写的
+   display:none 会覆盖媒体查询内的 display:flex(实测翻车:rail 不可见) */
+.icon-rail { display: none; }
 
 /* ---------- 窄屏抽屉式侧栏(≤768px) ----------
    桌面 260px 内联布局不变;窄屏侧栏转为离屏抽屉:transform 滑入滑出 +
-   遮罩点击关闭。宽度 min(300px, 85vw),小屏不顶满、大一点的窄窗口仍有
-   足够列表宽度;阴影沿用浮层 token(全设计唯一阴影层级) */
+   遮罩点击关闭。从左侧 56px 图标竖条栏右侧滑出,宽度 min(280px, 80vw),
+   小屏不顶满、大一点的窄窗口仍有足够列表宽度;阴影沿用浮层 token(全设计唯一阴影层级) */
 .drawer-mask { display: none; }
 @media (max-width: 768px) {
-  .session-list {
+  /* 左侧固定图标竖条栏(56px):新会话/历史/搜索/设置入口,会话列表转为其右侧抽屉 */
+  .icon-rail {
     position: fixed;
     top: 0;
     bottom: 0;
     left: 0;
+    z-index: 45; /* 高于抽屉遮罩(30),抽屉(40)从其右侧滑出不重叠 */
+    width: 56px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 0 12px;
+    background: var(--bg-panel);
+    border-right: 1px solid var(--grid-line);
+  }
+  .rail-logo { width: 28px; height: 28px; border-radius: 8px; margin-bottom: 4px; }
+  .rail-btn {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    color: var(--ink-dim);
+    font-size: 16px;
+    transition: color 0.15s, background 0.15s;
+  }
+  .rail-btn:hover { color: var(--accent); background: var(--hover-veil); }
+  .rail-btn-bottom { margin-top: auto; }
+  .chat-pane { margin-left: 56px; } /* 给固定 rail 让位 */
+  .session-list {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 56px; /* 从图标竖条栏右侧滑出 */
     z-index: 40;
-    width: min(300px, 85vw);
+    width: min(280px, 80vw);
     transform: translateX(-100%);
     visibility: hidden;
     transition: transform 0.28s ease, visibility 0s linear 0.28s;
@@ -292,7 +362,8 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   .app-shell.drawer-open .chat-scroll { overflow: hidden; }
 }
 
-/* ---------- 状态灯(6px 圆点,常态示波器青) ---------- */
+/* ---------- 状态灯(6px 圆点,常态示波器青) ----------
+   流式生成中:agent 灯呼吸;错误(最后一条消息为错误块)时转信号橙 */
 .status-dot {
   flex-shrink: 0;
   width: 6px;
@@ -300,9 +371,6 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   border-radius: 50%;
   background: var(--accent);
 }
-.session-item .status-dot { margin-top: 5px; }
-
-/* 流式生成中:agent 灯与当前会话灯呼吸;错误(最后一条消息为错误块)时转信号橙 */
 .app-shell.app-streaming .agent-select .status-dot,
 .app-shell.app-streaming .session-item-active .status-dot {
   animation: dot-breathe 1.6s ease-in-out infinite;
@@ -325,12 +393,57 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   gap: 12px;
   padding: 12px 20px;
   background: var(--bg-panel);
-  border-bottom: 1px solid var(--grid-line);
 }
 .chat-title { font-size: 15px; font-weight: 600; }
-.chat-header > .icon-btn:last-child { margin-left: auto; } /* 仅主题切换钮(末位)推右,收起态展开钮靠左 */
+/* 模式标签:会话名后的弱化标注(◈ 标准模式) */
+.chat-mode-tag { font-size: 12.5px; color: var(--ink-dim); white-space: nowrap; }
+/* 右上控制组:Session log 胶囊 + 主题切换(推右;顶栏底线由下方 tab 行承担) */
+.chat-header-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.session-log {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border: 1px solid var(--grid-line);
+  border-radius: 999px;
+  font-size: 12.5px;
+  color: var(--ink-dim);
+  white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s, opacity 0.15s;
+}
+.session-log:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.session-log:disabled { opacity: 0.4; }
 .chat-tip { font-size: 13px; color: var(--blueprint); }
 .chat-tip-error { color: var(--accent-warm); }
+
+/* 对话/轨迹 tab 行(当前项 accent 下划线;底边线落在 tab 行,与顶栏构成一个面板区) */
+.chat-tabs {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 0 20px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--grid-line);
+}
+.chat-tab {
+  padding: 8px 2px 7px;
+  font-size: 13px;
+  color: var(--ink-dim);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.chat-tab:hover { color: var(--ink); }
+.chat-tab-active,
+.chat-tab-active:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* 轨迹占位(功能未实现) */
+.trace-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-dim);
+  font-size: 13px;
+}
 
 /* 消息滚动区 */
 .chat-window { flex: 1; display: flex; flex-direction: column; min-height: 0; }
@@ -410,8 +523,8 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 }
 .msg-progress-item::before { content: '▤'; font-size: 12px; opacity: 0.8; }
 
-/* 消息操作栏:hover 显现(对齐截图复制/赞踩位,仅实现复制) */
-.msg-actions { display: flex; gap: 2px; margin-top: 8px; }
+/* 消息操作栏:常显灰色图标组(复制/赞/踩/分享)+ 右侧相对时间(对齐截图) */
+.msg-actions { display: flex; align-items: center; gap: 2px; margin-top: 8px; }
 .msg-action-btn {
   width: 26px;
   height: 26px;
@@ -421,13 +534,29 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   border-radius: 6px;
   color: var(--ink-dim);
   font-size: 13px;
-  opacity: 0;
+  opacity: 0.6;
   transition: opacity 0.15s, background 0.15s, color 0.15s;
 }
-.msg-row:hover .msg-action-btn { opacity: 1; }
-.msg-action-btn:hover { background: var(--hover-veil); color: var(--ink); }
-/* 生成中禁用「重新生成」:需覆盖 hover 的 opacity,故单独成条 */
-.msg-row:hover .msg-action-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+/* 线性 SVG 图标(赞/踩/分享):随按钮颜色走 currentColor */
+.msg-action-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.msg-action-btn:hover { background: var(--hover-veil); color: var(--ink); opacity: 1; }
+/* 生成中禁用「重新生成」:覆盖基础与 hover 的 opacity,故置于 hover 之后 */
+.msg-action-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+/* 操作栏右侧相对时间 */
+.msg-time {
+  margin-left: auto;
+  align-self: center;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
 .msg-retry {
   display: inline-flex;
   align-items: center;
@@ -535,6 +664,7 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 /* ---------- Composer(卡片式输入区 + 底部状态栏) ---------- */
 .composer-wrap { padding: 8px 20px 0; background: var(--bg-base); }
 .composer {
+  position: relative; /* 承载左上角 ⊕ 附件钮的绝对定位 */
   max-width: 860px;
   margin: 0 auto;
   background: var(--bg-panel);
@@ -544,13 +674,30 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   transition: border-color 0.15s;
 }
 .composer:focus-within { border-color: var(--accent); }
+/* 卡片左上角附件入口(占位,点击仅轻提示) */
+.composer-attach {
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--ink-dim);
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+.composer-attach:hover { color: var(--accent); background: var(--hover-veil); }
 .composer-input {
   display: block;
   width: 100%;
   resize: none;
   border: none;
   border-radius: 0;
-  padding: 2px 4px 8px;
+  padding: 2px 4px 8px 32px; /* 左侧让位给 ⊕ 钮 */
   font: inherit;
   line-height: 1.55;
   outline: none;
@@ -566,6 +713,30 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   gap: 10px;
 }
 .composer-controls-left { display: flex; align-items: center; min-width: 0; }
+.composer-controls-right { display: flex; align-items: center; gap: 10px; }
+/* 左侧工作区权限占位(🛡 Workspace Write ▾) */
+.composer-shield {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--ink-dim);
+  white-space: nowrap;
+  transition: color 0.15s, background 0.15s;
+}
+.composer-shield:hover { color: var(--ink); background: var(--hover-veil); }
+.composer-shield-chevron { font-size: 10px; opacity: 0.8; }
+/* 发送键左侧状态灯:空心圆,流式时转 accent 并呼吸(复用 dot-breathe) */
+.composer-dot {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink-dim);
+}
+.composer-dot.live { border-color: var(--accent); animation: dot-breathe 1.6s ease-in-out infinite; }
 .composer-send {
   flex-shrink: 0;
   width: 34px;
@@ -585,19 +756,21 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .composer-send-stop { background: transparent; color: var(--accent-warm); border: 1px solid var(--accent-warm); }
 .composer-send-stop:hover { background: var(--accent-warm-soft); }
 
-/* 底部状态栏:mono 小字真实数据(消息数 / 流式状态) */
+/* 底部状态栏:mono 小字分段式真实数据(N 条消息 │ 生成中…/空闲 │ 最近耗时) */
 .chat-statusbar {
   max-width: 860px;
   margin: 0 auto;
   padding: 6px 4px 10px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 10px;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--ink-dim);
   letter-spacing: 0.03em;
 }
+.statusbar-sep { color: var(--grid-line); }
 .chat-statusbar-live { color: var(--accent); }
 
 /* ---------- Agent 选择器(自绘 drop-up 弹层) ---------- */
@@ -688,6 +861,7 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   .app-shell.app-streaming .session-item-active .status-dot {
     animation: none;
   }
+  .composer-dot.live { animation: none; }
   .msg-row-streaming .md-body > :last-child::after,
   .msg-row-streaming .md-body:empty::after {
     animation: none;

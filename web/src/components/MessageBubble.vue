@@ -2,7 +2,8 @@
  * 消息气泡:
  * - user:右对齐浅色圆角气泡(纯文本,pre-wrap 保留换行)
  * - assistant:左对齐 markdown 渲染(marked.parse + DOMPurify.sanitize 后 v-html);
- *   代码块带语言标签与复制按钮(v-html 内按钮走事件委托);hover 显现「复制原文」
+ *   代码块带语言标签与复制按钮(v-html 内按钮走事件委托);常显操作栏
+ *   (复制/赞/踩/分享 + 右侧相对时间,赞踩分享仅 emit 不弹提示)
  * - progress:气泡上方「图标 + 灰字」行式执行轨迹(stage · detail)
  * - error:红色错误样式 + 「重试」按钮(交由父级重发最后一条 user 消息)
  */
@@ -11,12 +12,13 @@ import { computed, ref } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import type { MessageItem } from '../composables/useChat'
+import { relativeTime } from '../utils/relativeTime'
 
 // 聊天场景:markdown 单换行渲染为 <br>,阅读更自然
 marked.setOptions({ breaks: true })
 
 const props = defineProps<{ message: MessageItem; streaming?: boolean; canRegenerate?: boolean }>()
-const emit = defineEmits<{ retry: []; delete: []; regenerate: [] }>()
+const emit = defineEmits<{ retry: []; delete: []; regenerate: []; feedback: [type: string] }>()
 
 /** assistant 正文 markdown → HTML(经 DOMPurify 净化后再包装代码块头部) */
 const html = computed(() => {
@@ -114,7 +116,7 @@ async function onBodyClick(e: MouseEvent): Promise<void> {
       </div>
     </template>
 
-    <!-- assistant:markdown 渲染(已净化)+ 代码块复制(委托)+ 复制原文 / 重新生成 -->
+    <!-- assistant:markdown 渲染(已净化)+ 代码块复制(委托)+ 常显操作栏(复制/赞/踩/分享 + 相对时间) -->
     <template v-else>
       <div class="msg-bubble msg-bubble-assistant md-body" @click="onBodyClick" v-html="html"></div>
       <div class="msg-actions">
@@ -124,6 +126,18 @@ async function onBodyClick(e: MouseEvent): Promise<void> {
           :title="copied ? '已复制' : '复制'"
           @click="copyContent"
         >{{ copied ? '✓' : '⧉' }}</button>
+        <!-- 赞/踩/分享为占位:仅 emit feedback(like/dislike/share),提示由外层统一处理 -->
+        <button class="msg-action-btn" type="button" title="赞" @click="emit('feedback', 'like')">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+        </button>
+        <button class="msg-action-btn" type="button" title="踩" @click="emit('feedback', 'dislike')">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zM17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>
+        </button>
+        <button class="msg-action-btn" type="button" title="分享" @click="emit('feedback', 'share')">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>
+        </button>
+        <!-- 历史回显 ts=0,无原始时间故不展示 -->
+        <span v-if="message.ts > 0" class="msg-time">{{ relativeTime(message.ts) }}</span>
         <!-- 仅最后一条回复可重新生成:复用其上一条提问原地重跑 -->
         <button
           v-if="canRegenerate"

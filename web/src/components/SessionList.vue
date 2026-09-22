@@ -1,10 +1,16 @@
 /**
- * 左栏会话列表(DeepSeek 形态):brand 行(logo + Harness + 折叠钮)→ 通栏「新会话」→
- * 「会话」分区标题 → 会话项(名称 + 最近提问摘要,圆角块选中态)→ 底部设置行。
- * 类型说明:SessionView 无更新时间字段,副标题按类型实际字段取 lastQuestion。
+ * 左栏会话列表(DeepSeek 桌面端复刻):brand 行(鹿 logo + deepseek + HARNESS 描边徽章)→
+ * 左对齐「⊕ 新会话」→ 工作区标签行(右侧装饰图标,不接行为)→
+ * 会话项(单行:名称 + 右侧灰色相对时间)→ 底部用户区(头像 + 我的工作区)。
+ * 类型说明:SessionView 无时间字段,相对时间用 utils/sessionMtime 的首见时间近似,
+ * 后端补 updated_at 后切换为真实时间。
  */
 <script setup lang="ts">
-defineProps<{
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { relativeTime } from '../utils/relativeTime'
+import { touch } from '../utils/sessionMtime'
+
+const props = defineProps<{
   sessions: { id: string; name: string; lastQuestion: string | null }[]
   currentId: string
   hasMore: boolean
@@ -27,6 +33,25 @@ function onRemove(id: string, e: Event): void {
     emit('remove', id)
   }
 }
+
+/** 时间 tick:驱动相对时间文案随流逝刷新(「刚刚」→「N分钟」…) */
+const nowTick = ref(Date.now())
+let tickTimer: number | undefined
+onMounted(() => {
+  tickTimer = window.setInterval(() => {
+    nowTick.value = Date.now()
+  }, 30_000)
+})
+onUnmounted(() => window.clearInterval(tickTimer))
+
+/** 会话 id → 相对时间文案;touch 幂等(仅首次见到时写入),tick 变化驱动重算 */
+const timeLabels = computed<Record<string, string>>(() => {
+  const labels: Record<string, string> = {}
+  for (const s of props.sessions) {
+    labels[s.id] = relativeTime(touch(s.id), nowTick.value)
+  }
+  return labels
+})
 </script>
 
 <template>
@@ -34,17 +59,34 @@ function onRemove(id: string, e: Event): void {
     <div class="session-list-head">
       <div class="session-brand">
         <img class="session-brand-logo" src="/deer_logo.png" alt="" />
-        <span class="session-brand-name">Harness</span>
+        <span class="session-brand-name">deepseek</span>
+        <span class="brand-badge">HARNESS</span>
       </div>
       <!-- 收起侧栏(展开入口在顶栏左侧) -->
       <button class="icon-btn" type="button" title="收起侧栏" @click="emit('collapse')">☰</button>
     </div>
 
     <div class="session-new">
-      <button class="btn-new" type="button" @click="emit('create')">+ 新会话</button>
+      <button class="btn-new" type="button" @click="emit('create')">
+        <span aria-hidden="true">⊕</span><span>新会话</span>
+      </button>
     </div>
 
-    <div class="session-section">会话</div>
+    <!-- 工作区标签行:右侧三个装饰小图标(搜索/筛选/新建文件夹语义),不接行为 -->
+    <div class="workspace-row">
+      <span>工作区</span>
+      <span class="workspace-icons" aria-hidden="true">
+        <span class="workspace-icon" title="搜索">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+        </span>
+        <span class="workspace-icon" title="筛选">
+          <svg viewBox="0 0 24 24"><path d="M4 5h16l-6.5 7.5V19l-3 2v-8.5Z" /></svg>
+        </span>
+        <span class="workspace-icon" title="新建文件夹">
+          <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /><path d="M12 11v6" /><path d="M9 14h6" /></svg>
+        </span>
+      </span>
+    </div>
 
     <ul class="session-items">
       <li
@@ -54,11 +96,8 @@ function onRemove(id: string, e: Event): void {
         :class="{ 'session-item-active': s.id === currentId }"
         @click="emit('select', s.id)"
       >
-        <span class="status-dot" aria-hidden="true"></span>
-        <div class="session-item-body">
-          <div class="session-item-name">{{ s.name }}</div>
-          <div class="session-item-meta">{{ s.lastQuestion ?? '暂无对话' }}</div>
-        </div>
+        <span class="session-item-name">{{ s.name }}</span>
+        <span class="session-item-time">{{ timeLabels[s.id] }}</span>
         <!-- 删除入口:hover 显现;确认后交外层执行 -->
         <button
           class="session-item-del"
@@ -79,10 +118,10 @@ function onRemove(id: string, e: Event): void {
       没有更多会话了
     </div>
 
-    <!-- 底部:设置(预留);主题切换在顶栏右上角 -->
-    <button class="settings-row" type="button" title="设置" @click="emit('settings')">
-      <span class="row-icon">⚙</span>
-      <span>设置</span>
+    <!-- 底部:用户区;点击沿用原 settings 事件(主题切换在顶栏右上角) -->
+    <button class="user-row" type="button" title="我的工作区" @click="emit('settings')">
+      <img class="user-avatar" src="/deer_logo.png" alt="" />
+      <span>我的工作区</span>
     </button>
   </aside>
 </template>
