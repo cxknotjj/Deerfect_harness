@@ -913,3 +913,108 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   /* 抽屉展开时锁定聊天区滚动,防止背景跟着滚 */
   .app-shell.drawer-open .chat-scroll { overflow: hidden; }
 }
+
+/* ---------- 轨迹 tab:调用时间线(LLM/工具观测数据,mono 示波器语义) ----------
+   三段式:统计 chips → 时长比例色块条带 → 逐行日志。配色全部复用主题 token:
+   LLM=DS 蓝 / TOOL=蓝图蓝 / 错误=信号橙,夜间日间自动适配 */
+.trace-view {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 20px;
+}
+.trace-stats { display: flex; flex-wrap: wrap; gap: 8px; }
+.trace-chip {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  border: 1px solid var(--grid-line);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+.trace-chip-error { color: var(--accent-warm); border-color: var(--accent-warm); }
+.trace-band {
+  display: flex;
+  gap: 2px;
+  height: 14px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg-inset);
+}
+.trace-band-block { min-width: 2px; }
+.trace-band-block.is-llm { background: var(--accent); opacity: 0.85; }
+.trace-band-block.is-tool { background: var(--blueprint); opacity: 0.55; }
+.trace-band-block.is-error { background: var(--accent-warm); opacity: 1; }
+.trace-list { display: flex; flex-direction: column; }
+.trace-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.trace-row:hover { background: var(--hover-veil); }
+/* 类型徽章:mono 小字描边,LLM 蓝 / TOOL 灰 */
+.trace-kind {
+  flex-shrink: 0;
+  width: 46px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-align: center;
+  border: 1px solid var(--grid-line);
+  border-radius: 4px;
+  padding: 1.5px 0;
+}
+.trace-kind.is-llm { color: var(--accent); }
+.trace-kind.is-tool { color: var(--ink-dim); }
+.trace-name {
+  flex-shrink: 0;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 12.5px;
+}
+.trace-meta {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+.trace-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-dim);
+}
+/* 错误行:徽章与正文转信号橙,一眼定位失败调用 */
+.trace-row.is-error .trace-kind,
+.trace-row.is-error .trace-name,
+.trace-row.is-error .trace-detail { color: var(--accent-warm); }
+.trace-row.is-error .trace-kind { border-color: var(--accent-warm); }
+.trace-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--ink-dim);
+}
+/* 窄屏:行内元素换行,摘要落到第二行(容器 12px 内边距已在窄屏块统一收窄) */
+@media (max-width: 768px) {
+  .trace-view { padding: 12px 12px; }
+  .trace-row { flex-wrap: wrap; row-gap: 2px; }
+  .trace-detail { flex-basis: 100%; }
+}

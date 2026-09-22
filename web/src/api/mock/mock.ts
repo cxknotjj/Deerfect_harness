@@ -7,18 +7,23 @@ import type { Api, StreamHandlers } from '../client'
 import type {
   AgentListView,
   ChatRequest,
+  LlmCallItem,
   SessionAgentView,
   SessionCreatedView,
   SessionMessagesView,
   SessionPage,
   SseMeta,
+  ToolCallItem,
 } from '../types'
-import { initialSessions, mockAgents } from './data'
+import { initialSessions, initialTraces, mockAgents } from './data'
 import type { MockMessage } from './data'
 
-// 内存态:会话档案 / 每会话消息记录 / 会话绑定的 agent 名
+// 内存态:会话档案 / 每会话消息记录 / 会话绑定的 agent 名 / 调用观测记录
 const sessions = initialSessions.map((s) => ({ ...s.session }))
 const memory = new Map<string, MockMessage[]>(initialSessions.map((s) => [s.session.id, [...s.messages]]))
+const traces = new Map(
+  Object.entries(initialTraces).map(([id, t]) => [id, { llm: [...t.llm], tool: [...t.tool] }]),
+)
 const boundAgents = new Map<string, string>()
 let nextId = initialSessions.length + 1
 
@@ -163,6 +168,16 @@ async function deleteSession(sessionId: string): Promise<void> {
   if (idx !== -1) sessions.splice(idx, 1)
   memory.delete(sessionId)
   boundAgents.delete(sessionId)
+  traces.delete(sessionId)
+}
+
+/** 调用观测:回吐该会话预置记录(无记录会话返回空数组,与真实现语义一致) */
+async function listToolCalls(sessionId: string): Promise<ToolCallItem[]> {
+  return (traces.get(sessionId)?.tool ?? []).map((t) => ({ ...t }))
+}
+
+async function listLlmCalls(sessionId: string): Promise<LlmCallItem[]> {
+  return (traces.get(sessionId)?.llm ?? []).map((t) => ({ ...t }))
 }
 
 /** mock API 实现(与 realApi 同签名) */
@@ -173,5 +188,7 @@ export const mockApi: Api = {
   bindAgent,
   listMessages,
   deleteSession,
+  listToolCalls,
+  listLlmCalls,
   streamChat,
 }

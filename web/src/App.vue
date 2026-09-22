@@ -15,6 +15,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import SessionList from './components/SessionList.vue'
 import ChatWindow from './components/ChatWindow.vue'
 import AgentSelect from './components/AgentSelect.vue'
+import TraceView from './components/TraceView.vue'
 import { useSessions } from './composables/useSessions'
 import { useChat } from './composables/useChat'
 import { useAgents } from './composables/useAgents'
@@ -83,6 +84,7 @@ function onSelect(id: string): void {
   selectSession(id)
   showChat(id)
   selectedAgentId.value = null
+  activeTab.value = 'chat' // 切会话回对话视图(轨迹按会话惰性加载,切回即看)
   clearTip()
 }
 
@@ -111,6 +113,7 @@ async function onCreate(): Promise<void> {
     await createSession()
     showChat(currentSessionId.value)
     selectedAgentId.value = null
+    activeTab.value = 'chat' // 新会话从空轨迹页等视图回到对话
     if (isNarrow.value) drawerOpen.value = false
   } catch (e) {
     showTip(`新建会话失败:${errText(e)}`, true)
@@ -316,7 +319,7 @@ function downloadSessionLog(): void {
           />
         </template>
       </ChatWindow>
-      <div v-else class="trace-placeholder">轨迹功能开发中</div>
+      <TraceView v-else :session-id="currentSessionId" />
     </section>
   </div>
 </template>

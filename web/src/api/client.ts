@@ -9,12 +9,14 @@
 import type {
   AgentListView,
   ChatRequest,
+  LlmCallItem,
   ProgressPayload,
   SessionAgentView,
   SessionCreatedView,
   SessionMessagesView,
   SessionPage,
   SseMeta,
+  ToolCallItem,
 } from './types'
 
 /** SSE 事件名与结束标记(与 shared 模块 SseProtocol 常量字面量一致) */
@@ -79,6 +81,16 @@ async function requestVoid(path: string): Promise<void> {
 /** 删除会话(DELETE /api/harness/sessions/{id};服务端幂等,成功返回空体) */
 export function deleteSession(sessionId: string): Promise<void> {
   return requestVoid(`/api/harness/sessions/${encodeURIComponent(sessionId)}`)
+}
+
+/** 工具调用观测(GET /api/tool-calls?sessionId=;按 id 倒序,上限 200) */
+export function listToolCalls(sessionId: string, limit = 200): Promise<ToolCallItem[]> {
+  return request(`/api/tool-calls?sessionId=${encodeURIComponent(sessionId)}&limit=${limit}`)
+}
+
+/** LLM 调用观测(GET /api/llm-calls?sessionId=;按 id 倒序,上限 200) */
+export function listLlmCalls(sessionId: string, limit = 200): Promise<LlmCallItem[]> {
+  return request(`/api/llm-calls?sessionId=${encodeURIComponent(sessionId)}&limit=${limit}`)
 }
 
 /** 流式聊天回调集(全部可选,按需订阅) */
@@ -234,6 +246,8 @@ export interface Api {
   bindAgent(sessionId: string, agentId: number): Promise<SessionAgentView>
   listMessages(sessionId: string): Promise<SessionMessagesView>
   deleteSession(sessionId: string): Promise<void>
+  listToolCalls(sessionId: string): Promise<ToolCallItem[]>
+  listLlmCalls(sessionId: string): Promise<LlmCallItem[]>
   streamChat(req: ChatRequest, handlers: StreamHandlers, signal?: AbortSignal): Promise<void>
 }
 
@@ -245,5 +259,7 @@ export const realApi: Api = {
   bindAgent,
   listMessages,
   deleteSession,
+  listToolCalls,
+  listLlmCalls,
   streamChat,
 }

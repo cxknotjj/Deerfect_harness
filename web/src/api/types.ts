@@ -102,3 +102,31 @@ export interface SessionMessagesView {
   sessionId: string
   messages: SessionMessageView[]
 }
+
+/** 工具调用观测条目(GET /api/tool-calls?sessionId=;对齐 ToolCallLogEntity 序列化) */
+export interface ToolCallItem {
+  id: number
+  agentName: string | null
+  toolName: string | null
+  serverName: string | null
+  argsSummary: string | null
+  status: string | null
+  durationMs: number | null
+  errorMsg: string | null
+  createdAt: string | null
+}
+
+/** LLM 调用观测条目(GET /api/llm-calls?sessionId=;对齐 LlmCallLogEntity 序列化) */
+export interface LlmCallItem {
+  id: number
+  agentName: string | null
+  model: string | null
+  callKind: string | null
+  status: string | null
+  promptTokens: number | null
+  completionTokens: number | null
+  totalTokens: number | null
+  durationMs: number | null
+  errorMsg: string | null
+  createdAt: string | null
+}

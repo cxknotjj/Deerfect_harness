@@ -3,7 +3,7 @@
  * Agent 对齐 GET /api/harness/agents(名称集合,无 id 字段);
  * mock 的 agentId 约定为数组下标 + 1(从 1 起),仅供 bindAgent 演示使用。
  */
-import type { SessionView } from '../types'
+import type { LlmCallItem, SessionView, ToolCallItem } from '../types'
 
 /** mock Agent 名单(id 与「下标 + 1」约定一致;结构对齐真模式的 AgentItemView) */
 export const mockAgents = [
@@ -108,3 +108,105 @@ export const initialSessions: MockSession[] = [
     ],
   },
 ]
+
+/** mock 调用观测记录:按会话预置 LLM/工具调用(会话 1 含 1 条 ERROR 演示错误态),
+    字段形状与 GET /api/tool-calls、GET /api/llm-calls 真实响应一致 */
+export const initialTraces: Record<string, { llm: LlmCallItem[]; tool: ToolCallItem[] }> = {
+  '1': {
+    llm: [
+      {
+        id: 1,
+        agentName: 'general',
+        model: 'qwen-plus',
+        callKind: 'STREAM',
+        status: 'OK',
+        promptTokens: 1284,
+        completionTokens: 412,
+        totalTokens: 1696,
+        durationMs: 4250,
+        errorMsg: null,
+        createdAt: '2026-09-22T09:00:10',
+      },
+      {
+        id: 2,
+        agentName: 'general',
+        model: 'qwen-plus',
+        callKind: 'STREAM',
+        status: 'OK',
+        promptTokens: 2140,
+        completionTokens: 356,
+        totalTokens: 2496,
+        durationMs: 3810,
+        errorMsg: null,
+        createdAt: '2026-09-22T09:01:02',
+      },
+    ],
+    tool: [
+      {
+        id: 1,
+        agentName: 'general',
+        toolName: 'grep_web',
+        serverName: 'tavily',
+        argsSummary: '{"query": "moonshot api 401 invalid api key"}',
+        status: 'OK',
+        durationMs: 1340,
+        errorMsg: null,
+        createdAt: '2026-09-22T09:00:52',
+      },
+      {
+        id: 2,
+        agentName: 'general',
+        toolName: 'fetchUrl',
+        serverName: 'tavily',
+        argsSummary: 'https://platform.moonshot.cn/docs/guide/start-using',
+        status: 'ERROR',
+        durationMs: 5020,
+        errorMsg: 'HTTP 504: upstream timeout after 5s',
+        createdAt: '2026-09-22T09:00:58',
+      },
+    ],
+  },
+  '2': {
+    llm: [
+      {
+        id: 3,
+        agentName: 'lead',
+        model: 'qwen-plus',
+        callKind: 'SYNC',
+        status: 'OK',
+        promptTokens: 860,
+        completionTokens: 240,
+        totalTokens: 1100,
+        durationMs: 2100,
+        errorMsg: null,
+        createdAt: '2026-09-22T10:12:00',
+      },
+      {
+        id: 4,
+        agentName: 'general',
+        model: 'qwen-plus',
+        callKind: 'STREAM',
+        status: 'OK',
+        promptTokens: 1955,
+        completionTokens: 630,
+        totalTokens: 2585,
+        durationMs: 5140,
+        errorMsg: null,
+        createdAt: '2026-09-22T10:12:12',
+      },
+    ],
+    tool: [
+      {
+        id: 3,
+        agentName: 'lead',
+        toolName: 'run_code',
+        serverName: null,
+        argsSummary: '{"code": "const r = await tools.grep_web(\'多agent编排模式\')"}',
+        status: 'OK',
+        durationMs: 890,
+        errorMsg: null,
+        createdAt: '2026-09-22T10:12:06',
+      },
+    ],
+  },
+}
