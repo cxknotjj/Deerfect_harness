@@ -1,6 +1,6 @@
 /**
  * 左栏会话列表(DeepSeek 桌面端复刻):brand 行(鹿 logo + deepseek + HARNESS 描边徽章)→
- * 左对齐「⊕ 新会话」→ 工作区标签行(右侧装饰图标,不接行为)→
+ * 左对齐「+ 新会话」→ 工作区标签行(右侧装饰图标,不接行为)→
  * 会话项(单行:名称 + 右侧灰色相对时间)→ 底部用户区(头像 + 我的工作区)。
  * 类型说明:SessionView 无时间字段,相对时间用 utils/sessionMtime 的首见时间近似,
  * 后端补 updated_at 后切换为真实时间。
@@ -59,7 +59,7 @@ const timeLabels = computed<Record<string, string>>(() => {
     <div class="session-list-head">
       <div class="session-brand">
         <img class="session-brand-logo" src="/deer_logo.png" alt="" />
-        <span class="session-brand-name">deepseek</span>
+        <span class="session-brand-name">DeerFect</span>
         <span class="brand-badge">HARNESS</span>
       </div>
       <!-- 收起侧栏(展开入口在顶栏左侧) -->
@@ -68,7 +68,7 @@ const timeLabels = computed<Record<string, string>>(() => {
 
     <div class="session-new">
       <button class="btn-new" type="button" @click="emit('create')">
-        <span aria-hidden="true">⊕</span><span>新会话</span>
+        <span aria-hidden="true">+</span><span>新会话</span>
       </button>
     </div>
 

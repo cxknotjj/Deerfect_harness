@@ -281,86 +281,12 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   background: var(--accent-lift);
 }
 
-/* ---------- 移动端图标竖条栏(仅 ≤768px 媒体查询启用;桌面隐藏) ----------
-   注意:此条必须置于上方 .icon-rail 媒体查询块之前——同特异性下后写的
-   display:none 会覆盖媒体查询内的 display:flex(实测翻车:rail 不可见) */
+/* ---------- 移动端图标竖条栏(桌面隐藏;窄屏样式统一在文末媒体查询) ---------- */
 .icon-rail { display: none; }
 
-/* ---------- 窄屏抽屉式侧栏(≤768px) ----------
-   桌面 260px 内联布局不变;窄屏侧栏转为离屏抽屉:transform 滑入滑出 +
-   遮罩点击关闭。从左侧 56px 图标竖条栏右侧滑出,宽度 min(280px, 80vw),
-   小屏不顶满、大一点的窄窗口仍有足够列表宽度;阴影沿用浮层 token(全设计唯一阴影层级) */
+/* 窄屏抽屉遮罩:桌面隐藏(窄屏样式见文末媒体查询) */
 .drawer-mask { display: none; }
-@media (max-width: 768px) {
-  /* 左侧固定图标竖条栏(56px):新会话/历史/搜索/设置入口,会话列表转为其右侧抽屉 */
-  .icon-rail {
-    position: fixed;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 45; /* 高于抽屉遮罩(30),抽屉(40)从其右侧滑出不重叠 */
-    width: 56px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    padding: 10px 0 12px;
-    background: var(--bg-panel);
-    border-right: 1px solid var(--grid-line);
-  }
-  .rail-logo { width: 28px; height: 28px; border-radius: 8px; margin-bottom: 4px; }
-  .rail-btn {
-    width: 36px;
-    height: 36px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 8px;
-    color: var(--ink-dim);
-    font-size: 16px;
-    transition: color 0.15s, background 0.15s;
-  }
-  .rail-btn:hover { color: var(--accent); background: var(--hover-veil); }
-  .rail-btn-bottom { margin-top: auto; }
-  .chat-pane { margin-left: 56px; } /* 给固定 rail 让位 */
-  .session-list {
-    position: fixed;
-    top: 0;
-    bottom: 0;
-    left: 56px; /* 从图标竖条栏右侧滑出 */
-    z-index: 40;
-    width: min(280px, 80vw);
-    transform: translateX(-100%);
-    visibility: hidden;
-    transition: transform 0.28s ease, visibility 0s linear 0.28s;
-    box-shadow: var(--menu-shadow);
-  }
-  .app-shell.drawer-open .session-list {
-    transform: translateX(0);
-    visibility: visible;
-    transition: transform 0.28s ease;
-  }
-  .drawer-mask {
-    display: block;
-    position: fixed;
-    inset: 0;
-    z-index: 30;
-    background: var(--mask-veil);
-    border: none;
-    padding: 0;
-    cursor: pointer;
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity 0.28s ease, visibility 0s linear 0.28s;
-  }
-  .app-shell.drawer-open .drawer-mask {
-    opacity: 1;
-    visibility: visible;
-    transition: opacity 0.28s ease;
-  }
-  /* 抽屉展开时锁定聊天区滚动,防止背景跟着滚 */
-  .app-shell.drawer-open .chat-scroll { overflow: hidden; }
-}
+
 
 /* ---------- 状态灯(6px 圆点,常态示波器青) ----------
    流式生成中:agent 灯呼吸;错误(最后一条消息为错误块)时转信号橙 */
@@ -394,9 +320,15 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   padding: 12px 20px;
   background: var(--bg-panel);
 }
-.chat-title { font-size: 15px; font-weight: 600; }
-/* 模式标签:会话名后的弱化标注(◈ 标准模式) */
-.chat-mode-tag { font-size: 12.5px; color: var(--ink-dim); white-space: nowrap; }
+/* 会话名超宽省略:min-width 0 允许在 flex 内收缩,超出即 … 截断(标题让位给右侧控制组) */
+.chat-title {
+  font-size: 15px;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* 右上控制组:Session log 胶囊 + 主题切换(推右;顶栏底线由下方 tab 行承担) */
 .chat-header-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .session-log {
@@ -895,3 +827,89 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   --bg-user: #e8effd;      /* 用户气泡:DS 浅蓝 */
 }
 
+/* ---------- 窄屏抽屉式侧栏与 Composer 收缩(≤768px) ----------
+   注意:本块必须置于文件末尾——若基础规则写在其后,同特异性下会反向覆盖
+   窄屏样式(实测翻车:🛡 文案未收缩、控制行 gap 未收紧,移动端元素重叠) */
+@media (max-width: 768px) {
+  /* 左侧固定图标竖条栏(56px):新会话/历史/搜索/设置入口,会话列表转为其右侧抽屉 */
+  .icon-rail {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 45; /* 高于抽屉遮罩(30),抽屉(40)从其右侧滑出不重叠 */
+    width: 56px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 0 12px;
+    background: var(--bg-panel);
+    border-right: 1px solid var(--grid-line);
+  }
+  .rail-logo { width: 28px; height: 28px; border-radius: 8px; margin-bottom: 4px; }
+  .rail-btn {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    color: var(--ink-dim);
+    font-size: 16px;
+    transition: color 0.15s, background 0.15s;
+  }
+  .rail-btn:hover { color: var(--accent); background: var(--hover-veil); }
+  /* SVG 图标在 flex 按钮内垂直居中(浏览器对 svg 默认 baseline 对齐会偏下) */
+  .rail-btn svg { display: block; }
+  .rail-btn-bottom { margin-top: auto; }
+  .chat-pane { margin-left: 56px; } /* 给固定 rail 让位 */
+  /* 窄屏顶栏空间有限:隐藏 Session log(下载入口仅桌面提供) */
+  .session-log { display: none; }
+  /* Composer 控制行窄屏收缩:🛡 行隐藏文案只留图标位,右侧组收紧,
+     容器两侧让出 8px,防左右两块在小屏上互相重叠 */
+  .composer-wrap { padding-left: 12px; padding-right: 12px; }
+  .composer-controls { gap: 6px; }
+  .composer-controls-left { flex-shrink: 1; overflow: hidden; }
+  .composer-controls-right { flex-shrink: 0; gap: 6px; }
+  .composer-shield { padding: 4px 6px; font-size: 0; gap: 0; } /* 仅剩 🛡 字符宽度 */
+  .composer-shield-chevron { display: none; }
+  .composer-shield .shield-glyph { font-size: 14px; }
+  .session-list {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 56px; /* 从图标竖条栏右侧滑出 */
+    z-index: 40;
+    width: min(280px, 80vw);
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform 0.28s ease, visibility 0s linear 0.28s;
+    box-shadow: var(--menu-shadow);
+  }
+  .app-shell.drawer-open .session-list {
+    transform: translateX(0);
+    visibility: visible;
+    transition: transform 0.28s ease;
+  }
+  .drawer-mask {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: var(--mask-veil);
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.28s ease, visibility 0s linear 0.28s;
+  }
+  .app-shell.drawer-open .drawer-mask {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.28s ease;
+  }
+  /* 抽屉展开时锁定聊天区滚动,防止背景跟着滚 */
+  .app-shell.drawer-open .chat-scroll { overflow: hidden; }
+}

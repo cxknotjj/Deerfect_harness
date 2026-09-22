@@ -39,7 +39,7 @@ function submit(): void {
       type="button"
       title="添加附件"
       @click="emit('placeholder', 'attach')"
-    >⊕</button>
+    >+</button>
     <textarea
       ref="inputEl"
       v-model="text"
@@ -55,7 +55,7 @@ function submit(): void {
           type="button"
           title="工作区权限"
           @click="emit('placeholder', 'workspace')"
-        >🛡 Workspace Write<span class="composer-shield-chevron">▾</span></button>
+        ><span class="shield-glyph">🛡</span> Workspace Write<span class="composer-shield-chevron">▾</span></button>
       </div>
       <div class="composer-controls-right">
         <slot name="controls" />

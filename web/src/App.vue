@@ -212,12 +212,17 @@ function downloadSessionLog(): void {
     class="app-shell"
     :class="{ 'app-streaming': streaming, 'sidebar-collapsed': sidebarCollapsed, 'drawer-open': drawerOpen }"
   >
-    <!-- 窄屏左侧图标竖条栏:新会话/历史/搜索占位 + 底部设置占位(桌面端隐藏) -->
+    <!-- 窄屏左侧图标竖条栏:新会话/搜索占位 + 底部设置占位(桌面端隐藏;
+         历史入口与顶栏侧栏开关重复,不设) -->
     <nav v-if="isNarrow" class="icon-rail">
       <img class="rail-logo" src="/deer_logo.png" alt="" />
-      <button class="rail-btn" type="button" title="新会话" @click="onCreate">⊕</button>
-      <button class="rail-btn" type="button" title="历史会话" @click="drawerOpen = true">☰</button>
-      <button class="rail-btn" type="button" title="搜索" @click="showTip('功能开发中')">🔍</button>
+      <button class="rail-btn" type="button" title="新会话" @click="onCreate">+</button>
+      <button class="rail-btn" type="button" title="搜索" @click="showTip('功能开发中')">
+        <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="1.8" />
+          <path d="m20 20-4.35-4.35" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" />
+        </svg>
+      </button>
       <button class="rail-btn rail-btn-bottom" type="button" title="设置" @click="showTip('功能开发中')">⚙</button>
     </nav>
     <!-- 窄屏抽屉遮罩:点击关闭(桌面端不渲染) -->
@@ -252,7 +257,6 @@ function downloadSessionLog(): void {
           @click="onSidebarExpand"
         >☰</button>
         <span class="chat-title">{{ currentSessionName }}</span>
-        <span class="chat-mode-tag">◈ 标准模式</span>
         <!-- 轻提示:无条件渲染容器,仅由 tip 是否为空决定显隐,避免被条件渲染链路吞掉 -->
         <span v-if="tip" class="chat-tip" :class="{ 'chat-tip-error': tip.error }" role="status">{{
           tip.text
