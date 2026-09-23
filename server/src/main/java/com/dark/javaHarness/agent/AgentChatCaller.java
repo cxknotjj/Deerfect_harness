@@ -564,9 +564,19 @@ final class AgentChatCaller {
                 boolean partialOutput = collected.length() > 0;
                 boolean canRetry = !partialOutput && LlmRetry.isRetryable(e) && attempt < retry.maxAttempts();
                 if (canRetry) {
+                    // 首次失败带全量堆栈（排错现场），后续重试紧凑——口径与 LlmRetry 一致
+                    if (attempt == 1) {
+                        log.warn("[caller] {} 流式调用失败，将重试（attempt {}/{}）：{}", forAgent,
+                                attempt + 1, retry.maxAttempts(),
+                                LlmCallRecorder.describeError(e), e);
+                    } else {
+                        log.warn("[caller] {} 流式调用重试失败（attempt {}/{}）：{}", forAgent,
+                                attempt, retry.maxAttempts(), LlmCallRecorder.describeError(e));
+                    }
                     retry.waitBeforeRetry(attempt);
                     continue;
                 }
+                log.warn("[caller] {} 流式调用最终失败：{}", forAgent, LlmCallRecorder.describeError(e), e);
                 throw e;
             }
         }

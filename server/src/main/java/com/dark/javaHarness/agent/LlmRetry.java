@@ -130,12 +130,19 @@ public final class LlmRetry {
                     throw e;
                 }
                 if (attempt == maxAttempts) {
-                    log.warn("[llm-retry] 重试 {} 次后仍失败，放弃：{}", maxAttempts - 1, describe(e));
+                    log.warn("[llm-retry] 重试 {} 次后仍失败，放弃：{}", maxAttempts - 1, describe(e), e);
                     throw e;
                 }
                 long delay = backoffDelay(attempt);
-                log.warn("[llm-retry] 可重试错误，{}ms 后第 {} 次重试（共 {} 次）：{}",
-                        delay, attempt + 1, maxAttempts, describe(e));
+                if (attempt == 1) {
+                    // 首次失败带全量堆栈记一次（checkpoint URL/根因链是排错现场）；
+                    // 后续重试保持紧凑——堆栈重复无信息量（Spring AI 聚合器同款堆栈已被压掉）
+                    log.warn("[llm-retry] 可重试错误，{}ms 后第 {} 次重试（共 {} 次）：{}",
+                            delay, attempt + 1, maxAttempts, describe(e), e);
+                } else {
+                    log.warn("[llm-retry] 可重试错误，{}ms 后第 {} 次重试（共 {} 次）：{}",
+                            delay, attempt + 1, maxAttempts, describe(e));
+                }
                 sleep(delay);
             }
         }

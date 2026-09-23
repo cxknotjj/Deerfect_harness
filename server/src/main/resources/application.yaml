@@ -220,3 +220,7 @@ logging:
     root: info
     # 无 API key 时 Spring AI 重试器会打整屏堆栈，压掉（失败信息由 AgentService 紧凑记录）
     org.springframework.ai.retry: ERROR
+    # 流式链路上 6 个聚合器(ChatClient 观测层/4 个 advisor 层/模型层)对同一次失败
+    # 各打一条 ERROR 全堆栈，压掉——排错现场不丢：LlmRetry/AgentChatCaller 在首次
+    # 失败时已带全量堆栈记录（含 agent/model 上下文），台账照记
+    org.springframework.ai.chat.model.MessageAggregator: OFF
