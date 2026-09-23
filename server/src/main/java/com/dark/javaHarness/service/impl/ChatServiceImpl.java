@@ -88,9 +88,11 @@ public class ChatServiceImpl implements ChatService {
 
     private static final Logger log = LoggerFactory.getLogger(ChatServiceImpl.class);
 
-    /** 同步聊天：无 sessionId 建档，调 general Agent 同步执行并写回会话记忆 */
+    /** 同步聊天：无 sessionId 时自动建档，调 general Agent 同步执行并写回会话记忆 */
     @Override
     public ChatResponse chat(ChatRequest request) {
+        // 发送时刻在入口捕获（写回 user 消息快照用，历史回显真实发送时间）
+        long userSentAt = System.currentTimeMillis();
         // 无 sessionId 时自动建档（session 表），会话名取首条提问
         String sessionId = request.sessionId();
         boolean newSession = false;
@@ -132,9 +134,9 @@ public class ChatServiceImpl implements ChatService {
         // 降级为会话 Agent 单模型重答一次，与流式 withComplexFallback 同语义，一层兜底不递归
         if (complexFallbackEnabled && GoalStatus.FAILED == goal.status()
                 && AgentConstants.MULTI_AGENT.equals(resolvedAgent)) {
-            return chatWithComplexFallback(goal, request, sessionId, newSession);
+            return chatWithComplexFallback(goal, request, sessionId, newSession, userSentAt);
         }
-        writeBackContext(sessionId, request.message(), goal);
+        writeBackContext(sessionId, request.message(), goal, userSentAt);
 
         if (goal.status() == GoalStatus.FAILED) {
             return ChatResponse.failure(sessionId, newSession, goal.id(), goal.summary(), resolvedAgent);
@@ -149,11 +151,11 @@ public class ChatServiceImpl implements ChatService {
      * 重答失败原因两段（与流式 {@link #withComplexFallback} 错误拼接口径一致）。
      */
     private ChatResponse chatWithComplexFallback(Goal orchestration, ChatRequest request,
-                                                 String sessionId, boolean newSession) {
+                                                 String sessionId, boolean newSession, long userSentAt) {
         log.warn("[route] 编排失败（goal={}），降级单模型重答：{}", orchestration.id(), orchestration.summary());
         String fallbackAgent = sessionAgentName(sessionId);
         Goal retry = agentService.executeSync(fallbackAgent, request.message(), sessionId);
-        writeBackContext(sessionId, request.message(), retry);
+        writeBackContext(sessionId, request.message(), retry, userSentAt);
         if (retry.status() == GoalStatus.FAILED) {
             return ChatResponse.failure(sessionId, newSession, retry.id(),
                     "编排失败: " + orchestration.summary() + "；重答失败: " + retry.summary(), fallbackAgent);
@@ -162,11 +164,11 @@ public class ChatServiceImpl implements ChatService {
                 recentKnowledgeSources(sessionId), fallbackAgent);
     }
 
-    /** 同步执行成功后写回会话记忆 */
-    private void writeBackContext(String sessionId, String message, Goal goal) {
+    /** 同步执行成功后写回会话记忆（user 消息记录真实发送时刻，历史回显时间不失真） */
+    private void writeBackContext(String sessionId, String message, Goal goal, long userSentAt) {
         if (sessionId != null && !sessionId.isBlank() && goal.status() == GoalStatus.SUCCEEDED) {
-            sessionService.saveContext(sessionId, new UserMessage(message));
-            sessionService.saveContext(sessionId, new AssistantMessage(goal.summary()));
+            sessionService.saveContext(sessionId, new UserMessage(message), userSentAt);
+            sessionService.saveContext(sessionId, new AssistantMessage(goal.summary()), System.currentTimeMillis());
             sessionService.touchSession(sessionId, message);
         }
     }
@@ -321,6 +323,8 @@ public class ChatServiceImpl implements ChatService {
      */
     private Flux<String> toSseBody(Flux<String> agentTokens, String sessionId, boolean newSession,
                                    String userMessage, String goalId) {
+        // 发送时刻在组装期捕获（请求到达即记录，写回 user 消息快照用——历史回显真实发送时间）
+        long userSentAt = System.currentTimeMillis();
         // doOnNext 收集完整回复，流正常结束后由 doOnComplete 统一写回会话记忆（保持多轮记忆语义）
         // 其中「进度行」（以 ProgressLine.MARK 开头，多 Agent 编排的阶段反馈）不计入会话摘要
         StringBuilder full = new StringBuilder();
@@ -330,7 +334,7 @@ public class ChatServiceImpl implements ChatService {
                 .concatWithValues("event: " + SseProtocol.EVENT_TOKEN
                         + "\ndata: " + SseProtocol.DONE_MARKER)
                 .concatWith(metaEvent(sessionId, newSession, goalId, GoalStatus.SUCCEEDED.name(), null))
-                .doOnComplete(() -> writeBackContext(sessionId, userMessage, full.toString()))
+                .doOnComplete(() -> writeBackContext(sessionId, userMessage, full.toString(), userSentAt))
                 // 客户端断开（Tomcat 报 AsyncRequestNotUsableException/Connection reset）：
                 // 框架层 ERROR 堆栈由 ClientAbortLogFilter 降噪，此处统一记可观测 warn 单行
                 .doOnCancel(() -> log.warn("[stream] 客户端断开，取消推送与编排：sid={}", sessionId))
@@ -366,11 +370,11 @@ public class ChatServiceImpl implements ChatService {
         }
     }
 
-    /** 流式成功后写回会话记忆（响应式路径：assistant 完整回复已由 doOnNext 收集） */
-    private void writeBackContext(String sessionId, String message, String assistantReply) {
+    /** 流式成功后写回会话记忆（响应式路径：assistant 完整回复已由 doOnNext 收集；user 记录发送时刻） */
+    private void writeBackContext(String sessionId, String message, String assistantReply, long userSentAt) {
         if (sessionId != null && !sessionId.isBlank()) {
-            sessionService.saveContext(sessionId, new UserMessage(message));
-            sessionService.saveContext(sessionId, new AssistantMessage(assistantReply));
+            sessionService.saveContext(sessionId, new UserMessage(message), userSentAt);
+            sessionService.saveContext(sessionId, new AssistantMessage(assistantReply), System.currentTimeMillis());
             sessionService.touchSession(sessionId, message);
         }
     }

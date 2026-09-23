@@ -95,6 +95,8 @@ export interface SessionAgentView {
 export interface SessionMessageView {
   role: 'user' | 'assistant'
   content: string
+  /** 消息真实时刻(epoch 毫秒;user=发送、assistant=完成);旧快照无时间为 null */
+  ts?: number | null
 }
 
 /** 会话历史响应(GET /api/harness/sessions/{id}/messages) */

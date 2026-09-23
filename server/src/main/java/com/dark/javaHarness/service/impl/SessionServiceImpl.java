@@ -95,42 +95,77 @@ public class SessionServiceImpl implements SessionService {
     /** 读取会话完整上下文，还原为 Spring AI Message 列表（无会话或解析失败返回空列表） */
     @Override
     public List<Message> loadContext(String sessionId) {
+        List<Map<String, String>> items = readSnapshot(sessionId);
+        List<Message> messages = new ArrayList<>(items.size());
+        for (Map<String, String> item : items) {
+            messages.add(toMessage(item.get("role"), item.get("content")));
+        }
+        return messages;
+    }
+
+    /** 读取会话历史消息（复用上下文快照解析，转换为 role/content/ts 展示形态；旧快照无 ts 为 null） */
+    @Override
+    public List<SessionMessagesView.Item> listMessages(String sessionId) {
+        List<SessionMessagesView.Item> items = new ArrayList<>();
+        for (Map<String, String> item : readSnapshot(sessionId)) {
+            items.add(new SessionMessagesView.Item(
+                    item.get("role"), item.get("content"), parseTs(item.get("ts"))));
+        }
+        return items;
+    }
+
+    /** 读取该会话最新的上下文快照 item 列表（无会话/无行/解析失败返回空列表） */
+    private List<Map<String, String>> readSnapshot(String sessionId) {
+        return parseSnapshotItems(latestSnapshotRow(sessionId));
+    }
+
+    /** 查询该会话唯一的上下文行（保留取最新一条以兼容历史多行数据；无会话/无行返回 null） */
+    private SessionMessageEntity latestSnapshotRow(String sessionId) {
         if (sessionId == null || sessionId.isBlank()) {
-            return List.of();
+            return null;
         }
         QueryWrapper<SessionMessageEntity> qw = new QueryWrapper<>();
         qw.eq("session_id", sessionId)
                 .orderByDesc("id")
                 .last("LIMIT 1");
-        SessionMessageEntity latest = messageMapper.selectOne(qw);
-        if (latest == null || latest.getContent() == null || latest.getContent().isBlank()) {
+        return messageMapper.selectOne(qw);
+    }
+
+    /** 解析快照行 content 为 item 列表（空行/解析失败返回空列表，按空上下文处理） */
+    private List<Map<String, String>> parseSnapshotItems(SessionMessageEntity row) {
+        if (row == null || row.getContent() == null || row.getContent().isBlank()) {
             return List.of();
         }
         try {
-            List<Map<String, String>> items = objectMapper.readValue(
-                    latest.getContent(), new TypeReference<List<Map<String, String>>>() {});
-            List<Message> messages = new ArrayList<>(items.size());
-            for (Map<String, String> item : items) {
-                messages.add(toMessage(item.get("role"), item.get("content")));
-            }
-            return messages;
+            return objectMapper.readValue(
+                    row.getContent(), new TypeReference<List<Map<String, String>>>() {});
         } catch (JsonProcessingException e) {
-            log.warn("解析会话上下文快照失败 sessionId={}，按空上下文处理", sessionId, e);
+            log.warn("解析会话上下文快照失败 sessionId={}，按空上下文处理", row.getSessionId(), e);
             return List.of();
         }
     }
 
-    /** 读取会话历史消息（复用上下文快照解析，仅转换为 role/content 展示形态） */
-    @Override
-    public List<SessionMessagesView.Item> listMessages(String sessionId) {
-        return loadContext(sessionId).stream()
-                .map(message -> new SessionMessagesView.Item(roleOf(message), message.getText()))
-                .toList();
+    /** 快照 item 的 ts（毫秒字符串）→ Long；缺失/非法返回 null（表驱动化之前的旧快照兼容） */
+    private static Long parseTs(String ts) {
+        if (ts == null || ts.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(ts);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
-    /** 追加保存单条会话消息到该会话唯一一行上下文（不存在则新建） */
+    /** 追加保存单条会话消息到该会话唯一一行上下文（不存在则新建），ts 取当前时刻 */
     @Override
     public void saveContext(String sessionId, Message message) {
+        saveContext(sessionId, message, System.currentTimeMillis());
+    }
+
+    /** 追加保存单条会话消息并记录时间戳（ts 为消息真实时刻：user=发送、assistant=完成；null 按当前处理） */
+    @Override
+    public void saveContext(String sessionId, Message message, Long ts) {
         if (sessionId == null || sessionId.isBlank() || message == null) {
             return;
         }
@@ -139,26 +174,16 @@ public class SessionServiceImpl implements SessionService {
             log.info("会话不存在或已删除，跳过上下文写回 sessionId={}", sessionId);
             return;
         }
-        // 查询该会话唯一的上下文行（保留取最新一条以兼容历史多行数据）
-        QueryWrapper<SessionMessageEntity> qw = new QueryWrapper<>();
-        qw.eq("session_id", sessionId)
-                .orderByDesc("id")
-                .last("LIMIT 1");
-        SessionMessageEntity existing = messageMapper.selectOne(qw);
-
         // 读取已有上下文，追加本条消息
-        List<Map<String, String>> items = new ArrayList<>();
-        if (existing != null && existing.getContent() != null && !existing.getContent().isBlank()) {
-            try {
-                items = objectMapper.readValue(existing.getContent(),
-                        new TypeReference<List<Map<String, String>>>() {});
-            } catch (JsonProcessingException e) {
-                log.warn("解析会话上下文快照失败 sessionId={}，按空上下文处理", sessionId, e);
-            }
-        }
+        SessionMessageEntity existing = latestSnapshotRow(sessionId);
+        List<Map<String, String>> items = new ArrayList<>(parseSnapshotItems(existing));
         Map<String, String> item = new LinkedHashMap<>();
         item.put("role", roleOf(message));
         item.put("content", message.getText());
+        if (ts != null) {
+            // 时间戳以字符串形态入快照（保持 Map<String,String> 反序列化兼容）；仅展示用，loadContext 忽略
+            item.put("ts", String.valueOf(ts));
+        }
         items.add(item);
 
         String json;

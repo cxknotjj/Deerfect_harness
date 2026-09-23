@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -116,8 +117,8 @@ class ChatServiceImplTest {
 
         ArgumentCaptor<UserMessage> userCapture = ArgumentCaptor.forClass(UserMessage.class);
         ArgumentCaptor<AssistantMessage> assistantCapture = ArgumentCaptor.forClass(AssistantMessage.class);
-        verify(sessionService).saveContext(anyString(), userCapture.capture());
-        verify(sessionService).saveContext(anyString(), assistantCapture.capture());
+        verify(sessionService).saveContext(anyString(), userCapture.capture(), anyLong());
+        verify(sessionService).saveContext(anyString(), assistantCapture.capture(), anyLong());
         verify(sessionService).touchSession(eq("7"), eq("帮我写首诗"));
 
         assertEquals("帮我写首诗", userCapture.getValue().getText());
@@ -134,7 +135,7 @@ class ChatServiceImplTest {
         ChatResponse resp = chatService.chat(req);
 
         assertEquals(GoalStatus.FAILED.name(), resp.status());
-        verify(sessionService, never()).saveContext(anyString(), any());
+        verify(sessionService, never()).saveContext(anyString(), any(), any());
     }
 
     @Test
@@ -168,11 +169,12 @@ class ChatServiceImplTest {
 
         ArgumentCaptor<UserMessage> userCapture = ArgumentCaptor.forClass(UserMessage.class);
         ArgumentCaptor<AssistantMessage> assistantCapture = ArgumentCaptor.forClass(AssistantMessage.class);
-        verify(sessionService).saveContext(eq("50"), userCapture.capture());
-        verify(sessionService).saveContext(eq("50"), assistantCapture.capture());
+        verify(sessionService).saveContext(eq("50"), userCapture.capture(), anyLong());
+        verify(sessionService).saveContext(eq("50"), assistantCapture.capture(), anyLong());
         verify(sessionService).touchSession(eq("50"), eq("hi"));
         assertEquals("hi", userCapture.getValue().getText(), "写回 user 应与原始提问一致");
         assertEquals("ab", assistantCapture.getValue().getText(), "写回 assistant 应为完整回复");
+        assertNotNull(userCapture.getValue(), "user 消息应带真实发送时刻（ts 由 3 参重载写入快照）");
     }
 
     @Test
@@ -183,7 +185,7 @@ class ChatServiceImplTest {
 
         chatService.streamReactive(req).collectList().block();
 
-        verify(sessionService, never()).saveContext(anyString(), any());
+        verify(sessionService, never()).saveContext(anyString(), any(), any());
         verify(sessionService, never()).touchSession(anyString(), anyString());
     }
 
@@ -370,7 +372,8 @@ class ChatServiceImplTest {
         assertTrue(resp.error().contains("重答失败: 重答同样超时"),
                 "应保留重答失败原因: " + resp.error());
         // 重答失败不得写回会话记忆
-        verify(sessionService, never()).saveContext(anyString(), any());
+        verify(sessionService, never()).saveContext(anyString(), any(), any());
+        verify(sessionService, never()).touchSession(anyString(), anyString());
     }
 
     /** 流式路径：COMPLEX 编排流异常 → 先发降级进度行，再用会话 Agent 流式重答，meta SUCCEEDED */
@@ -392,7 +395,7 @@ class ChatServiceImplTest {
         assertTrue(lines.stream().anyMatch(l -> l.startsWith("event: meta") && l.contains("\"status\":\"SUCCEEDED\"")),
                 "重答成功 meta 应为 SUCCEEDED: " + lines);
         // 成功后写回会话记忆（user + assistant 共 2 条）
-        verify(sessionService, times(2)).saveContext(eq("50"), any());
+        verify(sessionService, times(2)).saveContext(eq("50"), any(), any());
     }
 
     /** 流式路径：重答也失败 → error 事件与 meta FAILED，错误信息保留「编排失败 + 重答失败」两段 */
@@ -413,7 +416,8 @@ class ChatServiceImplTest {
                 "error 事件应保留两段错误: " + lines);
         assertTrue(lines.stream().anyMatch(l -> l.startsWith("event: meta") && l.contains("\"status\":\"FAILED\"")),
                 "重答失败 meta 应为 FAILED: " + lines);
-        verify(sessionService, never()).saveContext(anyString(), any());
+        verify(sessionService, never()).saveContext(anyString(), any(), any());
+        verify(sessionService, never()).touchSession(anyString(), anyString());
     }
 
     @Test
@@ -547,7 +551,7 @@ class ChatServiceImplTest {
         assertTrue(lines.stream().noneMatch(l -> !l.startsWith("data:") && !l.startsWith("event:")),
                 "流中不得出现脱前缀的物理断行, 实际输出: " + lines);
         // 写回记忆仍为 user+assistant 两条（转义只发生在传输层，不污染存储原文）
-        verify(sessionService, times(2)).saveContext(eq("50"), any());
+        verify(sessionService, times(2)).saveContext(eq("50"), any(), any());
     }
 
     /* ---------------- resume（断点续跑） ---------------- */
@@ -604,7 +608,7 @@ class ChatServiceImplTest {
         assertTrue(meta.contains("\"goalId\":\"g-ok\""), "meta 应带 goalId（CLI 供 /resume 复用）");
         assertTrue(meta.contains("\"status\":\"SUCCEEDED\""));
         // 成功后写回会话记忆（user=objective + assistant=续跑完整回复，共 2 条）
-        verify(sessionService, times(2)).saveContext(eq("s9"), any());
+        verify(sessionService, times(2)).saveContext(eq("s9"), any(), any());
     }
 
     /* ---------------- RouteJudge 与 RAG 预取并行汇合 ---------------- */

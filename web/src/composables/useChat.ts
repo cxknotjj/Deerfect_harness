@@ -82,7 +82,7 @@ export function useChat(hooks: ChatHooks) {
     )
   }
 
-  /** 服务端历史 → 消息项(ts 留 0,历史轮次无原始时间,前端不展示时间标注) */
+  /** 服务端历史 → 消息项(ts=服务端记录的真实时刻;旧快照无 ts 为 0,历史回显不展示时间) */
   function toItem(m: SessionMessageView): MessageItem {
     return {
       id: ++seq,
@@ -90,7 +90,7 @@ export function useChat(hooks: ChatHooks) {
       content: m.content,
       progress: [],
       error: false,
-      ts: 0,
+      ts: m.ts ?? 0,
     }
   }
 

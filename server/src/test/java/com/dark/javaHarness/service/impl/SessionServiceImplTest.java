@@ -1,6 +1,7 @@
 package com.dark.javaHarness.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -29,6 +30,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
 
 /**
@@ -102,6 +104,62 @@ class SessionServiceImplTest {
         when(messageMapper.selectOne(any())).thenReturn(null);
 
         assertTrue(sessionService.listMessages("9").isEmpty(), "无历史应返回空列表");
+    }
+
+    /* ---------------- 快照时间戳（历史回显真实时间） ---------------- */
+
+    /** saveContext 带 ts：快照 item 写入毫秒时间戳（字符串形态，历史回显真实时间） */
+    @Test
+    void saveContext_withTs_writesTimestampIntoSnapshot() {
+        when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
+        when(messageMapper.selectOne(any())).thenReturn(null);
+
+        sessionService.saveContext("9", new UserMessage("你好"), 1730000000000L);
+
+        ArgumentCaptor<SessionMessageEntity> captor = ArgumentCaptor.forClass(SessionMessageEntity.class);
+        verify(messageMapper).insert(captor.capture());
+        assertTrue(captor.getValue().getContent().contains("\"ts\":\"1730000000000\""),
+                "快照 item 应携带 ts（字符串毫秒）");
+    }
+
+    /** saveContext 2 参重载：委托 3 参并以当前时刻落 ts（既有调用方零改动） */
+    @Test
+    void saveContext_withoutTs_writesCurrentTimestamp() {
+        when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
+        when(messageMapper.selectOne(any())).thenReturn(null);
+
+        sessionService.saveContext("9", new UserMessage("你好"));
+
+        ArgumentCaptor<SessionMessageEntity> captor = ArgumentCaptor.forClass(SessionMessageEntity.class);
+        verify(messageMapper).insert(captor.capture());
+        assertTrue(captor.getValue().getContent().contains("\"ts\":"), "2 参重载应按当前时刻落 ts");
+    }
+
+    /** listMessages：快照 item 的 ts 还原为 Long；旧快照无 ts 为 null（不回填历史数据） */
+    @Test
+    void listMessages_parsesTimestampAndToleratesLegacySnapshot() {
+        SessionMessageEntity row = new SessionMessageEntity();
+        row.setContent("""
+                [{"role":"user","content":"新消息","ts":"1730000000000"},{"role":"assistant","content":"旧消息"}]""");
+        when(messageMapper.selectOne(any())).thenReturn(row);
+
+        List<SessionMessagesView.Item> items = sessionService.listMessages("9");
+
+        assertEquals(1730000000000L, items.get(0).ts(), "带 ts 的 item 应还原毫秒时间戳");
+        assertNull(items.get(1).ts(), "旧快照无 ts 应为 null");
+    }
+
+    /** loadContext 兼容带 ts 的快照：忽略 ts 键，仅还原 role/content（上下文还原不受影响） */
+    @Test
+    void loadContext_ignoresTsKey() {
+        SessionMessageEntity row = new SessionMessageEntity();
+        row.setContent("[{\"role\":\"user\",\"content\":\"你好\",\"ts\":\"1730000000000\"}]");
+        when(messageMapper.selectOne(any())).thenReturn(row);
+
+        List<Message> messages = sessionService.loadContext("9");
+
+        assertEquals(1, messages.size());
+        assertEquals("你好", messages.get(0).getText());
     }
 
     /* ---------------- 画像提取支持：session 表时间列（V19） ---------------- */

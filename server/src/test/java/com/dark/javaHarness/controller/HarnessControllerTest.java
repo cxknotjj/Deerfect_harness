@@ -46,8 +46,8 @@ class HarnessControllerTest {
     @Test
     void sessionMessages_delegatesAndWrapsItems() {
         when(sessionService.listMessages("9"))
-                .thenReturn(List.of(new SessionMessagesView.Item("user", "你好"),
-                        new SessionMessagesView.Item("assistant", "在的")));
+                .thenReturn(List.of(new SessionMessagesView.Item("user", "你好", 1730000000000L),
+                        new SessionMessagesView.Item("assistant", "在的", null)));
 
         var view = controller.sessionMessages("9");
 

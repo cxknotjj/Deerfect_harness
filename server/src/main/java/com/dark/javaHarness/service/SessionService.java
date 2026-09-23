@@ -28,8 +28,10 @@ public interface SessionService extends ChatMemory {
     List<Message> loadContext(String sessionId);
 
     /**
-     * 读取会话历史消息（时间顺序的 role/content 视图，供前端回显）。
+     * 读取会话历史消息（时间顺序的 role/content/ts 视图，供前端回显）。
      * 数据源与 {@link #loadContext} 同一份上下文快照，仅做展示形态转换。
+     * ts 为消息真实时刻（epoch 毫秒；user=发送时刻、assistant=完成时刻）；
+     * 旧快照无时间记录为 null。
      *
      * @return 会话不存在或无历史时返回空列表
      */
@@ -37,8 +39,15 @@ public interface SessionService extends ChatMemory {
 
     /**
      * 追加保存单条会话消息（session_messages 与 session 一对一，该会话仅一行）。
+     * 等价于 {@link #saveContext(String, Message, Long)} 且 ts 取当前时刻。
      */
     void saveContext(String sessionId, Message message);
+
+    /**
+     * 追加保存单条会话消息并记录时间戳：快照 item 携带 ts（epoch 毫秒字符串），
+     * 供历史回显真实时间。user 消息传发送时刻、assistant 传完成时刻；ts 为 null 按当前时刻处理。
+     */
+    void saveContext(String sessionId, Message message, Long ts);
 
     /** 更新会话的最近一次提问 */
     void touchSession(String sessionId, String lastQuestion);
