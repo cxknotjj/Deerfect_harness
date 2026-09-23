@@ -94,6 +94,31 @@ class AgentChatCallerRetryTest {
         assertEquals("retried-ok", result);
     }
 
+    /** 重试可见性：重试计数器跨尝试累计——失败行记 1，重试成功行记 2（曾因计数器放进
+     *  重试 lambda 内每次重置，成功行错报 attempt=1） */
+    @Test
+    void call_retrySuccess_recordsAttemptNumbersAcrossRetries() {
+        AtomicInteger calls = new AtomicInteger();
+        StreamStub stub = streamStub(calls,
+                Flux.error(new HttpServerErrorException(HttpStatus.INTERNAL_SERVER_ERROR)),
+                fluxOf("retried-ok"));
+
+        com.dark.javaHarness.service.impl.LlmCallRecorder recorder =
+                mock(com.dark.javaHarness.service.impl.LlmCallRecorder.class);
+        org.mockito.ArgumentCaptor<com.dark.javaHarness.domain.LlmCallLog> captor =
+                org.mockito.ArgumentCaptor.forClass(com.dark.javaHarness.domain.LlmCallLog.class);
+        when(clientRegistry.get(any())).thenReturn(stub.client());
+        new AgentChatCaller(clientRegistry, agentService, toolAssignments, recorder,
+                new LlmRetry(3, 1)).call("s1", "coder", "sys", "任务");
+
+        org.mockito.Mockito.verify(recorder, org.mockito.Mockito.times(2)).record(captor.capture());
+        List<com.dark.javaHarness.domain.LlmCallLog> logs = captor.getAllValues();
+        assertEquals(1, logs.get(0).attempt(), "失败行应记第 1 次尝试");
+        assertEquals(3, logs.get(0).maxAttempts());
+        assertEquals(2, logs.get(1).attempt(), "重试成功行应记第 2 次尝试");
+        assertEquals(3, logs.get(1).maxAttempts());
+    }
+
     @Test
     void call_retryExhausted_whenAlwaysFails() {
         AtomicInteger calls = new AtomicInteger();

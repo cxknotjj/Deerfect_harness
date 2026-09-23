@@ -198,12 +198,13 @@ final class AgentChatCaller {
         String model = config != null ? config.model() : null;
         CallContext ctx = new CallContext(observer, sessionId, forAgent, model,
                 attachmentsFor(forAgent, assembly));
+        // 重试可见性：计数器必须在重试循环外创建（放进 lambda 每次尝试都会重置,
+        // 重试成功的行会错报 attempt=1）；每次尝试执行 lambda 时自增即第几次尝试
+        java.util.concurrent.atomic.AtomicInteger attemptCounter =
+                new java.util.concurrent.atomic.AtomicInteger();
         // 模型调用失败自动重试（最多 3 次、指数退避）；单次调用含观测埋点
         return retry.executeWithRetry(() -> {
             long start = System.currentTimeMillis();
-            // 重试可见性：本 lambda 每次尝试执行一次，计数器即第几次尝试
-            java.util.concurrent.atomic.AtomicInteger attemptCounter =
-                    new java.util.concurrent.atomic.AtomicInteger();
             int maxAttempts = retry.maxAttempts();
             try {
                 java.util.concurrent.atomic.AtomicReference<Usage> usageRef =
