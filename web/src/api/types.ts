@@ -67,6 +67,8 @@ export interface SessionView {
   name: string
   creator: string | null
   lastQuestion: string | null
+  /** 最近活跃时刻(epoch 毫秒,侧栏相对时间用);旧数据/异常为 null(前端以首见时间兜底) */
+  lastActiveAt?: number | null
 }
 
 /** 会话分页响应(GET /api/harness/sessions) */

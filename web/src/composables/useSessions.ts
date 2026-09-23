@@ -62,6 +62,7 @@ export function useSessions() {
         name: resp.sessionName,
         creator: null,
         lastQuestion: null,
+        lastActiveAt: Date.now(),
       })
       total.value += 1
     }

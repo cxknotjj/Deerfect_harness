@@ -2,8 +2,7 @@
  * 左栏会话列表(DeepSeek 桌面端复刻):brand 行(鹿 logo + deepseek + HARNESS 描边徽章)→
  * 左对齐「+ 新会话」→ 工作区标签行(右侧装饰图标,不接行为)→
  * 会话项(单行:名称 + 右侧灰色相对时间)→ 底部用户区(头像 + 我的工作区)。
- * 类型说明:SessionView 无时间字段,相对时间用 utils/sessionMtime 的首见时间近似,
- * 后端补 updated_at 后切换为真实时间。
+ * 相对时间用服务端 lastActiveAt(真实最近活跃时刻);缺失时回退 utils/sessionMtime 首见时间。
  */
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
@@ -11,7 +10,7 @@ import { relativeTime } from '../utils/relativeTime'
 import { touch } from '../utils/sessionMtime'
 
 const props = defineProps<{
-  sessions: { id: string; name: string; lastQuestion: string | null }[]
+  sessions: { id: string; name: string; lastQuestion: string | null; lastActiveAt?: number | null }[]
   currentId: string
   hasMore: boolean
   loading: boolean
@@ -44,11 +43,11 @@ onMounted(() => {
 })
 onUnmounted(() => window.clearInterval(tickTimer))
 
-/** 会话 id → 相对时间文案;touch 幂等(仅首次见到时写入),tick 变化驱动重算 */
+/** 会话 id → 相对时间文案;真实最近活跃时刻优先,缺失回退首见时间;tick 驱动重算 */
 const timeLabels = computed<Record<string, string>>(() => {
   const labels: Record<string, string> = {}
   for (const s of props.sessions) {
-    labels[s.id] = relativeTime(touch(s.id), nowTick.value)
+    labels[s.id] = relativeTime(s.lastActiveAt ?? touch(s.id), nowTick.value)
   }
   return labels
 })

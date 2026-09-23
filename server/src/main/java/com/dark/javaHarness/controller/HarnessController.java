@@ -3,7 +3,6 @@ package com.dark.javaHarness.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dark.javaHarness.domain.Goal;
 import com.dark.javaHarness.domain.dto.AgentsView;
-import java.util.List;
 import com.dark.javaHarness.domain.dto.GoalView;
 import com.dark.javaHarness.domain.dto.GoalsView;
 import com.dark.javaHarness.domain.dto.SessionAgentView;
@@ -131,10 +130,12 @@ public class HarnessController {
     }
 
     private static SessionPageView.Item sessionItem(SessionEntity e) {
+        java.time.LocalDateTime active = e.getLastActiveAt();
         return new SessionPageView.Item(
                 e.getSessionId() == null ? null : String.valueOf(e.getSessionId()),
                 e.getSessionName(),
                 e.getCreator(),
-                e.getLastQuestion());
+                e.getLastQuestion(),
+                active == null ? null : active.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli());
     }
 }

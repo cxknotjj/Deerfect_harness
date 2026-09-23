@@ -14,7 +14,10 @@ public record SessionPageView(
         long pages,
         List<Item> sessions) {
 
-    /** 单条会话响应项 */
-    public record Item(String id, String name, String creator, String lastQuestion) {
+    /**
+     * 单条会话响应项。
+     * lastActiveAt 为最近活跃时刻（epoch 毫秒，前端侧栏相对时间用；旧数据/异常为 null）。
+     */
+    public record Item(String id, String name, String creator, String lastQuestion, Long lastActiveAt) {
     }
 }
