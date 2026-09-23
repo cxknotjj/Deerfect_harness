@@ -49,6 +49,14 @@ class ClientAbortLogFilterTest {
     }
 
     @Test
+    void frameworkErrorWithLocalizedAbortMessage_isDenied() {
+        // 中文 locale 下 JDK 消息本地化（Broken pipe=「断开的管道」），裸 IOException 也应命中
+        assertEquals(FilterReply.DENY, decide("org.apache.catalina.core.ContainerBase.[Tomcat].[localhost].[dispatcherServlet]",
+                Level.ERROR, "Servlet.service() for servlet [dispatcherServlet] threw exception",
+                new IOException("断开的管道")));
+    }
+
+    @Test
     void nestedCauseAbort_isDenied() {
         // 断连异常被业务异常包装在 cause 里仍应命中
         assertEquals(FilterReply.DENY, decide("org.springframework.web.servlet.DispatcherServlet",

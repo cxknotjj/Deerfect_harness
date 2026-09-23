@@ -29,9 +29,10 @@ public final class ClientAbortLogFilter extends TurboFilter {
             "ClientAbortException", "AsyncRequestNotUsableException",
     };
 
-    /** 断连特征消息片段（无异常对象时兜底匹配） */
+    /** 断连特征消息片段（无异常对象时兜底匹配；中文 locale 下 JDK 消息本地化版本一并覆盖） */
     private static final String[] ABORT_MESSAGE_HINTS = {
             "Connection reset", "connection reset", "Broken pipe",
+            "断开的管道", "连接重置", "连接已重置",
     };
 
     @Override

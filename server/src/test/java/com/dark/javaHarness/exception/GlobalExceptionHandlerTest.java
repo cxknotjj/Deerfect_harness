@@ -59,9 +59,20 @@ class GlobalExceptionHandlerTest {
         ErrorResponse resp = handler.handleException(
                 new ClientAbortException(new IOException("Connection reset by peer")));
 
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR.value(), resp.code());
+        assertNull(resp, "断连时不写响应体（连接已断，写必失败）");
         ILoggingEvent event = events.list.get(0);
         assertEquals(Level.WARN, event.getLevel(), "ClientAbort 形态断连应降级为 warn");
+        assertNull(event.getThrowableProxy(), "不应打印堆栈");
+    }
+
+    @Test
+    void localizedBrokenPipe_inFallback_warnsSingleLineWithoutBody() {
+        // 中文 locale：Broken pipe 本地化为「断开的管道」（裸 IOException，SSE 推送中断场景）
+        ErrorResponse resp = handler.handleException(new IOException("断开的管道"));
+
+        assertNull(resp, "断连时返回 null：连接已断/SSE 已提交，写 ErrorResponse 必然失败");
+        ILoggingEvent event = events.list.get(0);
+        assertEquals(Level.WARN, event.getLevel(), "中文断连消息应命中特征并降级为 warn");
         assertNull(event.getThrowableProxy(), "不应打印堆栈");
     }
 

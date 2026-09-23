@@ -26,9 +26,11 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    /** 断连特征消息片段（覆盖 Tomcat 包装的 ClientAbortException 等 IOException 形态） */
+    /** 断连特征消息片段（覆盖 Tomcat 包装的 ClientAbortException 等 IOException 形态；
+     *  中文 locale 下 JDK 消息本地化——Broken pipe=「断开的管道」、Connection reset=「连接重置」） */
     private static final String[] ABORT_MESSAGE_HINTS = {
             "Connection reset", "connection reset", "Broken pipe", "broken pipe",
+            "断开的管道", "连接重置", "连接已重置",
     };
 
     /** 业务/参数错误：参数非法、资源不存在等 */
@@ -135,10 +137,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ErrorResponse handleException(Exception e) {
-        // 断连以 IOException 形态漏网（如 Tomcat ClientAbortException）同样降级 warn 单行
+        // 断连以 IOException 形态漏网（如 Tomcat ClientAbortException）同样降级 warn 单行；
+        // 返回 null：连接已断/SSE 响应已提交，写 ErrorResponse 必然失败（secondary 噪音），不写
         if (isClientAbort(e)) {
             log.warn("客户端断开（{}），停止本次响应推送", e.getMessage());
-            return ErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR.value(), "客户端已断开");
+            return null;
         }
         log.error("未处理异常", e);
         return ErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR.value(), "服务器内部错误");
