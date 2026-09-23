@@ -64,17 +64,17 @@ private final ChatClientRegistry clientRegistry;
     }
 
     @Override
-    public RouteDecision judge(String message) {
+    public RouteDecision judge(String message, String sessionId) {
         if (message == null || message.isBlank()) {
             log.info("[route] message 为空 -> SIMPLE");
             return RouteDecision.SIMPLE;
         }
         try {
-            // 逐次尝试记录：每次真实 LLM 调用（含重试）单独落一行 llm_call_log，
+            // 逐次尝试记录：每次真实 LLM 调用（含重试）单独落 llm_call_log，
             // 失败尝试带真实错误描述，不再只记重试链的聚合结果（重试曾完全不可见）
             String content = retry.executeWithRetry(() -> doCall(message),
                     (attempt, durationMs, err) -> {
-                        record(durationMs, err == null, err, message);
+                        record(durationMs, err == null, err, message, sessionId);
                         // 失败即丢池：连接可能已成网络黑洞，让重试拿到全新连接而不是再挂一次
                         if (err != null) {
                             clientRegistry.invalidateLightweight(ROUTE_MODEL);
@@ -110,14 +110,14 @@ private final ChatClientRegistry clientRegistry;
                 .getText();
     }
 
-    /** judge 单次尝试观测落库（无会话上下文，sessionId 为空；token 近似估算；错误经原因链展开） */
-    private void record(long durationMs, boolean ok, Throwable e, String message) {
+    /** judge 单次尝试观测落库（携带 sessionId 进会话轨迹；token 近似估算；错误经原因链展开） */
+    private void record(long durationMs, boolean ok, Throwable e, String message, String sessionId) {
         if (recorder == null) {
             return;
         }
         int promptTokens = LlmCallRecorder.estimateTokens(SYSTEM_PROMPT)
                 + LlmCallRecorder.estimateTokens(message);
-        recorder.record(new LlmCallLog(null, ROUTE_AGENT, ROUTE_MODEL, false, ok,
+        recorder.record(new LlmCallLog(sessionId, ROUTE_AGENT, ROUTE_MODEL, false, ok,
                 promptTokens, null, null, true,
                 durationMs, LlmCallRecorder.describeError(e),
                 null, null, null, null, null, null, null, null));

@@ -458,7 +458,7 @@ public class ChatServiceImpl implements ChatService {
      */
     private String resolveAgent(String message, String sessionId) {
         try {
-            RouteDecision route = routeJudge.judge(message);
+            RouteDecision route = routeJudge.judge(message, sessionId);
             String resolved = route == RouteDecision.COMPLEX
                     ? AgentConstants.MULTI_AGENT
                     : sessionAgentName(sessionId);

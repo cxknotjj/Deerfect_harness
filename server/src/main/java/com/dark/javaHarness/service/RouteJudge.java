@@ -11,6 +11,10 @@ import com.dark.javaHarness.domain.RouteDecision;
  */
 public interface RouteJudge {
 
-    /** 判断一条用户请求应走哪条路径。内部应保证对调用方不抛异常（失败兜底 SIMPLE）。 */
-    RouteDecision judge(String message);
+    /**
+     * 判断一条用户请求应走哪条路径。内部应保证对调用方不抛异常（失败兜底 SIMPLE）。
+     *
+     * @param sessionId 关联会话ID（观测落库用；无会话场景可传 null）
+     */
+    RouteDecision judge(String message, String sessionId);
 }

@@ -63,25 +63,25 @@ class LlmRouteJudgeTest {
     @Test
     void judge_whenLlmReturnsComplex_shouldReturnComplex() {
         stubContent("{\"route\":\"complex\"}");
-        assertEquals(RouteDecision.COMPLEX, judge.judge("调研竞品并输出一份报告"));
+        assertEquals(RouteDecision.COMPLEX, judge.judge("调研竞品并输出一份报告", null));
     }
 
     @Test
     void judge_whenLlmReturnsSimple_shouldReturnSimple() {
         stubContent("{\"route\":\"simple\"}");
-        assertEquals(RouteDecision.SIMPLE, judge.judge("你好"));
+        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null));
     }
 
     @Test
     void judge_whenLlmReturnsInvalidJson_shouldFallbackSimple() {
         stubContent("这不是合法的 JSON");
-        assertEquals(RouteDecision.SIMPLE, judge.judge("你好"));
+        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null));
     }
 
     @Test
     void judge_whenLlmReturnsBlank_shouldFallbackSimple() {
         stubContent("");
-        assertEquals(RouteDecision.SIMPLE, judge.judge("你好"));
+        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null));
     }
 
     /** 调用异常兜底 SIMPLE，且失败即丢弃轻量客户端缓存（连接可能已成黑洞，重试需换新连接） */
@@ -96,7 +96,7 @@ class LlmRouteJudgeTest {
         when(requestSpec.call()).thenThrow(new IllegalStateException("llm down"));
         judge = new LlmRouteJudge(clientRegistry, null, null);
 
-        assertEquals(RouteDecision.SIMPLE, judge.judge("你好"), "调用异常应兜底 SIMPLE 而不抛出");
+        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null), "调用异常应兜底 SIMPLE 而不抛出");
         verify(clientRegistry).invalidateLightweight(ROUTE_MODEL);
     }
 
@@ -108,7 +108,7 @@ class LlmRouteJudgeTest {
         props.setJudgeReadTimeoutSeconds(7);
         judge = new LlmRouteJudge(clientRegistry, null, props);
 
-        judge.judge("你好");
+        judge.judge("你好", null);
 
         verify(clientRegistry).getLightweightByModel(ROUTE_MODEL, 7);
     }
@@ -116,7 +116,7 @@ class LlmRouteJudgeTest {
     @Test
     void judge_whenMessageBlank_shouldReturnSimpleWithoutCall() {
         judge = new LlmRouteJudge(clientRegistry, null, null);
-        assertEquals(RouteDecision.SIMPLE, judge.judge("  "));
-        assertEquals(RouteDecision.SIMPLE, judge.judge(null));
+        assertEquals(RouteDecision.SIMPLE, judge.judge("  ", null));
+        assertEquals(RouteDecision.SIMPLE, judge.judge(null, null));
     }
 }
