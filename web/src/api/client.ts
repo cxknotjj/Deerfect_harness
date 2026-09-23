@@ -149,23 +149,37 @@ function dataPayload(line: string): string {
  * - event 字段分发后复位:历史上 token 块可能缺 event: 行,无 event: 的 data 一律按 token 兜底
  * - token 载荷做换行转义解码;读到 [DONE] 调 onDone;meta 载荷为 JSON
  * - 传入 AbortSignal 可取消;主动取消静默结束(不视为错误),其余读取异常向上抛
+ * - 发起失败(连接建立瞬间的 keep-alive 竞态/网络瞬断)自动重试一次:仅兜「尚未拿到响应头」
+ *   的失败,流建立后的中断不在此列(部分输出已上屏,重发与否交用户手动重试);abort 不重试
  */
 export async function streamChat(
   req: ChatRequest,
   handlers: StreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
-  let resp: Response
-  try {
-    resp = await fetch('/api/chat/stream', {
+  const initiate = (): Promise<Response> =>
+    fetch('/api/chat/stream', {
       method: 'POST',
       headers: { ...baseHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify(req),
       signal,
     })
+
+  let resp: Response
+  try {
+    resp = await initiate()
   } catch (e) {
     if (isAbort(e)) return
-    throw e
+    if (signal?.aborted) return
+    // 发起失败自动重试一次(短暂退避,给链路层竞态自愈窗口);期间点停止则尊重取消
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    if (signal?.aborted) return
+    try {
+      resp = await initiate()
+    } catch (e2) {
+      if (isAbort(e2)) return
+      throw e2
+    }
   }
   if (!resp.ok || !resp.body) {
     throw new Error(`HTTP ${resp.status}: ${await resp.text()}`)
