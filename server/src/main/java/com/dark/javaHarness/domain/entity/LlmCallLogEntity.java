@@ -68,6 +68,12 @@ public class LlmCallLogEntity {
     /** 供应商缓存命中 token（原生 usage 无该信息为 NULL） */
     private Integer cachedTokens;
 
+    /** 本次记录为第几次尝试（1 起；无重试通道记 1；路由判定/画像为 NULL） */
+    private Integer attempt;
+
+    /** 重试上限（与 LlmRetry.maxAttempts 口径一致；无重试通道记 1） */
+    private Integer maxAttempts;
+
     /** 调用结束时间 */
     private LocalDateTime createdAt;
 }

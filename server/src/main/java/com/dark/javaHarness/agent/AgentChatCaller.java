@@ -201,32 +201,38 @@ final class AgentChatCaller {
         // 模型调用失败自动重试（最多 3 次、指数退避）；单次调用含观测埋点
         return retry.executeWithRetry(() -> {
             long start = System.currentTimeMillis();
+            // 重试可见性：本 lambda 每次尝试执行一次，计数器即第几次尝试
+            java.util.concurrent.atomic.AtomicInteger attemptCounter =
+                    new java.util.concurrent.atomic.AtomicInteger();
+            int maxAttempts = retry.maxAttempts();
             try {
                 java.util.concurrent.atomic.AtomicReference<Usage> usageRef =
                         new java.util.concurrent.atomic.AtomicReference<>();
                 java.util.concurrent.atomic.AtomicLong firstTokenAt =
                         new java.util.concurrent.atomic.AtomicLong();
+                int attempt = attemptCounter.incrementAndGet();
                 String content = streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
                         assembly, extraAdvisors, null, cancelled, usageRef, firstTokenAt, ledger);
-                ctx.ok(ledger, start, content, usageRef.get(), firstTokenAt.get());
+                ctx.ok(ledger, start, content, usageRef.get(), firstTokenAt.get(), attempt, maxAttempts);
                 return content;
             } catch (RuntimeException e) {
+                int attempt = Math.max(attemptCounter.get(), 1);
                 // 客户端断连中止：记录后立即上抛（CancellationException 不可重试，直接放行）
                 if (e instanceof CancellationException) {
-                    ctx.error(start, e);
+                    ctx.error(start, e, attempt, maxAttempts);
                     throw e;
                 }
                 // 编排预算熔断：政策性中止（非模型错误），记录后立即上抛（不可重试，
                 // 编排节点捕获后写「预算超限跳过」占位）
                 if (e instanceof BudgetExceededException) {
-                    ctx.error(start, e);
+                    ctx.error(start, e, attempt, maxAttempts);
                     throw e;
                 }
                 // 账户级硬错误（余额不足/配额耗尽 402/403、鉴权失败 401）：重试无意义，
                 // 立即转人话异常向上传播（分类口径收敛于 LlmErrorClassifier）
                 RuntimeException translated = LlmErrorClassifier.translate(e, model);
                 if (translated != null) {
-                    ctx.error(start, e);
+                    ctx.error(start, e, attempt, maxAttempts);
                     throw translated;
                 }
                 // 模型可能把提示词里的专家名（researcher 等）误当工具发起调用——
@@ -241,16 +247,17 @@ final class AgentChatCaller {
                                 new java.util.concurrent.atomic.AtomicReference<>();
                         java.util.concurrent.atomic.AtomicLong firstTokenAt2 =
                                 new java.util.concurrent.atomic.AtomicLong();
+                        int attempt2 = attemptCounter.incrementAndGet();
                         String content = streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
                                 noToolsVariant(assembly), extraAdvisors, null, cancelled, usageRef2, firstTokenAt2, ledger);
-                        noToolsCtx.ok(ledger, start2, content, usageRef2.get(), firstTokenAt2.get());
+                        noToolsCtx.ok(ledger, start2, content, usageRef2.get(), firstTokenAt2.get(), attempt2, maxAttempts);
                         return content;
                     } catch (RuntimeException e2) {
-                        noToolsCtx.error(start2, e2);
+                        noToolsCtx.error(start2, e2, attemptCounter.get(), maxAttempts);
                         throw e2;
                     }
                 }
-                ctx.error(start, e);
+                ctx.error(start, e, attempt, maxAttempts);
                 throw e;
             }
         });
@@ -268,7 +275,7 @@ final class AgentChatCaller {
         java.util.concurrent.atomic.AtomicLong firstTokenAt = new java.util.concurrent.atomic.AtomicLong();
         String content = streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
                 assembly, extraAdvisors, null, null, usageRef, firstTokenAt, null);
-        ctx.ok(null, start, content, usageRef.get(), firstTokenAt.get());
+        ctx.ok(null, start, content, usageRef.get(), firstTokenAt.get(), 1, 1);
         return content;
     }
 
@@ -513,7 +520,7 @@ final class AgentChatCaller {
         CallContext ctx = new CallContext(observer, sessionId, forAgent,
                 null, attachmentsFor(forAgent, assembly));
         if (cancelled != null && cancelled.getAsBoolean()) {
-            throw cancelAndRecord(ctx, System.currentTimeMillis());
+            throw cancelAndRecord(ctx, System.currentTimeMillis(), 1, retry.maxAttempts());
         }
         if (ledger != null && ledger.overBudget()) {
             throw new BudgetExceededException();
@@ -539,15 +546,15 @@ final class AgentChatCaller {
                         extraAdvisors, collected, onToken, cancelled, usageRef, prevTotal, firstTokenAt, ledger);
                 // streamUsage 回传真实 usage 时记真实值，无则按已收输出文本近似估算（原口径兜底）；
                 // 账本兜底入账：无真实 usage 帧时按输出估算补记（有则增量已在流帧上记账，不重复）
-                ctx.ok(ledger, start, out, usageRef.get(), firstTokenAt.get());
+                ctx.ok(ledger, start, out, usageRef.get(), firstTokenAt.get(), attempt, retry.maxAttempts());
                 return out;
             } catch (RuntimeException e) {
                 boolean isCancel = e instanceof CancellationException
                         || (cancelled != null && cancelled.getAsBoolean());
                 if (isCancel) {
-                    throw cancelAndRecord(ctx, start);
+                    throw cancelAndRecord(ctx, start, attempt, retry.maxAttempts());
                 }
-                ctx.error(start, e);
+                ctx.error(start, e, attempt, retry.maxAttempts());
                 // 账户级硬错误：与阻塞（call）路径同口径转换，不重试直接抛人话异常
                 RuntimeException translated = LlmErrorClassifier.translate(e, model);
                 if (translated != null) {
@@ -634,15 +641,18 @@ final class AgentChatCaller {
                                String model, PromptAssembler.PromptAttachments attachments) {
 
         /** 成功观测对：落库 + 账本估算兜底入账（无真实 usage 帧；ledger null 直通）。
-         *  firstTokenAt 为首个 token 到达的绝对时间戳（0=无/SYNC 通道），与 start 差值即 TTFT。 */
-        void ok(BudgetLedger ledger, long start, String content, Usage usage, long firstTokenAt) {
-            observer.okStream(sessionId, forAgent, model, start, content, usage, attachments, firstTokenAt);
+         *  firstTokenAt 为首个 token 到达的绝对时间戳（0=无/SYNC 通道），与 start 差值即 TTFT。
+         *  attempt/maxAttempts 为重试可见性（无重试通道记 1/1）。 */
+        void ok(BudgetLedger ledger, long start, String content, Usage usage, long firstTokenAt,
+                int attempt, int maxAttempts) {
+            observer.okStream(sessionId, forAgent, model, start, content, usage, attachments, firstTokenAt,
+                    attempt, maxAttempts);
             recordEstimatedIfNoUsage(ledger, content, usage);
         }
 
         /** 失败观测（stream=true：两通道底座均为流式信道） */
-        void error(long start, Exception e) {
-            observer.error(sessionId, forAgent, model, true, start, e, attachments);
+        void error(long start, Exception e, int attempt, int maxAttempts) {
+            observer.error(sessionId, forAgent, model, true, start, e, attachments, attempt, maxAttempts);
         }
 
         /** 去工具重试变体：工具/MCP 名单置空、技能保留（llm_call_log blankTools 口径） */
@@ -657,9 +667,9 @@ final class AgentChatCaller {
     }
 
     /** 取消观测 + 构造上抛异常（stream 两处「落库 + 抛新取消异常」共用；call 通道复用捕获异常本体，不经此） */
-    private static CancellationException cancelAndRecord(CallContext ctx, long start) {
+    private static CancellationException cancelAndRecord(CallContext ctx, long start, int attempt, int maxAttempts) {
         CancellationException ce = CallCancellation.cancelException();
-        ctx.error(start, ce);
+        ctx.error(start, ce, attempt, maxAttempts);
         return ce;
     }
 

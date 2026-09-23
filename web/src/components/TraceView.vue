@@ -45,25 +45,50 @@ async function load(): Promise<void> {
 
 watch(() => props.sessionId, load, { immediate: true })
 
-/** 汇总统计:总耗时 Σ(全部调用)、次数、token 合计、错误数 */
+/** 汇总统计:总耗时 Σ(全部调用)、次数、token 分向总量、缓存命中(Σcached/Σprompt)与错误数。
+ *  缓存命中率口径:全量分母(供应商未返回缓存信息的调用视为未命中摊入);
+ *  cachedSamples 为有缓存数据的记录数,为 0 时前端不展示命中率(样本不足) */
 const stats = computed(() => {
   let totalMs = 0
   let llmCount = 0
   let toolCount = 0
-  let tokens = 0
+  let promptTotal = 0
+  let completionTotal = 0
+  let cachedTotal = 0
+  let cachedSamples = 0
   let errors = 0
   for (const r of rows.value) {
     totalMs += r.item.durationMs ?? 0
     if (r.item.status === 'ERROR') errors++
     if (r.kind === 'llm') {
       llmCount++
-      tokens += r.item.totalTokens ?? 0
+      promptTotal += r.item.promptTokens ?? 0
+      completionTotal += r.item.completionTokens ?? 0
+      if (r.item.cachedTokens != null) {
+        cachedTotal += r.item.cachedTokens
+        cachedSamples++
+      }
     } else {
       toolCount++
     }
   }
-  return { totalMs, llmCount, toolCount, tokens, errors }
+  const cacheRate = promptTotal > 0 ? (cachedTotal / promptTotal) * 100 : 0
+  return { totalMs, llmCount, toolCount, promptTotal, completionTotal, cachedTotal, cachedSamples, cacheRate, errors }
 })
+
+/** 调用发生时间(绝对时间,观测回看语义):当日 HH:mm:ss,跨日 MM-dd HH:mm */
+function fmtCreatedAt(createdAt: string | null | undefined): string {
+  if (!createdAt) return ''
+  const d = new Date(createdAt)
+  if (Number.isNaN(d.getTime())) return ''
+  const now = new Date()
+  const sameDay = d.getFullYear() === now.getFullYear()
+    && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  const ss = String(d.getSeconds()).padStart(2, '0')
+  return sameDay ? `${hh}:${mm}:${ss}` : `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${hh}:${mm}`
+}
 
 /** 色块条带:块宽按时长占比(flex-grow),极短调用保底可见;错误块独立着色 */
 const bands = computed(() =>
@@ -111,7 +136,9 @@ function fmtTokenFlow(p: number | null, c: number | null): string | null {
         <span class="trace-chip">总耗时 {{ fmtMs(stats.totalMs) }}</span>
         <span class="trace-chip">LLM {{ stats.llmCount }} 次</span>
         <span class="trace-chip">工具 {{ stats.toolCount }} 次</span>
-        <span v-if="stats.tokens > 0" class="trace-chip">{{ fmtTokens(stats.tokens) }} tok</span>
+        <span class="trace-chip">输入 {{ fmtTokens(stats.promptTotal) }} tok</span>
+        <span class="trace-chip">输出 {{ fmtTokens(stats.completionTotal) }} tok</span>
+        <span v-if="stats.cachedSamples > 0" class="trace-chip">缓存命中 {{ stats.cacheRate.toFixed(1) }}%</span>
         <span v-if="stats.errors > 0" class="trace-chip trace-chip-error">错误 {{ stats.errors }}</span>
       </div>
       <div class="trace-band">
@@ -135,11 +162,12 @@ function fmtTokenFlow(p: number | null, c: number | null): string | null {
           <template v-if="r.kind === 'llm'">
             <span class="trace-name" :title="r.item.model ?? ''">{{ r.item.model ?? 'LLM' }}</span>
             <span class="trace-meta">
-              {{ r.item.agentName ?? '—' }} · {{ r.item.callKind === 'STREAM' ? '流式' : '同步' }}
+              <template v-if="fmtCreatedAt(r.item.createdAt)">{{ fmtCreatedAt(r.item.createdAt) }} · </template>{{ r.item.agentName ?? '—' }} · {{ r.item.callKind === 'STREAM' ? '流式' : '同步' }}
               · {{ fmtMs(r.item.durationMs) }}<template v-if="fmtTokenFlow(r.item.promptTokens, r.item.completionTokens) !== null">
                 · {{ fmtTokenFlow(r.item.promptTokens, r.item.completionTokens) }}</template><template v-if="r.item.firstTokenMs != null">
                 · 首 token {{ fmtMs(r.item.firstTokenMs) }}</template><template v-if="r.item.cachedTokens != null">
-                · 缓存 {{ fmtTokens(r.item.cachedTokens) }} tok</template>
+                · 缓存 {{ fmtTokens(r.item.cachedTokens) }} tok</template><template v-if="(r.item.attempt ?? 1) > 1">
+                · 尝试 {{ r.item.attempt }}/{{ r.item.maxAttempts ?? '?' }}</template>
             </span>
             <span
               v-if="r.item.errorMsg || r.item.outputSummary"
@@ -150,7 +178,7 @@ function fmtTokenFlow(p: number | null, c: number | null): string | null {
           <template v-else>
             <span class="trace-name" :title="r.item.toolName ?? ''">{{ r.item.toolName ?? 'TOOL' }}</span>
             <span class="trace-meta">
-              {{ r.item.agentName ?? '—' }} · {{ fmtMs(r.item.durationMs) }}
+              <template v-if="fmtCreatedAt(r.item.createdAt)">{{ fmtCreatedAt(r.item.createdAt) }} · </template>{{ r.item.agentName ?? '—' }} · {{ fmtMs(r.item.durationMs) }}
               <template v-if="r.item.serverName"> · {{ r.item.serverName }}</template>
             </span>
             <span class="trace-detail" :title="r.item.errorMsg ?? r.item.argsSummary ?? ''">

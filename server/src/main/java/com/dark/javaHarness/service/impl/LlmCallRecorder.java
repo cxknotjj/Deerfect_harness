@@ -78,6 +78,8 @@ public class LlmCallRecorder {
         e.setOutputSummary(summary != null && summary.length() > 200 ? summary.substring(0, 200) : summary);
         e.setFirstTokenMs(c.firstTokenMs());
         e.setCachedTokens(c.cachedTokens());
+        e.setAttempt(c.attempt());
+        e.setMaxAttempts(c.maxAttempts());
         e.setCreatedAt(LocalDateTime.now());
         mapper.insert(e);
     }

@@ -132,4 +132,6 @@ export interface LlmCallItem {
   outputSummary?: string | null
   firstTokenMs?: number | null
   cachedTokens?: number | null
+  attempt?: number | null
+  maxAttempts?: number | null
 }

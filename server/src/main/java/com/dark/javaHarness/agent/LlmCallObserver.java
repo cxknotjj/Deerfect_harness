@@ -20,10 +20,11 @@ final class LlmCallObserver {
     }
 
     /** 成功记录（流式）：streamUsage 末帧回传真实 usage 时记真实 token，无则按输出文本估算兜底。
-     *  firstTokenAt 为首个 token 到达的绝对时间戳（epoch ms，0=无/SYNC），与 start 差值即 TTFT。 */
+     *  firstTokenAt 为首个 token 到达的绝对时间戳（epoch ms，0=无/SYNC），与 start 差值即 TTFT。
+     *  attempt/maxAttempts 为重试可见性（无重试通道记 1/1）。 */
     void okStream(String sessionId, String agentName, String model, long start,
                   String content, Usage usage, PromptAssembler.PromptAttachments attachments,
-                  long firstTokenAt) {
+                  long firstTokenAt, int attempt, int maxAttempts) {
         Integer prompt = usage == null ? null : usage.getPromptTokens();
         Integer completion = usage == null ? null : usage.getCompletionTokens();
         Integer total = usage == null ? null : usage.getTotalTokens();
@@ -33,7 +34,7 @@ final class LlmCallObserver {
             total = tokens;
         }
         record(sessionId, agentName, model, true, true, prompt, completion, total, start, null,
-                content, firstTokenAt, usage, attachments);
+                content, firstTokenAt, usage, attachments, attempt, maxAttempts);
     }
 
     /**
@@ -41,15 +42,16 @@ final class LlmCallObserver {
      * HttpStatusCodeException 里，外层 wrapper 的 getMessage() 常为空或泛化）。
      */
     void error(String sessionId, String agentName, String model, boolean stream,
-               long start, Exception e, PromptAssembler.PromptAttachments attachments) {
+               long start, Exception e, PromptAssembler.PromptAttachments attachments,
+               int attempt, int maxAttempts) {
         record(sessionId, agentName, model, stream, false, null, null, null, start,
-                LlmCallRecorder.describeError(e), null, 0L, null, attachments);
+                LlmCallRecorder.describeError(e), null, 0L, null, attachments, attempt, maxAttempts);
     }
 
     private void record(String sessionId, String agentName, String model, boolean stream, boolean ok,
                         Integer promptTokens, Integer completionTokens, Integer totalTokens,
                         long start, String errorMsg, String content, long firstTokenAt, Usage usage,
-                        PromptAssembler.PromptAttachments attachments) {
+                        PromptAssembler.PromptAttachments attachments, int attempt, int maxAttempts) {
         if (recorder == null) {
             return;
         }
@@ -62,6 +64,7 @@ final class LlmCallObserver {
                 attachments == null ? null : attachments.mcpTools(),
                 ok && content != null && !content.isEmpty() ? content : null,
                 firstTokenAt > 0 ? firstTokenAt - start : null,
-                LlmCallRecorder.extractCachedTokens(usage)));
+                LlmCallRecorder.extractCachedTokens(usage),
+                attempt, maxAttempts));
     }
 }

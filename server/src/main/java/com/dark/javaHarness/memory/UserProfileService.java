@@ -245,6 +245,6 @@ public class UserProfileService {
         recorder.record(new LlmCallLog(null, "memory-profile", PROFILE_MODEL, false, ok,
                 promptTokens, null, null, true,
                 durationMs, LlmCallRecorder.describeError(e),
-                null, null, null, null, null, null));
+                null, null, null, null, null, null, null, null));
     }
 }

@@ -145,6 +145,8 @@ export const initialTraces: Record<string, { llm: LlmCallItem[]; tool: ToolCallI
         outputSummary: '401 排查思路:确认环境变量已导出、key 未过期且具备对应模型调用权限;仍失败时查看调用记录里的原始响应体定位。',
         firstTokenMs: 910,
         cachedTokens: 512,
+        attempt: 2,
+        maxAttempts: 3,
       },
     ],
     tool: [

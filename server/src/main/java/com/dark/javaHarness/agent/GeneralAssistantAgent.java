@@ -278,6 +278,7 @@ public class GeneralAssistantAgent implements Agent {
                 attachments == null ? null : attachments.mcpTools(),
                 ok && content != null && !content.isEmpty() ? content : null,
                 ok && firstTokenAt > 0 ? firstTokenAt - start : null,
-                LlmCallRecorder.extractCachedTokens(usage)));
+                LlmCallRecorder.extractCachedTokens(usage),
+                1, 1));
     }
 }
