@@ -1003,6 +1003,21 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .trace-row.is-error .trace-name,
 .trace-row.is-error .trace-detail { color: var(--accent-warm); }
 .trace-row.is-error .trace-kind { border-color: var(--accent-warm); }
+/* 双击展开:整行换行,摘要折行完整展示(mono 保语义);左侧色条提示选中,错误行保持信号橙 */
+.trace-row.is-expanded {
+  flex-wrap: wrap;
+  row-gap: 2px;
+  background: var(--hover-veil);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.trace-row.is-expanded.is-error { box-shadow: inset 2px 0 0 var(--accent-warm); }
+.trace-row.is-expanded .trace-detail {
+  flex-basis: 100%;
+  padding-left: 56px; /* 与名称列对齐(徽章 46px + gap 10px),折行摘要不压徽章 */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+}
 .trace-empty {
   flex: 1;
   display: flex;

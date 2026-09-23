@@ -1,7 +1,8 @@
 /**
  * 轨迹 tab:会话调用时间线(LLM + 工具)。
  * 顶部 mono 统计 chips(总耗时 / 调用次数 / token / 错误)+ 时长比例色块条带 +
- * 按时间升序逐行日志(类型徽章 + 名称 + 元信息 + 等宽摘要)。
+ * 按时间升序逐行日志(类型徽章 + 名称 + 元信息 + 等宽摘要)。摘要默认单行截断,
+ * 双击行展开完整内容(单选),再次双击恢复;切换会话即复位。
  * 数据经 api 层取观测接口(listToolCalls/listLlmCalls,mock/真实自动切换),
  * 本组件纯前端消费,零后端改动。sessionId 变化即重拉;竞态用请求序号丢弃
  * 过期响应;失败降级为空态。
@@ -19,10 +20,13 @@ const props = defineProps<{ sessionId: string }>()
 
 const loading = ref(false)
 const rows = ref<TraceRow[]>([])
+/** 双击展开的行 key(单选;再次双击恢复,切会话复位) */
+const expandedKey = ref('')
 let fetchSeq = 0
 
 async function load(): Promise<void> {
   const seq = ++fetchSeq
+  expandedKey.value = ''
   if (props.sessionId === '') {
     rows.value = []
     return
@@ -121,6 +125,11 @@ function fmtTokens(n: number | null | undefined): string {
   return `${(n / 1000).toFixed(1)}k`
 }
 
+/** 双击行:展开该行完整摘要;已展开则恢复默认截断样式 */
+function toggleExpand(key: string): void {
+  expandedKey.value = expandedKey.value === key ? '' : key
+}
+
 /** LLM 行 token 段:「输入 X · 输出 Y tok」;缺输出只显示输入,全缺不显示(null) */
 function fmtTokenFlow(p: number | null, c: number | null): string | null {
   if (p == null && c == null) return null
@@ -156,7 +165,8 @@ function fmtTokenFlow(p: number | null, c: number | null): string | null {
           v-for="r in rows"
           :key="r.key"
           class="trace-row"
-          :class="{ 'is-error': r.item.status === 'ERROR' }"
+          :class="{ 'is-error': r.item.status === 'ERROR', 'is-expanded': expandedKey === r.key }"
+          @dblclick="toggleExpand(r.key)"
         >
           <span class="trace-kind" :class="`is-${r.kind}`">{{ r.kind === 'llm' ? 'LLM' : 'TOOL' }}</span>
           <template v-if="r.kind === 'llm'">
