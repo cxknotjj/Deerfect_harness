@@ -219,27 +219,41 @@ public class ChatServiceImpl implements ChatService {
             }
             // 路由统一判定（指定 Agent 不再跳过）：SIMPLE → 会话绑定 Agent 直答，
             // COMPLEX → multi-agent 编排（指定 Agent 仅是编排失败降级重答的落点）
-            // judge 与 RAG 预取同样并行汇合（与同步 chat 同口径）：预取先行提交，judge 完成后
-            // 小幅等待——此处本就是同步阻塞 judge，≤2s 的汇合等待不改变线程语义
-            ExecutorService prefetchPool = newPrefetchPool();
-            Future<?> prefetch = prefetchPool == null ? null
-                    : prefetchPool.submit(() -> doPrefetch(request.message(), ctx.sid()));
-            String resolvedAgent;
-            try {
-                resolvedAgent = resolveAgent(request.message(), ctx.sid());
-                awaitPrefetch(prefetch);
-            } finally {
-                if (prefetchPool != null) {
-                    prefetchPool.shutdown();
-                }
-            }
-            Flux<String> agentStream = agentService.executeStreamReactive(resolvedAgent, request.message(), ctx.sid());
-            // COMPLEX 编排失败降级：编排自身异常（客户端断开走 cancel，不触发 onErrorResume）时
-            // 降级为会话 Agent 单模型重答一次，一层兜底不递归
-            if (complexFallbackEnabled && AgentConstants.MULTI_AGENT.equals(resolvedAgent)) {
-                agentStream = withComplexFallback(agentStream, request.message(), ctx.sid());
-            }
-            return toSseBody(withAgentProgress(resolvedAgent, agentStream),
+            // judge 与 RAG 预取同样并行汇合（与同步 chat 同口径）。
+            // 首帧先行：「路由判定中」进度行在订阅时立即发出，HTTP 响应头随首个 SSE 字节提交——
+            // judge 是同步阻塞调用（实测复杂问题 5-6 秒），若等它完成才有首字节，连接会经历
+            // 「已建立却零字节」窗口，期间被外部掐断（实测 lead 在启动瞬间即收 client-cancelled，
+            // SIMPLE 首字节快故幸免）。judge 挪入 boundedElastic，不再阻塞订阅线程。
+            return toSseBody(Flux.concat(
+                    Flux.just(ProgressLine.encode("路由", "判定中…")),
+                    Mono.fromCallable(() -> {
+                        ExecutorService prefetchPool = newPrefetchPool();
+                        Future<?> prefetch = prefetchPool == null ? null
+                                : prefetchPool.submit(() -> doPrefetch(request.message(), ctx.sid()));
+                        String resolvedAgent;
+                        try {
+                            resolvedAgent = resolveAgent(request.message(), ctx.sid());
+                            awaitPrefetch(prefetch);
+                        } finally {
+                            if (prefetchPool != null) {
+                                prefetchPool.shutdown();
+                            }
+                        }
+                        Flux<String> agentStream = agentService.executeStreamReactive(resolvedAgent, request.message(), ctx.sid());
+                        // COMPLEX 编排失败降级：编排自身异常（客户端断开走 cancel，不触发 onErrorResume）时
+                        // 降级为会话 Agent 单模型重答一次，一层兜底不递归
+                        if (complexFallbackEnabled && AgentConstants.MULTI_AGENT.equals(resolvedAgent)) {
+                            agentStream = withComplexFallback(agentStream, request.message(), ctx.sid());
+                        }
+                        // 判定结果可见化：路由去向作为进度行透出（SIMPLE → 谁直答 / COMPLEX → 编排）
+                        String path = AgentConstants.MULTI_AGENT.equals(resolvedAgent)
+                                ? "COMPLEX，走 multi-agent 编排"
+                                : "SIMPLE，走 " + resolvedAgent + " 直答";
+                        return Flux.concat(
+                                Flux.just(ProgressLine.encode("路由", "判定完成：" + path)),
+                                withAgentProgress(resolvedAgent, agentStream));
+                    }).subscribeOn(Schedulers.boundedElastic())
+                      .flatMapMany(flux -> flux)),
                     ctx.sid(), ctx.newSession(), request.message(), null);
         });
     }
