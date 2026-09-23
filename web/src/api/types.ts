@@ -129,4 +129,7 @@ export interface LlmCallItem {
   durationMs: number | null
   errorMsg: string | null
   createdAt: string | null
+  outputSummary?: string | null
+  firstTokenMs?: number | null
+  cachedTokens?: number | null
 }

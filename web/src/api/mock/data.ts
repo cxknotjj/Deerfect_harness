@@ -126,6 +126,9 @@ export const initialTraces: Record<string, { llm: LlmCallItem[]; tool: ToolCallI
         durationMs: 4250,
         errorMsg: null,
         createdAt: '2026-09-22T09:00:10',
+        outputSummary: '接入新服务商:两步即可——设置环境变量(如 MOONSHOT_API_KEY),在 yaml 的 app.providers 下声明模型清单,落库后热刷新注册表。',
+        firstTokenMs: 820,
+        cachedTokens: 0,
       },
       {
         id: 2,
@@ -139,6 +142,9 @@ export const initialTraces: Record<string, { llm: LlmCallItem[]; tool: ToolCallI
         durationMs: 3810,
         errorMsg: null,
         createdAt: '2026-09-22T09:01:02',
+        outputSummary: '401 排查思路:确认环境变量已导出、key 未过期且具备对应模型调用权限;仍失败时查看调用记录里的原始响应体定位。',
+        firstTokenMs: 910,
+        cachedTokens: 512,
       },
     ],
     tool: [

@@ -95,6 +95,13 @@ function fmtTokens(n: number | null | undefined): string {
   if (n < 1000) return String(n)
   return `${(n / 1000).toFixed(1)}k`
 }
+
+/** LLM 行 token 段:「输入 X · 输出 Y tok」;缺输出只显示输入,全缺不显示(null) */
+function fmtTokenFlow(p: number | null, c: number | null): string | null {
+  if (p == null && c == null) return null
+  if (c == null) return `输入 ${fmtTokens(p)} tok`
+  return `输入 ${fmtTokens(p)} · 输出 ${fmtTokens(c)} tok`
+}
 </script>
 
 <template>
@@ -129,9 +136,16 @@ function fmtTokens(n: number | null | undefined): string {
             <span class="trace-name" :title="r.item.model ?? ''">{{ r.item.model ?? 'LLM' }}</span>
             <span class="trace-meta">
               {{ r.item.agentName ?? '—' }} · {{ r.item.callKind === 'STREAM' ? '流式' : '同步' }}
-              · {{ fmtMs(r.item.durationMs) }} · {{ fmtTokens(r.item.promptTokens) }}→{{ fmtTokens(r.item.completionTokens) }} tok
+              · {{ fmtMs(r.item.durationMs) }}<template v-if="fmtTokenFlow(r.item.promptTokens, r.item.completionTokens) !== null">
+                · {{ fmtTokenFlow(r.item.promptTokens, r.item.completionTokens) }}</template><template v-if="r.item.firstTokenMs != null">
+                · 首 token {{ fmtMs(r.item.firstTokenMs) }}</template><template v-if="r.item.cachedTokens != null">
+                · 缓存 {{ fmtTokens(r.item.cachedTokens) }} tok</template>
             </span>
-            <span v-if="r.item.errorMsg" class="trace-detail" :title="r.item.errorMsg">{{ r.item.errorMsg }}</span>
+            <span
+              v-if="r.item.errorMsg || r.item.outputSummary"
+              class="trace-detail"
+              :title="r.item.errorMsg ?? r.item.outputSummary ?? ''"
+            >{{ r.item.errorMsg ?? r.item.outputSummary }}</span>
           </template>
           <template v-else>
             <span class="trace-name" :title="r.item.toolName ?? ''">{{ r.item.toolName ?? 'TOOL' }}</span>

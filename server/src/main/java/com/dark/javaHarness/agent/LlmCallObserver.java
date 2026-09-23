@@ -19,9 +19,11 @@ final class LlmCallObserver {
         this.recorder = recorder;
     }
 
-    /** 成功记录（流式）：streamUsage 末帧回传真实 usage 时记真实 token，无则按输出文本估算兜底 */
+    /** 成功记录（流式）：streamUsage 末帧回传真实 usage 时记真实 token，无则按输出文本估算兜底。
+     *  firstTokenAt 为首个 token 到达的绝对时间戳（epoch ms，0=无/SYNC），与 start 差值即 TTFT。 */
     void okStream(String sessionId, String agentName, String model, long start,
-                  String content, Usage usage, PromptAssembler.PromptAttachments attachments) {
+                  String content, Usage usage, PromptAssembler.PromptAttachments attachments,
+                  long firstTokenAt) {
         Integer prompt = usage == null ? null : usage.getPromptTokens();
         Integer completion = usage == null ? null : usage.getCompletionTokens();
         Integer total = usage == null ? null : usage.getTotalTokens();
@@ -30,7 +32,8 @@ final class LlmCallObserver {
             completion = tokens;
             total = tokens;
         }
-        record(sessionId, agentName, model, true, true, prompt, completion, total, start, null, attachments);
+        record(sessionId, agentName, model, true, true, prompt, completion, total, start, null,
+                content, firstTokenAt, usage, attachments);
     }
 
     /**
@@ -40,12 +43,13 @@ final class LlmCallObserver {
     void error(String sessionId, String agentName, String model, boolean stream,
                long start, Exception e, PromptAssembler.PromptAttachments attachments) {
         record(sessionId, agentName, model, stream, false, null, null, null, start,
-                LlmCallRecorder.describeError(e), attachments);
+                LlmCallRecorder.describeError(e), null, 0L, null, attachments);
     }
 
     private void record(String sessionId, String agentName, String model, boolean stream, boolean ok,
                         Integer promptTokens, Integer completionTokens, Integer totalTokens,
-                        long start, String errorMsg, PromptAssembler.PromptAttachments attachments) {
+                        long start, String errorMsg, String content, long firstTokenAt, Usage usage,
+                        PromptAssembler.PromptAttachments attachments) {
         if (recorder == null) {
             return;
         }
@@ -55,6 +59,9 @@ final class LlmCallObserver {
                 System.currentTimeMillis() - start, errorMsg,
                 attachments == null ? null : attachments.skills(),
                 attachments == null ? null : attachments.tools(),
-                attachments == null ? null : attachments.mcpTools()));
+                attachments == null ? null : attachments.mcpTools(),
+                ok && content != null && !content.isEmpty() ? content : null,
+                firstTokenAt > 0 ? firstTokenAt - start : null,
+                LlmCallRecorder.extractCachedTokens(usage)));
     }
 }

@@ -42,7 +42,7 @@ class LlmCallRecorderTest {
         LlmCallRecorder recorder = new LlmCallRecorder(mapper, mock(ToolCallLogMapper.class));
 
         recorder.record(new LlmCallLog("s1", "lead", "qwen3.8-27b", false, true,
-                100, 20, 120, false, 1500, null, null, null, null));
+                100, 20, 120, false, 1500, null, null, null, null, "你好", 300L, null));
 
         verify(mapper, timeout(2000)).insert(org.mockito.ArgumentMatchers.argThat((LlmCallLogEntity e) -> {
             return "s1".equals(e.getSessionId())
@@ -51,7 +51,10 @@ class LlmCallRecorderTest {
                     && "OK".equals(e.getStatus())
                     && Integer.valueOf(120).equals(e.getTotalTokens())
                     && e.getTokensEstimated() == 0
-                    && Long.valueOf(1500).equals(e.getDurationMs());
+                    && Long.valueOf(1500).equals(e.getDurationMs())
+                    && "你好".equals(e.getOutputSummary())
+                    && Long.valueOf(300).equals(e.getFirstTokenMs())
+                    && e.getCachedTokens() == null;
         }));
     }
 
@@ -63,7 +66,7 @@ class LlmCallRecorderTest {
 
         // 不应向调用方抛出（异步边界吞掉并 warn）
         recorder.record(new LlmCallLog(null, "route-judge", "qwen3.8-27b", true, false,
-                null, 5, 5, true, 80, "boom", null, null, null));
+                null, 5, 5, true, 80, "boom", null, null, null, null, null, null));
         // 给异步线程留出执行窗口；若抛出则测试线程已失败
         try {
             Thread.sleep(300);
@@ -80,7 +83,8 @@ class LlmCallRecorderTest {
 
         recorder.record(new LlmCallLog("s1", "general", "qwen3.8-27b", false, true,
                 10, 5, 15, false, 100, null,
-                List.of("pdf-handling"), List.of("fetchUrl", "tavily_search"), List.of("tavily_search")));
+                List.of("pdf-handling"), List.of("fetchUrl", "tavily_search"), List.of("tavily_search"),
+                null, null, null));
 
         verify(mapper, timeout(2000)).insert(argThat((LlmCallLogEntity e) ->
                 "pdf-handling".equals(e.getSkillNames())
@@ -94,10 +98,27 @@ class LlmCallRecorderTest {
         LlmCallRecorder recorder = new LlmCallRecorder(mapper, mock(ToolCallLogMapper.class));
 
         recorder.record(new LlmCallLog("s1", "route-judge", "m", false, true,
-                1, 1, 2, false, 5, null, List.of(), List.of(), List.of()));
+                1, 1, 2, false, 5, null, List.of(), List.of(), List.of(), null, null, null));
 
         verify(mapper, timeout(2000)).insert(argThat((LlmCallLogEntity e) ->
                 e.getSkillNames() == null && e.getToolNames() == null && e.getMcpToolNames() == null));
+    }
+
+    @Test
+    void record_outputSummaryTruncatedTo200() {
+        LlmCallLogMapper mapper = mock(LlmCallLogMapper.class);
+        LlmCallRecorder recorder = new LlmCallRecorder(mapper, mock(ToolCallLogMapper.class));
+
+        String longReply = "好".repeat(300);
+        recorder.record(new LlmCallLog("s1", "general", "m", true, true,
+                10, 5, 15, false, 100, null, null, null, null,
+                longReply, 250L, 64));
+
+        verify(mapper, timeout(2000)).insert(argThat((LlmCallLogEntity e) ->
+                e.getOutputSummary() != null
+                        && e.getOutputSummary().length() == 200
+                        && Long.valueOf(250).equals(e.getFirstTokenMs())
+                        && Integer.valueOf(64).equals(e.getCachedTokens())));
     }
 
     @Test

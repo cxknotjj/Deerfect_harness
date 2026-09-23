@@ -26,7 +26,8 @@ class LlmCallObserverTest {
         observer.okStream("s1", "general", "m", System.currentTimeMillis(), "答",
                 null,
                 new PromptAssembler.PromptAttachments(List.of("pdf"), List.of("fetchUrl", "tavily_search"),
-                        List.of("tavily_search")));
+                        List.of("tavily_search")),
+                System.currentTimeMillis());
 
         verify(mapper, timeout(2000)).insert(Mockito.argThat((LlmCallLogEntity e) ->
                 "pdf".equals(e.getSkillNames())
@@ -40,7 +41,8 @@ class LlmCallObserverTest {
         LlmCallObserver observer = new LlmCallObserver(new LlmCallRecorder(mapper,
                 Mockito.mock(com.dark.javaHarness.mapper.ToolCallLogMapper.class)));
 
-        observer.okStream("s1", "general", "m", System.currentTimeMillis(), "答", null, null);
+        observer.okStream("s1", "general", "m", System.currentTimeMillis(), "答", null, null,
+                System.currentTimeMillis());
 
         verify(mapper, timeout(2000)).insert(Mockito.argThat((LlmCallLogEntity e) ->
                 e.getSkillNames() == null && e.getToolNames() == null && e.getMcpToolNames() == null));

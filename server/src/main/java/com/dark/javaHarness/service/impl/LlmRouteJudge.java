@@ -120,7 +120,7 @@ private final ChatClientRegistry clientRegistry;
         recorder.record(new LlmCallLog(null, ROUTE_AGENT, ROUTE_MODEL, false, ok,
                 promptTokens, null, null, true,
                 durationMs, LlmCallRecorder.describeError(e),
-                null, null, null));
+                null, null, null, null, null, null));
     }
 
     /** 解析 LLM 返回内容中的 route 字段；非法/缺失一律兜底 SIMPLE。 */

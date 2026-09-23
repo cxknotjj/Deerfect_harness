@@ -12,6 +12,7 @@ import com.dark.javaHarness.service.impl.LlmCallRecorder;
 import com.dark.javaHarness.tool.ToolAssignments;
 import com.dark.javaHarness.prompt.ToolLazyManager;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
@@ -196,6 +197,8 @@ public class GeneralAssistantAgent implements Agent {
         AtomicReference<Throwable> streamError = new AtomicReference<>();
         // streamUsage 开启后末帧回传真实 usage（无则维持估算兜底）；tokenStream 内捕获
         AtomicReference<Usage> usageRef = new AtomicReference<>();
+        // 首 token 绝对时间戳（观测 TTFT，0=未触发）
+        AtomicLong firstTokenAt = new AtomicLong();
         AgentConfig config = agentService.getAgentConfig(agentName)
                 .orElse(new AgentConfig(null, null, null, null));
         // 关闸挂 merge 之前的主干段（多 Agent 侧同款死锁教训：关闸在 merge 后会循环等待）
@@ -208,7 +211,7 @@ public class GeneralAssistantAgent implements Agent {
                         chatCaller.buildSpec(config, goal.sessionId(), agentName, DEFAULT_SYSTEM_PROMPT,
                                 goal.objective(),
                                 assembly),
-                        usageRef, null, null, config.model())
+                        usageRef, null, null, firstTokenAt, config.model())
                 .doOnNext(collected::append)
                 .doOnError(streamError::set)
                 .doFinally(sig -> {
@@ -229,7 +232,7 @@ public class GeneralAssistantAgent implements Agent {
                         err = null;
                     }
                     recordCall(goal.sessionId(), true, err == null,
-                            usageRef.get(), collected, start, err, attachments);
+                            usageRef.get(), collected, start, err, attachments, firstTokenAt.get());
                     BranchProgressListener.tryCompleteSerialized(toolEvents);
                 });
         return content.mergeWith(toolEvents.asFlux());
@@ -250,7 +253,7 @@ public class GeneralAssistantAgent implements Agent {
     private void recordCall(String sessionId, boolean stream, boolean ok,
                             Usage usage,
                             StringBuilder collected, long start, Throwable error,
-                            PromptAssembler.PromptAttachments attachments) {
+                            PromptAssembler.PromptAttachments attachments, long firstTokenAt) {
         if (recorder == null) {
             return;
         }
@@ -265,12 +268,16 @@ public class GeneralAssistantAgent implements Agent {
             totalVal = completionVal;
             estimated = true;
         }
+        String content = collected == null ? null : collected.toString();
         recorder.record(new LlmCallLog(sessionId, agentName,
                 agentService.getAgentConfig(agentName).map(AgentConfig::model).orElse(null),
                 stream, ok, prompt, completionVal, totalVal, estimated,
                 System.currentTimeMillis() - start, LlmCallRecorder.describeError(error),
                 attachments == null ? null : attachments.skills(),
                 attachments == null ? null : attachments.tools(),
-                attachments == null ? null : attachments.mcpTools()));
+                attachments == null ? null : attachments.mcpTools(),
+                ok && content != null && !content.isEmpty() ? content : null,
+                ok && firstTokenAt > 0 ? firstTokenAt - start : null,
+                LlmCallRecorder.extractCachedTokens(usage)));
     }
 }

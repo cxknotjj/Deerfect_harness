@@ -73,6 +73,11 @@ public class LlmCallRecorder {
         e.setSkillNames(toCsv(c.skillNames()));
         e.setToolNames(toCsv(c.toolNames()));
         e.setMcpToolNames(toCsv(c.mcpToolNames()));
+        // 摘要列 VARCHAR(500)，截断 200 字符存储（防写入失败，同 errorMsg 模式）
+        String summary = c.outputSummary();
+        e.setOutputSummary(summary != null && summary.length() > 200 ? summary.substring(0, 200) : summary);
+        e.setFirstTokenMs(c.firstTokenMs());
+        e.setCachedTokens(c.cachedTokens());
         e.setCreatedAt(LocalDateTime.now());
         mapper.insert(e);
     }
@@ -113,6 +118,28 @@ public class LlmCallRecorder {
      */
     public static int estimateTokens(String text) {
         return com.dark.javaHarness.tool.TokenEstimator.estimateTokens(text);
+    }
+
+    /**
+     * 尽力解析供应商原生 usage 中的缓存命中 token（OpenAI 兼容口径：
+     * nativeUsage 为 OpenAiApi.Usage → promptTokensDetails().cachedTokens()）。
+     * 结构不符/版本变化/取不到时返回 null——观测尽力而为，绝不抛错影响主链路。
+     */
+    public static Integer extractCachedTokens(org.springframework.ai.chat.metadata.Usage usage) {
+        if (usage == null) {
+            return null;
+        }
+        try {
+            Object nativeUsage = usage.getNativeUsage();
+            if (nativeUsage instanceof org.springframework.ai.openai.api.OpenAiApi.Usage openai
+                    && openai.promptTokensDetails() != null) {
+                Integer cached = openai.promptTokensDetails().cachedTokens();
+                return (cached != null && cached > 0) ? cached : null;
+            }
+        } catch (Exception e) {
+            log.debug("[llm-call] cached_tokens 解析失败（忽略）：{}", e.getMessage());
+        }
+        return null;
     }
 
     /**

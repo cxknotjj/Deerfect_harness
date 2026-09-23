@@ -204,9 +204,11 @@ final class AgentChatCaller {
             try {
                 java.util.concurrent.atomic.AtomicReference<Usage> usageRef =
                         new java.util.concurrent.atomic.AtomicReference<>();
+                java.util.concurrent.atomic.AtomicLong firstTokenAt =
+                        new java.util.concurrent.atomic.AtomicLong();
                 String content = streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
-                        assembly, extraAdvisors, null, cancelled, usageRef, ledger);
-                ctx.ok(ledger, start, content, usageRef.get());
+                        assembly, extraAdvisors, null, cancelled, usageRef, firstTokenAt, ledger);
+                ctx.ok(ledger, start, content, usageRef.get(), firstTokenAt.get());
                 return content;
             } catch (RuntimeException e) {
                 // 客户端断连中止：记录后立即上抛（CancellationException 不可重试，直接放行）
@@ -237,9 +239,11 @@ final class AgentChatCaller {
                     try {
                         java.util.concurrent.atomic.AtomicReference<Usage> usageRef2 =
                                 new java.util.concurrent.atomic.AtomicReference<>();
+                        java.util.concurrent.atomic.AtomicLong firstTokenAt2 =
+                                new java.util.concurrent.atomic.AtomicLong();
                         String content = streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
-                                noToolsVariant(assembly), extraAdvisors, null, cancelled, usageRef2, ledger);
-                        noToolsCtx.ok(ledger, start2, content, usageRef2.get());
+                                noToolsVariant(assembly), extraAdvisors, null, cancelled, usageRef2, firstTokenAt2, ledger);
+                        noToolsCtx.ok(ledger, start2, content, usageRef2.get(), firstTokenAt2.get());
                         return content;
                     } catch (RuntimeException e2) {
                         noToolsCtx.error(start2, e2);
@@ -261,10 +265,10 @@ final class AgentChatCaller {
                 attachmentsFor(forAgent, assembly));
         java.util.concurrent.atomic.AtomicReference<Usage> usageRef =
                 new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicLong firstTokenAt = new java.util.concurrent.atomic.AtomicLong();
         String content = streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
-                assembly,
-                extraAdvisors, null, null, usageRef, null);
-        ctx.ok(null, start, content, usageRef.get());
+                assembly, extraAdvisors, null, null, usageRef, firstTokenAt, null);
+        ctx.ok(null, start, content, usageRef.get(), firstTokenAt.get());
         return content;
     }
 
@@ -286,7 +290,7 @@ final class AgentChatCaller {
                                  String user, AgentRequestSpecFactory.Assembly assembly,
                                  Advisor[] extraAdvisors, Consumer<String> onToken, BooleanSupplier cancelled,
                                  java.util.concurrent.atomic.AtomicReference<Usage> usageRef,
-                                 BudgetLedger ledger) {
+                                 java.util.concurrent.atomic.AtomicLong firstTokenAt, BudgetLedger ledger) {
         if (cancelled != null && cancelled.getAsBoolean()) {
             throw CallCancellation.cancelException();
         }
@@ -299,7 +303,7 @@ final class AgentChatCaller {
         java.util.concurrent.atomic.AtomicLong prevTotal = new java.util.concurrent.atomic.AtomicLong();
         try {
             return streamCore(config, sessionId, forAgent, fallbackSystem, user, assembly,
-                    extraAdvisors, collected, onToken, cancelled, usageRef, prevTotal, ledger);
+                    extraAdvisors, collected, onToken, cancelled, usageRef, prevTotal, firstTokenAt, ledger);
         } catch (RuntimeException e) {
             // 取消置位时一律按取消归因（流取消竞态下 blockLast 可能抛出其他形态异常）
             if (cancelled != null && cancelled.getAsBoolean()) {
@@ -325,8 +329,9 @@ final class AgentChatCaller {
                                          java.util.concurrent.atomic.AtomicReference<Usage> usageRef,
                                          BudgetLedger ledger,
                                          java.util.concurrent.atomic.AtomicLong prevTotal,
+                                         java.util.concurrent.atomic.AtomicLong firstTokenAt,
                                          String model) {
-        return tokenStream(spec, usageRef, ledger, prevTotal)
+        return tokenStream(spec, usageRef, ledger, prevTotal, firstTokenAt)
                 .timeout(streamIdleTimeout)
                 .doOnError(e -> clientRegistry.invalidateByModel(model));
     }
@@ -341,10 +346,11 @@ final class AgentChatCaller {
                               Advisor[] extraAdvisors, StringBuilder collected, Consumer<String> onToken,
                               BooleanSupplier cancelled,
                               java.util.concurrent.atomic.AtomicReference<Usage> usageRef,
-                              java.util.concurrent.atomic.AtomicLong prevTotal, BudgetLedger ledger) {
+                              java.util.concurrent.atomic.AtomicLong prevTotal,
+                              java.util.concurrent.atomic.AtomicLong firstTokenAt, BudgetLedger ledger) {
         tokenStreamWithWatchdog(
                         buildSpec(config, sessionId, forAgent, fallbackSystem, user, assembly, extraAdvisors),
-                        usageRef, ledger, prevTotal, config != null ? config.model() : null)
+                        usageRef, ledger, prevTotal, firstTokenAt, config != null ? config.model() : null)
                 .takeUntil(__ -> cancelled != null && cancelled.getAsBoolean())
                 .doOnNext(token -> {
                     if (cancelled != null && cancelled.getAsBoolean()) {
@@ -373,7 +379,8 @@ final class AgentChatCaller {
     static Flux<String> tokenStream(ChatClient.ChatClientRequestSpec spec,
                                     java.util.concurrent.atomic.AtomicReference<Usage> usageRef,
                                     BudgetLedger ledger,
-                                    java.util.concurrent.atomic.AtomicLong prevTotal) {
+                                    java.util.concurrent.atomic.AtomicLong prevTotal,
+                                    java.util.concurrent.atomic.AtomicLong firstTokenAt) {
         return spec
                 .stream()
                 .chatResponse()
@@ -386,6 +393,13 @@ final class AgentChatCaller {
                     String token = AgentChatCaller.contentOf(resp);
                     if (token != null) {
                         sink.next(token);
+                    }
+                })
+                // 首 token 打点（观测 TTFT）：首个 token 帧到达时记录绝对时间戳，
+                // 纯内存赋值（firstTokenAt null 直通=无观测场景）
+                .doOnNext(token -> {
+                    if (firstTokenAt != null) {
+                        firstTokenAt.compareAndSet(0, System.currentTimeMillis());
                     }
                 });
     }
@@ -516,14 +530,16 @@ final class AgentChatCaller {
             // streamUsage 末帧真实 usage（无则估算兜底）
             java.util.concurrent.atomic.AtomicReference<Usage> usageRef =
                     new java.util.concurrent.atomic.AtomicReference<>();
+            // 首 token 绝对时间戳（观测 TTFT，0=未触发）
+            java.util.concurrent.atomic.AtomicLong firstTokenAt = new java.util.concurrent.atomic.AtomicLong();
             // roundtrip 增量记账游标（口径同 streamAttempt，见其注释）
             java.util.concurrent.atomic.AtomicLong prevTotal = new java.util.concurrent.atomic.AtomicLong();
             try {
                 String out = streamCore(config, sessionId, forAgent, fallbackSystem, user, assembly,
-                        extraAdvisors, collected, onToken, cancelled, usageRef, prevTotal, ledger);
+                        extraAdvisors, collected, onToken, cancelled, usageRef, prevTotal, firstTokenAt, ledger);
                 // streamUsage 回传真实 usage 时记真实值，无则按已收输出文本近似估算（原口径兜底）；
                 // 账本兜底入账：无真实 usage 帧时按输出估算补记（有则增量已在流帧上记账，不重复）
-                ctx.ok(ledger, start, out, usageRef.get());
+                ctx.ok(ledger, start, out, usageRef.get(), firstTokenAt.get());
                 return out;
             } catch (RuntimeException e) {
                 boolean isCancel = e instanceof CancellationException
@@ -617,9 +633,10 @@ final class AgentChatCaller {
     private record CallContext(LlmCallObserver observer, String sessionId, String forAgent,
                                String model, PromptAssembler.PromptAttachments attachments) {
 
-        /** 成功观测对：落库 + 账本估算兜底入账（无真实 usage 帧；ledger null 直通） */
-        void ok(BudgetLedger ledger, long start, String content, Usage usage) {
-            observer.okStream(sessionId, forAgent, model, start, content, usage, attachments);
+        /** 成功观测对：落库 + 账本估算兜底入账（无真实 usage 帧；ledger null 直通）。
+         *  firstTokenAt 为首个 token 到达的绝对时间戳（0=无/SYNC 通道），与 start 差值即 TTFT。 */
+        void ok(BudgetLedger ledger, long start, String content, Usage usage, long firstTokenAt) {
+            observer.okStream(sessionId, forAgent, model, start, content, usage, attachments, firstTokenAt);
             recordEstimatedIfNoUsage(ledger, content, usage);
         }
 

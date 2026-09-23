@@ -59,6 +59,15 @@ public class LlmCallLogEntity {
     /** prompt 装配的 MCP 工具名单（tool_names 子集，CSV，空为 NULL） */
     private String mcpToolNames;
 
+    /** LLM 回复文本摘要（成功调用截断 200 字符；失败为 NULL） */
+    private String outputSummary;
+
+    /** 首 token 到达延迟（毫秒；流式成功调用有值，SYNC 与失败为 NULL） */
+    private Long firstTokenMs;
+
+    /** 供应商缓存命中 token（原生 usage 无该信息为 NULL） */
+    private Integer cachedTokens;
+
     /** 调用结束时间 */
     private LocalDateTime createdAt;
 }

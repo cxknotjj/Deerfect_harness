@@ -409,7 +409,7 @@ class AgentChatCallerTest {
 
         java.util.List<Throwable> errors = new ArrayList<>();
         guarded.tokenStreamWithWatchdog(spec, new java.util.concurrent.atomic.AtomicReference<>(),
-                        null, null, "m1")
+                        null, null, null, "m1")
                 .doOnError(errors::add)
                 .onErrorResume(e -> Flux.empty())
                 .blockLast();
@@ -433,7 +433,7 @@ class AgentChatCallerTest {
         when(streamSpec.chatResponse()).thenReturn(fluxOf("a", "b", "c"));
 
         List<String> tokens = guarded.tokenStreamWithWatchdog(spec, new java.util.concurrent.atomic.AtomicReference<>(),
-                        null, null, "m1")
+                        null, null, null, "m1")
                 .collectList()
                 .block();
 

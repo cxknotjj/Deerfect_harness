@@ -18,3 +18,4 @@
 
 - [ ] **web 端单测**:useChat / useSessions 等组合式逻辑零测试,引入 vitest;并进 CI(与 CI 条目合并跟进)
 - [ ] **部署方案**:web/dist 生产托管路径未定(nginx 或 server 静态托管),连同 CI/CD 条目一起规划
+- [ ] **轨迹观测增强(turn_id / trace_id,需后端,影响大暂缓)**:llm_call_log / tool_call_log 加轮次与调用关联标识(「N 轮 M 步」统计、条带按轮分段、跨 agent 调用树)。需穿透 ChatService→Agent→ChatClient→工具回调全链路传递上下文(Reactor context + ThreadLocal 桥接),跨 CLI/QQ/web 三入口,影响面大——以后另立 spec 实施前置:本批三列(output_summary / first_token_ms / cached_tokens)落地(spec 见 `.trae/specs/add-trace-observability-columns/`)
