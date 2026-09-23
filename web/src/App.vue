@@ -303,6 +303,7 @@ function downloadSessionLog(): void {
         v-if="activeTab === 'chat'"
         :messages="messages"
         :streaming="streaming"
+        :session-id="currentSessionId"
         @send="send"
         @stop="stop"
         @delete="deleteMessage"
