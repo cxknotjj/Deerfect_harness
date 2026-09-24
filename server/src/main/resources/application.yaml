@@ -119,7 +119,7 @@ app:
   # 全局画像文件（Markdown 条目，全文注入 general/lead 的 system prompt 画像段）；
   # 关闭后画像服务与注入点均不装配，prompt 无画像段
   memory:
-    profile-enabled: true                        # 总开关（UserProfileService / 注入点同开关装配）
+    profile-enabled: false                        # 总开关（UserProfileService / 注入点同开关装配）
     profile-file: user-profile/user-profile.md   # 画像文件（相对工作区顶层目录，容器整目录挂载避单文件 inode 陷阱）
     profile-scan-interval-ms: 900000           # 空闲会话扫描周期（5 分钟，fixedDelay 上一轮完成后间隔再跑，不堆叠）
     profile-idle-minutes: 30                     # 会话静默多久后视为可提炼（防活跃会话反复提取；存量会话不回溯）
