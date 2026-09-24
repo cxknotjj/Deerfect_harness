@@ -175,8 +175,18 @@ final class AgentChatCaller {
     String call(String sessionId, String forAgent, String fallbackSystem, String user,
                 Consumer<String> toolEmitter, Advisor[] extraAdvisors, BooleanSupplier cancelled,
                 BudgetLedger ledger) {
+        // 编排节点经 trace 重载携带轨迹标识；本重载为无 Goal 上下文场景兜底
+        return call(sessionId, forAgent, fallbackSystem, user, toolEmitter, extraAdvisors, cancelled,
+                ledger, CallTrace.NONE);
+    }
+
+    /** 同上，可携带轨迹标识（编排节点传入：turn/trace 取 Goal，parentSpan 为父调用 span） */
+    String call(String sessionId, String forAgent, String fallbackSystem, String user,
+                Consumer<String> toolEmitter, Advisor[] extraAdvisors, BooleanSupplier cancelled,
+                BudgetLedger ledger, CallTrace trace) {
         return callWithAssembly(sessionId, forAgent, fallbackSystem, user,
-                assemblyForRole(forAgent, sessionId, toolEmitter, false), extraAdvisors, cancelled, ledger);
+                assemblyForRole(forAgent, sessionId, toolEmitter, false), extraAdvisors, cancelled, ledger,
+                trace);
     }
 
     /**
@@ -190,14 +200,23 @@ final class AgentChatCaller {
      *
      * <p>取消语义：cancelled 已置位时直接抛 {@link CancellationException}（零 HTTP 请求）；
      * 执行中置位时在下一个 token 边界中止并抛出——不重试、部分输出不按成功返回。
+     *
+     * <p>轨迹标识：spanId 在本方法发起前生成；turnId/traceId/parentSpan 由调用方经
+     * {@link CallTrace} 传入（路径 A 从 Goal 取值，无上下文场景传 {@link CallTrace#NONE}）。
      */
     String callWithAssembly(String sessionId, String forAgent, String fallbackSystem, String user,
                             AgentRequestSpecFactory.Assembly assembly, Advisor[] extraAdvisors,
-                            BooleanSupplier cancelled, BudgetLedger ledger) {
+                            BooleanSupplier cancelled, BudgetLedger ledger, CallTrace trace) {
         AgentConfig config = configOf(forAgent);
         String model = config != null ? config.model() : null;
+        CallTrace t = trace == null ? CallTrace.NONE : trace;
+        // spanId 原则上由本发起点生成；编排树 lead 场景由编排器预生成（t.spanId 非 null）沿用
+        String spanId = t.spanId() != null ? t.spanId() : CallTrace.newSpanId();
+        // 带 spanId 的完整标识沿调用链下传至 spec 组装（工具侧经 ToolContext 关联）
+        CallTrace eff = t.withSpan(spanId);
         CallContext ctx = new CallContext(observer, sessionId, forAgent, model,
-                attachmentsFor(forAgent, assembly));
+                attachmentsFor(forAgent, assembly), eff.turnId(), eff.traceId(), spanId,
+                eff.parentSpan());
         // 重试可见性：计数器必须在重试循环外创建（放进 lambda 每次尝试都会重置,
         // 重试成功的行会错报 attempt=1）；每次尝试执行 lambda 时自增即第几次尝试
         java.util.concurrent.atomic.AtomicInteger attemptCounter =
@@ -213,7 +232,7 @@ final class AgentChatCaller {
                         new java.util.concurrent.atomic.AtomicLong();
                 int attempt = attemptCounter.incrementAndGet();
                 String content = streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
-                        assembly, extraAdvisors, null, cancelled, usageRef, firstTokenAt, ledger);
+                        assembly, extraAdvisors, eff, null, cancelled, usageRef, firstTokenAt, ledger);
                 ctx.ok(ledger, start, content, usageRef.get(), firstTokenAt.get(), attempt, maxAttempts);
                 return content;
             } catch (RuntimeException e) {
@@ -250,7 +269,8 @@ final class AgentChatCaller {
                                 new java.util.concurrent.atomic.AtomicLong();
                         int attempt2 = attemptCounter.incrementAndGet();
                         String content = streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
-                                noToolsVariant(assembly), extraAdvisors, null, cancelled, usageRef2, firstTokenAt2, ledger);
+                                noToolsVariant(assembly), extraAdvisors, eff, null, cancelled, usageRef2,
+                                firstTokenAt2, ledger);
                         noToolsCtx.ok(ledger, start2, content, usageRef2.get(), firstTokenAt2.get(), attempt2, maxAttempts);
                         return content;
                     } catch (RuntimeException e2) {
@@ -264,18 +284,21 @@ final class AgentChatCaller {
         });
     }
 
-    /** 单次调用 + 成功观测记录（失败由调用方记录）；disableTools=true 时不注入任何工具（幻觉工具调用的降级路径） */
+    /** 单次调用 + 成功观测记录（失败由调用方记录）；disableTools=true 时不注入任何工具（幻觉工具调用的降级路径）。
+     *  暂无调用方携带 Goal 上下文：轨迹标识落 NONE（turn/trace/parent NULL，spanId 照常生成） */
     String invokeAndRecord(AgentConfig config, String sessionId, String forAgent,
                            String fallbackSystem, String user, Consumer<String> toolEmitter,
                            boolean disableTools, String model, long start, Advisor... extraAdvisors) {
         AgentRequestSpecFactory.Assembly assembly = assemblyForRole(forAgent, sessionId, toolEmitter, disableTools);
+        String spanId = CallTrace.newSpanId();
+        CallTrace eff = new CallTrace(null, null, null, spanId);
         CallContext ctx = new CallContext(observer, sessionId, forAgent, model,
-                attachmentsFor(forAgent, assembly));
+                attachmentsFor(forAgent, assembly), null, null, spanId, null);
         java.util.concurrent.atomic.AtomicReference<Usage> usageRef =
                 new java.util.concurrent.atomic.AtomicReference<>();
         java.util.concurrent.atomic.AtomicLong firstTokenAt = new java.util.concurrent.atomic.AtomicLong();
         String content = streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
-                assembly, extraAdvisors, null, null, usageRef, firstTokenAt, null);
+                assembly, extraAdvisors, eff, null, null, usageRef, firstTokenAt, null);
         ctx.ok(null, start, content, usageRef.get(), firstTokenAt.get(), 1, 1);
         return content;
     }
@@ -296,7 +319,8 @@ final class AgentChatCaller {
      */
     private String streamAttempt(AgentConfig config, String sessionId, String forAgent, String fallbackSystem,
                                  String user, AgentRequestSpecFactory.Assembly assembly,
-                                 Advisor[] extraAdvisors, Consumer<String> onToken, BooleanSupplier cancelled,
+                                 Advisor[] extraAdvisors, CallTrace trace, Consumer<String> onToken,
+                                 BooleanSupplier cancelled,
                                  java.util.concurrent.atomic.AtomicReference<Usage> usageRef,
                                  java.util.concurrent.atomic.AtomicLong firstTokenAt, BudgetLedger ledger) {
         if (cancelled != null && cancelled.getAsBoolean()) {
@@ -311,7 +335,7 @@ final class AgentChatCaller {
         java.util.concurrent.atomic.AtomicLong prevTotal = new java.util.concurrent.atomic.AtomicLong();
         try {
             return streamCore(config, sessionId, forAgent, fallbackSystem, user, assembly,
-                    extraAdvisors, collected, onToken, cancelled, usageRef, prevTotal, firstTokenAt, ledger);
+                    extraAdvisors, trace, collected, onToken, cancelled, usageRef, prevTotal, firstTokenAt, ledger);
         } catch (RuntimeException e) {
             // 取消置位时一律按取消归因（流取消竞态下 blockLast 可能抛出其他形态异常）
             if (cancelled != null && cancelled.getAsBoolean()) {
@@ -351,13 +375,14 @@ final class AgentChatCaller {
      */
     private String streamCore(AgentConfig config, String sessionId, String forAgent, String fallbackSystem,
                               String user, AgentRequestSpecFactory.Assembly assembly,
-                              Advisor[] extraAdvisors, StringBuilder collected, Consumer<String> onToken,
+                              Advisor[] extraAdvisors, CallTrace trace, StringBuilder collected,
+                              Consumer<String> onToken,
                               BooleanSupplier cancelled,
                               java.util.concurrent.atomic.AtomicReference<Usage> usageRef,
                               java.util.concurrent.atomic.AtomicLong prevTotal,
                               java.util.concurrent.atomic.AtomicLong firstTokenAt, BudgetLedger ledger) {
         tokenStreamWithWatchdog(
-                        buildSpec(config, sessionId, forAgent, fallbackSystem, user, assembly, extraAdvisors),
+                        buildSpec(config, sessionId, forAgent, fallbackSystem, user, assembly, trace, extraAdvisors),
                         usageRef, ledger, prevTotal, firstTokenAt, config != null ? config.model() : null)
                 .takeUntil(__ -> cancelled != null && cancelled.getAsBoolean())
                 .doOnNext(token -> {
@@ -507,19 +532,37 @@ final class AgentChatCaller {
     String stream(String sessionId, String forAgent, String fallbackSystem, String user,
                   Consumer<String> onToken, Consumer<String> toolEmitter, Advisor[] extraAdvisors,
                   BooleanSupplier cancelled, BudgetLedger ledger) {
+        // 编排节点经 trace 重载携带轨迹标识；本重载为无 Goal 上下文场景兜底
+        return stream(sessionId, forAgent, fallbackSystem, user, onToken, toolEmitter, extraAdvisors,
+                cancelled, ledger, CallTrace.NONE);
+    }
+
+    /** 同上，可携带轨迹标识（编排聚合节点传入：turn/trace 取 Goal，parentSpan 为 lead 的 span） */
+    String stream(String sessionId, String forAgent, String fallbackSystem, String user,
+                  Consumer<String> onToken, Consumer<String> toolEmitter, Advisor[] extraAdvisors,
+                  BooleanSupplier cancelled, BudgetLedger ledger, CallTrace trace) {
         return streamWithAssembly(sessionId, forAgent, fallbackSystem, user, onToken,
-                assemblyForRole(forAgent, sessionId, toolEmitter, false), extraAdvisors, cancelled, ledger);
+                assemblyForRole(forAgent, sessionId, toolEmitter, false), extraAdvisors, cancelled, ledger,
+                trace);
     }
 
     /**
      * Assembly 直传入口（路径 A 薄适配用：装配差异由调用方声明，不经角色策略）。
      * 带取消令牌与预算账本的流式调用（发起前熔断判定 + 成功结束后估算兜底入账/真实增量入账）。
+     * 轨迹标识同 {@link #callWithAssembly}：spanId 发起前生成，turnId/traceId/parentSpan 经
+     * {@link CallTrace} 传入。
      */
     String streamWithAssembly(String sessionId, String forAgent, String fallbackSystem, String user,
                               Consumer<String> onToken, AgentRequestSpecFactory.Assembly assembly,
-                              Advisor[] extraAdvisors, BooleanSupplier cancelled, BudgetLedger ledger) {
+                              Advisor[] extraAdvisors, BooleanSupplier cancelled, BudgetLedger ledger,
+                              CallTrace trace) {
+        CallTrace t = trace == null ? CallTrace.NONE : trace;
+        // spanId 原则上由本发起点生成；编排树 lead 场景由编排器预生成（t.spanId 非 null）沿用
+        String spanId = t.spanId() != null ? t.spanId() : CallTrace.newSpanId();
+        CallTrace eff = t.withSpan(spanId);
         CallContext ctx = new CallContext(observer, sessionId, forAgent,
-                null, attachmentsFor(forAgent, assembly));
+                null, attachmentsFor(forAgent, assembly), eff.turnId(), eff.traceId(),
+                spanId, eff.parentSpan());
         if (cancelled != null && cancelled.getAsBoolean()) {
             throw cancelAndRecord(ctx, System.currentTimeMillis(), 1, retry.maxAttempts());
         }
@@ -544,7 +587,8 @@ final class AgentChatCaller {
             java.util.concurrent.atomic.AtomicLong prevTotal = new java.util.concurrent.atomic.AtomicLong();
             try {
                 String out = streamCore(config, sessionId, forAgent, fallbackSystem, user, assembly,
-                        extraAdvisors, collected, onToken, cancelled, usageRef, prevTotal, firstTokenAt, ledger);
+                        extraAdvisors, eff, collected, onToken, cancelled, usageRef, prevTotal,
+                        firstTokenAt, ledger);
                 // streamUsage 回传真实 usage 时记真实值，无则按已收输出文本近似估算（原口径兜底）；
                 // 账本兜底入账：无真实 usage 帧时按输出估算补记（有则增量已在流帧上记账，不重复）
                 ctx.ok(ledger, start, out, usageRef.get(), firstTokenAt.get(), attempt, retry.maxAttempts());
@@ -586,13 +630,14 @@ final class AgentChatCaller {
 
     /**
      * 组装请求（包级：路径 A executeStreamReactive 经此复用统一组装链）：委托
-     * {@link AgentRequestSpecFactory#build}，装配差异由调用方传入的 {@code assembly} 声明。
+     * {@link AgentRequestSpecFactory#build}，装配差异由调用方传入的 {@code assembly} 声明；
+     * trace 为轨迹标识（经 ToolContext 关联工具行，可 null）。
      */
     ChatClient.ChatClientRequestSpec buildSpec(AgentConfig config, String sessionId, String forAgent,
                                                String fallbackSystem, String user,
-                                               AgentRequestSpecFactory.Assembly assembly,
+                                               AgentRequestSpecFactory.Assembly assembly, CallTrace trace,
                                                Advisor... extraAdvisors) {
-        return specFactory.build(config, sessionId, forAgent, fallbackSystem, user, assembly, extraAdvisors);
+        return specFactory.build(config, sessionId, forAgent, fallbackSystem, user, assembly, trace, extraAdvisors);
     }
 
     /**
@@ -644,12 +689,14 @@ final class AgentChatCaller {
     }
 
     /**
-     * 观测上下文（llm_call_log 落库六元组的值对象）：call/stream 两通道共用，
+     * 观测上下文（llm_call_log 落库的值对象）：call/stream 两通道共用，
      * 收敛 {@code observer.okStream/error} 的重复参数手拼（11 处）；start 每次尝试各异，
-     * 作为方法参数传入而非上下文字段。方法均为历史内联口径的逐字面等价替换。
+     * 作为方法参数传入而非上下文字段。turnId/traceId/spanId/parentSpan 为轨迹标识四元组
+     * （spanId 由调用发起点在构造本对象前生成）。方法均为历史内联口径的逐字面等价替换。
      */
     private record CallContext(LlmCallObserver observer, String sessionId, String forAgent,
-                               String model, PromptAssembler.PromptAttachments attachments) {
+                               String model, PromptAssembler.PromptAttachments attachments,
+                               String turnId, String traceId, String spanId, String parentSpan) {
 
         /** 成功观测对：落库 + 账本估算兜底入账（无真实 usage 帧；ledger null 直通）。
          *  firstTokenAt 为首个 token 到达的绝对时间戳（0=无/SYNC 通道），与 start 差值即 TTFT。
@@ -657,23 +704,26 @@ final class AgentChatCaller {
         void ok(BudgetLedger ledger, long start, String content, Usage usage, long firstTokenAt,
                 int attempt, int maxAttempts) {
             observer.okStream(sessionId, forAgent, model, start, content, usage, attachments, firstTokenAt,
-                    attempt, maxAttempts);
+                    attempt, maxAttempts, turnId, traceId, spanId, parentSpan);
             recordEstimatedIfNoUsage(ledger, content, usage);
         }
 
         /** 失败观测（stream=true：两通道底座均为流式信道） */
         void error(long start, Exception e, int attempt, int maxAttempts) {
-            observer.error(sessionId, forAgent, model, true, start, e, attachments, attempt, maxAttempts);
+            observer.error(sessionId, forAgent, model, true, start, e, attachments, attempt, maxAttempts,
+                    turnId, traceId, spanId, parentSpan);
         }
 
         /** 去工具重试变体：工具/MCP 名单置空、技能保留（llm_call_log blankTools 口径） */
         CallContext blankTools() {
-            return new CallContext(observer, sessionId, forAgent, model, attachments.blankTools());
+            return new CallContext(observer, sessionId, forAgent, model, attachments.blankTools(),
+                    turnId, traceId, spanId, parentSpan);
         }
 
         /** model 查表解析后派生（stream 入口取消早退发生在查表前，model 尚为 null） */
         CallContext withModel(String newModel) {
-            return new CallContext(observer, sessionId, forAgent, newModel, attachments);
+            return new CallContext(observer, sessionId, forAgent, newModel, attachments,
+                    turnId, traceId, spanId, parentSpan);
         }
     }
 

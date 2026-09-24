@@ -118,6 +118,12 @@ export interface ToolCallItem {
   durationMs: number | null
   errorMsg: string | null
   createdAt: string | null
+  /** 所属轮次(一条用户消息触发的完整处理);旧数据/submit 直发为 null */
+  turnId?: string | null
+  /** 所属执行链(一次 Agent 执行整体);旧数据为 null */
+  traceId?: string | null
+  /** 父 LLM 调用的 span_id;根调用/旧数据为 null(前端缺失时按根缩进) */
+  parentSpan?: string | null
 }
 
 /** LLM 调用观测条目(GET /api/llm-calls?sessionId=;对齐 LlmCallLogEntity 序列化) */
@@ -138,4 +144,12 @@ export interface LlmCallItem {
   cachedTokens?: number | null
   attempt?: number | null
   maxAttempts?: number | null
+  /** 所属轮次(一条用户消息触发的完整处理);旧数据/submit 直发为 null */
+  turnId?: string | null
+  /** 所属执行链(一次 Agent 执行整体);route-judge/memory-profile 为 null */
+  traceId?: string | null
+  /** 本次调用的 span 标识(发起前生成);旧数据为 null */
+  spanId?: string | null
+  /** 父调用 span_id;根调用/旧数据为 null(前端缺失时按根缩进) */
+  parentSpan?: string | null
 }

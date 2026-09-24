@@ -162,7 +162,7 @@ public class GeneralAssistantAgent implements Agent {
     public String execute(Goal goal) {
         log.info("AI agent '{}' 开始处理目标: {}", name(), goal.objective());
         String reply = chatCaller.callWithAssembly(goal.sessionId(), agentName, DEFAULT_SYSTEM_PROMPT,
-                goal.objective(), assemblyPathA(null), new Advisor[0], null, null);
+                goal.objective(), assemblyPathA(null), new Advisor[0], null, null, CallTrace.fromGoal(goal));
         log.info("AI agent '{}' 得到回复: {}", name(), reply);
         return reply;
     }
@@ -176,7 +176,7 @@ public class GeneralAssistantAgent implements Agent {
     public void executeStream(Goal goal, Consumer<String> onToken) {
         log.info("AI agent '{}' 开始流式处理目标: {}", name(), goal.objective());
         chatCaller.streamWithAssembly(goal.sessionId(), agentName, DEFAULT_SYSTEM_PROMPT, goal.objective(),
-                onToken, assemblyPathA(null), new Advisor[0], null, null);
+                onToken, assemblyPathA(null), new Advisor[0], null, null, CallTrace.fromGoal(goal));
         log.info("AI agent '{}' 流式输出完成", name());
     }
 
@@ -191,6 +191,8 @@ public class GeneralAssistantAgent implements Agent {
         log.info("AI agent '{}' 开始响应式流式处理目标: {}", name(), goal.objective());
         Sinks.Many<String> toolEvents = Sinks.many().unicast().onBackpressureBuffer();
         long start = System.currentTimeMillis();
+        // spanId 在调用发起前生成（本线程，纯内存）；turnId/traceId 取自 Goal，直答为根调用 parentSpan=null
+        String spanId = CallTrace.newSpanId();
         StringBuilder collected = new StringBuilder();
         // 流式异常的真实原因（供应商 4xx/5xx 报错、读超时等）在 Flux 错误通道里，
         // doFinally 只有信号没有异常体——用 doOnError 抓住真实 Throwable 供观测落库
@@ -207,10 +209,11 @@ public class GeneralAssistantAgent implements Agent {
         // 观测名单装配期计算一次（llm_call_log 三名单列，与 AgentChatCaller 内聚口径一致）
         PromptAssembler.PromptAttachments attachments = chatCaller.attachmentsFor(agentName, assembly);
         // 端点无响应兜底（空闲超时 + 失败丢池）：浏览器 SSE 主回答与阻塞路径共用同一层保护
+        // trace 带 spanId 下传 spec 组装：工具侧经 ToolContext 关联本调用（parent_span=spanId）
         Flux<String> content = chatCaller.tokenStreamWithWatchdog(
                         chatCaller.buildSpec(config, goal.sessionId(), agentName, DEFAULT_SYSTEM_PROMPT,
                                 goal.objective(),
-                                assembly),
+                                assembly, CallTrace.fromGoal(goal).withSpan(spanId)),
                         usageRef, null, null, firstTokenAt, config.model())
                 .doOnNext(collected::append)
                 .doOnError(streamError::set)
@@ -232,7 +235,8 @@ public class GeneralAssistantAgent implements Agent {
                         err = null;
                     }
                     recordCall(goal.sessionId(), true, err == null,
-                            usageRef.get(), collected, start, err, attachments, firstTokenAt.get());
+                            usageRef.get(), collected, start, err, attachments, firstTokenAt.get(),
+                            goal.turnId(), goal.traceId(), spanId, null);
                     BranchProgressListener.tryCompleteSerialized(toolEvents);
                 });
         return content.mergeWith(toolEvents.asFlux());
@@ -249,11 +253,13 @@ public class GeneralAssistantAgent implements Agent {
      * 流式 usage 非 null 时记真实 token，无则按已收输出文本近似估算。
      * 错误描述经 {@link LlmCallRecorder#describeError} 展开原因链（含供应商响应体）。
      * 装配名单（技能/工具/MCP）由调用方装配期经 {@code chatCaller.attachmentsFor} 计算传入。
+     * turnId/traceId/spanId/parentSpan 为轨迹标识（直答为根调用，parentSpan 恒 null）。
      */
     private void recordCall(String sessionId, boolean stream, boolean ok,
                             Usage usage,
                             StringBuilder collected, long start, Throwable error,
-                            PromptAssembler.PromptAttachments attachments, long firstTokenAt) {
+                            PromptAssembler.PromptAttachments attachments, long firstTokenAt,
+                            String turnId, String traceId, String spanId, String parentSpan) {
         if (recorder == null) {
             return;
         }
@@ -279,6 +285,6 @@ public class GeneralAssistantAgent implements Agent {
                 ok && content != null && !content.isEmpty() ? content : null,
                 ok && firstTokenAt > 0 ? firstTokenAt - start : null,
                 LlmCallRecorder.extractCachedTokens(usage),
-                1, 1));
+                1, 1, turnId, traceId, spanId, parentSpan));
     }
 }

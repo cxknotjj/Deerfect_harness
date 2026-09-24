@@ -90,7 +90,7 @@ public class LlmRouteJudge implements RouteJudge {
     }
 
     @Override
-    public RouteDecision judge(String message, String sessionId) {
+    public RouteDecision judge(String message, String sessionId, String turnId) {
         if (message == null || message.isBlank()) {
             log.info("[route] message 为空 -> SIMPLE");
             return RouteDecision.SIMPLE;
@@ -102,7 +102,7 @@ public class LlmRouteJudge implements RouteJudge {
             // 失败尝试带真实错误描述，不再只记重试链的聚合结果（重试曾完全不可见）
             String content = retry.executeWithRetry(() -> doCall(message, settings),
                     (attempt, durationMs, err) -> {
-                        record(durationMs, err == null, err, message, settings, sessionId);
+                        record(durationMs, err == null, err, message, settings, sessionId, turnId);
                         // 失败即丢池：连接可能已成网络黑洞，让重试拿到全新连接而不是再挂一次
                         if (err != null) {
                             clientRegistry.invalidateLightweight(settings.model());
@@ -139,9 +139,12 @@ public class LlmRouteJudge implements RouteJudge {
                 .getText();
     }
 
-    /** judge 单次尝试观测落库（携带 sessionId 进会话轨迹；model/prompt 记实际生效值；错误经原因链展开） */
+    /**
+     * judge 单次尝试观测落库（携带 sessionId 进会话轨迹、turnId 归因到轮次；
+     * 不属于 Agent 执行树：trace/span 落 NULL。model/prompt 记实际生效值；错误经原因链展开）
+     */
     private void record(long durationMs, boolean ok, Throwable e, String message,
-                        JudgeSettings settings, String sessionId) {
+                        JudgeSettings settings, String sessionId, String turnId) {
         if (recorder == null) {
             return;
         }
@@ -150,7 +153,8 @@ public class LlmRouteJudge implements RouteJudge {
         recorder.record(new LlmCallLog(sessionId, ROUTE_AGENT, settings.model(), false, ok,
                 promptTokens, null, null, true,
                 durationMs, LlmCallRecorder.describeError(e),
-                null, null, null, null, null, null, null, null));
+                null, null, null, null, null, null, null, null,
+                turnId, null, null, null));
     }
 
     /** 解析 LLM 返回内容中的 route 字段；非法/缺失一律兜底 SIMPLE。 */

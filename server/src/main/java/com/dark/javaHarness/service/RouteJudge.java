@@ -15,6 +15,7 @@ public interface RouteJudge {
      * 判断一条用户请求应走哪条路径。内部应保证对调用方不抛异常（失败兜底 SIMPLE）。
      *
      * @param sessionId 关联会话ID（观测落库用；无会话场景可传 null）
+     * @param turnId    轮次标识（route-judge 观测行归因到轮次用；无轮次场景可传 null）
      */
-    RouteDecision judge(String message, String sessionId);
+    RouteDecision judge(String message, String sessionId, String turnId);
 }

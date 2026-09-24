@@ -11,6 +11,7 @@ import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.GoalService;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import org.slf4j.Logger;
@@ -50,11 +51,11 @@ public class AgentServiceImpl implements AgentService {
         this.goalExecutor = goalExecutor;
     }
 
-    /** 提交目标给指定 Agent 异步执行（立即返回，后台执行） */
+    /** 提交目标给指定 Agent 异步执行（立即返回，后台执行）；/submit 直发无轮次概念，turnId 落 NULL、traceId 照常生成 */
     @Override
     public Goal submit(String agentName, String objective) {
         Agent agent = requireAgent(agentName);
-        Goal goal = goalService.create(objective);
+        Goal goal = goalService.create(objective, null, null, newTraceId());
         try {
             goalExecutor.execute(() -> run(goal, agent));
         } catch (RejectedExecutionException e) {
@@ -70,14 +71,23 @@ public class AgentServiceImpl implements AgentService {
     /** 同步执行（无会话记忆）：阻塞直至完成并返回完整结果 */
     @Override
     public Goal executeSync(String agentName, String objective) {
-        return executeSync(agentName, objective, null);
+        return executeSync(agentName, objective, null, null);
     }
 
-    /** 同步执行（带会话记忆）：阻塞直至完成并返回完整结果 */
+    /** 同步执行（带会话记忆与轮次标识）：阻塞直至完成并返回完整结果；traceId 在创建 Goal 时生成 */
     @Override
-    public Goal executeSync(String agentName, String objective, String sessionId) {
+    public Goal executeSync(String agentName, String objective, String sessionId, String turnId) {
+        return executeSync(agentName, objective, sessionId, turnId, null);
+    }
+
+    /**
+     * 同步执行（显式指定调用链标识）：traceId 非空时复用（编排失败降级重答沿用编排链
+     * trace，保证一次执行链在轨迹中同树），为空则本方法内生成。
+     */
+    @Override
+    public Goal executeSync(String agentName, String objective, String sessionId, String turnId, String traceId) {
         Agent agent = requireAgent(agentName);
-        Goal goal = goalService.create(objective, sessionId);
+        Goal goal = goalService.create(objective, sessionId, turnId, reuseOrNewTrace(traceId));
         run(goal, agent);
         return goal;
     }
@@ -88,13 +98,25 @@ public class AgentServiceImpl implements AgentService {
      * 新建 goal 后路由到指定 Agent 执行。
      */
     @Override
-    public Flux<String> executeStreamReactive(String agentName, String objective, String sessionId) {
+    public Flux<String> executeStreamReactive(String agentName, String objective, String sessionId, String turnId) {
+        return executeStreamReactive(agentName, objective, sessionId, turnId, null);
+    }
+
+    /** 流式执行（显式指定调用链标识）：traceId 语义同 {@link #executeSync(String, String, String, String, String)} */
+    @Override
+    public Flux<String> executeStreamReactive(String agentName, String objective, String sessionId,
+                                              String turnId, String traceId) {
         Agent agent = requireAgent(agentName);
-        Goal goal = goalService.create(objective, sessionId);
+        Goal goal = goalService.create(objective, sessionId, turnId, reuseOrNewTrace(traceId));
         Flux<String> stream = streamWithLifecycle(goal, agent);
         // 仅编排路径在流首下发 goal 进度行：goalId 尽早到达 CLI（客户端断开前也能记录，/resume 免记 ID）
         return AgentConstants.MULTI_AGENT.equals(agentName)
                 ? withGoalProgress(goal, stream) : stream;
+    }
+
+    /** traceId 复用判定：非空白即复用（降级重答同链），否则新生成 */
+    private static String reuseOrNewTrace(String traceId) {
+        return traceId == null || traceId.isBlank() ? newTraceId() : traceId;
     }
 
     /** 复杂编排断点续跑：固定路由 multi-agent，复用既有 goal（检查点 threadId=goalId）。 */
@@ -195,5 +217,13 @@ public class AgentServiceImpl implements AgentService {
     /** 取异常可读原因：getMessage 为空时回退到 toString，避免失败摘要为 null */
     private String errorReason(Throwable e) {
         return e.getMessage() == null || e.getMessage().isBlank() ? e.toString() : e.getMessage();
+    }
+
+    /**
+     * 生成调用链标识 trace_id（32 位 hex UUID）：一次 Agent 执行链一个，
+     * 创建 Goal 时在调用发起线程生成（纯内存操作，无锁无 IO，观测零主链路影响）。
+     */
+    private static String newTraceId() {
+        return UUID.randomUUID().toString().replace("-", "");
     }
 }

@@ -11,7 +11,11 @@ package com.dark.javaHarness.domain;
  * @param ok          true-成功，false-失败（errorMsg 有效）
  * @param durationMs  调用耗时（毫秒）
  * @param errorMsg    失败原因（成功为 null）
+ * @param turnId      轮次标识（经 ToolContext 随调用关联；无轮次场景为 null）
+ * @param traceId     调用链标识（经 ToolContext 随调用关联；无执行链场景为 null）
+ * @param parentSpan  所属 LLM 调用的 span_id（经 ToolContext 随调用关联；缺失为 null）
  */
 public record ToolCallLog(String sessionId, String agentName, String toolName, String serverName,
-                          String argsSummary, boolean ok, long durationMs, String errorMsg) {
+                          String argsSummary, boolean ok, long durationMs, String errorMsg,
+                          String turnId, String traceId, String parentSpan) {
 }

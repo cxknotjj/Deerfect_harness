@@ -31,6 +31,13 @@ public final class ToolCallTracer {
     /** 结果事件 stage：detail 形如 {@code WriteFile ✓ 1.2s · +12/-3 行} */
     public static final String STAGE_TOOL_DONE = "tool-done";
 
+    /** ToolContext 轨迹键：轮次标识（与触发本工具的 LLM 调用一致） */
+    public static final String CTX_TURN_ID = "turnId";
+    /** ToolContext 轨迹键：调用链标识（与触发本工具的 LLM 调用一致） */
+    public static final String CTX_TRACE_ID = "traceId";
+    /** ToolContext 轨迹键：所属 LLM 调用的 span_id（工具行 parent_span 指向它） */
+    public static final String CTX_PARENT_SPAN = "parentSpan";
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     /** 参数摘要提取的候选键（按序取第一个非空标量） */
@@ -190,10 +197,10 @@ public final class ToolCallTracer {
             try {
                 String result = delegate.call(toolInput);
                 return emitterDoneAndRecord(toolInput, true, System.currentTimeMillis() - start, null,
-                        result);
+                        result, null);
             } catch (RuntimeException e) {
                 emitterDoneAndRecord(toolInput, false, System.currentTimeMillis() - start,
-                        errMsg(e), null);
+                        errMsg(e), null, null);
                 throw e;
             }
         }
@@ -205,10 +212,10 @@ public final class ToolCallTracer {
             try {
                 String result = delegate.call(toolInput, toolContext);
                 return emitterDoneAndRecord(toolInput, true, System.currentTimeMillis() - start, null,
-                        result);
+                        result, toolContext);
             } catch (RuntimeException e) {
                 emitterDoneAndRecord(toolInput, false, System.currentTimeMillis() - start,
-                        errMsg(e), null);
+                        errMsg(e), null, toolContext);
                 throw e;
             }
         }
@@ -222,15 +229,19 @@ public final class ToolCallTracer {
         }
 
         private String emitterDoneAndRecord(String toolInput, boolean ok, long costMillis,
-                String error, String result) {
+                String error, String result, ToolContext toolContext) {
             String name = delegate.getToolDefinition().name();
             if (emitter != null) {
                 emitter.accept(ProgressLine.encode(STAGE_TOOL_DONE,
                         doneDetail(name, toolInput, ok, costMillis)));
             }
             if (sink != null) {
+                // 轨迹标识经 ToolContext 关联（AgentRequestSpecFactory 发起调用时塞入）：
+                // 缺键/类型异常静默落 NULL（观测永不影响工具执行）
                 sink.accept(new ToolCallLog(sessionId, agentName, name, serverOf(delegate),
-                        argSummary(toolInput), ok, costMillis, error));
+                        argSummary(toolInput), ok, costMillis, error,
+                        ctxValue(toolContext, CTX_TURN_ID), ctxValue(toolContext, CTX_TRACE_ID),
+                        ctxValue(toolContext, CTX_PARENT_SPAN)));
             }
             return result;
         }
@@ -245,5 +256,18 @@ public final class ToolCallTracer {
     /** MCP 来源标注提取：ServerTaggedCallback 包装的回调取其 server 名，其余为 null */
     private static String serverOf(ToolCallback cb) {
         return cb instanceof ServerTaggedCallback tagged ? tagged.serverName() : null;
+    }
+
+    /** ToolContext 取字符串值：context 缺失/键缺/类型不符/异常一律静默 null（观测不影响执行） */
+    private static String ctxValue(ToolContext toolContext, String key) {
+        if (toolContext == null || toolContext.getContext() == null) {
+            return null;
+        }
+        try {
+            Object v = toolContext.getContext().get(key);
+            return v instanceof String s ? s : null;
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 }

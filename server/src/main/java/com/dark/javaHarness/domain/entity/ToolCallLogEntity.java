@@ -41,6 +41,15 @@ public class ToolCallLogEntity {
     /** 失败原因（status=ERROR 时） */
     private String errorMsg;
 
+    /** 轮次标识（经 ToolContext 随调用关联；无轮次场景为 NULL） */
+    private String turnId;
+
+    /** 调用链标识（经 ToolContext 随调用关联；无执行链场景为 NULL） */
+    private String traceId;
+
+    /** 所属 LLM 调用的 span_id（经 ToolContext 随调用关联；缺失为 NULL） */
+    private String parentSpan;
+
     /** 调用结束时间 */
     private LocalDateTime createdAt;
 }

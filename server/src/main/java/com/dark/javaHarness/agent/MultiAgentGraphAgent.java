@@ -78,6 +78,11 @@ public class MultiAgentGraphAgent implements Agent {
     /** 状态键 */
     private static final String K_OBJECTIVE = "objective";
     private static final String K_SESSION_ID = "sessionId";
+    /** 轨迹键：轮次/调用链标识（inputOf 从 Goal 注入，随图输入进状态；编排内 5 次调用共用） */
+    private static final String K_TURN_ID = "turnId";
+    private static final String K_TRACE_ID = "traceId";
+    /** 轨迹键：lead 调用的 span_id（lead 节点发起调用前生成写入；subtask/aggregate 读出作 parent_span） */
+    private static final String K_LEAD_SPAN = "leadSpanId";
     static final String K_SUBTASK_COUNT = "subtaskCount";
     static final String K_SUBTASK_PREFIX = "subtask_";
     private static final String K_SUBTASK_AGENT_PREFIX = "subtaskAgent_";
@@ -247,11 +252,17 @@ public class MultiAgentGraphAgent implements Agent {
         return agentName;
     }
 
-    /** 编排 input 组装：objective/sessionId + 预算账本（开关开启时注入共享账本） */
+    /** 编排 input 组装：objective/sessionId + 轨迹标识（turn/trace 取 Goal，null 不放键）+ 预算账本 */
     private Map<String, Object> inputOf(Goal goal) {
         Map<String, Object> input = new HashMap<>();
         input.put(K_OBJECTIVE, goal.objective());
         input.put(K_SESSION_ID, goal.sessionId());
+        if (goal.turnId() != null) {
+            input.put(K_TURN_ID, goal.turnId());
+        }
+        if (goal.traceId() != null) {
+            input.put(K_TRACE_ID, goal.traceId());
+        }
         orchestrationBudget.putLedger(input);
         return input;
     }
@@ -393,6 +404,11 @@ public class MultiAgentGraphAgent implements Agent {
         KeyStrategy replace = new ReplaceStrategy();
         strategies.put(K_OBJECTIVE, replace);
         strategies.put(K_SESSION_ID, replace);
+        // 轨迹键（Replace：续跑时同 goal 的 turn/trace 覆盖值不变；leadSpan 续跑时 input 不含该键，
+        // 沿用检查点中 lead 真实调用落下的 span——派生调用的 parent_span 始终指向真实 lead span）
+        strategies.put(K_TURN_ID, replace);
+        strategies.put(K_TRACE_ID, replace);
+        strategies.put(K_LEAD_SPAN, replace);
         strategies.put(K_SUBTASK_COUNT, replace);
         strategies.put(K_FINAL, replace);
         // 编排预算账本（可空：budget=0 时不注入；Replace 策略保证续跑时新账本覆盖旧值）
@@ -427,10 +443,16 @@ public class MultiAgentGraphAgent implements Agent {
         }
         String objective = state.value(K_OBJECTIVE, String.class).orElse("");
         String sessionId = state.value(K_SESSION_ID, String.class).orElse(null);
+        // 轨迹贯通：lead 为编排根调用（parentSpan=null），spanId 在发起前生成并写入状态键——
+        // subtask/aggregate 节点读出作各自 parent_span（续跑时沿检查点沿用，不重生成）
+        String turnId = state.value(K_TURN_ID, String.class).orElse(null);
+        String traceId = state.value(K_TRACE_ID, String.class).orElse(null);
+        String leadSpanId = CallTrace.newSpanId();
+        CallTrace leadTrace = new CallTrace(turnId, traceId, null, leadSpanId);
         String content;
         try {
             content = predictLeadLogged(sessionId, objective, cancelled,
-                    orchestrationBudget.ledgerHandle(state, true));
+                    orchestrationBudget.ledgerHandle(state, true), leadTrace);
         } catch (BudgetLedger.BudgetExceededException e) {
             log.warn("[multi-agent][lead] 编排预算超限中止拆解（已消耗 {} / 上限 {}），退化为单子任务",
                     OrchestrationBudget.ledgerValue(state), budgets.getOrchestrationBudget());
@@ -444,6 +466,7 @@ public class MultiAgentGraphAgent implements Agent {
         Map<String, Object> updates = new HashMap<>();
         int n = Math.min(items.size(), MAX_SUBTASKS);
         updates.put(K_SUBTASK_COUNT, n);
+        updates.put(K_LEAD_SPAN, leadSpanId);
         for (int i = 0; i < n; i++) {
             LeadOutputParser.Subtask item = items.get(i);
             updates.put(K_SUBTASK_PREFIX + i, item.desc());
@@ -474,10 +497,14 @@ public class MultiAgentGraphAgent implements Agent {
         }
         String expert = state.value(K_SUBTASK_AGENT_PREFIX + idx, String.class).orElse(null);
         String sessionId = state.value(K_SESSION_ID, String.class).orElse(null);
+        // 轨迹贯通：派生调用挂同一执行链（turn/trace），parent_span=lead 的 span_id
+        CallTrace trace = new CallTrace(state.value(K_TURN_ID, String.class).orElse(null),
+                state.value(K_TRACE_ID, String.class).orElse(null),
+                state.value(K_LEAD_SPAN, String.class).orElse(null), null);
         String result;
         try {
             result = predictSubtask(sessionId, task, expert, toolEmitter, cancelled,
-                    orchestrationBudget.ledgerHandle(state, true));
+                    orchestrationBudget.ledgerHandle(state, true), trace);
         } catch (BudgetLedger.BudgetExceededException e) {
             log.warn("[multi-agent][subtask-{}] 编排 token 消费已达上限（{} / {}），跳过专家调用",
                     idx, OrchestrationBudget.ledgerValue(state), budgets.getOrchestrationBudget());
@@ -511,6 +538,10 @@ public class MultiAgentGraphAgent implements Agent {
         }
         int n = state.value(K_SUBTASK_COUNT, Integer.class).orElse(0);
         String sessionId = state.value(K_SESSION_ID, String.class).orElse(null);
+        // 轨迹贯通：聚合为派生调用（parent_span=lead 的 span_id），与子任务同树
+        CallTrace trace = new CallTrace(state.value(K_TURN_ID, String.class).orElse(null),
+                state.value(K_TRACE_ID, String.class).orElse(null),
+                state.value(K_LEAD_SPAN, String.class).orElse(null), null);
         List<String> results = new ArrayList<>();
         int skipped = 0;
         for (int i = 0; i < n; i++) {
@@ -536,10 +567,10 @@ public class MultiAgentGraphAgent implements Agent {
             if (liveTokens == null) {
                 // 同步路径 cancelled 为 null（无取消语义），流式路径传共享断连标志
                 finalAnswer = predictAggregate(sessionId, user, cancelled,
-                        orchestrationBudget.ledgerHandle(state, false));
+                        orchestrationBudget.ledgerHandle(state, false), trace);
             } else {
                 finalAnswer = streamGuard.predictStreaming(sessionId, user, liveTokens, contentSent,
-                        cancelled, orchestrationBudget.ledgerHandle(state, false));
+                        cancelled, orchestrationBudget.ledgerHandle(state, false), trace);
             }
         }
         Map<String, Object> updates = new HashMap<>();
@@ -558,16 +589,16 @@ public class MultiAgentGraphAgent implements Agent {
      * 每轮 roundtrip 熔断判定 + 增量记账；可 null）。
      */
     private String predictLead(String sessionId, String objective, AtomicBoolean cancelled,
-                               BudgetLedger budgetLedger) {
+                               BudgetLedger budgetLedger, CallTrace trace) {
         return chatCaller.call(sessionId, ROLE_LEAD, OrchestrationPrompts.LEAD_FALLBACK_PROMPT, "拆解目标：" + objective,
                 null, new PromptBudgetAdvisor[]{PromptBudgetAdvisor.tail(budgets.getLeadBudget())},
-                cancelled == null ? null : cancelled::get, budgetLedger);
+                cancelled == null ? null : cancelled::get, budgetLedger, trace);
     }
 
     /** lead 拆解前日志埋点便于诊断专家指派（raw 输出统一记审计） */
     private String predictLeadLogged(String sessionId, String objective, AtomicBoolean cancelled,
-                                     BudgetLedger budgetLedger) {
-        String raw = predictLead(sessionId, objective, cancelled, budgetLedger);
+                                     BudgetLedger budgetLedger, CallTrace trace) {
+        String raw = predictLead(sessionId, objective, cancelled, budgetLedger, trace);
         log.info("[multi-agent][lead] raw 拆解输出: {}", raw.length() > 300 ? raw.substring(0, 300) + "..." : raw);
         return raw;
     }
@@ -580,7 +611,7 @@ public class MultiAgentGraphAgent implements Agent {
     private String predictSubtask(String sessionId, String task, String expert,
                                   java.util.function.Consumer<String> toolEmitter,
                                   AtomicBoolean cancelled,
-                                  BudgetLedger budgetLedger) {
+                                  BudgetLedger budgetLedger, CallTrace trace) {
         // 未指派（lead 输出旧格式或漏 agent 字段）→ 回退 general：通用兜底且持有全量工具
         String resolved = (expert == null || expert.isBlank())
                 ? AgentConstants.DEFAULT_AGENT : expert;
@@ -588,7 +619,7 @@ public class MultiAgentGraphAgent implements Agent {
         // persona 作角色段兜底传入，工具索引/工具纪律/输出约定等段由调用器组装时追加
         String persona = promptAssembler.subtaskPersona(resolved);
         return chatCaller.call(sessionId, resolved, persona, task, toolEmitter,
-                new PromptBudgetAdvisor[0], cancelled == null ? null : cancelled::get, budgetLedger);
+                new PromptBudgetAdvisor[0], cancelled == null ? null : cancelled::get, budgetLedger, trace);
     }
 
     /**
@@ -597,10 +628,10 @@ public class MultiAgentGraphAgent implements Agent {
      * budgetLedger 为 record-only 句柄（聚合不受熔断，仅记账；可 null）。
      */
     private String predictAggregate(String sessionId, String user, AtomicBoolean cancelled,
-                                    BudgetLedger budgetLedger) {
+                                    BudgetLedger budgetLedger, CallTrace trace) {
         return chatCaller.call(sessionId, ROLE_AGGREGATOR, OrchestrationPrompts.AGGREGATOR_FALLBACK_PROMPT, user,
                 null, new PromptBudgetAdvisor[]{aggregateBudgetAdvisor()},
-                cancelled == null ? null : cancelled::get, budgetLedger);
+                cancelled == null ? null : cancelled::get, budgetLedger, trace);
     }
 
     /** 聚合预算 advisor：按「【子任务N】」节边界等份额截断（禁止先到先得挤掉后面的子任务） */

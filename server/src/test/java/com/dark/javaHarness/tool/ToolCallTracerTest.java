@@ -238,6 +238,55 @@ class ToolCallTracerTest {
                 "emitter 与 sink 皆空应零开销直通");
     }
 
+    // ---- 轨迹标识经 ToolContext 关联（AgentRequestSpecFactory 塞键 → 工具行落三标识）----
+
+    /** 双参 call + ToolContext 三键齐全：工具行 turnId/traceId/parentSpan 与触发它的 LLM 调用一致 */
+    @Test
+    void trace_toolContextCarriesTurnTraceParentSpan() {
+        ToolCallback delegate = mock(ToolCallback.class);
+        when(delegate.getToolDefinition()).thenReturn(def("Tavily"));
+        when(delegate.call(anyString(), any(org.springframework.ai.chat.model.ToolContext.class)))
+                .thenReturn("search-result");
+        List<ToolCallLog> records = new ArrayList<>();
+        ToolCallback traced = ToolCallTracer.trace(List.of(delegate), null,
+                "researcher", "s9", records::add).get(0);
+
+        traced.call("{\"query\":\"竞品\"}", new org.springframework.ai.chat.model.ToolContext(
+                java.util.Map.of(ToolCallTracer.CTX_TURN_ID, "turn-abc",
+                        ToolCallTracer.CTX_TRACE_ID, "trace-abc",
+                        ToolCallTracer.CTX_PARENT_SPAN, "span-lead")));
+
+        assertEquals(1, records.size());
+        ToolCallLog r = records.get(0);
+        assertEquals("turn-abc", r.turnId(), "turnId 应与触发的 LLM 调用一致");
+        assertEquals("trace-abc", r.traceId(), "traceId 应与触发的 LLM 调用一致");
+        assertEquals("span-lead", r.parentSpan(), "parentSpan 应为触发调用的 span_id");
+    }
+
+    /** ToolContext 缺键 / 值类型异常 / 单参 call（无 context）→ 三标识静默落 NULL，执行不受影响 */
+    @Test
+    void trace_toolContextMissingOrWrongType_fallsBackToNull() {
+        ToolCallback delegate = stubDelegate("T", "ok");
+        List<ToolCallLog> records = new ArrayList<>();
+        ToolCallback traced = ToolCallTracer.trace(List.of(delegate), null,
+                "general", "s10", records::add).get(0);
+
+        // 单参 call：无 ToolContext
+        traced.call("{}");
+        // 双参 call：部分缺键 + 非字符串值（类型异常静默）
+        traced.call("{}", new org.springframework.ai.chat.model.ToolContext(
+                java.util.Map.of(ToolCallTracer.CTX_TURN_ID, "turn-xyz",
+                        ToolCallTracer.CTX_PARENT_SPAN, 42)));
+
+        assertEquals(2, records.size(), "缺键/类型异常不影响工具执行与落库");
+        assertNull(records.get(0).turnId());
+        assertNull(records.get(0).traceId());
+        assertNull(records.get(0).parentSpan());
+        assertEquals("turn-xyz", records.get(1).turnId());
+        assertNull(records.get(1).traceId(), "缺键应静默 NULL");
+        assertNull(records.get(1).parentSpan(), "非字符串值应静默 NULL");
+    }
+
     // ---- fixtures ----
 
     private static ToolCallback stubDelegate(String name, String result) {

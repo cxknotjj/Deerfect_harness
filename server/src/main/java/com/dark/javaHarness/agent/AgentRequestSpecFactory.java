@@ -14,9 +14,12 @@ import com.dark.javaHarness.service.impl.LlmCallRecorder;
 import com.dark.javaHarness.tool.DefaultToolDecorators;
 import com.dark.javaHarness.tool.ToolAssignments;
 import com.dark.javaHarness.tool.ToolCallbackDecorator;
+import com.dark.javaHarness.tool.ToolCallTracer;
 import com.dark.javaHarness.tool.ToolDecorationContext;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
 import org.springframework.ai.chat.client.ChatClient;
@@ -135,10 +138,13 @@ final class AgentRequestSpecFactory {
         this.decorators = decorators;
     }
 
-    /** 组装请求（取客户端 → system 按段组装 → 记忆只读注入 → 请求级 advisor → 选项 → 工具注入） */
+    /** 组装请求（取客户端 → system 按段组装 → 记忆只读注入 → 请求级 advisor → 选项 → 工具注入）。
+     *  trace 为轨迹标识（Task 4 工具侧关联，可 null）：非空值经 {@code .toolContext} 下传，
+     *  触发的工具调用由 ToolCallTracer 从 ToolContext 读出落 tool_call_log 三标识；
+     *  null 值不放键（无轨迹场景 Map 留空），纯内存构造观测零主链路影响。 */
     ChatClient.ChatClientRequestSpec build(AgentConfig config, String sessionId, String forAgent,
                                            String fallbackSystem, String user,
-                                           Assembly assembly, Advisor... extraAdvisors) {
+                                           Assembly assembly, CallTrace trace, Advisor... extraAdvisors) {
         // Registry 模式：凭部署模型 id 取对应厂商的 ChatClient（未绑定/未命中回退默认 DashScope）
         Long modelProviderId = config != null ? config.modelProviderId() : null;
         String model = config != null ? config.model() : null;
@@ -197,6 +203,22 @@ final class AgentRequestSpecFactory {
             options.maxTokens(assembly.maxTokens());
         }
         spec.options(options.build());
+        // 工具侧轨迹关联（Task 4）：parentSpan 键取本调用的 spanId（工具行的 parent_span
+        // 指向触发它的 LLM 调用 span），turnId/traceId 与该调用一致；全空不塞（Map 留空）
+        if (trace != null
+                && (trace.turnId() != null || trace.traceId() != null || trace.spanId() != null)) {
+            Map<String, Object> toolContext = new HashMap<>(4);
+            if (trace.turnId() != null) {
+                toolContext.put(ToolCallTracer.CTX_TURN_ID, trace.turnId());
+            }
+            if (trace.traceId() != null) {
+                toolContext.put(ToolCallTracer.CTX_TRACE_ID, trace.traceId());
+            }
+            if (trace.spanId() != null) {
+                toolContext.put(ToolCallTracer.CTX_PARENT_SPAN, trace.spanId());
+            }
+            spec.toolContext(toolContext);
+        }
         // 专家工具分配：按 agent 名注入请求级工具（与客户端 defaultTools 合并）；
         // disableTools=true 跳过（幻觉工具调用的降级重试路径）。
         // 双通道统一为 ToolCallback 单通道（@Tool 注解对象经 ToolCallbacks.from 转回调，与

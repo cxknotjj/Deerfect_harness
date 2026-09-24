@@ -6,6 +6,9 @@
  * 数据经 api 层取观测接口(listToolCalls/listLlmCalls,mock/真实自动切换),
  * 本组件纯前端消费,零后端改动。sessionId 变化即重拉;竞态用请求序号丢弃
  * 过期响应;失败降级为空态。
+ * 分段与缩进:有 turnId 的记录按轮分组渲染小节(「第 N 轮 · M 步」,N=时间序
+ * 首现顺序,纯前端推导);同轮内按 parentSpan 链逐级缩进。无 turnId 的旧数据
+ * 保持原时间线平铺,不分组不缩进。
  */
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
@@ -15,6 +18,16 @@ import type { LlmCallItem, ToolCallItem } from '../api'
 type TraceRow =
   | { kind: 'llm'; key: string; ts: number; item: LlmCallItem }
   | { kind: 'tool'; key: string; ts: number; item: ToolCallItem }
+
+/** 带缩进深度的展示行:depth = 同轮内 parentSpan 链层级(根调用 = 0) */
+type DisplayRow = { row: TraceRow; depth: number }
+/** 轨迹分段:flat = 无 turnId 的平铺段(旧数据,现状渲染);turn = 轮次小节 */
+type TraceSegment =
+  | { kind: 'flat'; key: string; rows: DisplayRow[] }
+  | { kind: 'turn'; key: string; turnNo: number; rows: DisplayRow[] }
+
+/** 每级缩进像素(层级深浅视觉可辨即可) */
+const INDENT_PX = 20
 
 const props = defineProps<{ sessionId: string }>()
 
@@ -108,6 +121,86 @@ const bands = computed(() =>
   })),
 )
 
+/** 同轮内按 parentSpan 建父子链,计算每行缩进深度(根 = 0)。
+ *  仅 LLM 行携带 spanId 作指针锚点;父 span 找不到(数据缺失)或成环时按根截断,不报错 */
+function computeDepths(turnRows: TraceRow[]): Map<string, number> {
+  const spanRow = new Map<string, TraceRow>()
+  for (const r of turnRows) {
+    const sid = r.kind === 'llm' ? r.item.spanId : null
+    if (sid) spanRow.set(sid, r)
+  }
+  const depths = new Map<string, number>()
+  for (const r of turnRows) {
+    // 沿 parentSpan 逐级上爬;seen 防御环状指针,深度上限兜底脏数据
+    const seen = new Set<string>([r.key])
+    let cur: TraceRow = r
+    let depth = 0
+    while (depth < 32) {
+      const pid = cur.item.parentSpan
+      const parent = pid ? spanRow.get(pid) : undefined
+      if (!parent || seen.has(parent.key)) break
+      seen.add(parent.key)
+      cur = parent
+      depth++
+    }
+    depths.set(r.key, depth)
+  }
+  return depths
+}
+
+/**
+ * 展示分段:时间线里 turnId 非空的记录归入轮次小节(同一 turnId 聚合一段,
+ * 出现在其首条记录的时间位置,轮次号 N = 时间序首现顺序),turnId 为空的
+ * 旧数据行保持原位平铺、深度恒 0。整个会话都没有 turnId 时退化为单一平铺段,
+ * 渲染结果与旧版完全一致。
+ */
+const segments = computed<TraceSegment[]>(() => {
+  const all = rows.value
+  const turnRows = new Map<string, TraceRow[]>()
+  const turnNo = new Map<string, number>()
+  for (const r of all) {
+    const tid = r.item.turnId
+    if (!tid) continue
+    const bucket = turnRows.get(tid)
+    if (bucket) bucket.push(r)
+    else turnRows.set(tid, [r])
+    if (!turnNo.has(tid)) turnNo.set(tid, turnNo.size + 1)
+  }
+  if (turnRows.size === 0) {
+    return [{ kind: 'flat', key: 'flat', rows: all.map((row) => ({ row, depth: 0 })) }]
+  }
+  const segs: TraceSegment[] = []
+  const emitted = new Set<string>()
+  let flatBuf: DisplayRow[] = []
+  let flatSeq = 0
+  const flushFlat = (): void => {
+    if (flatBuf.length > 0) {
+      segs.push({ kind: 'flat', key: `flat-${flatSeq++}`, rows: flatBuf })
+      flatBuf = []
+    }
+  }
+  for (const r of all) {
+    const tid = r.item.turnId
+    if (!tid) {
+      flatBuf.push({ row: r, depth: 0 })
+      continue
+    }
+    if (emitted.has(tid)) continue
+    emitted.add(tid)
+    flushFlat()
+    const list = turnRows.get(tid)!
+    const depths = computeDepths(list)
+    segs.push({
+      kind: 'turn',
+      key: `turn-${tid}`,
+      turnNo: turnNo.get(tid)!,
+      rows: list.map((row) => ({ row, depth: depths.get(row.key) ?? 0 })),
+    })
+  }
+  flushFlat()
+  return segs
+})
+
 /** 毫秒 → 紧凑时长:812ms / 4.2s / 4m25s */
 function fmtMs(ms: number | null | undefined): string {
   if (ms == null) return '—'
@@ -161,43 +254,50 @@ function fmtTokenFlow(p: number | null, c: number | null): string | null {
         ></span>
       </div>
       <div class="trace-list">
-        <div
-          v-for="r in rows"
-          :key="r.key"
-          class="trace-row"
-          :class="{ 'is-error': r.item.status === 'ERROR', 'is-expanded': expandedKey === r.key }"
-          @dblclick="toggleExpand(r.key)"
-        >
-          <span class="trace-kind" :class="`is-${r.kind}`">{{ r.kind === 'llm' ? 'LLM' : 'TOOL' }}</span>
-          <template v-if="r.kind === 'llm'">
-            <span class="trace-name" :title="r.item.model ?? ''">{{ r.item.model ?? 'LLM' }}</span>
-            <span class="trace-meta">
-              <template v-if="fmtCreatedAt(r.item.createdAt)">{{ fmtCreatedAt(r.item.createdAt) }} · </template>{{ r.item.agentName ?? '—' }} · {{ r.item.callKind === 'STREAM' ? '流式' : '同步' }}
-              · {{ fmtMs(r.item.durationMs) }}<template v-if="fmtTokenFlow(r.item.promptTokens, r.item.completionTokens) !== null">
-                · {{ fmtTokenFlow(r.item.promptTokens, r.item.completionTokens) }}</template><template v-if="r.item.firstTokenMs != null">
-                · 首 token {{ fmtMs(r.item.firstTokenMs) }}</template><template v-if="r.item.cachedTokens != null">
-                · 缓存 {{ fmtTokens(r.item.cachedTokens) }} tok</template><template v-if="(r.item.attempt ?? 1) > 1">
-                · 尝试 {{ r.item.attempt }}/{{ r.item.maxAttempts ?? '?' }}</template>
-            </span>
-            <span
-              v-if="r.item.errorMsg || r.item.outputSummary"
-              class="trace-detail"
-              :title="r.item.errorMsg ?? r.item.outputSummary ?? ''"
-            >{{ r.item.errorMsg ?? r.item.outputSummary }}</span>
-          </template>
-          <template v-else>
-            <span class="trace-name" :title="r.item.toolName ?? ''">{{ r.item.toolName ?? 'TOOL' }}</span>
-            <span class="trace-meta">
-              <template v-if="fmtCreatedAt(r.item.createdAt)">{{ fmtCreatedAt(r.item.createdAt) }} · </template>{{ r.item.agentName ?? '—' }} · {{ fmtMs(r.item.durationMs) }}
-              <template v-if="r.item.serverName"> · {{ r.item.serverName }}</template>
-            </span>
-            <span class="trace-detail" :title="r.item.errorMsg ?? r.item.argsSummary ?? ''">
-              {{ r.item.errorMsg ?? r.item.argsSummary }}
-            </span>
+          <!-- 分段渲染:轮次段先出「第 N 轮 · M 步」标题,平铺段(旧数据)无标题;行解构保持原标记 -->
+          <template v-for="seg in segments" :key="seg.key">
+            <div v-if="seg.kind === 'turn'" class="trace-turn-head">
+              第 {{ seg.turnNo }} 轮 · {{ seg.rows.length }} 步
+            </div>
+            <div
+              v-for="{ row: r, depth } in seg.rows"
+              :key="r.key"
+              class="trace-row"
+              :class="{ 'is-error': r.item.status === 'ERROR', 'is-expanded': expandedKey === r.key }"
+              :style="depth > 0 ? { marginLeft: `${depth * INDENT_PX}px` } : undefined"
+              @dblclick="toggleExpand(r.key)"
+            >
+              <span class="trace-kind" :class="`is-${r.kind}`">{{ r.kind === 'llm' ? 'LLM' : 'TOOL' }}</span>
+              <template v-if="r.kind === 'llm'">
+                <span class="trace-name" :title="r.item.model ?? ''">{{ r.item.model ?? 'LLM' }}</span>
+                <span class="trace-meta">
+                  <template v-if="fmtCreatedAt(r.item.createdAt)">{{ fmtCreatedAt(r.item.createdAt) }} · </template>{{ r.item.agentName ?? '—' }} · {{ r.item.callKind === 'STREAM' ? '流式' : '同步' }}
+                  · {{ fmtMs(r.item.durationMs) }}<template v-if="fmtTokenFlow(r.item.promptTokens, r.item.completionTokens) !== null">
+                    · {{ fmtTokenFlow(r.item.promptTokens, r.item.completionTokens) }}</template><template v-if="r.item.firstTokenMs != null">
+                    · 首 token {{ fmtMs(r.item.firstTokenMs) }}</template><template v-if="r.item.cachedTokens != null">
+                    · 缓存 {{ fmtTokens(r.item.cachedTokens) }} tok</template><template v-if="(r.item.attempt ?? 1) > 1">
+                    · 尝试 {{ r.item.attempt }}/{{ r.item.maxAttempts ?? '?' }}</template>
+                </span>
+                <span
+                  v-if="r.item.errorMsg || r.item.outputSummary"
+                  class="trace-detail"
+                  :title="r.item.errorMsg ?? r.item.outputSummary ?? ''"
+                >{{ r.item.errorMsg ?? r.item.outputSummary }}</span>
+              </template>
+              <template v-else>
+                <span class="trace-name" :title="r.item.toolName ?? ''">{{ r.item.toolName ?? 'TOOL' }}</span>
+                <span class="trace-meta">
+                  <template v-if="fmtCreatedAt(r.item.createdAt)">{{ fmtCreatedAt(r.item.createdAt) }} · </template>{{ r.item.agentName ?? '—' }} · {{ fmtMs(r.item.durationMs) }}
+                  <template v-if="r.item.serverName"> · {{ r.item.serverName }}</template>
+                </span>
+                <span class="trace-detail" :title="r.item.errorMsg ?? r.item.argsSummary ?? ''">
+                  {{ r.item.errorMsg ?? r.item.argsSummary }}
+                </span>
+              </template>
+            </div>
           </template>
         </div>
-      </div>
-    </template>
-    <div v-else class="trace-empty">{{ loading ? '加载中…' : '此会话暂无调用记录' }}</div>
+      </template>
+      <div v-else class="trace-empty">{{ loading ? '加载中…' : '此会话暂无调用记录' }}</div>
   </div>
 </template>

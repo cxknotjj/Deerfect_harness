@@ -19,6 +19,7 @@ import com.dark.javaHarness.service.RouteJudge;
 import com.dark.javaHarness.service.SessionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -93,6 +94,8 @@ public class ChatServiceImpl implements ChatService {
     public ChatResponse chat(ChatRequest request) {
         // 发送时刻在入口捕获（写回 user 消息快照用，历史回显真实发送时间）
         long userSentAt = System.currentTimeMillis();
+        // 轮次标识：一条用户消息触发的完整处理（route-judge + 直答/编排 + 可能的降级重答）共用
+        String turnId = newTurnId();
         // 无 sessionId 时自动建档（session 表），会话名取首条提问
         String sessionId = request.sessionId();
         boolean newSession = false;
@@ -121,7 +124,7 @@ public class ChatServiceImpl implements ChatService {
                 : prefetchPool.submit(() -> doPrefetch(request.message(), prefetchSid));
         String resolvedAgent;
         try {
-            resolvedAgent = resolveAgent(request.message(), sessionId);
+            resolvedAgent = resolveAgent(request.message(), sessionId, turnId);
             awaitPrefetch(prefetch);
         } finally {
             if (prefetchPool != null) {
@@ -129,12 +132,12 @@ public class ChatServiceImpl implements ChatService {
             }
         }
 
-        Goal goal = agentService.executeSync(resolvedAgent, request.message(), sessionId);
+        Goal goal = agentService.executeSync(resolvedAgent, request.message(), sessionId, turnId);
         // COMPLEX 编排失败降级（同步路径无客户端断开，FAILED 即编排自身失败）：
         // 降级为会话 Agent 单模型重答一次，与流式 withComplexFallback 同语义，一层兜底不递归
         if (complexFallbackEnabled && GoalStatus.FAILED == goal.status()
                 && AgentConstants.MULTI_AGENT.equals(resolvedAgent)) {
-            return chatWithComplexFallback(goal, request, sessionId, newSession, userSentAt);
+            return chatWithComplexFallback(goal, request, sessionId, newSession, userSentAt, turnId);
         }
         writeBackContext(sessionId, request.message(), goal, userSentAt);
 
@@ -151,10 +154,13 @@ public class ChatServiceImpl implements ChatService {
      * 重答失败原因两段（与流式 {@link #withComplexFallback} 错误拼接口径一致）。
      */
     private ChatResponse chatWithComplexFallback(Goal orchestration, ChatRequest request,
-                                                 String sessionId, boolean newSession, long userSentAt) {
+                                                 String sessionId, boolean newSession, long userSentAt,
+                                                 String turnId) {
         log.warn("[route] 编排失败（goal={}），降级单模型重答：{}", orchestration.id(), orchestration.summary());
         String fallbackAgent = sessionAgentName(sessionId);
-        Goal retry = agentService.executeSync(fallbackAgent, request.message(), sessionId);
+        // 降级重答仍属同一轮同一执行链：turnId 沿用本轮值，traceId 复用编排 Goal 的（轨迹同树）
+        Goal retry = agentService.executeSync(fallbackAgent, request.message(), sessionId, turnId,
+                orchestration.traceId());
         writeBackContext(sessionId, request.message(), retry, userSentAt);
         if (retry.status() == GoalStatus.FAILED) {
             return ChatResponse.failure(sessionId, newSession, retry.id(),
@@ -199,6 +205,9 @@ public class ChatServiceImpl implements ChatService {
 
     /** 实际流式编排（限流包裹层内）：无 sessionId 时在 boundedElastic 上自动建档 */
     private Flux<String> streamReactiveInternal(ChatRequest request) {
+        // 轮次/调用链标识：与同步 chat 同口径，一轮（含降级重答）共用；纯内存生成，订阅前即确定
+        String turnId = newTurnId();
+        String traceId = newTurnId();
         String existing = request.sessionId();
         boolean needNew = existing == null || existing.isBlank();
         Mono<SessionCtx> sessionMono = needNew
@@ -234,18 +243,18 @@ public class ChatServiceImpl implements ChatService {
                                 : prefetchPool.submit(() -> doPrefetch(request.message(), ctx.sid()));
                         String resolvedAgent;
                         try {
-                            resolvedAgent = resolveAgent(request.message(), ctx.sid());
+                            resolvedAgent = resolveAgent(request.message(), ctx.sid(), turnId);
                             awaitPrefetch(prefetch);
                         } finally {
                             if (prefetchPool != null) {
                                 prefetchPool.shutdown();
                             }
                         }
-                        Flux<String> agentStream = agentService.executeStreamReactive(resolvedAgent, request.message(), ctx.sid());
+                        Flux<String> agentStream = agentService.executeStreamReactive(resolvedAgent, request.message(), ctx.sid(), turnId, traceId);
                         // COMPLEX 编排失败降级：编排自身异常（客户端断开走 cancel，不触发 onErrorResume）时
                         // 降级为会话 Agent 单模型重答一次，一层兜底不递归
                         if (complexFallbackEnabled && AgentConstants.MULTI_AGENT.equals(resolvedAgent)) {
-                            agentStream = withComplexFallback(agentStream, request.message(), ctx.sid());
+                            agentStream = withComplexFallback(agentStream, request.message(), ctx.sid(), turnId, traceId);
                         }
                         // 判定结果可见化：路由去向作为进度行透出（SIMPLE → 谁直答 / COMPLEX → 编排）
                         String path = AgentConstants.MULTI_AGENT.equals(resolvedAgent)
@@ -265,12 +274,14 @@ public class ChatServiceImpl implements ChatService {
      * 重答失败保留双段错误（编排原因 + 重答原因），随 error 事件与 meta(FAILED) 透出；
      * 重答走显式单 Agent 通道（executeStreamReactive 具名 agent），不经 RouteJudge/编排二次入口。
      */
-    private Flux<String> withComplexFallback(Flux<String> orchestration, String message, String sessionId) {
+    private Flux<String> withComplexFallback(Flux<String> orchestration, String message, String sessionId,
+                                             String turnId, String traceId) {
         return orchestration.onErrorResume(e -> {
             log.warn("[route] 编排失败，降级单模型重答：{}", safeMessage(e));
             return Flux.concat(
                     Flux.just(ProgressLine.encode("编排", "失败，降级为单模型重答")),
-                    agentService.executeStreamReactive(sessionAgentName(sessionId), message, sessionId)
+                    // 降级重答仍属同一轮同一执行链：turnId/traceId 均沿用入口生成值（轨迹同树）
+                    agentService.executeStreamReactive(sessionAgentName(sessionId), message, sessionId, turnId, traceId)
                             .onErrorMap(e2 -> new IllegalStateException(
                                     "编排失败: " + safeMessage(e) + "；重答失败: " + safeMessage(e2), e2)));
         });
@@ -460,9 +471,9 @@ public class ChatServiceImpl implements ChatService {
      *
      * @return 选中的 agent 名（会话 Agent/general 或 "multi-agent"）
      */
-    private String resolveAgent(String message, String sessionId) {
+    private String resolveAgent(String message, String sessionId, String turnId) {
         try {
-            RouteDecision route = routeJudge.judge(message, sessionId);
+            RouteDecision route = routeJudge.judge(message, sessionId, turnId);
             String resolved = route == RouteDecision.COMPLEX
                     ? AgentConstants.MULTI_AGENT
                     : sessionAgentName(sessionId);
@@ -503,5 +514,13 @@ public class ChatServiceImpl implements ChatService {
         }
         String single = message.replaceAll("[\\r\\n]+", " ");
         return single.length() > 80 ? single.substring(0, 80) + "..." : single;
+    }
+
+    /**
+     * 生成轮次标识 turn_id（32 位 hex UUID）：一条用户消息触发的完整处理一个，
+     * 入口处在调用发起线程生成（纯内存操作，无锁无 IO，观测零主链路影响）。
+     */
+    private static String newTurnId() {
+        return UUID.randomUUID().toString().replace("-", "");
     }
 }

@@ -13,6 +13,10 @@ public class Goal {
     private final String objective;
     /** 会话ID：用于多轮会话记忆分组；为空表示无会话记忆 */
     private final String sessionId;
+    /** 轮次标识：一条用户消息触发的完整处理（ChatService 入口生成；/submit 直发为 null） */
+    private final String turnId;
+    /** 调用链标识：一次 Agent 执行链（创建 Goal 时由 AgentService 生成） */
+    private final String traceId;
     private GoalStatus status;
     private final LocalDateTime createdAt;
     private LocalDateTime finishedAt;
@@ -25,15 +29,23 @@ public class Goal {
 
     /** 构造目标（带会话记忆），初始状态 PENDING */
     public Goal(String id, String objective, String sessionId) {
-        this(id, objective, sessionId, GoalStatus.PENDING, LocalDateTime.now(), null, null);
+        this(id, objective, sessionId, null, null);
     }
 
-    /** 从持久化数据恢复完整状态 */
+    /** 构造目标（带会话记忆与轨迹标识），初始状态 PENDING */
+    public Goal(String id, String objective, String sessionId, String turnId, String traceId) {
+        this(id, objective, sessionId, GoalStatus.PENDING, LocalDateTime.now(), null, null, turnId, traceId);
+    }
+
+    /** 从持久化数据恢复完整状态（轨迹标识不入 goal 表，恢复为 null） */
     public Goal(String id, String objective, String sessionId,
-                GoalStatus status, LocalDateTime createdAt, LocalDateTime finishedAt, String summary) {
+                GoalStatus status, LocalDateTime createdAt, LocalDateTime finishedAt, String summary,
+                String turnId, String traceId) {
         this.id = id;
         this.objective = objective;
         this.sessionId = sessionId;
+        this.turnId = turnId;
+        this.traceId = traceId;
         this.status = status;
         this.createdAt = createdAt;
         this.finishedAt = finishedAt;
@@ -72,6 +84,16 @@ public class Goal {
     /** 关联的会话ID */
     public String sessionId() {
         return sessionId;
+    }
+
+    /** 轮次标识（一条用户消息触发的完整处理；/submit 直发为 null） */
+    public String turnId() {
+        return turnId;
+    }
+
+    /** 调用链标识（一次 Agent 执行链；持久化恢复的 Goal 为 null） */
+    public String traceId() {
+        return traceId;
     }
 
     /** 当前生命周期状态 */

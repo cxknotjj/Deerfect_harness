@@ -80,6 +80,10 @@ public class LlmCallRecorder {
         e.setCachedTokens(c.cachedTokens());
         e.setAttempt(c.attempt());
         e.setMaxAttempts(c.maxAttempts());
+        e.setTurnId(c.turnId());
+        e.setTraceId(c.traceId());
+        e.setSpanId(c.spanId());
+        e.setParentSpan(c.parentSpan());
         e.setCreatedAt(LocalDateTime.now());
         mapper.insert(e);
     }
@@ -102,6 +106,9 @@ public class LlmCallRecorder {
         e.setStatus(c.ok() ? "OK" : "ERROR");
         e.setDurationMs(c.durationMs());
         e.setErrorMsg(truncate(c.errorMsg()));
+        e.setTurnId(c.turnId());
+        e.setTraceId(c.traceId());
+        e.setParentSpan(c.parentSpan());
         e.setCreatedAt(LocalDateTime.now());
         toolCallMapper.insert(e);
     }

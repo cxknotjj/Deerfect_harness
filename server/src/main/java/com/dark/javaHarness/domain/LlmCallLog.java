@@ -24,6 +24,10 @@ import java.util.List;
  * @param cachedTokens    供应商缓存命中 token（原生 usage 无该信息为 null）
  * @param attempt         第几次尝试（1 起；无重试通道记 1；路由判定/画像为 null）
  * @param maxAttempts     重试上限（无重试通道记 1；路由判定/画像为 null）
+ * @param turnId          轮次标识，一条用户消息触发的完整处理（/submit 直发与历史数据为 null）
+ * @param traceId         调用链标识，一次 Agent 执行链（route-judge/画像等非执行树调用为 null）
+ * @param spanId          单次调用标识（调用发起前生成；观测行必有）
+ * @param parentSpan      父调用的 span_id（根调用为 null）
  */
 public record LlmCallLog(String sessionId, String agentName, String model,
                          boolean stream, boolean ok,
@@ -34,5 +38,6 @@ public record LlmCallLog(String sessionId, String agentName, String model,
                          List<String> toolNames,
                          List<String> mcpToolNames,
                          String outputSummary, Long firstTokenMs, Integer cachedTokens,
-                         Integer attempt, Integer maxAttempts) {
+                         Integer attempt, Integer maxAttempts,
+                         String turnId, String traceId, String spanId, String parentSpan) {
 }

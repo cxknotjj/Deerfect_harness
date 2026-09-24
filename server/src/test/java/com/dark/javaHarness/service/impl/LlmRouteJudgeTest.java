@@ -71,25 +71,25 @@ class LlmRouteJudgeTest {
     @Test
     void judge_whenLlmReturnsComplex_shouldReturnComplex() {
         stubContent("{\"route\":\"complex\"}");
-        assertEquals(RouteDecision.COMPLEX, judge.judge("调研竞品并输出一份报告", null));
+        assertEquals(RouteDecision.COMPLEX, judge.judge("调研竞品并输出一份报告", null, null));
     }
 
     @Test
     void judge_whenLlmReturnsSimple_shouldReturnSimple() {
         stubContent("{\"route\":\"simple\"}");
-        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null));
+        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null, null));
     }
 
     @Test
     void judge_whenLlmReturnsInvalidJson_shouldFallbackSimple() {
         stubContent("这不是合法的 JSON");
-        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null));
+        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null, null));
     }
 
     @Test
     void judge_whenLlmReturnsBlank_shouldFallbackSimple() {
         stubContent("");
-        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null));
+        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null, null));
     }
 
     /** 调用异常兜底 SIMPLE，且失败即丢弃轻量客户端缓存（连接可能已成黑洞，重试需换新连接） */
@@ -104,7 +104,7 @@ class LlmRouteJudgeTest {
         when(requestSpec.call()).thenThrow(new IllegalStateException("llm down"));
         judge = new LlmRouteJudge(clientRegistry, null, null, agentConfigProvider);
 
-        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null), "调用异常应兜底 SIMPLE 而不抛出");
+        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null, null), "调用异常应兜底 SIMPLE 而不抛出");
         verify(clientRegistry).invalidateLightweight(ROUTE_MODEL);
     }
 
@@ -116,7 +116,7 @@ class LlmRouteJudgeTest {
         props.setJudgeReadTimeoutSeconds(7);
         judge = new LlmRouteJudge(clientRegistry, null, props, agentConfigProvider);
 
-        judge.judge("你好", null);
+        judge.judge("你好", null, null);
 
         verify(clientRegistry).getLightweightByModel(ROUTE_MODEL, 7);
     }
@@ -124,8 +124,8 @@ class LlmRouteJudgeTest {
     @Test
     void judge_whenMessageBlank_shouldReturnSimpleWithoutCall() {
         judge = new LlmRouteJudge(clientRegistry, null, null, agentConfigProvider);
-        assertEquals(RouteDecision.SIMPLE, judge.judge("  ", null));
-        assertEquals(RouteDecision.SIMPLE, judge.judge(null, null));
+        assertEquals(RouteDecision.SIMPLE, judge.judge("  ", null, null));
+        assertEquals(RouteDecision.SIMPLE, judge.judge(null, null, null));
     }
 
     /** 表驱动：agent 表 route-judge 行命中时，用库中 model/prompt 判定（改库即生效） */
@@ -144,7 +144,7 @@ class LlmRouteJudgeTest {
                 List.of(new Generation(new AssistantMessage("{\"route\":\"simple\"}")))));
         judge = new LlmRouteJudge(clientRegistry, null, null, agentConfigProvider);
 
-        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null));
+        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null, null));
 
         verify(clientRegistry).getLightweightByModel("test-route-model", null);
         verify(requestSpec).system("表驱动判定提示词");
@@ -155,7 +155,7 @@ class LlmRouteJudgeTest {
     void judge_whenAgentRowMissing_shouldFallbackToConstants() {
         stubContent("{\"route\":\"simple\"}");
 
-        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null));
+        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null, null));
         verify(clientRegistry).getLightweightByModel(ROUTE_MODEL, null);
     }
 
@@ -165,7 +165,7 @@ class LlmRouteJudgeTest {
         when(agentConfigProvider.getAgentConfig("route-judge")).thenThrow(new IllegalStateException("db down"));
         stubContent("{\"route\":\"simple\"}");
 
-        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null));
+        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null, null));
         verify(clientRegistry).getLightweightByModel(ROUTE_MODEL, null);
     }
 }

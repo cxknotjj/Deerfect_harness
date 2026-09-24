@@ -9,11 +9,12 @@ import java.util.Optional;
  */
 public interface GoalService {
 
-    /** 创建目标（无会话记忆） */
-    Goal create(String objective);
-
-    /** 创建目标（带会话记忆） */
-    Goal create(String objective, String sessionId);
+    /**
+     * 创建目标（带会话记忆与轨迹标识），初始状态 PENDING。
+     * turnId 由聊天入口生成（/submit 直发为 null）；traceId 由 AgentService
+     * 创建执行链时生成——两者随 Goal 供执行链与观测贯通读取。
+     */
+    Goal create(String objective, String sessionId, String turnId, String traceId);
 
     /** 按 id 查询目标 */
     Optional<Goal> get(String id);

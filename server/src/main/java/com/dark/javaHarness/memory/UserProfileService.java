@@ -235,7 +235,7 @@ public class UserProfileService {
         sessionMapper.update(null, uw);
     }
 
-    /** 提炼调用观测落库（无会话上下文口径：sessionId 空；token 近似估算） */
+    /** 提炼调用观测落库（无会话上下文口径：sessionId 空；轨迹标识全 NULL——不属于任何轮次与执行树） */
     private void record(long durationMs, boolean ok, Throwable e, String userPrompt) {
         if (recorder == null) {
             return;
@@ -245,6 +245,7 @@ public class UserProfileService {
         recorder.record(new LlmCallLog(null, "memory-profile", PROFILE_MODEL, false, ok,
                 promptTokens, null, null, true,
                 durationMs, LlmCallRecorder.describeError(e),
-                null, null, null, null, null, null, null, null));
+                null, null, null, null, null, null, null, null,
+                null, null, null, null));
     }
 }

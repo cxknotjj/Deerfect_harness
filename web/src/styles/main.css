@@ -949,6 +949,23 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .trace-band-block.is-tool { background: var(--blueprint); opacity: 0.55; }
 .trace-band-block.is-error { background: var(--accent-warm); opacity: 1; }
 .trace-list { display: flex; flex-direction: column; }
+/* 轮次小节标题:「第 N 轮 · M 步」,mono 小字 + 延伸细线标记轮次边界 */
+.trace-turn-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: var(--blueprint);
+}
+.trace-turn-head::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--grid-line);
+}
 .trace-row {
   display: flex;
   align-items: baseline;

@@ -74,6 +74,18 @@ public class LlmCallLogEntity {
     /** 重试上限（与 LlmRetry.maxAttempts 口径一致；无重试通道记 1） */
     private Integer maxAttempts;
 
+    /** 轮次标识（一条用户消息触发的完整处理；/submit 直发与历史数据为 NULL） */
+    private String turnId;
+
+    /** 调用链标识（一次 Agent 执行链；route-judge/画像等非执行树调用为 NULL） */
+    private String traceId;
+
+    /** 单次调用标识（调用发起前生成；观测行必有） */
+    private String spanId;
+
+    /** 父调用的 span_id（根调用为 NULL） */
+    private String parentSpan;
+
     /** 调用结束时间 */
     private LocalDateTime createdAt;
 }

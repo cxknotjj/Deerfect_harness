@@ -85,7 +85,7 @@ class ChatServiceImplTest {
     void chat_withoutSessionId_shouldCreateNewSession() {
         ChatRequest req = new ChatRequest("你好", null, null);
         when(sessionService.createSession("anonymous", "你好")).thenReturn("42");
-        when(agentService.executeSync(anyString(), anyString(), anyString()))
+        when(agentService.executeSync(anyString(), anyString(), anyString(), any()))
                 .thenReturn(succeededGoal("42", "你好，我是AI"));
 
         ChatResponse resp = chatService.chat(req);
@@ -98,7 +98,7 @@ class ChatServiceImplTest {
     @Test
     void chat_withSessionId_shouldReuseSession() {
         ChatRequest req = new ChatRequest("继续说", "42", null);
-        when(agentService.executeSync(anyString(), anyString(), anyString()))
+        when(agentService.executeSync(anyString(), anyString(), anyString(), any()))
                 .thenReturn(succeededGoal("42", "好的，继续说"));
 
         ChatResponse resp = chatService.chat(req);
@@ -110,7 +110,7 @@ class ChatServiceImplTest {
     @Test
     void chat_syncSuccess_shouldWriteBackContext() {
         ChatRequest req = new ChatRequest("帮我写首诗", "7", null);
-        when(agentService.executeSync(anyString(), anyString(), anyString()))
+        when(agentService.executeSync(anyString(), anyString(), anyString(), any()))
                 .thenReturn(succeededGoal("7", "风急天高猿啸哀"));
 
         chatService.chat(req);
@@ -130,7 +130,7 @@ class ChatServiceImplTest {
         ChatRequest req = new ChatRequest("hi", "1", null);
         Goal failed = new Goal("goal-2", "hi", "1");
         failed.fail("invalid_api_key");
-        when(agentService.executeSync(anyString(), anyString(), anyString())).thenReturn(failed);
+        when(agentService.executeSync(anyString(), anyString(), anyString(), any())).thenReturn(failed);
 
         ChatResponse resp = chatService.chat(req);
 
@@ -142,7 +142,7 @@ class ChatServiceImplTest {
     void streamReactive_emitsSseTokensAndMeta() {
         ChatRequest req = new ChatRequest("hi", null, null);
         when(sessionService.createSession("anonymous", "hi")).thenReturn("50");
-        when(agentService.executeStreamReactive("general", "hi", "50"))
+        when(agentService.executeStreamReactive(eq("general"), eq("hi"), eq("50"), any(), any()))
                 .thenReturn(Flux.just("a", "b"));
 
         List<String> lines = chatService.streamReactive(req).collectList().block();
@@ -162,7 +162,7 @@ class ChatServiceImplTest {
     @Test
     void streamReactive_success_shouldWriteBackContext() {
         ChatRequest req = new ChatRequest("hi", "50", null);
-        when(agentService.executeStreamReactive("general", "hi", "50"))
+        when(agentService.executeStreamReactive(eq("general"), eq("hi"), eq("50"), any(), any()))
                 .thenReturn(Flux.just("a", "b"));
 
         chatService.streamReactive(req).collectList().block();
@@ -180,7 +180,7 @@ class ChatServiceImplTest {
     @Test
     void streamReactive_onError_shouldNotWriteBackContext() {
         ChatRequest req = new ChatRequest("hi", "50", null);
-        when(agentService.executeStreamReactive("general", "hi", "50"))
+        when(agentService.executeStreamReactive(eq("general"), eq("hi"), eq("50"), any(), any()))
                 .thenReturn(Flux.error(new IllegalStateException("boom")));
 
         chatService.streamReactive(req).collectList().block();
@@ -197,16 +197,16 @@ class ChatServiceImplTest {
         session.setAgentId(2);
         when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("writer"));
-        when(routeJudge.judge(eq("hi"), any())).thenReturn(RouteDecision.SIMPLE);
-        when(agentService.executeStreamReactive("writer", "hi", "50"))
+        when(routeJudge.judge(eq("hi"), any(), any())).thenReturn(RouteDecision.SIMPLE);
+        when(agentService.executeStreamReactive(eq("writer"), eq("hi"), eq("50"), any(), any()))
                 .thenReturn(Flux.just("writer-token"));
 
         List<String> lines = chatService.streamReactive(req).collectList().block();
 
         assertTrue(lines.contains("event: token\ndata: writer-token"), "SIMPLE 应由会话绑定 Agent 流式直答");
         verify(sessionService).switchAgent("50", 2L);
-        verify(routeJudge).judge(eq("hi"), any());
-        verify(agentService).executeStreamReactive("writer", "hi", "50");
+        verify(routeJudge).judge(eq("hi"), any(), any());
+        verify(agentService).executeStreamReactive(eq("writer"), eq("hi"), eq("50"), any(), any());
     }
 
     @Test
@@ -215,29 +215,29 @@ class ChatServiceImplTest {
         ChatRequest req = new ChatRequest("hi", "50", 99L);
         doThrow(new IllegalArgumentException("agent 不存在: 99"))
                 .when(sessionService).switchAgent("50", 99L);
-        when(routeJudge.judge(eq("hi"), any())).thenReturn(RouteDecision.SIMPLE);
-        when(agentService.executeStreamReactive("general", "hi", "50"))
+        when(routeJudge.judge(eq("hi"), any(), any())).thenReturn(RouteDecision.SIMPLE);
+        when(agentService.executeStreamReactive(eq("general"), eq("hi"), eq("50"), any(), any()))
                 .thenReturn(Flux.just("fallback-token"));
 
         List<String> lines = chatService.streamReactive(req).collectList().block();
 
         assertTrue(lines.contains("event: token\ndata: fallback-token"), "同步失败不得影响本次聊天流");
-        verify(routeJudge).judge(eq("hi"), any());
+        verify(routeJudge).judge(eq("hi"), any(), any());
     }
 
     @Test
     void streamReactive_withAgentId_complex_shouldOrchestrate() {
         // 指定 agentId + COMPLEX：照常进 multi-agent 编排（含 complexFallback 接线）
         ChatRequest req = new ChatRequest("调研竞品", "50", 2L);
-        when(routeJudge.judge(eq("调研竞品"), any())).thenReturn(RouteDecision.COMPLEX);
-        when(agentService.executeStreamReactive("multi-agent", "调研竞品", "50"))
+        when(routeJudge.judge(eq("调研竞品"), any(), any())).thenReturn(RouteDecision.COMPLEX);
+        when(agentService.executeStreamReactive(eq("multi-agent"), eq("调研竞品"), eq("50"), any(), any()))
                 .thenReturn(Flux.just("编排结果"));
 
         List<String> lines = chatService.streamReactive(req).collectList().block();
 
         verify(sessionService).switchAgent("50", 2L);
-        verify(routeJudge).judge(eq("调研竞品"), any());
-        verify(agentService).executeStreamReactive("multi-agent", "调研竞品", "50");
+        verify(routeJudge).judge(eq("调研竞品"), any(), any());
+        verify(agentService).executeStreamReactive(eq("multi-agent"), eq("调研竞品"), eq("50"), any(), any());
         assertTrue(lines.stream().anyMatch(l -> l.contains("\"stage\":\"agent\"")
                         && l.contains("\"detail\":\"multi-agent\"")),
                 "流首 agent 进度行应为 multi-agent（编排归属）");
@@ -247,13 +247,13 @@ class ChatServiceImplTest {
     void chat_shouldInvokeMainAgentRouteJudge() {
         ChatRequest req = new ChatRequest("你好", null, null);
         when(sessionService.createSession("anonymous", "你好")).thenReturn("1");
-        when(agentService.executeSync(anyString(), anyString(), anyString()))
+        when(agentService.executeSync(anyString(), anyString(), anyString(), any()))
                 .thenReturn(succeededGoal("1", "你好，我是AI"));
-        when(routeJudge.judge(eq("你好"), any())).thenReturn(RouteDecision.SIMPLE);
+        when(routeJudge.judge(eq("你好"), any(), any())).thenReturn(RouteDecision.SIMPLE);
 
         chatService.chat(req);
 
-        verify(routeJudge).judge(eq("你好"), any());
+        verify(routeJudge).judge(eq("你好"), any(), any());
     }
 
     @Test
@@ -264,16 +264,16 @@ class ChatServiceImplTest {
         session.setAgentId(2);
         when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("writer"));
-        when(routeJudge.judge(eq("hi"), any())).thenReturn(RouteDecision.SIMPLE);
-        when(agentService.executeSync("writer", "hi", "50"))
+        when(routeJudge.judge(eq("hi"), any(), any())).thenReturn(RouteDecision.SIMPLE);
+        when(agentService.executeSync(eq("writer"), eq("hi"), eq("50"), any()))
                 .thenReturn(succeededGoal("50", "writer 的回答"));
 
         ChatResponse resp = chatService.chat(req);
 
         assertEquals("SUCCEEDED", resp.status());
         verify(sessionService).switchAgent("50", 2L);
-        verify(routeJudge).judge(eq("hi"), any());
-        verify(agentService).executeSync("writer", "hi", "50");
+        verify(routeJudge).judge(eq("hi"), any(), any());
+        verify(agentService).executeSync(eq("writer"), eq("hi"), eq("50"), any());
     }
 
     @Test
@@ -283,31 +283,31 @@ class ChatServiceImplTest {
         ChatRequest req = new ChatRequest("hi", "50", 99L);
         doThrow(new IllegalArgumentException("agent 不存在: 99"))
                 .when(sessionService).switchAgent("50", 99L);
-        when(routeJudge.judge(eq("hi"), any())).thenReturn(RouteDecision.SIMPLE);
-        when(agentService.executeSync("general", "hi", "50"))
+        when(routeJudge.judge(eq("hi"), any(), any())).thenReturn(RouteDecision.SIMPLE);
+        when(agentService.executeSync(eq("general"), eq("hi"), eq("50"), any()))
                 .thenReturn(succeededGoal("50", "general 的回答"));
 
         ChatResponse resp = chatService.chat(req);
 
         assertEquals("SUCCEEDED", resp.status(), "会话同步失败不得影响本次聊天");
-        verify(routeJudge).judge(eq("hi"), any());
-        verify(agentService).executeSync("general", "hi", "50");
+        verify(routeJudge).judge(eq("hi"), any(), any());
+        verify(agentService).executeSync(eq("general"), eq("hi"), eq("50"), any());
     }
 
     @Test
     void chat_withAgentId_complex_shouldOrchestrate() {
         // 指定 agentId + COMPLEX：不再钉死单 Agent，照常进 multi-agent 编排
         ChatRequest req = new ChatRequest("调研竞品", "50", 2L);
-        when(routeJudge.judge(eq("调研竞品"), any())).thenReturn(RouteDecision.COMPLEX);
-        when(agentService.executeSync("multi-agent", "调研竞品", "50"))
+        when(routeJudge.judge(eq("调研竞品"), any(), any())).thenReturn(RouteDecision.COMPLEX);
+        when(agentService.executeSync(eq("multi-agent"), eq("调研竞品"), eq("50"), any()))
                 .thenReturn(succeededGoal("50", "编排结果"));
 
         ChatResponse resp = chatService.chat(req);
 
         assertEquals("SUCCEEDED", resp.status());
         verify(sessionService).switchAgent("50", 2L);
-        verify(routeJudge).judge(eq("调研竞品"), any());
-        verify(agentService).executeSync("multi-agent", "调研竞品", "50");
+        verify(routeJudge).judge(eq("调研竞品"), any(), any());
+        verify(agentService).executeSync(eq("multi-agent"), eq("调研竞品"), eq("50"), any());
     }
 
     /* ---------------- COMPLEX 编排失败降级重答（同步 + 流式） ---------------- */
@@ -318,7 +318,7 @@ class ChatServiceImplTest {
         chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
                 null, new StreamConnectionLimiter(1), true);
         ChatRequest req = new ChatRequest("hi", "50", null);
-        when(agentService.executeStreamReactive("general", "hi", "50"))
+        when(agentService.executeStreamReactive(eq("general"), eq("hi"), eq("50"), any(), any()))
                 .thenReturn(Flux.just("a"));  // 冷流：未订阅不发射，名额保持占用
 
         Flux<String> first = chatService.streamReactive(req);
@@ -334,13 +334,13 @@ class ChatServiceImplTest {
     @Test
     void chat_complexOrchestrationFailed_shouldFallbackToSessionAgentRetry() {
         ChatRequest req = new ChatRequest("调研竞品", "50", null);
-        when(routeJudge.judge(eq("调研竞品"), any())).thenReturn(RouteDecision.COMPLEX);
+        when(routeJudge.judge(eq("调研竞品"), any(), any())).thenReturn(RouteDecision.COMPLEX);
         Goal orchestration = new Goal("g-orch", "调研竞品", "50");
         orchestration.fail("子任务 LLM 调用超时");
         Goal retry = new Goal("g-retry", "调研竞品", "50");
         retry.succeed("重答结果");
-        when(agentService.executeSync("multi-agent", "调研竞品", "50")).thenReturn(orchestration);
-        when(agentService.executeSync("general", "调研竞品", "50")).thenReturn(retry);
+        when(agentService.executeSync(eq("multi-agent"), eq("调研竞品"), eq("50"), any())).thenReturn(orchestration);
+        when(agentService.executeSync(eq("general"), eq("调研竞品"), eq("50"), any(), any())).thenReturn(retry);
 
         ChatResponse resp = chatService.chat(req);
 
@@ -349,20 +349,20 @@ class ChatServiceImplTest {
         assertEquals("g-retry", resp.goalId(), "goalId 应为重答的 goal");
         assertEquals("general", resp.agent(), "降级重答应透出实际使用的会话 Agent");
         // 会话未绑定 Agent → sessionAgentName 回退默认 general
-        verify(agentService).executeSync("general", "调研竞品", "50");
+        verify(agentService).executeSync(eq("general"), eq("调研竞品"), eq("50"), any(), any());
     }
 
     /** 同步路径：重答也失败 → FAILED 响应，错误信息保留「编排失败 + 重答失败」两段 */
     @Test
     void chat_complexOrchestrationFailed_retryAlsoFails_shouldKeepBothErrors() {
         ChatRequest req = new ChatRequest("调研竞品", "50", null);
-        when(routeJudge.judge(eq("调研竞品"), any())).thenReturn(RouteDecision.COMPLEX);
+        when(routeJudge.judge(eq("调研竞品"), any(), any())).thenReturn(RouteDecision.COMPLEX);
         Goal orchestration = new Goal("g-orch", "调研竞品", "50");
         orchestration.fail("子任务 LLM 调用超时");
         Goal retry = new Goal("g-retry", "调研竞品", "50");
         retry.fail("重答同样超时");
-        when(agentService.executeSync("multi-agent", "调研竞品", "50")).thenReturn(orchestration);
-        when(agentService.executeSync("general", "调研竞品", "50")).thenReturn(retry);
+        when(agentService.executeSync(eq("multi-agent"), eq("调研竞品"), eq("50"), any())).thenReturn(orchestration);
+        when(agentService.executeSync(eq("general"), eq("调研竞品"), eq("50"), any(), any())).thenReturn(retry);
 
         ChatResponse resp = chatService.chat(req);
 
@@ -380,10 +380,10 @@ class ChatServiceImplTest {
     @Test
     void streamReactive_complexOrchestrationError_shouldFallbackToSessionAgentRetry() {
         ChatRequest req = new ChatRequest("调研竞品", "50", null);
-        when(routeJudge.judge(eq("调研竞品"), any())).thenReturn(RouteDecision.COMPLEX);
-        when(agentService.executeStreamReactive("multi-agent", "调研竞品", "50"))
+        when(routeJudge.judge(eq("调研竞品"), any(), any())).thenReturn(RouteDecision.COMPLEX);
+        when(agentService.executeStreamReactive(eq("multi-agent"), eq("调研竞品"), eq("50"), any(), any()))
                 .thenReturn(Flux.error(new IllegalStateException("图执行异常")));
-        when(agentService.executeStreamReactive("general", "调研竞品", "50"))
+        when(agentService.executeStreamReactive(eq("general"), eq("调研竞品"), eq("50"), any(), any()))
                 .thenReturn(Flux.just("重答A", "重答B"));
 
         List<String> lines = chatService.streamReactive(req).collectList().block();
@@ -402,10 +402,10 @@ class ChatServiceImplTest {
     @Test
     void streamReactive_complexOrchestrationError_retryAlsoFails_shouldKeepBothErrors() {
         ChatRequest req = new ChatRequest("调研竞品", "50", null);
-        when(routeJudge.judge(eq("调研竞品"), any())).thenReturn(RouteDecision.COMPLEX);
-        when(agentService.executeStreamReactive("multi-agent", "调研竞品", "50"))
+        when(routeJudge.judge(eq("调研竞品"), any(), any())).thenReturn(RouteDecision.COMPLEX);
+        when(agentService.executeStreamReactive(eq("multi-agent"), eq("调研竞品"), eq("50"), any(), any()))
                 .thenReturn(Flux.error(new IllegalStateException("图执行异常")));
-        when(agentService.executeStreamReactive("general", "调研竞品", "50"))
+        when(agentService.executeStreamReactive(eq("general"), eq("调研竞品"), eq("50"), any(), any()))
                 .thenReturn(Flux.error(new IllegalStateException("重答同样异常")));
 
         List<String> lines = chatService.streamReactive(req).collectList().block();
@@ -424,14 +424,14 @@ class ChatServiceImplTest {
     void streamReactive_shouldInvokeMainAgentRouteJudge() {
         ChatRequest req = new ChatRequest("调研竞品", null, null);
         when(sessionService.createSession("anonymous", "调研竞品")).thenReturn("50");
-        when(agentService.executeStreamReactive("multi-agent", "调研竞品", "50"))
+        when(agentService.executeStreamReactive(eq("multi-agent"), eq("调研竞品"), eq("50"), any(), any()))
                 .thenReturn(Flux.just("a"));
-        when(routeJudge.judge(eq("调研竞品"), any())).thenReturn(RouteDecision.COMPLEX);
+        when(routeJudge.judge(eq("调研竞品"), any(), any())).thenReturn(RouteDecision.COMPLEX);
 
         chatService.streamReactive(req).collectList().block();
 
-        verify(routeJudge).judge(eq("调研竞品"), any());
-        verify(agentService).executeStreamReactive(eq("multi-agent"), eq("调研竞品"), eq("50"));
+        verify(routeJudge).judge(eq("调研竞品"), any(), any());
+        verify(agentService).executeStreamReactive(eq("multi-agent"), eq("调研竞品"), eq("50"), any(), any());
     }
 
     /** 简单路径不再一律压回 general：按 session.agent_id 路由到会话绑定的 Agent */
@@ -442,14 +442,14 @@ class ChatServiceImplTest {
         session.setAgentId(10);
         when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(10L)).thenReturn(Optional.of("coder"));
-        when(routeJudge.judge(eq("你好啊"), any())).thenReturn(RouteDecision.SIMPLE);
-        when(agentService.executeStreamReactive("coder", "你好啊", "50"))
+        when(routeJudge.judge(eq("你好啊"), any(), any())).thenReturn(RouteDecision.SIMPLE);
+        when(agentService.executeStreamReactive(eq("coder"), eq("你好啊"), eq("50"), any(), any()))
                 .thenReturn(Flux.just("coder 的回答"));
 
         List<String> lines = chatService.streamReactive(req).collectList().block();
 
-        verify(agentService).executeStreamReactive("coder", "你好啊", "50");
-        verify(agentService, never()).executeStreamReactive(eq("general"), anyString(), anyString());
+        verify(agentService).executeStreamReactive(eq("coder"), eq("你好啊"), eq("50"), any(), any());
+        verify(agentService, never()).executeStreamReactive(eq("general"), anyString(), anyString(), any(), any());
         assertTrue(lines.stream().anyMatch(l -> l.contains("\"stage\":\"agent\"") && l.contains("\"detail\":\"coder\"")),
                 "流首 agent 进度行应为会话绑定 Agent，而非 general: " + lines);
     }
@@ -462,20 +462,20 @@ class ChatServiceImplTest {
         session.setAgentId(10);
         when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(10L)).thenReturn(Optional.empty());
-        when(routeJudge.judge(eq("hi"), any())).thenReturn(RouteDecision.SIMPLE);
-        when(agentService.executeStreamReactive("general", "hi", "50"))
+        when(routeJudge.judge(eq("hi"), any(), any())).thenReturn(RouteDecision.SIMPLE);
+        when(agentService.executeStreamReactive(eq("general"), eq("hi"), eq("50"), any(), any()))
                 .thenReturn(Flux.just("fallback"));
 
         List<String> lines = chatService.streamReactive(req).collectList().block();
 
-        verify(agentService).executeStreamReactive("general", "hi", "50");
+        verify(agentService).executeStreamReactive(eq("general"), eq("hi"), eq("50"), any(), any());
         assertTrue(lines.contains("event: token\ndata: fallback"), "回退 general 后流应正常输出: " + lines);
     }
 
     @Test
     void streamReactive_onError_emitsErrorEvent() {
         ChatRequest req = new ChatRequest("hi", "50", null);
-        when(agentService.executeStreamReactive("general", "hi", "50"))
+        when(agentService.executeStreamReactive(eq("general"), eq("hi"), eq("50"), any(), any()))
                 .thenReturn(Flux.error(new IllegalStateException("boom")));
 
         List<String> lines = chatService.streamReactive(req).collectList().block();
@@ -495,9 +495,9 @@ class ChatServiceImplTest {
         when(sessionService.createSession("anonymous", "调研竞品")).thenReturn("50");
         // 一条进度行（MARK 前缀 + stage\u0001detail）+ 一条内容行
         String progressRow = ProgressLine.encode("拆解", "2 个子任务已就绪");
-        when(agentService.executeStreamReactive("multi-agent", "调研竞品", "50"))
+        when(agentService.executeStreamReactive(eq("multi-agent"), eq("调研竞品"), eq("50"), any(), any()))
                 .thenReturn(Flux.just(progressRow, "最终回答A"));
-        when(routeJudge.judge(eq("调研竞品"), any())).thenReturn(RouteDecision.COMPLEX);
+        when(routeJudge.judge(eq("调研竞品"), any(), any())).thenReturn(RouteDecision.COMPLEX);
 
         List<String> lines = chatService.streamReactive(req).collectList().block();
 
@@ -521,8 +521,8 @@ class ChatServiceImplTest {
         session.setAgentId(2);
         when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("writer"));
-        when(routeJudge.judge(eq("hi"), any())).thenReturn(RouteDecision.SIMPLE);
-        when(agentService.executeStreamReactive("writer", "hi", "50"))
+        when(routeJudge.judge(eq("hi"), any(), any())).thenReturn(RouteDecision.SIMPLE);
+        when(agentService.executeStreamReactive(eq("writer"), eq("hi"), eq("50"), any(), any()))
                 .thenReturn(Flux.just("writer 的回答"));
 
         List<String> lines = chatService.streamReactive(req).collectList().block();
@@ -540,7 +540,7 @@ class ChatServiceImplTest {
     @Test
     void streamReactive_contentRowWithLineBreaks_shouldBeEscapedInSingleDataLine() {
         ChatRequest req = new ChatRequest("hi", "50", null);
-        when(agentService.executeStreamReactive("general", "hi", "50"))
+        when(agentService.executeStreamReactive(eq("general"), eq("hi"), eq("50"), any(), any()))
                 .thenReturn(Flux.just("第一段\n第二段\r\n第三段"));
 
         List<String> lines = chatService.streamReactive(req).collectList().block();
@@ -624,8 +624,8 @@ class ChatServiceImplTest {
         when(agentService.findAgentNameById(1L)).thenReturn(Optional.of("general"));
         when(agentService.getAgentConfig("general")).thenReturn(Optional.of(
                 new AgentConfig(1L, "gpt", null, "kb1")));
-        when(routeJudge.judge(eq("什么是知识库"), any())).thenReturn(RouteDecision.SIMPLE);
-        when(agentService.executeSync("general", "什么是知识库", "42"))
+        when(routeJudge.judge(eq("什么是知识库"), any(), any())).thenReturn(RouteDecision.SIMPLE);
+        when(agentService.executeSync(eq("general"), eq("什么是知识库"), eq("42"), any()))
                 .thenReturn(succeededGoal("42", "回答"));
 
         ChatResponse resp = chatService.chat(new ChatRequest("什么是知识库", "42", null));
@@ -645,7 +645,7 @@ class ChatServiceImplTest {
         when(agentService.findAgentNameById(1L)).thenReturn(Optional.of("general"));
         when(agentService.getAgentConfig("general")).thenReturn(Optional.of(
                 new AgentConfig(1L, "gpt", null, "kb1")));
-        when(agentService.executeStreamReactive("general", "hi", "50"))
+        when(agentService.executeStreamReactive(eq("general"), eq("hi"), eq("50"), any(), any()))
                 .thenReturn(Flux.just("a"));
 
         chatService.streamReactive(new ChatRequest("hi", "50", null)).collectList().block();
@@ -664,7 +664,7 @@ class ChatServiceImplTest {
         when(agentService.findAgentNameById(1L)).thenReturn(Optional.of("general"));
         when(agentService.getAgentConfig("general")).thenReturn(Optional.of(
                 new AgentConfig(1L, "gpt", null, "kb1")));
-        when(agentService.executeSync("general", "hi", "42"))
+        when(agentService.executeSync(eq("general"), eq("hi"), eq("42"), any()))
                 .thenReturn(succeededGoal("42", "回答"));
         doThrow(new RuntimeException("boom")).when(knowledgeRetriever)
                 .prefetch(eq("general"), anyString(), eq("hi"), eq(List.of("kb1")));

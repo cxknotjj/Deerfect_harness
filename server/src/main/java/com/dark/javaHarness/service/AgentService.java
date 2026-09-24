@@ -17,15 +17,30 @@ public interface AgentService {
     /** 创建一个目标并同步执行（阻塞直至完成），适合聊天等需要立即拿到结果的场景。 */
     Goal executeSync(String agentName, String objective);
 
-    /** 创建一个目标并同步执行，支持会话记忆（sessionId）。 */
-    Goal executeSync(String agentName, String objective, String sessionId);
+    /**
+     * 创建一个目标并同步执行，支持会话记忆（sessionId）与轮次标识（turnId）。
+     * turnId 由聊天入口生成并沿显式参数链传递（/submit 直发等无轮次场景传 null）；
+     * traceId 在创建 Goal 时于本服务内生成。
+     */
+    Goal executeSync(String agentName, String objective, String sessionId, String turnId);
+
+    /**
+     * 同上，另可显式指定调用链标识 traceId：非空时复用（编排失败降级重答沿用编排链
+     * trace，保证一次执行链在轨迹中同树），为空时由本服务生成。turnId 语义同上。
+     */
+    Goal executeSync(String agentName, String objective, String sessionId, String turnId, String traceId);
 
     /**
      * 创建一个目标并响应式流式执行：返回一个逐 token 产出的 {@link Flux}。
      * Flux 订阅后异步执行（内部切到 boundedElastic 隔离阻塞 DB 与 Agent 执行），
      * 完成后回写 goal 为 SUCCEEDED，出错时回写为 FAILED。
+     * turnId 语义同 {@link #executeSync(String, String, String, String)}。
      */
-    Flux<String> executeStreamReactive(String agentName, String objective, String sessionId);
+    Flux<String> executeStreamReactive(String agentName, String objective, String sessionId, String turnId);
+
+    /** 流式执行并显式指定调用链标识 traceId，语义同 {@link #executeSync(String, String, String, String, String)} */
+    Flux<String> executeStreamReactive(String agentName, String objective, String sessionId,
+                                       String turnId, String traceId);
 
     /**
      * 复杂编排断点续跑：复用既有 goal（id 即检查点 threadId），从上次检查点继续执行。

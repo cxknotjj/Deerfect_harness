@@ -25,17 +25,11 @@ public class GoalServiceImpl implements GoalService {
         this.goalMapper = goalMapper;
     }
 
-    /** 创建目标（无会话记忆） */
+    /** 创建目标（带会话记忆与轨迹标识），初始状态 PENDING；标识值由调用方生成传入 */
     @Override
-    public Goal create(String objective) {
-        return create(objective, null);
-    }
-
-    /** 创建目标（带会话记忆） */
-    @Override
-    public Goal create(String objective, String sessionId) {
+    public Goal create(String objective, String sessionId, String turnId, String traceId) {
         // UUID 保证重启/并发下主键唯一，避免内存序号与库中已有数据冲突
-        Goal goal = new Goal("goal-" + UUID.randomUUID(), objective, sessionId);
+        Goal goal = new Goal("goal-" + UUID.randomUUID(), objective, sessionId, turnId, traceId);
         goalMapper.insert(toEntity(goal));
         return goal;
     }
@@ -94,7 +88,9 @@ public class GoalServiceImpl implements GoalService {
         if (e == null) {
             return null;
         }
+        // 轨迹标识不入 goal 表，恢复为 null（resume 场景的调用链归属由编排侧处理）
         return new Goal(e.getId(), e.getObjective(), e.getSessionId(),
-                GoalStatus.valueOf(e.getStatus()), e.getCreatedAt(), e.getFinishedAt(), e.getSummary());
+                GoalStatus.valueOf(e.getStatus()), e.getCreatedAt(), e.getFinishedAt(), e.getSummary(),
+                null, null);
     }
 }
