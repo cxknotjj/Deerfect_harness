@@ -1,5 +1,7 @@
 package com.dark.javaHarness.agent;
 
+import org.springframework.ai.chat.metadata.Usage;
+
 /**
  * 编排预算账本句柄（MultiAgentGraphAgent 按节点注入，同一编排共享同一账本）：
  * <ul>
@@ -19,6 +21,21 @@ interface BudgetLedger {
 
     /** 累计消耗（estimated=true 表示含估算值，降级说明注明口径） */
     void recordUsage(int totalTokens, boolean estimated);
+
+    /**
+     * 全程无真实 usage 回包时按输出文本估算入账（estimated=true，口径与 llm_call_log.tokens_estimated
+     * 一致）；有 usage 时增量已在流帧上记账，此处不再累计（避免重复计数）。ledger 可 null 直通。
+     * （原 AgentChatCaller.recordEstimatedIfNoUsage，超长类拆分 2026-09-25 并入账本契约。）
+     */
+    static void recordEstimatedIfNoUsage(BudgetLedger ledger, String content, Usage usage) {
+        if (ledger == null) {
+            return;
+        }
+        boolean hasRealUsage = usage != null && usage.getTotalTokens() != null && usage.getTotalTokens() > 0;
+        if (!hasRealUsage) {
+            ledger.recordUsage(com.dark.javaHarness.service.impl.LlmCallRecorder.estimateTokens(content), true);
+        }
+    }
 
     /**
      * 编排预算熔断异常：超限断流/拒绝发起新调用时抛出。编排节点捕获后写

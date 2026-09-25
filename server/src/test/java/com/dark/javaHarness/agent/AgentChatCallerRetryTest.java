@@ -159,7 +159,7 @@ class AgentChatCallerRetryTest {
             calls.incrementAndGet();
             // 第 2 个 token 到达时模拟客户端断连置位
             return fluxOf("a", "b", "c").doOnNext(resp -> {
-                if ("b".equals(AgentChatCaller.contentOf(resp))) {
+                if ("b".equals(AgentChatPipeline.contentOf(resp))) {
                     cancelled.set(true);
                 }
             });

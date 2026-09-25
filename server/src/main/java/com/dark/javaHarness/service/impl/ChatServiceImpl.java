@@ -6,7 +6,6 @@ import com.dark.javaHarness.domain.RouteDecision;
 import com.dark.javaHarness.domain.dto.ChatRequest;
 import com.dark.javaHarness.domain.dto.ChatResponse;
 import com.dark.javaHarness.domain.dto.KnowledgeSource;
-import com.dark.javaHarness.domain.dto.SseMeta;
 import com.dark.javaHarness.enums.AgentConstants;
 import com.dark.javaHarness.enums.GoalStatus;
 import com.dark.javaHarness.enums.SseProtocol;
@@ -17,13 +16,9 @@ import com.dark.javaHarness.service.ChatService;
 import com.dark.javaHarness.service.GoalService;
 import com.dark.javaHarness.service.RouteJudge;
 import com.dark.javaHarness.service.SessionService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -44,9 +39,6 @@ public class ChatServiceImpl implements ChatService {
 
     /** SSE 事件名/结束标记等协议常量统一在 {@link SseProtocol}（与 CLI 端共用） */
 
-    /** Jackson 序列化（SseMeta 为 record，默认序列化即可） */
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-
     private final AgentService agentService;
     private final SessionService sessionService;
     private final RouteJudge routeJudge;
@@ -60,8 +52,8 @@ public class ChatServiceImpl implements ChatService {
     /** COMPLEX 编排失败降级开关（app.chat.complex-fallback.enabled）：开启时编排失败降级为会话 Agent 单模型重答一次 */
     private final boolean complexFallbackEnabled;
 
-    /** 预取汇合窗口（秒）：预取内部已被 app.knowledge.search-timeout-seconds 限时，本值仅为快速 judge 场景的等待上限 */
-    private static final long PREFETCH_GRACE_SECONDS = 2;
+    /** RAG 入口预取器（共享池 + 会话绑定解析，超长类拆分 2026-09-25 拆出）；知识库禁用时为 null */
+    private final RagPrefetcher ragPrefetcher;
 
     public ChatServiceImpl(AgentService agentService, SessionService sessionService,
                            RouteJudge routeJudge, GoalService goalService) {
@@ -84,20 +76,8 @@ public class ChatServiceImpl implements ChatService {
         this.knowledgeRetriever = knowledgeRetriever;
         this.streamConnectionLimiter = streamConnectionLimiter;
         this.complexFallbackEnabled = complexFallbackEnabled;
-        this.prefetchPool = knowledgeRetriever == null ? null
-                : new java.util.concurrent.ThreadPoolExecutor(
-                        2, 2, 60, java.util.concurrent.TimeUnit.SECONDS,
-                        new java.util.concurrent.LinkedBlockingQueue<>(100),
-                        r -> {
-                            Thread t = new Thread(r, "rag-prefetch");
-                            t.setDaemon(true);
-                            return t;
-                        },
-                        // 饱和静默丢弃:预取是纯加速,被丢的请求退化为组装期现查(与汇合超时同语义)
-                        new java.util.concurrent.ThreadPoolExecutor.DiscardPolicy());
-        if (prefetchPool != null) {
-            prefetchPool.allowCoreThreadTimeOut(true);
-        }
+        this.ragPrefetcher = knowledgeRetriever == null
+                ? null : new RagPrefetcher(knowledgeRetriever, agentService, this::sessionAgentName);
     }
 
     private static final Logger log = LoggerFactory.getLogger(ChatServiceImpl.class);
@@ -121,12 +101,7 @@ public class ChatServiceImpl implements ChatService {
         // 指定 Agent 不再跳过 RouteJudge——SIMPLE 由会话绑定 Agent（即刚切换的）直答，
         // COMPLEX 照常进 multi-agent 编排（指定 Agent 仅是编排失败降级重答的落点）
         if (request.agentId() != null) {
-            try {
-                sessionService.switchAgent(sessionId, request.agentId());
-            } catch (Exception e) {
-                log.warn("[chat] 会话 Agent 同步失败（不影响本次路由）sid={} agentId={}: {}",
-                        sessionId, request.agentId(), safeMessage(e));
-            }
+            bindAgentQuietly(sessionId, request.agentId());
         }
         // judge 与 RAG 预取无数据依赖（都只吃用户原始消息）：预取先行提交、与 judge 并行，
         // judge 完成后小幅汇合——预取结果进 KnowledgeRetriever 请求级缓存，组装期短路命中
@@ -168,6 +143,19 @@ public class ChatServiceImpl implements ChatService {
         }
         return ChatResponse.success(sessionId, newSession, retry.id(), retry.summary(),
                 recentKnowledgeSources(sessionId), fallbackAgent);
+    }
+
+    /**
+     * 会话内切换 Agent（副作用绑定）：失败只告警不中断，随后统一判定按会话绑定继续路由。
+     * sync/stream 两入口共用（原两份重复 try-catch 收编，超长类拆分 2026-09-25）。
+     */
+    private void bindAgentQuietly(String sessionId, Long agentId) {
+        try {
+            sessionService.switchAgent(sessionId, agentId);
+        } catch (Exception e) {
+            log.warn("[chat] 会话 Agent 同步失败（不影响本次路由）sid={} agentId={}: {}",
+                    sessionId, agentId, safeMessage(e));
+        }
     }
 
     /** 同步路径写回（user 消息记录真实发送时刻，历史回显时间不失真）：仅成功轮写（FAILED/取消不落上下文） */
@@ -226,12 +214,7 @@ public class ChatServiceImpl implements ChatService {
             // 会话档案与实际路由保持一致（新建会话则从默认 1 修正为请求指定的 Agent）。
             // 失败只告警不中断：随后统一判定按会话绑定（无绑定/失效回退 general）继续路由
             if (request.agentId() != null) {
-                try {
-                    sessionService.switchAgent(ctx.sid(), request.agentId());
-                } catch (Exception e) {
-                    log.warn("[chat] 会话 Agent 同步失败（不影响本次路由）sid={} agentId={}: {}",
-                            ctx.sid(), request.agentId(), safeMessage(e));
-                }
+                bindAgentQuietly(ctx.sid(), request.agentId());
             }
             // 路由统一判定（指定 Agent 不再跳过）：SIMPLE → 会话绑定 Agent 直答，
             // COMPLEX → multi-agent 编排（指定 Agent 仅是编排失败降级重答的落点）
@@ -256,7 +239,7 @@ public class ChatServiceImpl implements ChatService {
                                 : "SIMPLE，走 " + resolvedAgent + " 直答";
                         return Flux.concat(
                                 Flux.just(ProgressLine.encode("路由", "判定完成：" + path)),
-                                withAgentProgress(resolvedAgent, agentStream));
+                                SseEncoder.withAgentProgress(resolvedAgent, agentStream));
                     }).subscribeOn(Schedulers.boundedElastic())
                       .flatMapMany(flux -> flux)),
                     ctx.sid(), ctx.newSession(), request.message(), null);
@@ -302,22 +285,13 @@ public class ChatServiceImpl implements ChatService {
         streamConnectionLimiter.tryAcquire();
         Flux<String> flux;
         try {
-            flux = toSseBody(withAgentProgress(AgentConstants.MULTI_AGENT, agentService.resumeStreamReactive(goal)),
-                    goal.sessionId(), false, goal.objective(), goal.id());
+            flux = toSseBody(SseEncoder.withAgentProgress(AgentConstants.MULTI_AGENT, agentService.resumeStreamReactive(goal)),
+                goal.sessionId(), false, goal.objective(), goal.id());
         } catch (RuntimeException e) {
             streamConnectionLimiter.release();
             throw e;
         }
         return flux.doFinally(sig -> streamConnectionLimiter.release());
-    }
-
-    /**
-     * 流首插入 agent 归属进度行（stage=agent, detail=agentName）：CLI 在首个回答 token 前
-     * 渲染「agentName&gt; 」前缀，与用户侧「你&gt; 」提示符对称——智能分流下实际路由的 Agent
-     * 只有服务端知道。进度行走旁路协议，不计入会话摘要与 goal.summary。
-     */
-    private static Flux<String> withAgentProgress(String agentName, Flux<String> agentTokens) {
-        return Flux.concat(Flux.just(ProgressLine.encode("agent", agentName)), agentTokens);
     }
 
     /**
@@ -333,12 +307,15 @@ public class ChatServiceImpl implements ChatService {
         // doOnNext 收集完整回复，流正常结束后由 doOnComplete 统一写回会话记忆（保持多轮记忆语义）
         // 其中「进度行」（以 ProgressLine.MARK 开头，多 Agent 编排的阶段反馈）不计入会话摘要
         StringBuilder full = new StringBuilder();
+        // meta.sources 组装期求值（成功路径口径不变）；错误路径在 onErrorResume 内错误期求值（与原时机一致）
+        List<KnowledgeSource> sources = recentKnowledgeSources(sessionId);
         return agentTokens
                 .doOnNext(row -> { if (!ProgressLine.isProgress(row)) { full.append(row); } })
-                .flatMap(ChatServiceImpl::toSseRows)
+                .flatMap(SseEncoder::toSseRows)
                 .concatWithValues("event: " + SseProtocol.EVENT_TOKEN
                         + "\ndata: " + SseProtocol.DONE_MARKER)
-                .concatWith(metaEvent(sessionId, newSession, goalId, GoalStatus.SUCCEEDED.name(), null))
+                .concatWith(SseEncoder.metaEvent(sessionId, newSession, goalId,
+                        GoalStatus.SUCCEEDED.name(), null, sources))
                 .doOnComplete(() -> writeBackContext(sessionId, userMessage, full.toString(), userSentAt))
                 // 客户端断开（Tomcat 报 AsyncRequestNotUsableException/Connection reset）：
                 // 框架层 ERROR 堆栈由 ClientAbortLogFilter 降噪，此处统一记可观测 warn 单行
@@ -347,48 +324,15 @@ public class ChatServiceImpl implements ChatService {
                     String err = safeMessage(ex);
                     return Flux.concat(
                             Flux.just("event: " + SseProtocol.EVENT_ERROR + "\ndata: " + err),
-                            metaEvent(sessionId, newSession, goalId, GoalStatus.FAILED.name(), err));
+                            SseEncoder.metaEvent(sessionId, newSession, goalId,
+                                    GoalStatus.FAILED.name(), err, recentKnowledgeSources(sessionId)));
                 });
-    }
-
-    /**
-     * 把 Agent 流出的一行转成 SSE 行序列：
-     * - 进度行 {@code \u0000stage\u0001detail} → {@code event: progress} + {@code data: {"stage":..,"detail":..}}
-     * - 其它（内容 token）→ {@code event: token} + {@code data: <token>}
-     *
-     * <p>progress 的 data JSON 直接用 Jackson 序列化 record，转义交给它，不再手写。
-     */
-    private static Flux<String> toSseRows(String row) {
-        ProgressLine.StageRow p = ProgressLine.decode(row);
-        if (p == null) {
-            // 内容行：裸换行会把一条 data 断成多个物理行，CLI 只认前缀行会丢内容——必须行内转义（可逆）。
-            // event: token 必须显式声明：SSE 的 event 字段粘滞，progress 块之后不带 event: 的
-            // data 行会被客户端误归入 progress（token 被吞、CLI 显示 0 字）。
-            return Flux.just("event: " + SseProtocol.EVENT_TOKEN
-                    + "\ndata: " + SseProtocol.escapeLineBreaks(row));
-        }
-        try {
-            // event 与 data 必须在同一元素内：MVC 逐元素 flush，拆成两个元素会被其它事件的行交叉插入
-            return Flux.just("event: " + SseProtocol.EVENT_PROGRESS + "\ndata: " + OBJECT_MAPPER.writeValueAsString(p));
-        } catch (Exception e) {
-            return Flux.just("event: " + SseProtocol.EVENT_PROGRESS + "\ndata: {\"stage\":\"?\",\"detail\":\"?\"}");
-        }
     }
 
     /** 流式成功后写回会话记忆（响应式路径：assistant 完整回复已由 doOnNext 收集；user 记录发送时刻） */
     private void writeBackContext(String sessionId, String message, String assistantReply, long userSentAt) {
         if (sessionId != null && !sessionId.isBlank()) {
             writeBackBoth(sessionId, message, assistantReply, userSentAt);
-        }
-    }
-
-    /** 组装 SSE meta 事件单元素块（event+data 同元素，保证成对不被交叉）：{@code event: meta\n data: {json}} */
-    private Flux<String> metaEvent(String sessionId, boolean newSession, String goalId, String status, String error) {
-        SseMeta meta = new SseMeta(sessionId, newSession, goalId, status, error, recentKnowledgeSources(sessionId));
-        try {
-            return Flux.just("event: " + SseProtocol.EVENT_META + "\ndata: " + OBJECT_MAPPER.writeValueAsString(meta));
-        } catch (Exception e) {
-            return Flux.just("event: " + SseProtocol.EVENT_META + "\ndata: {\"error\":\"meta serialization failed\"}");
         }
     }
 
@@ -401,57 +345,19 @@ public class ChatServiceImpl implements ChatService {
         return sources.isEmpty() ? null : sources;
     }
 
-    /** RAG 预取共享池（守护线程、core 空闲 60s 回收）：进程级单例，替代每请求建池用完即弃
-     *  （优化审查 2026-09-25 中危项）；knowledgeRetriever 未装配（知识库禁用）时为 null */
-    private final java.util.concurrent.ThreadPoolExecutor prefetchPool;
-
-    /** 预取提交 + judge 并行 + 汇合的收敛入口：sync/stream 两份重复块收编于此 */
+    /** 预取提交 + judge 并行 + 汇合的收敛入口：sync/stream 两份重复块收编于此（汇合次序是聊天编排语义，留守宿主） */
     private String resolveAgentWithPrefetch(String message, String sessionId, String turnId) {
-        Future<?> prefetch = prefetchPool == null
-                ? null : prefetchPool.submit(() -> doPrefetch(message, sessionId));
+        Future<?> prefetch = ragPrefetcher == null ? null : ragPrefetcher.submit(message, sessionId);
         try {
             String resolvedAgent = resolveAgent(message, sessionId, turnId);
-            awaitPrefetch(prefetch);
+            if (ragPrefetcher != null) { // 知识库禁用时预取器缺位，judge 完成即返回
+                ragPrefetcher.await(prefetch);
+            }
             return resolvedAgent;
         } finally {
             if (prefetch != null) {
                 prefetch.cancel(true); // 汇合窗口外放弃：中断预取任务，占用即归还共享池
             }
-        }
-    }
-
-    /** 入口预取：解析会话绑定 agent 的知识库绑定并发起预取（任何失败静默，不影响主流程） */
-    private void doPrefetch(String message, String sessionId) {
-        try {
-            String agentName = sessionAgentName(sessionId);
-            com.dark.javaHarness.domain.AgentConfig config =
-                    agentName == null ? null : agentService.getAgentConfig(agentName).orElse(null);
-            List<String> kbs = com.dark.javaHarness.knowledge.KnowledgeRetriever
-                    .parseBinding(config == null ? null : config.knowledge());
-            if (kbs == null) {
-                return; // 未绑定知识库，无事发生
-            }
-            knowledgeRetriever.prefetch(agentName, sessionId, message, kbs);
-        } catch (Exception e) {
-            log.debug("[chat] RAG 预取跳过（静默）：{}", safeMessage(e));
-        }
-    }
-
-    /** 汇合预取：judge 完成后小幅等待；超时取消放弃（预取是纯加速，失败退化为组装期现查） */
-    private void awaitPrefetch(Future<?> prefetch) {
-        if (prefetch == null) {
-            return;
-        }
-        try {
-            prefetch.get(PREFETCH_GRACE_SECONDS, TimeUnit.SECONDS);
-        } catch (TimeoutException e) {
-            prefetch.cancel(true);
-            log.debug("[chat] RAG 预取未在汇合窗口内完成，放弃");
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            prefetch.cancel(true);
-        } catch (Exception e) {
-            log.debug("[chat] RAG 预取失败（静默）：{}", safeMessage(e));
         }
     }
 

@@ -63,6 +63,14 @@ final class AgentRequestSpecFactory {
                     boolean frequencyPenalty,
                     boolean toolCallBudget,
                     int maxTokens) {
+
+        /**
+         * 幻觉工具名降级（去工具重试）的装配变体：去 emitter、disableTools=true，其余档位原样保留
+         * （原 AgentChatCaller.noToolsVariant 静态方法，超长类拆分 2026-09-25 下沉为本 record 派生行为）。
+         */
+        Assembly withoutTools() {
+            return new Assembly(null, true, injectMemory, toolCallBudget, frequencyPenalty, maxTokens);
+        }
     }
 
     private final ChatClientRegistry clientRegistry;

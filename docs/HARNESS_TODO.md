@@ -74,7 +74,7 @@
 - [ ] **聚合前子任务结果预算分摊裁剪**（拆自 Token 预算条目遗留）：子任务结果喂聚合前按预算分摊裁剪，前移聚合侧 sections 兜底——避免输出都长时靠后子任务整段被剪
   - 验收：多子任务结果超预算时各结果按分摊裁剪而非靠后者整段丢失
 - [ ] **对话内 Goal 命令（跨轮长期目标）**：在现有 goal 异步台账之上补「目标记忆」形态——用户在对话中声明长期目标（CLI `/goal <objective>` 起步，自然语言识别后续增强），落 goal 表并绑定 `session_id`；每轮对话 `ContextAssemblingAdvisor` 把活跃目标及最近进展注入上下文，agent 主动推进并汇报；完成由 LLM 自评 + 用户 `/goal done <id>` 双通道确认
-  - 设计要点：V18 迁移加 `mode` 列区分 async（现有批任务，全自主跑完）/ conversational（人机协作跨轮推进）；**conversational 目标必须排除在 `failAllRunning` 启动清理之外**——它没有后台执行体、可存活数天，重启即被误标 FAILED 等于丢数据；注入活跃目标数设上限防 prompt 膨胀；复杂推进复用路径 B 编排，结果摘要回写 `goal.summary`
+  - 设计要点：V18 迁移加 `mode` 列区分 async（现有批任务，全自主跑完）/ conversational（人机协作跨轮推进）；**conversational 目标必须排除在** **`failAllRunning`** **启动清理之外**——它没有后台执行体、可存活数天，重启即被误标 FAILED 等于丢数据；注入活跃目标数设上限防 prompt 膨胀；复杂推进复用路径 B 编排，结果摘要回写 `goal.summary`
   - 验收：会话内声明目标，隔多轮 agent 仍能引用并主动汇报进展；`/goal done` 后不再注入；服务重启后目标状态完好且未被标 FAILED
 
 ## P2 · 编排智能化（中期，agent 从「能跑」到「聪明」）
@@ -92,7 +92,7 @@
 - [ ] **长期记忆滚动摘要**：会话历史超预算被裁剪的最旧轮次，滚动压缩为一段摘要注入 system（`MemoryPolicy` 扩展），长会话不丢单
   - 验收：超长会话中早期关键信息（如用户自述偏好）仍能被引用
 - [ ] **对话历史长期归档（RAG 记忆库）**：旧会话原文跨会话归档 + 向量化，按 query 检索召回（解决「上个月的 bug 最后怎么解决的」类提问）——大语料、按需召回，是长期记忆 RAG 的正确挂载点（用户偏好画像为常驻小数据，全量注入即可，不走 RAG）
-  - 设计要点：旧会话（空闲超阈值/显式归档）原文从 session_messages 快照导出入归档表 + pgvector 向量化（复用知识库 embedding 批量链路与 PgVectorStore 设施）；与「长期记忆滚动摘要」互补——摘要压缩掉的原文先进归档库再删快照，信息零丢失
+  - 设计要点：旧会话（空闲超阈值/显式归档）原文从 session\_messages 快照导出入归档表 + pgvector 向量化（复用知识库 embedding 批量链路与 PgVectorStore 设施）；与「长期记忆滚动摘要」互补——摘要压缩掉的原文先进归档库再删快照，信息零丢失
   - 验收：数月前旧会话的细节可被自然语言问题召回，并引用出处会话
 - [ ] **画像提取活跃重置（长青会话缺口）**：用户偏好画像当前设计为「一次会话只提炼一次」（`profile_extracted` 锁定），长青会话（QQ 渠道按用户固定 sessionId，用户反复回来聊）静默提炼后新增的对话内容不会再被捕捉
   - 方案：会话写回时（`touchSession`）重置 `profile_extracted=0`，会话每静默 `profile-idle-minutes` 后重新全量快照提炼一次（LLM 合并幂等去重，画像不膨胀）；代价 = 长青会话每轮静默多一次 LLM 调用
@@ -112,13 +112,13 @@
   - 验收：`mvn test` 在容器化 DB 上全绿
 - [ ] **API 文档**：springdoc-openapi 自动生成 Swagger UI
   - 验收：`/swagger-ui.html` 可浏览所有接口
-- [ ] **多模块 Maven 拆分（shared + server + cli）**（2026-09-18 立项）：单模块下 CLI 源码与 jline/okhttp 依赖全打进服务端 fat jar——拆为 parent（packaging=pom，dependencyManagement 统一管版本）+ **shared**（API 契约层：`domain.dto` 整包 17 类 + `enums.SseProtocol`，包名不变全项目 import 零改动）+ **server**（现 src 全套减 cli 包，依赖 shared）+ **cli**（`com.dark.javaHarness.cli` 包，依赖 shared + jline + okhttp，classpath ~5MB 不再传递 spring-ai 全家桶，编译期看不到 server 内部类防绕过 HTTP 直调）。**channel/qq 评估后决定不拆**：其对 server 存在双向依赖（编译期要用 mapper/entity/接口，server fat jar 又要装它的类），且 QQ 渠道本质是服务端可选组件（`napcat.enabled` 条件装配），拆分需下沉 contract 底层模块或部署期外挂 jar，收益不抵复杂度；未来加第二个渠道时再引入契约层。shared 契约层为未来 web 端、app 端铺路（DTO 单一来源）
+- [ ] **多模块 Maven 拆分（shared + server + cli）**（2026-09-18 立项）：单模块下 CLI 源码与 jline/okhttp 依赖全打进服务端 fat jar——拆为 parent（packaging=pom，dependencyManagement 统一管版本）+ **shared**（API 契约层：`domain.dto` 整包 17 类 + `enums.SseProtocol`，包名不变全项目 import 零改动）+ **server**（现 src 全套减 cli 包，依赖 shared）+ **cli**（`com.dark.javaHarness.cli` 包，依赖 shared + jline + okhttp，classpath \~5MB 不再传递 spring-ai 全家桶，编译期看不到 server 内部类防绕过 HTTP 直调）。**channel/qq 评估后决定不拆**：其对 server 存在双向依赖（编译期要用 mapper/entity/接口，server fat jar 又要装它的类），且 QQ 渠道本质是服务端可选组件（`napcat.enabled` 条件装配），拆分需下沉 contract 底层模块或部署期外挂 jar，收益不抵复杂度；未来加第二个渠道时再引入契约层。shared 契约层为未来 web 端、app 端铺路（DTO 单一来源）
   - 关键点：cli 依赖 shared 而非 server（server 只出 fat jar 无需双产物 classifier）；jline 移至 cli（okhttp 因 QQ 渠道 NapCat HTTP 调用 server 侧同样需要而双保留，版本由根 pom dependencyManagement 统一锁定）；exec-maven-plugin / `mvn -Pcli` 启动命令挪至 cli 模块并以 `-pl cli` 限定；docker/Dockerfile 构建路径适配多模块（-pl server -am package，产物 server/target）；.mvn/settings.xml 的 localRepository 由 `${user.dir}` 修为 `${maven.multiModuleProjectDirectory}`（子目录执行 mvn 时仓库不再漂移裂库）；单模块启动依赖本地仓库中的 shared，故 run.sh/README 的编译步由 compile 改 install
   - 验收：`mvn clean package` 全模块编译 + 全部测试通过；server fat jar 不含 cli 包 class 与 jline（okhttp 因 QQ 渠道合法保留）；cli 依赖树仅 shared + jline/okhttp/jackson；cli 启动正常、`docker compose build` 构建镜像正常
-- [ ] **容器化交付**：Dockerfile + docker-compose（app + MySQL + pgvector）一键启动
+- [x] **容器化交付**：Dockerfile + docker-compose（app + MySQL + pgvector）一键启动
   - 验收：`docker compose up` 后完整可访问
 - [ ] **CI/CD**：GitHub Actions / Gitee Go 自动流水线（2026-09-18 充实，检查项取自多模块拆分验收清单）
-  - CI（push/PR 触发）：`mvn -s .mvn/settings.xml clean package` 全模块编译 + 测试（当前 server 545 + cli 25 例）→ 断言 server fat jar 无 `com/dark/javaHarness/cli/` 目录与 jline → 断言 cli `dependency:tree` 无 spring/spring-ai 传递依赖 → `docker build -f docker/Dockerfile .` 验证镜像可构建（基础镜像走 BUILD_BASE/RUN_BASE ARG，CI 侧按网络环境注入加速通道）
+  - CI（push/PR 触发）：`mvn -s .mvn/settings.xml clean package` 全模块编译 + 测试（当前 server 545 + cli 25 例）→ 断言 server fat jar 无 `com/dark/javaHarness/cli/` 目录与 jline → 断言 cli `dependency:tree` 无 spring/spring-ai 传递依赖 → `docker build -f docker/Dockerfile .` 验证镜像可构建（基础镜像走 BUILD\_BASE/RUN\_BASE ARG，CI 侧按网络环境注入加速通道）
   - 缓存：`actions/setup-java` 内置 maven 缓存对齐 `.mvn-repo`（localRepository 由 `maven.multiModuleProjectDirectory` 定位项目根，CI 工作区即仓库）
   - CD（可选后置）：分支镜像打 tag 推送镜像仓库，服务器 `docker compose pull && up -d` 拉起；上线前是否人工确认决定 Delivery/Deployment 形态
   - 验收：PR 红灯可见（测试失败 / fat jar 混入 cli class / 镜像构建失败均可拦截）；全绿后产物可直接部署
@@ -147,17 +147,15 @@
 ## 明确暂缓项（2026-09-25 优化评审收拢，需立项或产品决策后再排期）
 
 > 来源 `docs/optimization-review-2026-09-25.md`；单用户自用场景暂不排期，启动前先立项或由产品决策。
+> 其中「超长类拆分」已于 2026-09-25 立项执行并完成（见存档「超长类拆分」节）。
 
-- [ ] **超长类拆分**：`AgentChatCaller` 749 行 / `MultiAgentGraphAgent` 645 行 / `ChatServiceImpl` 525 行 / `OneBotEventServiceImpl` 495 行，单类职责过载
-  - 拆分方向（待立项定）：caller 管道/重试/记账分离、graph 节点装配分离、ChatServiceImpl 同步与流式双入口分离、OneBot 事件解析与派发分离
-  - 验收：核心类职责单一、行数收敛，全量测试绿
 - [ ] **web 多标签页缓存竞态**：`chatCache.ts` saveCache 为 read-modify-write 非原子（chatCache.ts:80-88），无 storage 事件监听/Web Locks，两标签页并发写后写整份赢
   - 决策点：Web Locks 单写者 vs storage 事件同步 vs 以服务端会话列表为准
   - 验收：双标签页并发对话，切回后消息缓存与会话列表不串桶不丢更
-- [ ] **TraceView 分页**：前端一次性全量拉 200 LLM + 200 工具调用记录（client.ts:87-94; TraceView.vue:50），ChatWindow.loadTokens 每轮流结束 1s 后全量重拉（ChatWindow.vue:83-90）；后端 `/api/llm-calls`、`/api/tool-calls` 目前仅 limit 截断（默认 50 封顶 200），无 offset/cursor 分页
+- [ ] **TraceView 分页**：前端一次性全量拉 200 LLM + 200 工具调用记录（client.ts:87-94; TraceView\.vue:50），ChatWindow\.loadTokens 每轮流结束 1s 后全量重拉（ChatWindow\.vue:83-90）；后端 `/api/llm-calls`、`/api/tool-calls` 目前仅 limit 截断（默认 50 封顶 200），无 offset/cursor 分页
   - 改造要点：后端两端点加分页参数（offset 或 id 游标），前端按页加载 + 流结束增量补拉
   - 验收：长会话 TraceView 首屏只拉当前页，轮结束增量补拉不重拉全量
-- [ ] **web 端 VITE_API_BASE**：API 路径硬编码相对 `/api/...`（client.ts:39,161），生产必须同域反代
+- [ ] **web 端 VITE\_API\_BASE**：API 路径硬编码相对 `/api/...`（client.ts:39,161），生产必须同域反代
   - 决策点：是否支持独立域名/跨域部署（涉及 CORS 与 SSE 跨域带凭证）
   - 验收：配置 `VITE_API_BASE` 后构建产物可独立域名部署
 
@@ -292,6 +290,13 @@
 - [x] **会话上下文管理与 Token 裁剪**：`ContextAssemblingAdvisor` 按 token 预算裁剪，长对话体积受控
 - [x] **Mockito 单测（核心场景）**：10 个测试类 / 50 用例覆盖路由判定、双路径执行、进度协议、SSE 契约（详见 docs/functional-testing.md）
 - [x] **Agent 表驱动自动注册（2026-09）**：新增 `AgentRegistry`——启动时读 agent 表把全部 `is_internal=0` 行自动注册为对话 Agent（`GeneralAssistantAgent` 按行配置生效），路由未命中惰性查表热注册（`ConcurrentHashMap.computeIfAbsent` 原子构造，运行中插行免重启）；V9 迁移加 `is_internal` 列（multi-agent/lead/aggregator 置 1，排除逻辑纯数据驱动，新增内部角色免改代码）；启动逐行 fail-safe（脏行 warn 跳过）；`general` 行缺失时代码兜底注册并 warn（DB 行存在则完全按 DB，两来源不合并）。`ChatAgentConfig` 删除 generalAgent/deepseekAgent 手工 bean，`AgentServiceImpl` 路由委托 Registry（构造 `@Lazy` 解创建期循环）。注册口径收敛为：**新增 Agent = agent 表一行（is\_internal=0）**。测试：`AgentRegistryTest` 9 用例 + `AgentServiceImplTest` 适配扩展（全量 249 用例通过）
+
+## 超长类拆分（2026-09-25 完成）
+
+- [x] **超长类拆分**（立项自「明确暂缓项」，源 docs/optimization-review-2026-09-25.md）：四类按职责簇拆分，新类全部包私有零 Spring 装配（先例 AggregateStreamGuard/CallTrace），行为契约逐字面等价搬迁
+  - 落点：AgentChatCaller 749→478（拆出 `AgentChatPipeline` 管道核：streamAttempt/streamCore/tokenStream/watchdog/流帧记账/空响应防御；`CallContext` 观测值对象提升为顶层 record；`CallSpecAssembler` 角色装配策略；`recordEstimatedIfNoUsage` 并入 BudgetLedger 静态；noToolsVariant 下沉为 `Assembly.withoutTools()`；宿主留守 call/stream 门面、两重试循环、configOf、测试契约薄委托 tokenStreamWithWatchdog/attachmentsFor/buildSpec）；MultiAgentGraphAgent 645→413（拆出 `OrchestrationNodes` 三节点 + predict\* 桥接 + 流式聚合护栏所有权；状态键常量放宽包级留守宿主不动 MultiAgentStreamPipeline 契约；死代码 safe() 删除；宿主留守执行/续跑入口与图装配）；ChatServiceImpl 524→430（拆出 `SseEncoder` SSE 编码纯函数/metaEvent 参数化 sources、`RagPrefetcher` 共享预取池 + 会话知识绑定解析；agentId 切换重复收编 `bindAgentQuietly`；toSseBody 流生命周期编排、resolveAgentWithPrefetch 汇合胶水、route 簇留守）；OneBotEventServiceImpl 520→331（拆出 `ReplySplitter` 分段纯函数、`EventTextParser` 事件解析与触发判定；handle/chatWithTimeout/拟人延迟留守）
+  - 测试适配仅 3 处静态调用改类名（OneBotEventServiceImplTest 16 处 splitXxx→ReplySplitter、AgentChatCallerTest/AgentChatCallerRetryTest 各 1 处 contentOf→AgentChatPipeline）；ChatServiceImplTest（33 例）/MultiAgentGraphAgentTest（23 例）/GeneralAssistantAgentScaffoldTest（等价性裁判）零改动全绿
+  - 验收 ✅：核心类职责单一、四类行数收敛 18%~36%（拆出 8 个新类均 <275 行）；全量 610 用例 0 失败 0 错误
 
 ***
 

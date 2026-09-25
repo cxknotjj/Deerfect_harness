@@ -189,7 +189,7 @@ class AgentChatCallerTest {
         // 第 2 个 token 到达时模拟客户端断连置位：takeUntil 放行的终止前元素在 doOnNext 拦截中止
         when(streamSpec.chatResponse()).thenReturn(fluxOf("a", "b", "c")
                 .doOnNext(resp -> {
-                    if ("b".equals(AgentChatCaller.contentOf(resp))) {
+                    if ("b".equals(AgentChatPipeline.contentOf(resp))) {
                         cancelled.set(true);
                     }
                 }));
