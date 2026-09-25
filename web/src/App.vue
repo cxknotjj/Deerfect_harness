@@ -173,7 +173,8 @@ watch(drawerOpen, (open) => {
   if (open) {
     // 打开:焦点移入侧栏首个可聚焦元素(键盘用户可直接 Tab 遍历会话项)
     requestAnimationFrame(() => {
-      const first = sidebarEl.value?.$el?.querySelector<HTMLElement>('button, [tabindex="0"]')
+      const root = sidebarEl.value?.$el as HTMLElement | undefined
+      const first = root?.querySelector<HTMLElement>('button, [tabindex="0"]')
       first?.focus()
     })
   } else if (expandBtnEl.value) {
