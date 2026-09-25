@@ -112,13 +112,14 @@ public class OneBotEventController {
         return flat.length() <= 80 ? flat : flat.substring(0, 80) + "…";
     }
 
-    /** 上报验签：X-Signature: sha1=HMAC-SHA1(secret, rawBody)；secret 未配置时跳过 */
-    private boolean signatureValid(byte[] body, String header) {
+    /** 上报验签：X-Signature: sha1=HMAC-SHA1(secret, rawBody)；secret 未配置时跳过。
+     *  包内可见：测试直调覆盖验签全分支（空 secret 跳过/对/错/缺前缀/空 body） */
+    boolean signatureValid(byte[] body, String header) {
         String secret = props.getEventSecret();
         if (secret == null || secret.isBlank()) {
             return true;
         }
-        if (header == null || !header.startsWith("sha1=")) {
+        if (header == null || !header.trim().startsWith("sha1=")) {
             return false;
         }
         try {
