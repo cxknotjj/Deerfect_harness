@@ -36,4 +36,4 @@ data: {"sessionId":"9","newSession":true,"goalId":null,"status":"SUCCEEDED","err
 
 ---
 
-[⬅ Back to README](../README.md)
+[⬅ Back to README](../../README.md)

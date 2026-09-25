@@ -23,7 +23,7 @@ src/main/java/com/dark/javaHarness/
 │   ├── RouteJudge.java           # 主 Agent 路由判断（SIMPLE / COMPLEX 分流）
 │   ├── AgentConfigProvider.java  # 从 agent 表读取运行配置（路由映射）
 │   ├── ProviderAdminService.java # model_provider 映射管理（新增即热刷新注册表）
-│   └── impl/                     # AgentServiceImpl / ChatServiceImpl / LlmRouteJudge / LlmCallRecorder 等
+│   └── impl/                     # AgentServiceImpl / ChatServiceImpl / LlmRouteJudge / LlmCallRecorder / SseEncoder（SSE 编码）/ RagPrefetcher（RAG 预取）等
 ├── advisor/                      # Spring AI Advisor 拦截器（Agent 流程横切管理）
 │   ├── ContextAssemblingAdvisor.java  # 上下文组装：过滤/token 预算截断/role 归一化
 │   └── PromptBudgetAdvisor.java  # Prompt 分段预算（历史/user/工具结果三段裁剪）
@@ -59,8 +59,12 @@ src/main/java/com/dark/javaHarness/
 ├── agent/                        # Agent 抽象、编排与 LLM 调用
 │   ├── Agent.java / AgentRegistry.java    # Agent 接口与注册表
 │   ├── GeneralAssistantAgent.java  # 路径 A：单模型对话（真·逐 token stream）
-│   ├── MultiAgentGraphAgent.java   # 路径 B：StateGraph 编排门面（lead→并行子任务→聚合 + 断点续跑）
-│   ├── AgentChatCaller.java        # LLM 调用封装（工具循环、幻觉工具容错、BudgetLedger 熔断记账）
+│   ├── MultiAgentGraphAgent.java   # 路径 B：StateGraph 编排门面（图装配 + 执行/续跑入口；节点实现见 OrchestrationNodes）
+│   ├── OrchestrationNodes.java     # 编排三节点实现（lead/subtask/aggregate + predict* 桥接 + 流式聚合护栏）
+│   ├── AgentChatCaller.java        # LLM 调用生命周期编排门面（call/stream 重试循环、取消拦截、观测记录）
+│   ├── AgentChatPipeline.java      # 流管道核（streamAttempt/streamCore/tokenStream + watchdog 空闲超时/流帧记账/空响应防御）
+│   ├── CallContext.java            # 观测值对象（llm_call_log 落库参数收敛，call/stream 两通道共用）
+│   ├── CallSpecAssembler.java      # 角色装配策略（MemoryPolicy 记忆判定/maxTokens 档位/观测名单计算）
 │   ├── AgentRequestSpecFactory.java  # 两路径共用请求组装工厂（system/记忆注入/工具装饰/输出档位）
 │   ├── LeadOutputParser.java       # lead 拆解 JSON 解析（子任务数 + 专家指派白名单）
 │   ├── OrchestrationBudget.java    # 编排预算账本（AtomicLong 共享记账 + 降级说明）

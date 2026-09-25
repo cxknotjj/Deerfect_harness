@@ -37,4 +37,4 @@ data: {"sessionId":"9","newSession":true,"goalId":null,"status":"SUCCEEDED","err
 
 ---
 
-[⬅ 返回 README](../README.md)
+[⬅ 返回 README](../../README.md)

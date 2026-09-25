@@ -31,9 +31,9 @@
 把文档放进 `knowledge/` 目录（`.md` / `.txt`，支持 front-matter `title:`），摄取后路径 A/B 回答自动检索注入，带【出处N】内联引用与来源尾注。触发是组装 prompt 前的旁路检查，五层条件任一不满足即静默降级、主链路零感知。
 
 > [!TIP]
-> 多知识库与 agent 绑定、目录监听 / BM25 混合检索等增强配置见 **[`docs/knowledge-rag.md`](knowledge-rag.md)**；决策流程与时序图见 [`docs/data-flow.md` 5i 节](data-flow.md#5i-rag-知识检索注入数据流prompt-组装前旁路)。
+> 多知识库与 agent 绑定、目录监听 / BM25 混合检索等增强配置见 **[`docs/guides/knowledge-rag.md`](knowledge-rag.md)**；决策流程与时序图见 [`docs/data-flow.md` 5i 节](data-flow.md#5i-rag-知识检索注入数据流prompt-组装前旁路)。
 
 
 ---
 
-[⬅ 返回 README](../README.md)
+[⬅ 返回 README](../../README.md)

@@ -86,4 +86,4 @@ Trigger conditions (fully config-driven, tune via `application.yaml`):
 
 ---
 
-[⬅ Back to README](../README.md)
+[⬅ Back to README](../../README.md)

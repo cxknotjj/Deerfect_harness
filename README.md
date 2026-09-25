@@ -67,8 +67,8 @@ curl -s -X POST http://localhost:8080/api/chat \
 ```
 
 > [!TIP]
-> - 没配 API Key 也能启动（调用模型才报 401）；配 DashScope / DeepSeek 等服务商的 Key 见 **[`docs/setup.md`](./docs/setup.md)**
-> - 不想装环境？Docker 三件套一键起：**[`docs/docker-deploy.md`](./docs/docker-deploy.md)**
+> - 没配 API Key 也能启动（调用模型才报 401）；配 DashScope / DeepSeek 等服务商的 Key 见 **[`docs/guides/setup.md`](./docs/guides/setup.md)**
+> - 不想装环境？Docker 三件套一键起：**[`docs/guides/docker-deploy.md`](./docs/guides/docker-deploy.md)**
 > - 国内网络可追加 `-s .mvn/settings.xml` 走阿里云镜像（会改用项目内 `.mvn-repo/` 仓库，首次全量重新下载）
 
 ## 效果展示
@@ -85,22 +85,32 @@ curl -s -X POST http://localhost:8080/api/chat \
 
 | 文档 | 内容 |
 |---|---|
-| [`docs/setup.md`](./docs/setup.md) | 本地部署详解（数据库 / API Key / 启动脚本 / agent 服务商核对） |
-| [`docs/docker-deploy.md`](./docs/docker-deploy.md) | Docker 三件套部署（构建 / ACR 拉取 / 离线部署） |
-| [`docs/api.md`](./docs/api.md) | REST 接口全表与知识库管理页 |
-| [`docs/cli.md`](./docs/cli.md) | CLI 命令 |
+| **入门** | |
+| [`docs/guides/setup.md`](./docs/guides/setup.md) | 本地部署详解（数据库 / API Key / 启动脚本 / agent 服务商核对） |
+| [`docs/guides/docker-deploy.md`](./docs/guides/docker-deploy.md) | Docker 三件套部署（构建 / ACR 拉取 / 离线部署） |
+| [`docs/guides/models.md`](./docs/guides/models.md) | 多模型与多服务商接入 |
+| [`docs/guides/first-run-audit.md`](./docs/guides/first-run-audit.md) | 首次使用流程规则与走查记录 |
+| **架构** | |
 | [`docs/architecture.md`](./docs/architecture.md) | 架构总览与数据流 |
-| [`docs/TECH_STACK.md`](./docs/TECH_STACK.md) | 技术栈明细与扩展方向 |
-| [`docs/models.md`](./docs/models.md) | 多模型与多服务商接入 |
-| [`docs/knowledge-rag.md`](./docs/knowledge-rag.md) | RAG 知识库配置 |
-| [`docs/sse-protocol.md`](./docs/sse-protocol.md) | SSE 流式协议 |
-| [`docs/resume.md`](./docs/resume.md) | 断点续跑 |
-| [`docs/qq-channel.md`](./docs/qq-channel.md) | QQ 机器人接入 |
-| [`docs/mcp-tools.md`](./docs/mcp-tools.md) | MCP 工具接入 |
-| [`docs/project-structure.md`](./docs/project-structure.md) | 服务端目录树 |
+| [`docs/project-structure.md`](./docs/project-structure.md) | 服务端目录树（[EN](./docs/project-structure_EN.md)） |
 | [`docs/data-flow.md`](./docs/data-flow.md) | 数据流详解 |
-| [`docs/functional-testing.md`](./docs/functional-testing.md) | 测试全景 |
-| [`docs/HARNESS_TODO.md`](./docs/HARNESS_TODO.md) | 落地 TODO |
+| [`docs/TECH_STACK.md`](./docs/TECH_STACK.md) | 技术栈明细与扩展方向 |
+| **功能指南** | |
+| [`docs/guides/api.md`](./docs/guides/api.md) | REST 接口全表与知识库管理页 |
+| [`docs/guides/cli.md`](./docs/guides/cli.md) | CLI 命令 |
+| [`docs/guides/knowledge-rag.md`](./docs/guides/knowledge-rag.md) | RAG 知识库配置（[EN](./docs/guides/knowledge-rag_EN.md)） |
+| [`docs/guides/mcp-tools.md`](./docs/guides/mcp-tools.md) | MCP 工具接入 |
+| [`docs/guides/qq-channel.md`](./docs/guides/qq-channel.md) | QQ 机器人接入 |
+| [`docs/guides/resume.md`](./docs/guides/resume.md) | 断点续跑 |
+| **协议与规范** | |
+| [`docs/guides/sse-protocol.md`](./docs/guides/sse-protocol.md) | SSE 流式协议（[EN](./docs/guides/sse-protocol_EN.md)） |
+| [`docs/guides/commit-convention.md`](./docs/guides/commit-convention.md) | 提交规范（Conventional Commits） |
+| [`docs/guides/context-optimization.md`](./docs/guides/context-optimization.md) | 上下文优化与 Token 预算策略 |
+| **测试与演进** | |
+| [`docs/guides/functional-testing.md`](./docs/guides/functional-testing.md) | 测试全景 |
+| [`docs/HARNESS_TODO.md`](./docs/HARNESS_TODO.md) | 落地 TODO / 路线图 |
+
+> 完整文档索引与存档目录（设计文档 design/、报告 reports/、历史计划 superpowers/）见 **[`docs/README.md`](./docs/README.md)**。
 
 ## 技术架构
 
@@ -117,7 +127,7 @@ mvn test
 ```
 
 > [!NOTE]
-> `JavaHarnessApplicationTests` 是 `@SpringBootTest`，会尝试连接本机 MySQL；无数据库环境下单独运行该类可能因连接失败报错（其余业务测试不受影响）。测试全景见 [`docs/functional-testing.md`](./docs/functional-testing.md)。
+> `JavaHarnessApplicationTests` 是 `@SpringBootTest`，会尝试连接本机 MySQL；无数据库环境下单独运行该类可能因连接失败报错（其余业务测试不受影响）。测试全景见 [`docs/guides/functional-testing.md`](./docs/guides/functional-testing.md)。
 
 ## 🤝 贡献
 

@@ -27,4 +27,4 @@ curl -N -X POST "http://localhost:8080/api/chat/resume?goalId=<goalId>"
 
 ---
 
-[⬅ 返回 README](../README.md)
+[⬅ 返回 README](../../README.md)

@@ -79,7 +79,7 @@ flowchart TD
 ```
 
 > [!TIP]
-> For data-flow details see [`docs/data-flow.md`](./docs/data-flow.md) (Chinese), for the roadmap see [`docs/HARNESS_TODO.md`](./docs/HARNESS_TODO.md) (Chinese), and for the full test landscape see [`docs/functional-testing.md`](./docs/functional-testing.md) (Chinese).
+> For data-flow details see [`docs/data-flow.md`](./docs/data-flow.md) (Chinese), for the roadmap see [`docs/HARNESS_TODO.md`](./docs/HARNESS_TODO.md) (Chinese), and for the full test landscape see [`docs/guides/functional-testing.md`](./docs/guides/functional-testing.md) (Chinese).
 
 ## 🧰 Tech Stack
 
@@ -171,7 +171,7 @@ $env:QWEN_API_KEY = "sk-your-key"    # Windows PowerShell; use export QWEN_API_K
 No JDK/Maven/database on the box? The `docker/` directory brings up a trio in one go: **app + MySQL 8.4 (primary) + pgvector (RAG knowledge base)**, with all configuration injected via environment variables — zero changes to `application.yaml`; primary-schema creation is self-contained via in-image Flyway. Images can be obtained by **local build**, **Aliyun ACR pull (build-free)** or **offline tar import**.
 
 > [!TIP]
-> Full walkthrough (build / `.env` / knowledge init / ACR pull / offline deploy): **[`docs/docker-deploy.md`](./docs/docker-deploy.md)** (Chinese).
+> Full walkthrough (build / `.env` / knowledge init / ACR pull / offline deploy): **[`docs/guides/docker-deploy.md`](./docs/guides/docker-deploy.md)** (Chinese).
 
 ## 🎮 CLI Usage
 
@@ -218,14 +218,14 @@ The CLI is a pure HTTP client (**listens on no port**) and talks to the main ser
 Drop documents into the `knowledge/` directory (`.md` / `.txt`, optional front-matter `title:`); after ingestion both paths automatically retrieve & inject before answering, with inline `【Source N】` citations and a source footnote. Retrieval runs as a side check before prompt assembly — if any of the five gating conditions fails it silently degrades with zero impact on the main path.
 
 > [!TIP]
-> Multi-KB & agent binding, directory watching / BM25 hybrid retrieval and other enhanced settings: **[`docs/knowledge-rag_EN.md`](./docs/knowledge-rag_EN.md)**; decision flow & sequence diagram: [`docs/data-flow.md` section 5i](./docs/data-flow.md#5i-rag-知识检索注入数据流prompt-组装前旁路).
+> Multi-KB & agent binding, directory watching / BM25 hybrid retrieval and other enhanced settings: **[`docs/guides/knowledge-rag_EN.md`](./docs/guides/knowledge-rag_EN.md)**; decision flow & sequence diagram: [`docs/data-flow.md` section 5i](./docs/data-flow.md#5i-rag-知识检索注入数据流prompt-组装前旁路).
 
 ## 📡 SSE Streaming Protocol
 
 Streaming responses use an SSE-style line protocol (one element per line, `event:` + `data:` pairs): `token` for incremental text, `progress` for orchestration stages (not stored in session memory), `meta` for end-of-turn session info & knowledge sources, `error` for in-stream errors — terminated by `[DONE]`.
 
 > [!TIP]
-> Full event stream example & field reference: **[`docs/sse-protocol_EN.md`](./docs/sse-protocol_EN.md)**; resume responses share the same format as `/stream`.
+> Full event stream example & field reference: **[`docs/guides/sse-protocol_EN.md`](./docs/guides/sse-protocol_EN.md)**; resume responses share the same format as `/stream`.
 
 ## 🔁 Resume from Checkpoint
 
@@ -260,7 +260,7 @@ A third entry point besides CLI / REST: connects to QQ group & private chats via
 | 🎯 Pinned Agent | Bound sessions still go through unified routing; failed orchestrations fall back to that Agent |
 
 > [!TIP]
-> Setup steps (NapCat dual-channel config), progressive sending / emoji / humanized delays and all parameters: **[`docs/qq-channel.md`](./docs/qq-channel.md)** (Chinese); disable via `napcat.enabled: false` in `application.yaml`.
+> Setup steps (NapCat dual-channel config), progressive sending / emoji / humanized delays and all parameters: **[`docs/guides/qq-channel.md`](./docs/guides/qq-channel.md)** (Chinese); disable via `napcat.enabled: false` in `application.yaml`.
 
 ## 🔌 Multi-Model & Multi-Provider
 
@@ -296,7 +296,7 @@ flowchart LR
 The tool ecosystem is extended via MCP: the client supports stdio (local processes) and Streamable HTTP (remote servers) with lazy connection and per-server failure isolation. Connection config lives in the project-root `mcp-config.json` (Claude/Cursor-style `mcpServers` structure); **it contains API keys and is not committed** (gitignored, create your own after cloning).
 
 > [!TIP]
-> Config template, per-agent tool assignment and `general` least-privilege alignment: **[`docs/mcp-tools.md`](./docs/mcp-tools.md)** (Chinese).
+> Config template, per-agent tool assignment and `general` least-privilege alignment: **[`docs/guides/mcp-tools.md`](./docs/guides/mcp-tools.md)** (Chinese).
 
 ## 📁 Project Structure
 

@@ -3,7 +3,7 @@
 > 由原 `ROADMAP.md` 与 `HARNESS_TODO.md` 合并而成；2026-09-11 结构重构：未完成区只保留 `- [ ]` 条目（P0→P3），已完成全部归档（按主题分节），拆出遗留尾巴立条。
 > 约定：`- [ ]` 未开始，`- [x]` 已完成。**未完成在前（按优先级），已完成在后（存档备查）**。
 > 版本强约束：Spring Boot 保持 3.5.14（兼容 Spring AI 1.1.4），升级任何 AI 相关依赖前先验证兼容性。
-> 首次可用性约定：新增功能/入口合入前按 `docs/first-run-audit.md`「五、首次使用流程规则」复查，走查结论追加至该报告「六、走查记录」。
+> 首次可用性约定：新增功能/入口合入前按 `docs/guides/first-run-audit.md`「五、首次使用流程规则」复查，走查结论追加至该报告「六、走查记录」。
 
 ***
 
@@ -288,7 +288,7 @@
 - [x] **多 Agent 编排（初版）**：主 Agent 判定 COMPLEX 路由到 `multi-agent` 完成 lead→并行→聚合闭环
 - [x] **响应式流式改造**：流式端点已直接返回 `Flux<String>`（text/event-stream），DB 阻塞操作经 `Schedulers.boundedElastic()` 边界隔离；同步 `/api/chat` 保留
 - [x] **会话上下文管理与 Token 裁剪**：`ContextAssemblingAdvisor` 按 token 预算裁剪，长对话体积受控
-- [x] **Mockito 单测（核心场景）**：10 个测试类 / 50 用例覆盖路由判定、双路径执行、进度协议、SSE 契约（详见 docs/functional-testing.md）
+- [x] **Mockito 单测（核心场景）**：10 个测试类 / 50 用例覆盖路由判定、双路径执行、进度协议、SSE 契约（详见 docs/guides/functional-testing.md）
 - [x] **Agent 表驱动自动注册（2026-09）**：新增 `AgentRegistry`——启动时读 agent 表把全部 `is_internal=0` 行自动注册为对话 Agent（`GeneralAssistantAgent` 按行配置生效），路由未命中惰性查表热注册（`ConcurrentHashMap.computeIfAbsent` 原子构造，运行中插行免重启）；V9 迁移加 `is_internal` 列（multi-agent/lead/aggregator 置 1，排除逻辑纯数据驱动，新增内部角色免改代码）；启动逐行 fail-safe（脏行 warn 跳过）；`general` 行缺失时代码兜底注册并 warn（DB 行存在则完全按 DB，两来源不合并）。`ChatAgentConfig` 删除 generalAgent/deepseekAgent 手工 bean，`AgentServiceImpl` 路由委托 Registry（构造 `@Lazy` 解创建期循环）。注册口径收敛为：**新增 Agent = agent 表一行（is\_internal=0）**。测试：`AgentRegistryTest` 9 用例 + `AgentServiceImplTest` 适配扩展（全量 249 用例通过）
 
 ## 超长类拆分（2026-09-25 完成）
@@ -302,6 +302,6 @@
 
 ## 备注
 
-- 测试全景见 [docs/functional-testing.md](./functional-testing.md)，数据流详解见 [docs/data-flow.md](./data-flow.md)，技术栈对照见 [TECH\_STACK.md](./TECH_STACK.md)。
+- 测试全景见 [docs/guides/functional-testing.md](./functional-testing.md)，数据流详解见 [docs/data-flow.md](./data-flow.md)，技术栈对照见 [TECH\_STACK.md](./TECH_STACK.md)。
 - 每项完成后按对应"验收"标准验证后再勾选；完成的条目连同落地与验收记录移入本文件「二、已完成（存档）」对应主题节，若留有后续尾巴（余项/端点/优化）须拆出为未完成条目，避免尾巴被埋进存档。
 

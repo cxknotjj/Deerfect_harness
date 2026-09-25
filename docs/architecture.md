@@ -22,7 +22,7 @@ flowchart TD
 ```
 
 > [!TIP]
-> 数据流细节见 [`docs/data-flow.md`](data-flow.md)，落地 TODO 见 [`docs/HARNESS_TODO.md`](HARNESS_TODO.md)，测试全景见 [`docs/functional-testing.md`](functional-testing.md)。
+> 数据流细节见 [`docs/data-flow.md`](data-flow.md)，落地 TODO 见 [`docs/HARNESS_TODO.md`](HARNESS_TODO.md)，测试全景见 [`docs/guides/functional-testing.md`](functional-testing.md)。
 
 
 ---

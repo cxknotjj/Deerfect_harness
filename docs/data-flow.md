@@ -94,7 +94,7 @@ ChatService.streamReactive(request)
 
 > LLM 调用超时兜底（connect/read/stream-idle）经 `app.chat.timeouts.*` 参数化：
 > connect/read 作用于阻塞通道（`ChatClientFactory`），stream-idle 作用于流式通道
-> （`AgentChatCaller` 的 Flux.timeout），未配置回退 10/300/120 秒现值。
+> （`AgentChatPipeline` 的 Flux.timeout），未配置回退 10/300/120 秒现值。
 
 ***
 
@@ -137,7 +137,7 @@ RouteJudge.judge(message)（接口）
 ## 5a. 上下文组装时序（会话加载 → 组装 → 调 LLM）
 
 > `ContextAssemblingAdvisor` 只整理「已加载的历史 + 当前请求」。
-> 编排路径同样生效：lead 节点经 `AgentChatCaller` + `MemoryPolicy` 以完全同构方式挂载本 advisor
+> 编排路径同样生效：lead 节点（`OrchestrationNodes`）经 `AgentChatCaller` + `MemoryPolicy` 以完全同构方式挂载本 advisor
 > （编排里唯一注入会话记忆的角色，历史轮次同预算裁剪）；子任务/聚合不注入记忆、无历史可裁。
 > 三层 token 控制分工（历史裁剪 / user 侧预算 / 工具结果预算）见 5f 节。
 
@@ -320,9 +320,9 @@ CLI 解析到 `event: progress` 按阶段分派渲染：`编排/聚合` 转 spin
 ```
 LLM 调用出口（五类调用点统一收敛）
 │  ① LlmRouteJudge.judge()          路由判断（阻塞 RestClient，token 取响应 Usage 真实值）
-│  ② MultiAgentGraphAgent.lead()    lead 拆解（经 AgentChatCaller.call）
-│  ③ MultiAgentGraphAgent 子任务     专家执行（经 AgentChatCaller.call，工具调用不单独记账）
-│  ④ MultiAgentGraphAgent 聚合      AgentChatCaller.stream（逐 token 收集后估算）
+│  ② 编排 lead()（OrchestrationNodes）  lead 拆解（经 AgentChatCaller.call）
+│  ③ 编排子任务（OrchestrationNodes）   专家执行（经 AgentChatCaller.call，工具调用不单独记账）
+│  ④ 编排聚合（OrchestrationNodes）     AgentChatCaller.stream（逐 token 收集后估算）
 │  ⑤ GeneralAssistantAgent          路径 A（经 callWithAssembly/streamWithAssembly；
 │                                    响应式链 executeStreamReactive 自挂终结钩子记录）
 │

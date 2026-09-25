@@ -82,9 +82,9 @@ $env:QWEN_API_KEY = "sk-你的key"    # Windows PowerShell；WSL 用 export QWEN
 > ```
 
 > [!NOTE]
-> 不接入 QQ 渠道？在 `application.yaml` 设 `napcat.enabled: false`（QQ 渠道为可选组件，但当前默认开启——关闭后不再有 NapCat 连接告警，其余功能不受影响）。接入与能力清单见 [`docs/qq-channel.md`](./qq-channel.md)。
+> 不接入 QQ 渠道？在 `application.yaml` 设 `napcat.enabled: false`（QQ 渠道为可选组件，但当前默认开启——关闭后不再有 NapCat 连接告警，其余功能不受影响）。接入与能力清单见 [`docs/guides/qq-channel.md`](./qq-channel.md)。
 
 
 ---
 
-[⬅ 返回 README](../README.md)
+[⬅ 返回 README](../../README.md)

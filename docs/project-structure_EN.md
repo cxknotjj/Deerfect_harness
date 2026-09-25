@@ -22,7 +22,7 @@ src/main/java/com/dark/javaHarness/
 │   ├── RouteJudge.java           # Main-agent routing decision (SIMPLE / COMPLEX)
 │   ├── AgentConfigProvider.java  # Runtime config from the agent table (routing map)
 │   ├── ProviderAdminService.java # model_provider mapping management (hot refresh on add)
-│   └── impl/                     # Implementations (AgentServiceImpl / ChatServiceImpl / LlmRouteJudge / LlmCallRecorder etc.)
+│   └── impl/                     # Implementations (AgentServiceImpl / ChatServiceImpl / LlmRouteJudge / LlmCallRecorder / SseEncoder (SSE encoding) / RagPrefetcher (RAG prefetch) etc.)
 ├── advisor/                      # Spring AI Advisor interceptors (cross-cutting agent-flow management)
 │   ├── ContextAssemblingAdvisor.java  # Context assembly: filter / token-budget truncation / role normalization
 │   └── PromptBudgetAdvisor.java  # Prompt section budgets (history / user / tool-result truncation)
@@ -58,8 +58,12 @@ src/main/java/com/dark/javaHarness/
 ├── agent/                        # Agent abstractions, orchestration & LLM calls
 │   ├── Agent.java / AgentRegistry.java    # Agent interface and registry
 │   ├── GeneralAssistantAgent.java  # Path A: single-model chat (true token-by-token stream)
-│   ├── MultiAgentGraphAgent.java   # Path B: StateGraph orchestration facade (lead → parallel subtasks → aggregation + checkpoint resume)
-│   ├── AgentChatCaller.java        # LLM call wrapper (tool loop, hallucinated-tool fallback, BudgetLedger budget accounting & breaking)
+│   ├── MultiAgentGraphAgent.java   # Path B: StateGraph orchestration facade (graph assembly + execute/resume entries; node impls in OrchestrationNodes)
+│   ├── OrchestrationNodes.java     # Orchestration node impls (lead/subtask/aggregate + predict* bridges + streaming aggregation guard)
+│   ├── AgentChatCaller.java        # LLM call lifecycle facade (call/stream retry loops, cancellation interception, observation recording)
+│   ├── AgentChatPipeline.java      # Streaming pipeline core (streamAttempt/streamCore/tokenStream + watchdog idle timeout / frame accounting / empty-response guards)
+│   ├── CallContext.java            # Observation value object (llm_call_log parameter bundling, shared by call/stream)
+│   ├── CallSpecAssembler.java      # Role-based assembly policy (MemoryPolicy injection / maxTokens tiers / attachment list)
 │   ├── AgentRequestSpecFactory.java  # Shared request-assembly factory (system / memory injection / tool decoration / output tier)
 │   ├── LeadOutputParser.java       # Lead decomposition JSON parsing (subtask count + expert dispatch whitelist)
 │   ├── OrchestrationBudget.java    # Orchestration budget ledger (AtomicLong shared accounting + degradation note)
