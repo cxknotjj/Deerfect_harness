@@ -31,7 +31,7 @@ const {
   select: selectSession,
   renameIfPlaceholder,
   remove: removeSession,
-} = useSessions()
+} = useSessions((msg) => showTip(msg, true))
 
 const {
   messages,
@@ -50,11 +50,12 @@ const {
   onNewSession: () => {
     void loadFirst()
   },
-  // 占位会话名自动改名(与服务端 touchSession 同口径):首轮成功后把「新会话」替换为首条提问
-  onRoundSucceeded: (userText) => renameIfPlaceholder(currentSessionId.value, userText),
+  // 占位会话名自动改名(与服务端 touchSession 同口径):首轮成功后把「新会话」替换为首条提问;
+  // sid 为流发起时快照,旧流收尾时用户已切走也不会改错会话
+  onRoundSucceeded: (sid, userText) => renameIfPlaceholder(sid, userText),
 })
 
-const { agents, load: loadAgents, bind: bindAgentTo } = useAgents()
+const { agents, load: loadAgents, bind: bindAgentTo } = useAgents((msg) => showTip(msg, true))
 
 onMounted(() => {
   void loadFirst()

@@ -15,7 +15,7 @@ export const SESSION_PLACEHOLDER_NAME = '新会话'
 /** 前端本地改名截断上限(与后端 SESSION_NAME_MAX 同口径) */
 const SESSION_NAME_MAX = 100
 
-export function useSessions() {
+export function useSessions(onError?: (msg: string) => void) {
   /** 已加载的会话(首页 + 已「加载更多」的页) */
   const sessions = ref<SessionView[]>([])
   /** 服务端总会话数(用于判断是否还有下一页) */
@@ -29,7 +29,8 @@ export function useSessions() {
   /** 是否还有更多页:已加载条数少于总数 */
   const hasMore = computed(() => sessions.value.length < total.value)
 
-  /** 拉取一页;replace 为 true 时重置列表(首页/刷新),否则向后追加并按 id 去重 */
+  /** 拉取一页;replace 为 true 时重置列表(首页/刷新),否则向后追加并按 id 去重。
+   *  失败经 onError 轻提示(原为静默吞掉,用户面对空列表无解释),本地列表保持不动可重试 */
   async function fetchPage(target: number, replace: boolean): Promise<void> {
     if (loading.value) return
     loading.value = true
@@ -43,6 +44,8 @@ export function useSessions() {
         const seen = new Set(sessions.value.map((s) => s.id))
         sessions.value = [...sessions.value, ...resp.sessions.filter((s) => !seen.has(s.id))]
       }
+    } catch (e) {
+      onError?.(`会话列表加载失败:${e instanceof Error ? e.message : String(e)}`)
     } finally {
       loading.value = false
     }

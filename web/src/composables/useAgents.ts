@@ -6,16 +6,18 @@ import { ref } from 'vue'
 import { api } from '../api'
 import type { AgentView } from '../api/types'
 
-export function useAgents() {
+export function useAgents(onError?: (msg: string) => void) {
   const agents = ref<AgentView[]>([])
   const loading = ref(false)
 
-  /** 加载 Agent 列表 */
+  /** 加载 Agent 列表;失败经 onError 轻提示(原为静默吞掉,下拉为空无解释),可重试 */
   async function load(): Promise<void> {
     loading.value = true
     try {
       const resp = await api.listAgents()
       agents.value = resp.agents
+    } catch (e) {
+      onError?.(`Agent 列表加载失败:${e instanceof Error ? e.message : String(e)}`)
     } finally {
       loading.value = false
     }
