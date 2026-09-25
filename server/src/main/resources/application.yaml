@@ -39,7 +39,8 @@ spring:
   datasource:
     url: jdbc:mysql://localhost:3306/harness?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
     username: root
-    password: ""
+    # 本地默认空密码;生产/公网部署务必经 MYSQL_PASSWORD 环境变量注入强密码
+    password: ${MYSQL_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
   flyway:
     enabled: true
@@ -180,7 +181,8 @@ app:
       # （超级用户执行 CREATE EXTENSION vector；initializeSchema 只建表不建扩展）
       url: jdbc:postgresql://localhost:5432/postgres
       username: postgres
-      password: "postgresql"
+      # 本地默认与 Docker postgres 镜像默认一致;生产部署经 PGVECTOR_PASSWORD 注入
+      password: ${PGVECTOR_PASSWORD:postgresql}
       # 向量表名（initializeSchema 按此自建；与库内其他项目的向量表隔离）
       table-name: vector_store_harness
 
@@ -191,7 +193,8 @@ napcat:
   enabled: true
   api-base-url: http://127.0.0.1:3000    # NapCat HTTP API（跨机调试用 ssh -L 3000 隧道）
   api-token: ${NAPCAT_API_TOKEN:napcat123}        # 与 onebot11 httpServers.token 一致
-  self-id: "3896564418"                  # 机器人 QQ 号（自消息过滤 + 群聊 @ 判据）
+  # 机器人 QQ 号(自消息过滤 + 群聊 @ 判据):env 注入优先,原硬编码值保留为本地回退
+  self-id: ${QQ_SELF_ID:3896564418}
   agent-id: 10                             # 空 = 默认 Agent；填 agent 表主键后该 agent 的 knowledge 绑定自动生效
   event-secret: ${NAPCAT_EVENT_SECRET:}  # 与 onebot11 httpClients.token 一致；空 = 不校验上报签名
   # 单条消息聊天超时秒数：超时放弃回复且静默（后台任务跑完仍落会话记忆），
