@@ -8,7 +8,7 @@
  * - error:红色错误样式 + 「重试」按钮(交由父级重发最后一条 user 消息)
  */
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { onUnmounted, ref, watch } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import type { MessageItem } from '../composables/useChat'
@@ -20,14 +20,40 @@ marked.setOptions({ breaks: true })
 const props = defineProps<{ message: MessageItem; streaming?: boolean; canRegenerate?: boolean }>()
 const emit = defineEmits<{ retry: []; delete: []; regenerate: []; feedback: [type: string] }>()
 
-/** assistant 正文 markdown → HTML(经 DOMPurify 净化后再包装代码块头部) */
-const html = computed(() => {
+/** 单次 markdown 渲染(marked.parse + DOMPurify 净化 + 代码块包装) */
+function renderHtml(): string {
   const { role, content, error } = props.message
   if (role !== 'assistant' || error || content === '') return ''
   const parsed = marked.parse(content)
   // marked.parse 在非 async 配置下返回 string,此处类型收窄兜底
   return wrapCodeBlocks(DOMPurify.sanitize(typeof parsed === 'string' ? parsed : ''))
-})
+}
+
+/** 流式节流渲染(优化审查 2026-09-25 中高危项):流式期间每个 token 都对全文重跑
+ *  parse+sanitize 是 O(n²),长回复越写越卡。改为 ~120ms 节流增量刷新——
+ *  流式中的内容延迟一拍无感,流结束(streaming 翻 false)立即渲染最终全文 */
+const RENDER_INTERVAL_MS = 120
+const html = ref('')
+let renderTimer: number | undefined
+function renderNow(): void {
+  window.clearTimeout(renderTimer)
+  renderTimer = undefined
+  html.value = renderHtml()
+}
+watch(
+  () => [props.message.content, props.message.error, props.streaming],
+  () => {
+    if (props.streaming) {
+      if (renderTimer === undefined) {
+        renderTimer = window.setTimeout(renderNow, RENDER_INTERVAL_MS)
+      }
+    } else {
+      renderNow()
+    }
+  },
+  { immediate: true },
+)
+onUnmounted(() => window.clearTimeout(renderTimer))
 
 /** 给每个代码块包一层头部(语言标签 + 复制按钮);lang 做字符白名单收敛防注入 */
 function wrapCodeBlocks(html: string): string {
