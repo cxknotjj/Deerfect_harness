@@ -130,11 +130,18 @@ app:
   observability:
     retention-days: 90                           # 观测数据保留天数
     clean-cron: "0 0 3 * * ?"                    # 清理时刻（每日凌晨 3 点低峰期）
-  # API 鉴权（ApiTokenFilter）：默认空 = 不启用（本地单机）；公网部署配置非空值后，
-  # 全部 /api/** 请求须携带 X-API-Token 头（web 经 VITE_API_TOKEN 构建注入同值），
-  # /onebot/** 豁免（NapCat 上报自有 HMAC 验签）
+  # API 鉴权（ApiTokenFilter 双通道）：默认全空 = 不启用（本地单机零影响），公网部署按需配置。
+  # - 机器通道 api-token：非空启用，curl/脚本直连须携带 X-API-Token 头（常量时间比较防时序探测）
+  # - 登录通道 password：非空启用，web 端 POST /api/auth/login 以口令换 HttpOnly Cookie
+  #   （harness_login，SameSite=Lax，活跃访问滑动续期）——凭据不进前端构建产物，浏览器 JS 不可读；
+  #   改 password 后旧登录态留存至过期，需立即踢出则重启（登录态在内存）
+  # 拦截范围仅 /api/**；/api/auth/**、/onebot/**（自有 HMAC 验签）、/error、静态资源不在拦截范围
   security:
-    api-token: ""                                # 空 = 不启用；示例 api-token: my-secret
+    api-token: ""                                # 机器通道；空 = 不启用
+    password: ${APP_PASSWORD:123456}                   # 登录通道；空 = 不启用（公网部署建议配置）
+    login-ttl-hours: 168                         # 登录态有效期（小时），活跃访问滑动续期
+    login-max-failures: 5                        # 同 IP 连续失败锁定阈值
+    login-lock-seconds: 60                       # 锁定时长（秒）
   providers:
     dashscope:
       api-key: ${QWEN_API_KEY:dummy-key-for-startup}

@@ -16,6 +16,8 @@ import SessionList from './components/SessionList.vue'
 import ChatWindow from './components/ChatWindow.vue'
 import AgentSelect from './components/AgentSelect.vue'
 import TraceView from './components/TraceView.vue'
+import LoginView from './components/LoginView.vue'
+import { api, setUnauthorizedHandler } from './api'
 import { useSessions } from './composables/useSessions'
 import { useChat } from './composables/useChat'
 import { useAgents } from './composables/useAgents'
@@ -57,7 +59,52 @@ const {
 
 const { agents, load: loadAgents, bind: bindAgentTo } = useAgents((msg) => showTip(msg, true))
 
-onMounted(() => {
+/** 登录门:服务端启用登录通道(app.security.password 非空)且未登录时,以登录视图替代主界面。
+ *  运行中任意请求 401(登录态过期/被踢)经统一钩子回到登录视图;登录成功后重载列表与 Agent 下拉 */
+const needsLogin = ref(false)
+const authEnabled = ref(false)
+const loginBusy = ref(false)
+const loginError = ref('')
+
+async function onLogin(password: string): Promise<void> {
+  if (loginBusy.value) return
+  loginBusy.value = true
+  loginError.value = ''
+  try {
+    await api.login(password)
+    needsLogin.value = false
+    void loadFirst()
+    void loadAgents()
+  } catch (e) {
+    loginError.value = errText(e)
+  } finally {
+    loginBusy.value = false
+  }
+}
+
+async function onLogout(): Promise<void> {
+  try {
+    await api.logout()
+  } catch {
+    /* 服务端不可达也照常切登录视图:本地 Cookie 已随响应/过期失效 */
+  }
+  needsLogin.value = true
+}
+
+onMounted(async () => {
+  setUnauthorizedHandler(() => {
+    needsLogin.value = true
+  })
+  try {
+    const state = await api.authState()
+    authEnabled.value = state.enabled
+    if (state.enabled && !state.authenticated) {
+      needsLogin.value = true
+      return // 未登录不拉业务数据,避免一堆 401 噪音
+    }
+  } catch {
+    /* 探测失败不阻塞(如反代短暂抖动):交由业务请求自身的 401 钩子兜底 */
+  }
   void loadFirst()
   void loadAgents()
 })
@@ -230,7 +277,10 @@ function downloadSessionLog(): void {
 </script>
 
 <template>
+  <!-- 登录门:服务端启用登录且未登录时替代主界面(静态资源公开,门只锁数据接口) -->
+  <LoginView v-if="needsLogin" :busy="loginBusy" :error="loginError" @submit="onLogin" />
   <div
+    v-else
     class="app-shell"
     :class="{ 'app-streaming': streaming, 'sidebar-collapsed': sidebarCollapsed, 'drawer-open': drawerOpen }"
   >
@@ -302,6 +352,14 @@ function downloadSessionLog(): void {
             :title="theme === 'dark' ? '切换日间模式' : '切换夜间模式'"
             @click="toggleTheme"
           >{{ theme === 'dark' ? '☀' : '☾' }}</button>
+          <button
+            v-if="authEnabled"
+            class="icon-btn"
+            type="button"
+            title="退出登录"
+            aria-label="退出登录"
+            @click="onLogout"
+          >⎋</button>
         </div>
       </header>
 

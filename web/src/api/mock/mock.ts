@@ -191,4 +191,8 @@ export const mockApi: Api = {
   listToolCalls,
   listLlmCalls,
   streamChat,
+  // mock 模式无鉴权:enabled=false 让登录门直接放行
+  authState: async () => ({ enabled: false, authenticated: true }),
+  login: async () => {},
+  logout: async () => {},
 }

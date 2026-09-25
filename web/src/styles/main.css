@@ -1056,3 +1056,53 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   .trace-row { flex-wrap: wrap; row-gap: 2px; }
   .trace-detail { flex-basis: 100%; }
 }
+
+/* ============================================================
+   登录视图(口令换 HttpOnly Cookie):门锁数据接口,静态页公开
+   ============================================================ */
+.login-view {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-base);
+}
+.login-card {
+  width: 320px;
+  padding: 32px 28px;
+  border: 1px solid var(--grid-line);
+  border-radius: 16px;
+  background: var(--bg-panel);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+  text-align: center;
+}
+.login-logo { width: 56px; height: 56px; }
+.login-title { font-size: 18px; color: var(--ink); margin: 0; letter-spacing: 1px; }
+.login-sub { font-size: 13px; color: var(--ink-dim); margin: 0; }
+.login-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: var(--radius-ctl);
+  border: 1px solid var(--grid-line);
+  background: var(--bg-inset);
+  color: var(--ink);
+  font-size: 14px;
+}
+.login-input:focus { outline: none; border-color: var(--accent); }
+.login-btn {
+  width: 100%;
+  padding: 10px 0;
+  border: none;
+  border-radius: var(--radius-ctl);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 14px;
+  cursor: pointer;
+}
+.login-btn:hover:enabled { background: var(--accent-hover); }
+.login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.login-error { font-size: 13px; color: var(--accent-warm); margin: 0; }
