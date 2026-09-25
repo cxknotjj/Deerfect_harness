@@ -144,6 +144,23 @@
 - [ ] **多模态输入（远期）**：视觉模型（qwen-vl 类）经 agent 表接入，支持图片理解类请求
   - 验收：提交图片 URL 得到基于图片内容的回答
 
+## 明确暂缓项（2026-09-25 优化评审收拢，需立项或产品决策后再排期）
+
+> 来源 `docs/optimization-review-2026-09-25.md`；单用户自用场景暂不排期，启动前先立项或由产品决策。
+
+- [ ] **超长类拆分**：`AgentChatCaller` 749 行 / `MultiAgentGraphAgent` 645 行 / `ChatServiceImpl` 525 行 / `OneBotEventServiceImpl` 495 行，单类职责过载
+  - 拆分方向（待立项定）：caller 管道/重试/记账分离、graph 节点装配分离、ChatServiceImpl 同步与流式双入口分离、OneBot 事件解析与派发分离
+  - 验收：核心类职责单一、行数收敛，全量测试绿
+- [ ] **web 多标签页缓存竞态**：`chatCache.ts` saveCache 为 read-modify-write 非原子（chatCache.ts:80-88），无 storage 事件监听/Web Locks，两标签页并发写后写整份赢
+  - 决策点：Web Locks 单写者 vs storage 事件同步 vs 以服务端会话列表为准
+  - 验收：双标签页并发对话，切回后消息缓存与会话列表不串桶不丢更
+- [ ] **TraceView 分页**：前端一次性全量拉 200 LLM + 200 工具调用记录（client.ts:87-94; TraceView.vue:50），ChatWindow.loadTokens 每轮流结束 1s 后全量重拉（ChatWindow.vue:83-90）；后端 `/api/llm-calls`、`/api/tool-calls` 目前仅 limit 截断（默认 50 封顶 200），无 offset/cursor 分页
+  - 改造要点：后端两端点加分页参数（offset 或 id 游标），前端按页加载 + 流结束增量补拉
+  - 验收：长会话 TraceView 首屏只拉当前页，轮结束增量补拉不重拉全量
+- [ ] **web 端 VITE_API_BASE**：API 路径硬编码相对 `/api/...`（client.ts:39,161），生产必须同域反代
+  - 决策点：是否支持独立域名/跨域部署（涉及 CORS 与 SSE 跨域带凭证）
+  - 验收：配置 `VITE_API_BASE` 后构建产物可独立域名部署
+
 ***
 
 # 二、已完成（存档）
