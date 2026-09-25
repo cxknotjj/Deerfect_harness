@@ -51,6 +51,14 @@ const timeLabels = computed<Record<string, string>>(() => {
   }
   return labels
 })
+
+/** 键盘选中:Enter/Space 触发会话选中(与 click 同路径);其余键交还浏览器(Tab 导航) */
+function onItemKeydown(id: string, e: KeyboardEvent): void {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault()
+    emit('select', id)
+  }
+}
 </script>
 
 <template>
@@ -93,16 +101,22 @@ const timeLabels = computed<Record<string, string>>(() => {
         :key="s.id"
         class="session-item"
         :class="{ 'session-item-active': s.id === currentId }"
+        role="button"
+        tabindex="0"
+        :aria-label="`会话 ${s.name}`"
         @click="emit('select', s.id)"
+        @keydown="onItemKeydown(s.id, $event)"
       >
         <span class="session-item-name">{{ s.name }}</span>
         <span class="session-item-time">{{ timeLabels[s.id] }}前</span>
-        <!-- 删除入口:hover 显现;确认后交外层执行 -->
+        <!-- 删除入口:hover 显现;确认后交外层执行;键盘可达,阻断冒泡避免触发会话选中 -->
         <button
           class="session-item-del"
           type="button"
           title="删除会话"
+          aria-label="删除会话"
           @click="onRemove(s.id, $event)"
+          @keydown.stop
         >✕</button>
       </li>
     </ul>
