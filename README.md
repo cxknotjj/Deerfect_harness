@@ -73,13 +73,13 @@ curl -s -X POST http://localhost:8080/api/chat \
 
 ## 效果展示
 
-**日间模式 · 会话与消息**
+**首页 · 会话与对话（会话列表 / 流式回答 / 卡片式输入区）**
 
-![日间模式](./docs/images/ui-light.jpg)
+![首页](./docs/images/ui-home.png)
 
-**夜间模式 · 流式回答（打字机 + 代码高亮）**
+**轨迹视图 · 调用链可观测（route-judge 与直答两段 LLM 调用、耗时与 token 记账）**
 
-![夜间模式](./docs/images/ui-dark.jpg)
+![轨迹视图](./docs/images/ui-trace.png)
 
 ## 📖 文档
 
