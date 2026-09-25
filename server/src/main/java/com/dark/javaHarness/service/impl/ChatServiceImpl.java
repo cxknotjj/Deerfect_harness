@@ -20,7 +20,6 @@ import com.dark.javaHarness.service.SessionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -85,6 +84,20 @@ public class ChatServiceImpl implements ChatService {
         this.knowledgeRetriever = knowledgeRetriever;
         this.streamConnectionLimiter = streamConnectionLimiter;
         this.complexFallbackEnabled = complexFallbackEnabled;
+        this.prefetchPool = knowledgeRetriever == null ? null
+                : new java.util.concurrent.ThreadPoolExecutor(
+                        2, 2, 60, java.util.concurrent.TimeUnit.SECONDS,
+                        new java.util.concurrent.LinkedBlockingQueue<>(100),
+                        r -> {
+                            Thread t = new Thread(r, "rag-prefetch");
+                            t.setDaemon(true);
+                            return t;
+                        },
+                        // 饱和静默丢弃:预取是纯加速,被丢的请求退化为组装期现查(与汇合超时同语义)
+                        new java.util.concurrent.ThreadPoolExecutor.DiscardPolicy());
+        if (prefetchPool != null) {
+            prefetchPool.allowCoreThreadTimeOut(true);
+        }
     }
 
     private static final Logger log = LoggerFactory.getLogger(ChatServiceImpl.class);
@@ -117,20 +130,7 @@ public class ChatServiceImpl implements ChatService {
         }
         // judge 与 RAG 预取无数据依赖（都只吃用户原始消息）：预取先行提交、与 judge 并行，
         // judge 完成后小幅汇合——预取结果进 KnowledgeRetriever 请求级缓存，组装期短路命中
-        ExecutorService prefetchPool = newPrefetchPool();
-        // sessionId 上方可能被重新赋值（新建会话），lambda 捕获需 effectively final 快照
-        final String prefetchSid = sessionId;
-        Future<?> prefetch = prefetchPool == null ? null
-                : prefetchPool.submit(() -> doPrefetch(request.message(), prefetchSid));
-        String resolvedAgent;
-        try {
-            resolvedAgent = resolveAgent(request.message(), sessionId, turnId);
-            awaitPrefetch(prefetch);
-        } finally {
-            if (prefetchPool != null) {
-                prefetchPool.shutdown();
-            }
-        }
+        String resolvedAgent = resolveAgentWithPrefetch(request.message(), sessionId, turnId);
 
         Goal goal = agentService.executeSync(resolvedAgent, request.message(), sessionId, turnId);
         // COMPLEX 编排失败降级（同步路径无客户端断开，FAILED 即编排自身失败）：
@@ -170,13 +170,18 @@ public class ChatServiceImpl implements ChatService {
                 recentKnowledgeSources(sessionId), fallbackAgent);
     }
 
-    /** 同步执行成功后写回会话记忆（user 消息记录真实发送时刻，历史回显时间不失真） */
+    /** 同步路径写回（user 消息记录真实发送时刻，历史回显时间不失真）：仅成功轮写（FAILED/取消不落上下文） */
     private void writeBackContext(String sessionId, String message, Goal goal, long userSentAt) {
         if (sessionId != null && !sessionId.isBlank() && goal.status() == GoalStatus.SUCCEEDED) {
-            sessionService.saveContext(sessionId, new UserMessage(message), userSentAt);
-            sessionService.saveContext(sessionId, new AssistantMessage(goal.summary()), System.currentTimeMillis());
-            sessionService.touchSession(sessionId, message);
+            writeBackBoth(sessionId, message, goal.summary(), userSentAt);
         }
+    }
+
+    /** 写回公共体（sync/stream 两份重复块收编）：user+assistant 双消息落快照 + touch 会话 */
+    private void writeBackBoth(String sessionId, String message, String assistantReply, long userSentAt) {
+        sessionService.saveContext(sessionId, new UserMessage(message), userSentAt);
+        sessionService.saveContext(sessionId, new AssistantMessage(assistantReply), System.currentTimeMillis());
+        sessionService.touchSession(sessionId, message);
     }
 
     /** 建会话所需的会话标识（sid + 是否新建） */
@@ -238,18 +243,7 @@ public class ChatServiceImpl implements ChatService {
             return toSseBody(Flux.concat(
                     Flux.just(ProgressLine.encode("路由", "判定中…")),
                     Mono.fromCallable(() -> {
-                        ExecutorService prefetchPool = newPrefetchPool();
-                        Future<?> prefetch = prefetchPool == null ? null
-                                : prefetchPool.submit(() -> doPrefetch(request.message(), ctx.sid()));
-                        String resolvedAgent;
-                        try {
-                            resolvedAgent = resolveAgent(request.message(), ctx.sid(), turnId);
-                            awaitPrefetch(prefetch);
-                        } finally {
-                            if (prefetchPool != null) {
-                                prefetchPool.shutdown();
-                            }
-                        }
+                        String resolvedAgent = resolveAgentWithPrefetch(request.message(), ctx.sid(), turnId);
                         Flux<String> agentStream = agentService.executeStreamReactive(resolvedAgent, request.message(), ctx.sid(), turnId, traceId);
                         // COMPLEX 编排失败降级：编排自身异常（客户端断开走 cancel，不触发 onErrorResume）时
                         // 降级为会话 Agent 单模型重答一次，一层兜底不递归
@@ -384,9 +378,7 @@ public class ChatServiceImpl implements ChatService {
     /** 流式成功后写回会话记忆（响应式路径：assistant 完整回复已由 doOnNext 收集；user 记录发送时刻） */
     private void writeBackContext(String sessionId, String message, String assistantReply, long userSentAt) {
         if (sessionId != null && !sessionId.isBlank()) {
-            sessionService.saveContext(sessionId, new UserMessage(message), userSentAt);
-            sessionService.saveContext(sessionId, new AssistantMessage(assistantReply), System.currentTimeMillis());
-            sessionService.touchSession(sessionId, message);
+            writeBackBoth(sessionId, message, assistantReply, userSentAt);
         }
     }
 
@@ -409,16 +401,23 @@ public class ChatServiceImpl implements ChatService {
         return sources.isEmpty() ? null : sources;
     }
 
-    /** RAG 预取专用单线程池（守护线程）：每次请求独立创建用完即弃，生命周期自洽零泄漏 */
-    private ExecutorService newPrefetchPool() {
-        if (knowledgeRetriever == null) {
-            return null;
+    /** RAG 预取共享池（守护线程、core 空闲 60s 回收）：进程级单例，替代每请求建池用完即弃
+     *  （优化审查 2026-09-25 中危项）；knowledgeRetriever 未装配（知识库禁用）时为 null */
+    private final java.util.concurrent.ThreadPoolExecutor prefetchPool;
+
+    /** 预取提交 + judge 并行 + 汇合的收敛入口：sync/stream 两份重复块收编于此 */
+    private String resolveAgentWithPrefetch(String message, String sessionId, String turnId) {
+        Future<?> prefetch = prefetchPool == null
+                ? null : prefetchPool.submit(() -> doPrefetch(message, sessionId));
+        try {
+            String resolvedAgent = resolveAgent(message, sessionId, turnId);
+            awaitPrefetch(prefetch);
+            return resolvedAgent;
+        } finally {
+            if (prefetch != null) {
+                prefetch.cancel(true); // 汇合窗口外放弃：中断预取任务，占用即归还共享池
+            }
         }
-        return Executors.newSingleThreadExecutor(r -> {
-            Thread t = new Thread(r, "rag-prefetch");
-            t.setDaemon(true);
-            return t;
-        });
     }
 
     /** 入口预取：解析会话绑定 agent 的知识库绑定并发起预取（任何失败静默，不影响主流程） */
