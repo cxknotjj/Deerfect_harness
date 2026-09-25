@@ -129,6 +129,11 @@ app:
   observability:
     retention-days: 90                           # 观测数据保留天数
     clean-cron: "0 0 3 * * ?"                    # 清理时刻（每日凌晨 3 点低峰期）
+  # API 鉴权（ApiTokenFilter）：默认空 = 不启用（本地单机）；公网部署配置非空值后，
+  # 全部 /api/** 请求须携带 X-API-Token 头（web 经 VITE_API_TOKEN 构建注入同值），
+  # /onebot/** 豁免（NapCat 上报自有 HMAC 验签）
+  security:
+    api-token: ""                                # 空 = 不启用；示例 api-token: my-secret
   providers:
     dashscope:
       api-key: ${QWEN_API_KEY:dummy-key-for-startup}

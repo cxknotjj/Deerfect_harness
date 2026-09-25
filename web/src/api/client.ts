@@ -31,6 +31,9 @@ function baseHeaders(): Record<string, string> {
   const headers: Record<string, string> = {}
   const key: string | undefined = import.meta.env.VITE_API_KEY
   if (key) headers['X-API-Key'] = key
+  // 服务端 ApiTokenFilter 鉴权头(app.security.api-token 非空时启用;构建经 VITE_API_TOKEN 注入同值)
+  const token: string | undefined = import.meta.env.VITE_API_TOKEN
+  if (token) headers['X-API-Token'] = token
   return headers
 }
 
