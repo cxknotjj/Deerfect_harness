@@ -140,10 +140,12 @@ function unescapeLineBreaks(s: string): string {
   return out
 }
 
-/** 剥掉 "data:" 前缀与其后至多一个空格(SSE 规范),保留载荷原文(缩进空格不丢) */
+/** 剥掉 "data:" 前缀与其后至多一个空格(SSE 规范),保留载荷原文(缩进空格不丢);
+ *  尾部 \r 去除(服务端若发 \r\n 行尾,split('\n') 后载荷尾残留 \r 会污染 JSON/token) */
 function dataPayload(line: string): string {
   const rest = line.slice('data:'.length)
-  return rest.startsWith(' ') ? rest.slice(1) : rest
+  const noSpace = rest.startsWith(' ') ? rest.slice(1) : rest
+  return noSpace.endsWith('\r') ? noSpace.slice(0, -1) : noSpace
 }
 
 /**
@@ -251,7 +253,8 @@ export async function streamChat(
   }
 }
 
-function isAbort(e: unknown): boolean {
+/** 主动取消判定(单点导出):useChat 收尾共用,避免双处 instanceof 判断漂移 */
+export function isAbort(e: unknown): boolean {
   return e instanceof DOMException && e.name === 'AbortError'
 }
 

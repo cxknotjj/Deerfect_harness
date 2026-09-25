@@ -32,6 +32,7 @@
   --hover-veil: rgba(255, 255, 255, 0.03); /* 常规 hover 微亮 */
   --selection: rgba(77, 107, 254, 0.3);    /* 文本选区 */
   --thumb: #26313f;                        /* 滚动条 thumb:grid-line 提亮一档 */
+  --thumb-hover: #33404f;                  /* 滚动条 thumb hover(原硬编码收编为 token) */
   --on-accent: #ffffff;                    /* 蓝底白字(同日间) */
 
   /* 几何 */
@@ -78,7 +79,7 @@ body, .chat-header, .composer-wrap, .msg-bubble-user {
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--thumb); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #33404f; }
+::-webkit-scrollbar-thumb:hover { background: var(--thumb-hover); }
 ::-webkit-scrollbar-corner { background: transparent; }
 
 button { font: inherit; cursor: pointer; border: none; background: none; color: inherit; }
@@ -799,6 +800,9 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   .msg-row-streaming .md-body:empty::after {
     animation: none;
   }
+  .agent-select [class*='agent-menu'] {
+    animation: none; /* 下拉滑入动画一并降级(原清单遗漏) */
+  }
 }
 
 /* ---------- 日间模式:蓝白(DeepSeek 配色) ----------
@@ -822,6 +826,7 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   --hover-veil: rgba(0, 0, 0, 0.03);
   --selection: rgba(77, 107, 254, 0.18);
   --thumb: #d3d9e0;
+  --thumb-hover: #bfc7d1;  /* 日间 thumb hover:再深一档 */
   --on-accent: #ffffff;    /* 蓝底白字 */
   --menu-shadow: 0 8px 28px rgba(31, 42, 64, 0.14), 0 2px 8px rgba(31, 42, 64, 0.08);
   --mask-veil: rgba(31, 42, 64, 0.28); /* 窄屏抽屉遮罩:日间用浅灰蓝 */

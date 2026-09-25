@@ -8,7 +8,7 @@
  * (以服务端为准,见 chatCache.ts);消息进出后把当前会话落盘。
  */
 import { ref } from 'vue'
-import { api } from '../api'
+import { api, isAbort } from '../api'
 import type { ProgressPayload, SessionMessageView } from '../api'
 import { loadCache, saveCache } from './chatCache'
 
@@ -31,9 +31,10 @@ export interface ChatHooks {
   setSessionId(id: string): void
   /** meta 报告后端新建了会话时通知外层刷新列表(可选) */
   onNewSession?(): void
-  /** 一轮流式成功结束(无流内 error/异常)时回调,携带本轮 user 消息原文(可选):
-   *  外层据此把占位会话名「新会话」改为首条提问,与服务端 touchSession 自动命名同口径 */
-  onRoundSucceeded?(userText: string): void
+  /** 一轮流式成功结束(无流内 error/异常)时回调,携带「流发起时会话 id + 本轮 user 消息原文」(可选):
+   *  外层据此把占位会话名「新会话」改为首条提问,与服务端 touchSession 自动命名同口径;
+   *  会话 id 取发起时快照而非实时值——旧流收尾时用户可能已切走,实时值会改错会话 */
+  onRoundSucceeded?(sid: string, userText: string): void
 }
 
 /** 未选中会话时的草稿桶 key(本轮后端可能新建会话,onMeta 回传后迁移到真实 id) */
@@ -74,14 +75,26 @@ export function useChat(hooks: ChatHooks) {
     return list
   }
 
-  /** 当前会话落盘(草稿会话不落盘:onMeta 迁移到真实会话 id 后自然入库) */
-  function persist(): void {
-    const key = hooks.getSessionId()
-    if (key === '') return
-    // 空内容(流式中/已取消)与错误轮次不落盘:恢复后无意义,反而误导
+  /** 当前视图桶落盘 */
+  function persistCurrent(): void {
+    persist(messages.value)
+  }
+
+  /** 指定桶落盘:按桶引用定位其当前归属会话 key(onMeta 迁移后草稿桶会换到真实 id)。
+   *  传桶引用而非 key,保证「流发起时的桶」在用户中途切会话后仍落回正确会话;
+   *  定位不到(异常态)或草稿桶(未建档)不落盘;空内容与错误轮次不落盘 */
+  function persist(bucket: MessageItem[]): void {
+    let key: string | null = null
+    for (const [k, v] of store) {
+      if (v === bucket) {
+        key = k === DRAFT_KEY ? '' : k
+        break
+      }
+    }
+    if (key === null || key === '') return
     saveCache(
       key,
-      messages.value.filter((m) => m.content !== '' && !m.error),
+      bucket.filter((m) => m.content !== '' && !m.error),
     )
   }
 
@@ -105,7 +118,7 @@ export function useChat(hooks: ChatHooks) {
       if (viewKey !== key) return
       const view = messages.value
       view.splice(0, view.length, ...resp.messages.map(toItem))
-      persist()
+      persistCurrent()
     } catch {
       /* 拉取失败静默:本地缓存已渲染,不打断使用 */
     }
@@ -133,6 +146,10 @@ export function useChat(hooks: ChatHooks) {
   async function streamText(assistant: MessageItem, text: string): Promise<void> {
     streaming.value = true
     controller = new AbortController()
+    // 流发起时的会话 id 快照:收尾回调(改名)以发起时归属为准,用户中途切会话不串;
+    // 落盘传桶引用,迁移/切会话后仍落回正确会话
+    const sidAtStart = hooks.getSessionId()
+    const bucket = messages.value
     try {
       await api.streamChat(
         // 无选中会话时不带 sessionId:后端可能新建并经 meta 回传
@@ -164,7 +181,7 @@ export function useChat(hooks: ChatHooks) {
       )
     } catch (e) {
       // 主动取消静默结束(不视为错误);其余异常(网络/HTTP)显示为 assistant 错误消息
-      if (!(e instanceof DOMException && e.name === 'AbortError')) {
+      if (!isAbort(e)) {
         appendError(assistant, e instanceof Error ? e.message : String(e))
       }
     } finally {
@@ -172,9 +189,10 @@ export function useChat(hooks: ChatHooks) {
       controller = null
       streaming.value = false
       assistant.progress = []
-      // 成功一轮才通知外层(失败/取消不改会话名,与服务端「成功才写回」口径一致)
-      if (!assistant.error) hooks.onRoundSucceeded?.(text)
-      persist()
+      // 成功一轮才通知外层(失败/取消不改会话名,与服务端「成功才写回」口径一致);
+      // 会话 id 用发起时快照:旧流收尾时用户可能已切走,实时 id 会改错会话
+      if (!assistant.error) hooks.onRoundSucceeded?.(sidAtStart, text)
+      persist(bucket)
     }
   }
 
@@ -209,7 +227,7 @@ export function useChat(hooks: ChatHooks) {
     const i = list.findIndex((m) => m.id === id)
     if (i === -1) return
     list.splice(i, list[i + 1]?.role === 'assistant' ? 2 : 1)
-    persist()
+    persistCurrent()
   }
 
   /** 会话被删除后清理其本地痕迹:丢弃消息桶 + 清 localStorage 缓存(视图切换由外层 show('') 负责) */
