@@ -26,6 +26,7 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 会话服务实现：基于 session + session_messages 两张表实现多轮会话记忆。
@@ -165,8 +166,15 @@ public class SessionServiceImpl implements SessionService {
         saveContext(sessionId, message, System.currentTimeMillis());
     }
 
-    /** 追加保存单条会话消息并记录时间戳（ts 为消息真实时刻：user=发送、assistant=完成；null 按当前处理） */
+    /**
+     * 追加保存单条会话消息并记录时间戳（ts 为消息真实时刻：user=发送、assistant=完成；null 按当前处理）。
+     *
+     * <p>并发安全（优化审查 2026-09-25 中危项）：先以 FOR UPDATE 锁会话行作为该会话上下文
+     * 写回的互斥点，读-改-写全程串行——并发写同一会话（流式收尾 + QQ 同步、连续两轮竞速）
+     * 不再互相覆盖丢消息。事务边界由 @Transactional 保证（FOR UPDATE 须在事务内才有意义）。
+     */
     @Override
+    @Transactional
     public void saveContext(String sessionId, Message message, Long ts) {
         if (sessionId == null || sessionId.isBlank() || message == null) {
             return;
@@ -176,6 +184,8 @@ public class SessionServiceImpl implements SessionService {
             log.info("会话不存在或已删除，跳过上下文写回 sessionId={}", sessionId);
             return;
         }
+        // 会话行互斥锁：序列化同会话并发写回（快照读-改-写以锁为界）
+        lockSessionRow(parseSessionId(sessionId));
         // 读取已有上下文，追加本条消息
         SessionMessageEntity existing = latestSnapshotRow(sessionId);
         List<Map<String, String>> items = new ArrayList<>(parseSnapshotItems(existing));
@@ -188,12 +198,9 @@ public class SessionServiceImpl implements SessionService {
         }
         items.add(item);
 
-        String json;
-        try {
-            json = objectMapper.writeValueAsString(items);
-        } catch (JsonProcessingException e) {
-            log.error("序列化会话上下文失败 sessionId={}", sessionId, e);
-            return;
+        String json = serializeWithRetry(sessionId, items);
+        if (json == null) {
+            return; // 两次序列化均失败：本轮上下文副本丢失（回复已送达），仅记错误日志
         }
         if (existing != null) {
             UpdateWrapper<SessionMessageEntity> uw = new UpdateWrapper<>();
@@ -210,6 +217,29 @@ public class SessionServiceImpl implements SessionService {
             row.setCreatedAt(LocalDateTime.now());
             messageMapper.insert(row);
         }
+    }
+
+    /** 会话行锁（FOR UPDATE）：同一会话的上下文写回以该锁串行化；须在 @Transactional 内调用 */
+    private void lockSessionRow(Long sid) {
+        QueryWrapper<SessionEntity> lw = new QueryWrapper<>();
+        lw.select("session_id").eq("session_id", sid).last("FOR UPDATE");
+        sessionMapper.selectOne(lw);
+    }
+
+    /** 序列化重试一次： transient 失败自愈，连续失败返回 null（调用方跳过写回并已记日志） */
+    private String serializeWithRetry(String sessionId, List<Map<String, String>> items) {
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                return objectMapper.writeValueAsString(items);
+            } catch (JsonProcessingException e) {
+                if (attempt == 1) {
+                    log.warn("序列化会话上下文失败（重试一次）sessionId={}: {}", sessionId, e.getMessage());
+                } else {
+                    log.error("序列化会话上下文失败（已重试仍失败，本轮上下文副本丢失）sessionId={}", sessionId, e);
+                }
+            }
+        }
+        return null;
     }
 
     /** 更新会话的最近一次提问；名字仍为建档占位「新会话」时以本条提问自动命名（首条成功消息生效） */

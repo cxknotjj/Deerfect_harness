@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -204,6 +205,59 @@ class SessionServiceImplTest {
         assertTrue(sqlSet.contains("IF("), "应为条件改名（仅占位名生效）");
         assertTrue(uw.getParamNameValuePairs().containsValue("帮我写一个快速排序"),
                 "新名应为首条提问（参数绑定，非拼接）");
+    }
+
+    /** saveContext 应以 FOR UPDATE 锁会话行:同会话并发写回串行化,防互相覆盖丢消息 */
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void saveContext_locksSessionRowForUpdate() {
+        when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
+        when(messageMapper.selectOne(any())).thenReturn(null);
+
+        sessionService.saveContext("9", new UserMessage("你好"));
+
+        ArgumentCaptor<Wrapper> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(sessionMapper, times(2)).selectOne(captor.capture()); // 防复活守卫 + 行锁
+        String lockSql = ((com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<?>)
+                captor.getAllValues().get(1)).getTargetSql();
+        assertTrue(lockSql.contains("FOR UPDATE"), "第二次 selectOne 应为 FOR UPDATE 行锁,实际: " + lockSql);
+    }
+
+    /** saveContext 序列化失败应重试一次:第二次成功则照常落库 */
+    @Test
+    @SuppressWarnings("unchecked")
+    void saveContext_serializeFailure_retriesOnce() throws Exception {
+        ObjectMapper mapper = org.mockito.Mockito.mock(ObjectMapper.class);
+        SessionServiceImpl svc = new SessionServiceImpl(sessionMapper, messageMapper,
+                mapper, agentConfigProvider, bindingMapper);
+        when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
+        when(messageMapper.selectOne(any())).thenReturn(null);
+        when(mapper.writeValueAsString(any()))
+                .thenThrow(new com.fasterxml.jackson.core.JsonProcessingException("boom") {})
+                .thenReturn("[]");
+
+        svc.saveContext("9", new UserMessage("你好"));
+
+        verify(mapper, times(2)).writeValueAsString(any());
+        verify(messageMapper).insert(any(SessionMessageEntity.class));
+    }
+
+    /** saveContext 两次序列化均失败:放弃写回但不抛错(回复已送达,仅上下文副本丢失) */
+    @Test
+    void saveContext_serializeTwiceFails_skipsWriteQuietly() throws Exception {
+        ObjectMapper mapper = org.mockito.Mockito.mock(ObjectMapper.class);
+        SessionServiceImpl svc = new SessionServiceImpl(sessionMapper, messageMapper,
+                mapper, agentConfigProvider, bindingMapper);
+        when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
+        when(messageMapper.selectOne(any())).thenReturn(null);
+        when(mapper.writeValueAsString(any()))
+                .thenThrow(new com.fasterxml.jackson.core.JsonProcessingException("boom") {});
+
+        svc.saveContext("9", new UserMessage("你好"));
+
+        verify(mapper, times(2)).writeValueAsString(any());
+        verify(messageMapper, never()).insert(any(SessionMessageEntity.class));
+        verify(messageMapper, never()).update(any(), any());
     }
 
     @Test
