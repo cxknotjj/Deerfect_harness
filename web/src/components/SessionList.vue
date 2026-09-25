@@ -96,7 +96,7 @@ const timeLabels = computed<Record<string, string>>(() => {
         @click="emit('select', s.id)"
       >
         <span class="session-item-name">{{ s.name }}</span>
-        <span class="session-item-time">{{ timeLabels[s.id] }}</span>
+        <span class="session-item-time">{{ timeLabels[s.id] }}前</span>
         <!-- 删除入口:hover 显现;确认后交外层执行 -->
         <button
           class="session-item-del"
