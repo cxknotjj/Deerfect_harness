@@ -11,7 +11,7 @@
  * - 占位交互(附件/工作区权限/消息反馈/搜索/设置)统一顶栏轻提示「功能开发中」
  */
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import SessionList from './components/SessionList.vue'
 import ChatWindow from './components/ChatWindow.vue'
 import AgentSelect from './components/AgentSelect.vue'
@@ -164,8 +164,22 @@ function onNarrowChange(e: MediaQueryListEvent): void {
 }
 narrowMql.addEventListener('change', onNarrowChange)
 
-/** 抽屉开合(仅窄屏生效;桌面端该状态无样式效果) */
+/** 抽屉开合(仅窄屏生效;桌面端该状态无样式效果);开合伴随焦点移入/归还(可达性) */
 const drawerOpen = ref(false)
+const sidebarEl = ref<InstanceType<typeof SessionList> | null>(null)
+const expandBtnEl = ref<HTMLButtonElement | null>(null)
+watch(drawerOpen, (open) => {
+  if (!isNarrow.value) return
+  if (open) {
+    // 打开:焦点移入侧栏首个可聚焦元素(键盘用户可直接 Tab 遍历会话项)
+    requestAnimationFrame(() => {
+      const first = sidebarEl.value?.$el?.querySelector<HTMLElement>('button, [tabindex="0"]')
+      first?.focus()
+    })
+  } else if (expandBtnEl.value) {
+    expandBtnEl.value.focus() // 关闭:焦点归还展开钮
+  }
+})
 
 /** 侧栏头部收起钮:窄屏=收抽屉;桌面=内联折叠 */
 function onSidebarCollapse(): void {
@@ -241,6 +255,7 @@ function downloadSessionLog(): void {
       @click="drawerOpen = false"
     ></button>
     <SessionList
+      ref="sidebarEl"
       :sessions="sessions"
       :current-id="currentSessionId"
       :has-more="hasMore"
@@ -258,9 +273,11 @@ function downloadSessionLog(): void {
         <!-- 侧栏收起时的展开入口 -->
         <button
           v-if="sidebarCollapsed || isNarrow"
+          ref="expandBtnEl"
           class="icon-btn"
           type="button"
           :title="isNarrow ? '打开侧栏' : '展开侧栏'"
+          :aria-label="isNarrow ? '打开侧栏' : '展开侧栏'"
           @click="onSidebarExpand"
         >☰</button>
         <span class="chat-title">{{ currentSessionName }}</span>

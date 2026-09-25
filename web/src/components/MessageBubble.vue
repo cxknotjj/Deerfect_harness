@@ -136,9 +136,10 @@ async function onBodyClick(e: MouseEvent): Promise<void> {
           class="msg-action-btn"
           type="button"
           :title="copied ? '已复制' : '复制'"
+          :aria-label="copied ? '已复制' : '复制'"
           @click="copyContent"
         >{{ copied ? '✓' : '⧉' }}</button>
-        <button class="msg-action-btn" type="button" title="删除这轮对话" @click="emit('delete')">✕</button>
+        <button class="msg-action-btn" type="button" title="删除这轮对话" aria-label="删除这轮对话" @click="emit('delete')">✕</button>
       </div>
     </template>
 
@@ -150,16 +151,17 @@ async function onBodyClick(e: MouseEvent): Promise<void> {
           class="msg-action-btn"
           type="button"
           :title="copied ? '已复制' : '复制'"
+          :aria-label="copied ? '已复制' : '复制'"
           @click="copyContent"
         >{{ copied ? '✓' : '⧉' }}</button>
         <!-- 赞/踩/分享为占位:仅 emit feedback(like/dislike/share),提示由外层统一处理 -->
-        <button class="msg-action-btn" type="button" title="赞" @click="emit('feedback', 'like')">
+        <button class="msg-action-btn" type="button" title="赞" aria-label="赞" @click="emit('feedback', 'like')">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
         </button>
-        <button class="msg-action-btn" type="button" title="踩" @click="emit('feedback', 'dislike')">
+        <button class="msg-action-btn" type="button" title="踩" aria-label="踩" @click="emit('feedback', 'dislike')">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zM17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>
         </button>
-        <button class="msg-action-btn" type="button" title="分享" @click="emit('feedback', 'share')">
+        <button class="msg-action-btn" type="button" title="分享" aria-label="分享" @click="emit('feedback', 'share')">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>
         </button>
         <!-- 历史回显 ts=0,无原始时间故不展示 -->
@@ -170,6 +172,7 @@ async function onBodyClick(e: MouseEvent): Promise<void> {
           class="msg-action-btn"
           type="button"
           :title="streaming ? '生成中…' : '重新生成'"
+          :aria-label="streaming ? '生成中' : '重新生成'"
           :disabled="streaming"
           @click="emit('regenerate')"
         >↻</button>
