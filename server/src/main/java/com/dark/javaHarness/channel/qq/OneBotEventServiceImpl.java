@@ -17,13 +17,15 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,13 +38,18 @@ import org.slf4j.LoggerFactory;
  * {@code /reset} 指令删除绑定行，下条消息开启新会话（多轮记忆清空）。
  *
  * <p>失败语义：任何异常/FAILED/超时只记日志不回复（渠道侧静默），不打断主流程、
- * 不向 QQ 侧泄错误细节；聊天超时后放弃回复但后台任务跑完仍落会话记忆。
+ * 不向 QQ 侧泄错误细节；聊天超时中断底层调用并放弃回复（防僵尸任务占满聊天池），
+ * 队列满背压丢弃本条消息。
  */
 public class OneBotEventServiceImpl implements OneBotEventService {
 
     private static final Logger log = LoggerFactory.getLogger(OneBotEventServiceImpl.class);
 
+    /** 聊天执行池线程名前缀序号 */
     private static final AtomicLong CHAT_THREAD_SEQ = new AtomicLong();
+
+    /** 聊天执行池队列上限：满即拒绝（背压丢弃单条消息，与限频丢弃同语义），防无界堆积 */
+    private static final int CHAT_QUEUE_CAPACITY = 100;
 
     private final ChatService chatService;
     private final SessionService sessionService;
@@ -51,7 +58,8 @@ public class OneBotEventServiceImpl implements OneBotEventService {
     private final NapCatProperties props;
     private final UserRateLimiter rateLimiter;
     private final Set<Long> privateAllowUsers;
-    private final ExecutorService chatExecutor;
+    /** 聊天执行池：有界队列 + Abort 拒绝 + @PreDestroy 关闭（优化审查 2026-09-25 收口项） */
+    private final ThreadPoolExecutor chatExecutor;
 
     /** 表情包匹配器（构造内创建，签名不变；包内可见：测试可替换注入异常桩） */
     EmojiReplies emojiReplies;
@@ -69,11 +77,20 @@ public class OneBotEventServiceImpl implements OneBotEventService {
         this.emojiReplies = new EmojiReplies(props);
         this.rateLimiter = new UserRateLimiter(props.getRateLimit().getPerUserSeconds() * 1000L);
         this.privateAllowUsers = parseAllowUsers(props.getPrivateAllowUsers());
-        this.chatExecutor = Executors.newFixedThreadPool(8, r -> {
-            Thread t = new Thread(r, "onebot-chat-" + CHAT_THREAD_SEQ.incrementAndGet());
-            t.setDaemon(true);
-            return t;
-        });
+        this.chatExecutor = new ThreadPoolExecutor(8, 8, 60, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(CHAT_QUEUE_CAPACITY),
+                r -> {
+                    Thread t = new Thread(r, "onebot-chat-" + CHAT_THREAD_SEQ.incrementAndGet());
+                    t.setDaemon(true);
+                    return t;
+                },
+                new ThreadPoolExecutor.AbortPolicy());
+    }
+
+    /** 优雅关闭聊天执行池：中断在跑任务（对齐 cancel(true) 语义），避免拖慢 JVM 退出 */
+    @PreDestroy
+    void shutdownChatExecutor() {
+        chatExecutor.shutdownNow();
     }
 
     @Override
@@ -137,12 +154,20 @@ public class OneBotEventServiceImpl implements OneBotEventService {
         if (timeoutSeconds <= 0) {
             return chatService.chat(request);
         }
-        Future<ChatResponse> future = chatExecutor.submit(() -> chatService.chat(request));
+        Future<ChatResponse> future;
+        try {
+            future = chatExecutor.submit(() -> chatService.chat(request));
+        } catch (RejectedExecutionException e) {
+            // 有界队列满：背压丢弃本条（与限频丢弃同语义），防无界堆积拖垮进程
+            log.warn("[napcat] 聊天队列已满，丢弃本条消息（messageId={}）", event.messageId());
+            return null;
+        }
         try {
             return future.get(timeoutSeconds, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
-            future.cancel(false);
-            log.warn("[napcat] 聊天超时（>{}s），放弃回复（messageId={}，后台任务继续落记忆）",
+            // 中断底层调用（cancel(true)）：防僵尸任务占满聊天池（优化审查 2026-09-25）
+            future.cancel(true);
+            log.warn("[napcat] 聊天超时（>{}s），中断并放弃回复（messageId={}）",
                     timeoutSeconds, event.messageId());
             return null;
         } catch (ExecutionException e) {
