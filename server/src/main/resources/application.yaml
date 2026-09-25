@@ -224,3 +224,7 @@ logging:
     # 各打一条 ERROR 全堆栈，压掉——排错现场不丢：LlmRetry/AgentChatCaller 在首次
     # 失败时已带全量堆栈记录（含 agent/model 上下文），台账照记
     org.springframework.ai.chat.model.MessageAggregator: OFF
+    # Tavily MCP streamable 端点不支持 GET SSE 监听流(返回 405),SDK LifecycleInitializer
+    # 每次连接重建都会 WARN 全堆栈——该 405 为预期行为(POST 请求-响应路径不受影响,
+    # SDK 自行按请求-响应模式工作),压到 ERROR 滤掉预期噪音
+    io.modelcontextprotocol.client.LifecycleInitializer: ERROR
