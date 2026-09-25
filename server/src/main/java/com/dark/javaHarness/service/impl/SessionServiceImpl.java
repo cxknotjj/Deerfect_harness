@@ -54,6 +54,8 @@ public class SessionServiceImpl implements SessionService {
     private static final int DEFAULT_AGENT_ID = 1;
     /** 会话名称最大长度（取首条提问截断） */
     private static final int SESSION_NAME_MAX = 100;
+    /** 建档占位名（显式建档默认名）：写回时若名字仍为此值，以首条成功提问自动命名 */
+    private static final String PLACEHOLDER_NAME = "新会话";
 
     private final SessionMapper sessionMapper;
     private final SessionMessageMapper messageMapper;
@@ -210,7 +212,7 @@ public class SessionServiceImpl implements SessionService {
         }
     }
 
-    /** 更新会话的最近一次提问 */
+    /** 更新会话的最近一次提问；名字仍为建档占位「新会话」时以本条提问自动命名（首条成功消息生效） */
     @Override
     public void touchSession(String sessionId, String lastQuestion) {
         Long sid = parseSessionId(sessionId);
@@ -221,7 +223,11 @@ public class SessionServiceImpl implements SessionService {
         uw.eq("session_id", sid)
                 .set("last_question", truncate(lastQuestion, 200))
                 // 活跃时间同步刷新（画像提取扫描依据）
-                .set("last_active_at", LocalDateTime.now());
+                .set("last_active_at", LocalDateTime.now())
+                // 占位名自动命名：仅当名字仍是建档占位「新会话」时以本条提问改名（IF 原子判断不回读，
+                // 显式命名的会话不受影响；{0}/{1} 参数占位防注入）
+                .setSql("session_name = IF(session_name = {0}, {1}, session_name)",
+                        PLACEHOLDER_NAME, truncate(lastQuestion, SESSION_NAME_MAX));
         sessionMapper.update(null, uw);
     }
 

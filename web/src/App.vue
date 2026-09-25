@@ -29,6 +29,7 @@ const {
   loadMore,
   create: createSession,
   select: selectSession,
+  renameIfPlaceholder,
   remove: removeSession,
 } = useSessions()
 
@@ -49,6 +50,8 @@ const {
   onNewSession: () => {
     void loadFirst()
   },
+  // 占位会话名自动改名(与服务端 touchSession 同口径):首轮成功后把「新会话」替换为首条提问
+  onRoundSucceeded: (userText) => renameIfPlaceholder(currentSessionId.value, userText),
 })
 
 const { agents, load: loadAgents, bind: bindAgentTo } = useAgents()

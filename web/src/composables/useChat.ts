@@ -31,6 +31,9 @@ export interface ChatHooks {
   setSessionId(id: string): void
   /** meta 报告后端新建了会话时通知外层刷新列表(可选) */
   onNewSession?(): void
+  /** 一轮流式成功结束(无流内 error/异常)时回调,携带本轮 user 消息原文(可选):
+   *  外层据此把占位会话名「新会话」改为首条提问,与服务端 touchSession 自动命名同口径 */
+  onRoundSucceeded?(userText: string): void
 }
 
 /** 未选中会话时的草稿桶 key(本轮后端可能新建会话,onMeta 回传后迁移到真实 id) */
@@ -169,6 +172,8 @@ export function useChat(hooks: ChatHooks) {
       controller = null
       streaming.value = false
       assistant.progress = []
+      // 成功一轮才通知外层(失败/取消不改会话名,与服务端「成功才写回」口径一致)
+      if (!assistant.error) hooks.onRoundSucceeded?.(text)
       persist()
     }
   }

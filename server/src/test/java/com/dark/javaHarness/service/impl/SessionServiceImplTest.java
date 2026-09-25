@@ -191,6 +191,21 @@ class SessionServiceImplTest {
         assertTrue(uw.getSqlSet().contains("last_question"), "保留既有 last_question 更新");
     }
 
+    /** touchSession 应带占位名自动命名：名字仍是「新会话」时以提问改名（IF 原子判断，参数占位防注入） */
+    @Test
+    void touchSession_renamesPlaceholderSession() {
+        sessionService.touchSession("9", "帮我写一个快速排序");
+
+        ArgumentCaptor<Wrapper<SessionEntity>> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(sessionMapper).update(eq(null), captor.capture());
+        UpdateWrapper<?> uw = (UpdateWrapper<?>) captor.getValue();
+        String sqlSet = uw.getSqlSet();
+        assertTrue(sqlSet.contains("session_name"), "应包含 session_name 自动命名");
+        assertTrue(sqlSet.contains("IF("), "应为条件改名（仅占位名生效）");
+        assertTrue(uw.getParamNameValuePairs().containsValue("帮我写一个快速排序"),
+                "新名应为首条提问（参数绑定，非拼接）");
+    }
+
     @Test
     void switchAgent_sameAgent_skipsUpdate() {
         when(sessionMapper.selectOne(any())).thenReturn(session(9L, 3));

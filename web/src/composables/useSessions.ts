@@ -9,6 +9,12 @@ import type { SessionView } from '../api'
 /** 每页条数(与后端 listSessions 分页参数对应) */
 const PAGE_SIZE = 10
 
+/** 建档占位会话名(与后端 PLACEHOLDER_NAME 同口径):首轮成功写回时自动改为首条提问 */
+export const SESSION_PLACEHOLDER_NAME = '新会话'
+
+/** 前端本地改名截断上限(与后端 SESSION_NAME_MAX 同口径) */
+const SESSION_NAME_MAX = 100
+
 export function useSessions() {
   /** 已加载的会话(首页 + 已「加载更多」的页) */
   const sessions = ref<SessionView[]>([])
@@ -54,7 +60,7 @@ export function useSessions() {
   }
 
   /** 新建会话:列表头部插入并自动选中新会话 */
-  async function create(name = '新会话'): Promise<void> {
+  async function create(name = SESSION_PLACEHOLDER_NAME): Promise<void> {
     const resp = await api.createSession(name)
     if (!sessions.value.some((s) => s.id === resp.sessionId)) {
       sessions.value.unshift({
@@ -74,6 +80,15 @@ export function useSessions() {
     currentSessionId.value = id
   }
 
+  /** 占位会话名自动改名:仅当该会话名字仍是「新会话」时改为 text 截断(与服务端 touchSession 同口径);
+   *  已命名会话不动,失败轮不应调用 */
+  function renameIfPlaceholder(id: string, text: string): void {
+    const s = sessions.value.find((x) => x.id === id)
+    if (s && s.name === SESSION_PLACEHOLDER_NAME) {
+      s.name = text.length > SESSION_NAME_MAX ? text.slice(0, SESSION_NAME_MAX) : text
+    }
+  }
+
   /** 删除会话:服务端成功后才从本地列表移除并修正 total;失败原样抛错由调用方处理(列表不动) */
   async function remove(id: string): Promise<void> {
     await api.deleteSession(id)
@@ -81,5 +96,5 @@ export function useSessions() {
     total.value = Math.max(0, total.value - 1)
   }
 
-  return { sessions, total, currentSessionId, loading, hasMore, loadFirst, loadMore, create, select, remove }
+  return { sessions, total, currentSessionId, loading, hasMore, loadFirst, loadMore, create, select, renameIfPlaceholder, remove }
 }
