@@ -86,6 +86,9 @@ public class LlmCallLogEntity {
     /** 父调用的 span_id（根调用为 NULL） */
     private String parentSpan;
 
+    /** 调用发起时刻（轨迹时序排序键；NULL=历史行/未采集，前端排序回退 created_at） */
+    private LocalDateTime startedAt;
+
     /** 调用结束时间 */
     private LocalDateTime createdAt;
 }

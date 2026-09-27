@@ -1,7 +1,9 @@
 /**
  * 轨迹 tab:会话调用时间线(LLM + 工具)。
  * 顶部 mono 统计 chips(总耗时 / 调用次数 / token / 错误)+ 时长比例色块条带 +
- * 按时间升序逐行日志(类型徽章 + 名称 + 元信息 + 等宽摘要)。摘要默认单行截断,
+ * 按时间升序逐行日志(类型徽章 + 名称 + 元信息 + 等宽摘要)。排序键:LLM 行用发起
+ * 时刻 startedAt(缺失回退落库时刻 createdAt)、工具行用完成时刻——llm_call_log
+ * 落库晚于工具行,按落库时刻排序会把先发起的决策 LLM 调用排到工具调用之后。摘要默认单行截断,
  * 双击行展开完整内容(单选),再次双击恢复;切换会话即复位。
  * 数据经 api 层取观测接口(listToolCalls/listLlmCalls,mock/真实自动切换),
  * 本组件纯前端消费,零后端改动。sessionId 变化即重拉;竞态用请求序号丢弃
@@ -50,7 +52,13 @@ async function load(): Promise<void> {
     const [tools, llms] = await Promise.all([api.listToolCalls(sid), api.listLlmCalls(sid)])
     if (seq !== fetchSeq) return
     rows.value = [
-      ...llms.map((i): TraceRow => ({ kind: 'llm', key: `l${i.id}`, ts: Date.parse(i.createdAt ?? ''), item: i })),
+      ...llms.map((i): TraceRow => ({
+        kind: 'llm',
+        key: `l${i.id}`,
+        // 发起时刻优先(决策 LLM 调用先于其触发的工具发起);历史行回退落库时刻
+        ts: Date.parse(i.startedAt ?? i.createdAt ?? ''),
+        item: i,
+      })),
       ...tools.map((i): TraceRow => ({ kind: 'tool', key: `t${i.id}`, ts: Date.parse(i.createdAt ?? ''), item: i })),
     ].sort((a, b) => a.ts - b.ts)
   } catch {
@@ -105,6 +113,11 @@ function fmtCreatedAt(createdAt: string | null | undefined): string {
   const mm = String(d.getMinutes()).padStart(2, '0')
   const ss = String(d.getSeconds()).padStart(2, '0')
   return sameDay ? `${hh}:${mm}:${ss}` : `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${hh}:${mm}`
+}
+
+/** LLM 行展示时刻:发起时刻优先(与排序口径一致),历史行回退落库时刻 */
+function fmtLlmTime(item: LlmCallItem): string {
+  return fmtCreatedAt(item.startedAt ?? item.createdAt)
 }
 
 /** 色块条带:块宽按时长占比(flex-grow),极短调用保底可见;错误块独立着色 */
@@ -271,7 +284,7 @@ function fmtTokenFlow(p: number | null, c: number | null): string | null {
               <template v-if="r.kind === 'llm'">
                 <span class="trace-name" :title="r.item.model ?? ''">{{ r.item.model ?? 'LLM' }}</span>
                 <span class="trace-meta">
-                  <template v-if="fmtCreatedAt(r.item.createdAt)">{{ fmtCreatedAt(r.item.createdAt) }} · </template>{{ r.item.agentName ?? '—' }} · {{ r.item.callKind === 'STREAM' ? '流式' : '同步' }}
+                  <template v-if="fmtLlmTime(r.item)">{{ fmtLlmTime(r.item) }} · </template>{{ r.item.agentName ?? '—' }} · {{ r.item.callKind === 'STREAM' ? '流式' : '同步' }}
                   · {{ fmtMs(r.item.durationMs) }}<template v-if="fmtTokenFlow(r.item.promptTokens, r.item.completionTokens) !== null">
                     · {{ fmtTokenFlow(r.item.promptTokens, r.item.completionTokens) }}</template><template v-if="r.item.firstTokenMs != null">
                     · 首 token {{ fmtMs(r.item.firstTokenMs) }}</template><template v-if="r.item.cachedTokens != null">

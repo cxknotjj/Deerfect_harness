@@ -71,6 +71,7 @@ final class LlmCallObserver {
                 ok && content != null && !content.isEmpty() ? content : null,
                 firstTokenAt > 0 ? firstTokenAt - start : null,
                 LlmCallRecorder.extractCachedTokens(usage),
-                attempt, maxAttempts, turnId, traceId, spanId, parentSpan));
+                attempt, maxAttempts, turnId, traceId, spanId, parentSpan,
+                LlmCallRecorder.startedAt(start)));
     }
 }

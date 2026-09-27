@@ -139,6 +139,8 @@ export interface LlmCallItem {
   durationMs: number | null
   errorMsg: string | null
   createdAt: string | null
+  /** 调用发起时刻（轨迹时序排序键）；历史行/未采集为 null（排序与展示回退 createdAt） */
+  startedAt?: string | null
   outputSummary?: string | null
   firstTokenMs?: number | null
   cachedTokens?: number | null

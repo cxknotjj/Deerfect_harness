@@ -242,10 +242,12 @@ public class UserProfileService {
         }
         int promptTokens = LlmCallRecorder.estimateTokens(SYSTEM_PROMPT)
                 + LlmCallRecorder.estimateTokens(userPrompt);
+        // 发起时刻由耗时反推（重试回调只给耗时；回调与耗时计算同一时钟读数，差值即发起瞬间）
+        long start = System.currentTimeMillis() - durationMs;
         recorder.record(new LlmCallLog(null, "memory-profile", PROFILE_MODEL, false, ok,
                 promptTokens, null, null, true,
                 durationMs, LlmCallRecorder.describeError(e),
                 null, null, null, null, null, null, null, null,
-                null, null, null, null));
+                null, null, null, null, LlmCallRecorder.startedAt(start)));
     }
 }

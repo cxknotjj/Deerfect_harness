@@ -150,11 +150,13 @@ public class LlmRouteJudge implements RouteJudge {
         }
         int promptTokens = LlmCallRecorder.estimateTokens(settings.prompt())
                 + LlmCallRecorder.estimateTokens(message);
+        // 发起时刻由耗时反推（重试回调只给耗时；回调与耗时计算同一时钟读数，差值即发起瞬间）
+        long start = System.currentTimeMillis() - durationMs;
         recorder.record(new LlmCallLog(sessionId, ROUTE_AGENT, settings.model(), false, ok,
                 promptTokens, null, null, true,
                 durationMs, LlmCallRecorder.describeError(e),
                 null, null, null, null, null, null, null, null,
-                turnId, null, null, null));
+                turnId, null, null, null, LlmCallRecorder.startedAt(start)));
     }
 
     /** 解析 LLM 返回内容中的 route 字段；非法/缺失一律兜底 SIMPLE。 */

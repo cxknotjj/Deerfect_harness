@@ -6,7 +6,9 @@ import com.dark.javaHarness.domain.entity.LlmCallLogEntity;
 import com.dark.javaHarness.domain.entity.ToolCallLogEntity;
 import com.dark.javaHarness.mapper.LlmCallLogMapper;
 import com.dark.javaHarness.mapper.ToolCallLogMapper;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -84,6 +86,7 @@ public class LlmCallRecorder {
         e.setTraceId(c.traceId());
         e.setSpanId(c.spanId());
         e.setParentSpan(c.parentSpan());
+        e.setStartedAt(c.startedAt());
         e.setCreatedAt(LocalDateTime.now());
         mapper.insert(e);
     }
@@ -119,6 +122,16 @@ public class LlmCallRecorder {
             return null;
         }
         return s.length() > 500 ? s.substring(0, 500) : s;
+    }
+
+    /**
+     * 调用发起时刻（epoch 毫秒）→ 库列 started_at（DATETIME）：轨迹时序排序键。
+     * llm_call_log 落库晚于其触发的工具行，TraceView 排序须用发起时刻而非落库时刻
+     * （created_at），否则决策 LLM 调用会排到工具调用之后。
+     * 时区口径与 createdAt（LocalDateTime.now）一致（系统默认时区）。
+     */
+    public static LocalDateTime startedAt(long startEpochMs) {
+        return LocalDateTime.ofInstant(Instant.ofEpochMilli(startEpochMs), ZoneId.systemDefault());
     }
 
     /**

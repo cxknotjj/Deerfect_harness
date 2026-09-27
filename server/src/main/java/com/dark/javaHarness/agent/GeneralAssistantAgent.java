@@ -285,6 +285,7 @@ public class GeneralAssistantAgent implements Agent {
                 ok && content != null && !content.isEmpty() ? content : null,
                 ok && firstTokenAt > 0 ? firstTokenAt - start : null,
                 LlmCallRecorder.extractCachedTokens(usage),
-                1, 1, turnId, traceId, spanId, parentSpan));
+                1, 1, turnId, traceId, spanId, parentSpan,
+                LlmCallRecorder.startedAt(start)));
     }
 }

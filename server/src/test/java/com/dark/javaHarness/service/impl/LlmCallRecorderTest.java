@@ -9,6 +9,7 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import com.dark.javaHarness.domain.LlmCallLog;
@@ -23,6 +24,7 @@ import org.junit.jupiter.api.Test;
  * LlmCallRecorder 单测：
  * - token 近似估算口径（中文 1 token、其它 (长度+3)/4，与 ContextAssemblingAdvisor 一致）
  * - record 异步落库成功与失败都不向调用方抛异常（观测永不影响主链路）
+ * - 发起时刻 started_at 透传（轨迹时序排序键；null=历史行/未采集）
  */
 class LlmCallRecorderTest {
 
@@ -41,9 +43,10 @@ class LlmCallRecorderTest {
         LlmCallLogMapper mapper = mock(LlmCallLogMapper.class);
         LlmCallRecorder recorder = new LlmCallRecorder(mapper, mock(ToolCallLogMapper.class));
 
+        LocalDateTime startedAt = LocalDateTime.of(2026, 9, 27, 10, 0, 0);
         recorder.record(new LlmCallLog("s1", "lead", "qwen3.8-27b", false, true,
                 100, 20, 120, false, 1500, null, null, null, null, "你好", 300L, null, 2, 3,
-                "turn-1", "trace-1", "span-1", "parent-1"));
+                "turn-1", "trace-1", "span-1", "parent-1", startedAt));
 
         verify(mapper, timeout(2000)).insert(org.mockito.ArgumentMatchers.argThat((LlmCallLogEntity e) -> {
             return "s1".equals(e.getSessionId())
@@ -61,7 +64,8 @@ class LlmCallRecorderTest {
                     && "turn-1".equals(e.getTurnId())
                     && "trace-1".equals(e.getTraceId())
                     && "span-1".equals(e.getSpanId())
-                    && "parent-1".equals(e.getParentSpan());
+                    && "parent-1".equals(e.getParentSpan())
+                    && startedAt.equals(e.getStartedAt());
         }));
     }
 
@@ -73,11 +77,12 @@ class LlmCallRecorderTest {
         // route-judge/画像等调用 trace/span 落 NULL；/submit 直发 turnId 亦为 NULL
         recorder.record(new LlmCallLog("s1", "route-judge", "qwen3.8-27b", false, true,
                 10, 5, 15, false, 100, null, null, null, null, null, null, null, null, null,
-                null, null, "span-1", null));
+                null, null, "span-1", null, null));
 
         verify(mapper, timeout(2000)).insert(argThat((LlmCallLogEntity e) ->
                 e.getTurnId() == null && e.getTraceId() == null
-                        && "span-1".equals(e.getSpanId()) && e.getParentSpan() == null));
+                        && "span-1".equals(e.getSpanId()) && e.getParentSpan() == null
+                        && e.getStartedAt() == null));
     }
 
     @Test
@@ -89,7 +94,7 @@ class LlmCallRecorderTest {
         // 不应向调用方抛出（异步边界吞掉并 warn）
         recorder.record(new LlmCallLog(null, "route-judge", "qwen3.8-27b", true, false,
                 null, 5, 5, true, 80, "boom", null, null, null, null, null, null, null, null,
-                null, null, null, null));
+                null, null, null, null, null));
         // 给异步线程留出执行窗口；若抛出则测试线程已失败
         try {
             Thread.sleep(300);
@@ -107,7 +112,7 @@ class LlmCallRecorderTest {
         recorder.record(new LlmCallLog("s1", "general", "qwen3.8-27b", false, true,
                 10, 5, 15, false, 100, null,
                 List.of("pdf-handling"), List.of("fetchUrl", "tavily_search"), List.of("tavily_search"),
-                null, null, null, 1, 1, null, null, null, null));
+                null, null, null, 1, 1, null, null, null, null, null));
 
         verify(mapper, timeout(2000)).insert(argThat((LlmCallLogEntity e) ->
                 "pdf-handling".equals(e.getSkillNames())
@@ -122,7 +127,7 @@ class LlmCallRecorderTest {
 
         recorder.record(new LlmCallLog("s1", "route-judge", "m", false, true,
                 1, 1, 2, false, 5, null, List.of(), List.of(), List.of(), null, null, null, 1, 1,
-                null, null, null, null));
+                null, null, null, null, null));
 
         verify(mapper, timeout(2000)).insert(argThat((LlmCallLogEntity e) ->
                 e.getSkillNames() == null && e.getToolNames() == null && e.getMcpToolNames() == null));
@@ -136,7 +141,7 @@ class LlmCallRecorderTest {
         String longReply = "好".repeat(300);
         recorder.record(new LlmCallLog("s1", "general", "m", true, true,
                 10, 5, 15, false, 100, null, null, null, null,
-                longReply, 250L, 64, 1, 3, null, null, null, null));
+                longReply, 250L, 64, 1, 3, null, null, null, null, null));
 
         verify(mapper, timeout(2000)).insert(argThat((LlmCallLogEntity e) ->
                 e.getOutputSummary() != null

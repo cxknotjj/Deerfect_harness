@@ -28,6 +28,7 @@ import java.util.List;
  * @param traceId         调用链标识，一次 Agent 执行链（route-judge/画像等非执行树调用为 null）
  * @param spanId          单次调用标识（调用发起前生成；观测行必有）
  * @param parentSpan      父调用的 span_id（根调用为 null）
+ * @param startedAt       调用发起时刻（轨迹时序排序键：落库晚于工具行，排序须用发起时刻；历史行/未采集为 null）
  */
 public record LlmCallLog(String sessionId, String agentName, String model,
                          boolean stream, boolean ok,
@@ -39,5 +40,6 @@ public record LlmCallLog(String sessionId, String agentName, String model,
                          List<String> mcpToolNames,
                          String outputSummary, Long firstTokenMs, Integer cachedTokens,
                          Integer attempt, Integer maxAttempts,
-                         String turnId, String traceId, String spanId, String parentSpan) {
+                         String turnId, String traceId, String spanId, String parentSpan,
+                         java.time.LocalDateTime startedAt) {
 }
