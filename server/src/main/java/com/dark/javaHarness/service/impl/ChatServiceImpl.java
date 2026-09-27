@@ -97,15 +97,18 @@ public class ChatServiceImpl implements ChatService {
             newSession = true;
         }
 
-        // agentId 仅作会话绑定副作用（失败告警不中断，口径不变）；路由一律统一判定：
-        // 指定 Agent 不再跳过 RouteJudge——SIMPLE 由会话绑定 Agent（即刚切换的）直答，
-        // COMPLEX 照常进 multi-agent 编排（指定 Agent 仅是编排失败降级重答的落点）
+        // agentId 仅作会话绑定副作用（失败告警不中断）
         if (request.agentId() != null) {
             bindAgentQuietly(sessionId, request.agentId());
         }
-        // judge 与 RAG 预取无数据依赖（都只吃用户原始消息）：预取先行提交、与 judge 并行，
-        // judge 完成后小幅汇合——预取结果进 KnowledgeRetriever 请求级缓存，组装期短路命中
-        String resolvedAgent = resolveAgentWithPrefetch(request.message(), sessionId, turnId);
+        // 路由策略（2026-09-27 用户决策）：绑定专属 Agent（≠general）只走简单链路——跳过
+        // routeJudge 与 RAG 预取汇合，由该 Agent 携带自身工具直答（如 wms 仓储专员：编排会把
+        // 子任务派给无 wms 工具的通用专家，直答才能查到真实数据）；general 会话保持统一判定
+        // （SIMPLE 由 general 直答 / COMPLEX 进 multi-agent 编排）
+        String boundAgent = sessionAgentName(sessionId);
+        String resolvedAgent = AgentConstants.DEFAULT_AGENT.equals(boundAgent)
+                ? resolveAgentWithPrefetch(request.message(), sessionId, turnId)
+                : boundAgent;
 
         Goal goal = agentService.executeSync(resolvedAgent, request.message(), sessionId, turnId);
         // COMPLEX 编排失败降级（同步路径无客户端断开，FAILED 即编排自身失败）：
@@ -216,27 +219,29 @@ public class ChatServiceImpl implements ChatService {
             if (request.agentId() != null) {
                 bindAgentQuietly(ctx.sid(), request.agentId());
             }
-            // 路由统一判定（指定 Agent 不再跳过）：SIMPLE → 会话绑定 Agent 直答，
-            // COMPLEX → multi-agent 编排（指定 Agent 仅是编排失败降级重答的落点）
-            // judge 与 RAG 预取同样并行汇合（与同步 chat 同口径）。
-            // 首帧先行：「路由判定中」进度行在订阅时立即发出，HTTP 响应头随首个 SSE 字节提交——
-            // judge 是同步阻塞调用（实测复杂问题 5-6 秒），若等它完成才有首字节，连接会经历
-            // 「已建立却零字节」窗口，期间被外部掐断（实测 lead 在启动瞬间即收 client-cancelled，
-            // SIMPLE 首字节快故幸免）。judge 挪入 boundedElastic，不再阻塞订阅线程。
+            // 路由策略（2026-09-27 用户决策）同 chat()：general 会话统一判定（SIMPLE/COMPLEX 分流）；
+            // 绑定专属 Agent（≠general）跳过判定与预取，由该 Agent 携带自身工具直答
+            String boundAgent = sessionAgentName(ctx.sid());
+            boolean useJudge = AgentConstants.DEFAULT_AGENT.equals(boundAgent);
+            // 首帧先行：进度行在订阅时立即发出（judge 是同步阻塞调用，挪入 boundedElastic 防止
+            // 「连接已建立却零字节」窗口被外部掐断；专属 Agent 无判定环节，首帧直出行「直答」）
             return toSseBody(Flux.concat(
-                    Flux.just(ProgressLine.encode("路由", "判定中…")),
+                    Flux.just(ProgressLine.encode("路由", useJudge ? "判定中…" : "直答")),
                     Mono.fromCallable(() -> {
-                        String resolvedAgent = resolveAgentWithPrefetch(request.message(), ctx.sid(), turnId);
+                        String resolvedAgent = useJudge
+                                ? resolveAgentWithPrefetch(request.message(), ctx.sid(), turnId)
+                                : boundAgent;
                         Flux<String> agentStream = agentService.executeStreamReactive(resolvedAgent, request.message(), ctx.sid(), turnId, traceId);
                         // COMPLEX 编排失败降级：编排自身异常（客户端断开走 cancel，不触发 onErrorResume）时
                         // 降级为会话 Agent 单模型重答一次，一层兜底不递归
                         if (complexFallbackEnabled && AgentConstants.MULTI_AGENT.equals(resolvedAgent)) {
                             agentStream = withComplexFallback(agentStream, request.message(), ctx.sid(), turnId, traceId);
                         }
-                        // 判定结果可见化：路由去向作为进度行透出（SIMPLE → 谁直答 / COMPLEX → 编排）
+                        // 路由去向可见化：SIMPLE/COMPLEX 判定去向 / 专属 Agent 直答
                         String path = AgentConstants.MULTI_AGENT.equals(resolvedAgent)
                                 ? "COMPLEX，走 multi-agent 编排"
-                                : "SIMPLE，走 " + resolvedAgent + " 直答";
+                                : (useJudge ? "SIMPLE，走 " + resolvedAgent + " 直答"
+                                            : "专属 Agent：" + resolvedAgent + " 直答");
                         return Flux.concat(
                                 Flux.just(ProgressLine.encode("路由", "判定完成：" + path)),
                                 SseEncoder.withAgentProgress(resolvedAgent, agentStream));

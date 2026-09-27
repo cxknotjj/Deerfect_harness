@@ -190,22 +190,21 @@ class ChatServiceImplTest {
     }
 
     @Test
-    void streamReactive_withAgentId_simple_shouldJudgeAndRouteToSessionAgent() {
-        // 指定 agentId：先同步会话绑定，再统一判定；SIMPLE 流由会话绑定 Agent 产出
+    void streamReactive_withAgentId_directAnswer_skipsJudge() {
+        // 路由策略（2026-09-27）：绑定专属 Agent（≠general）跳过 routeJudge，由该 Agent 携带自身工具直答
         ChatRequest req = new ChatRequest("hi", "50", 2L);
         SessionEntity session = new SessionEntity();
         session.setAgentId(2);
         when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("writer"));
-        when(routeJudge.judge(eq("hi"), any(), any())).thenReturn(RouteDecision.SIMPLE);
         when(agentService.executeStreamReactive(eq("writer"), eq("hi"), eq("50"), any(), any()))
                 .thenReturn(Flux.just("writer-token"));
 
         List<String> lines = chatService.streamReactive(req).collectList().block();
 
-        assertTrue(lines.contains("event: token\ndata: writer-token"), "SIMPLE 应由会话绑定 Agent 流式直答");
+        assertTrue(lines.contains("event: token\ndata: writer-token"), "专属 Agent 应直接流式直答");
         verify(sessionService).switchAgent("50", 2L);
-        verify(routeJudge).judge(eq("hi"), any(), any());
+        verify(routeJudge, never()).judge(any(), any(), any());
         verify(agentService).executeStreamReactive(eq("writer"), eq("hi"), eq("50"), any(), any());
     }
 
@@ -257,14 +256,13 @@ class ChatServiceImplTest {
     }
 
     @Test
-    void chat_withAgentId_simple_shouldJudgeAndRouteToSessionAgent() {
-        // 指定 agentId 仅同步会话绑定，路由仍统一判定：SIMPLE → 会话绑定 Agent 直答
+    void chat_withAgentId_directAnswer_skipsJudge() {
+        // 路由策略（2026-09-27）：绑定专属 Agent（≠general）跳过 routeJudge，由该 Agent 直答
         ChatRequest req = new ChatRequest("hi", "50", 2L);
         SessionEntity session = new SessionEntity();
         session.setAgentId(2);
         when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("writer"));
-        when(routeJudge.judge(eq("hi"), any(), any())).thenReturn(RouteDecision.SIMPLE);
         when(agentService.executeSync(eq("writer"), eq("hi"), eq("50"), any()))
                 .thenReturn(succeededGoal("50", "writer 的回答"));
 
@@ -272,7 +270,7 @@ class ChatServiceImplTest {
 
         assertEquals("SUCCEEDED", resp.status());
         verify(sessionService).switchAgent("50", 2L);
-        verify(routeJudge).judge(eq("hi"), any(), any());
+        verify(routeJudge, never()).judge(any(), any(), any());
         verify(agentService).executeSync(eq("writer"), eq("hi"), eq("50"), any());
     }
 
@@ -434,7 +432,7 @@ class ChatServiceImplTest {
         verify(agentService).executeStreamReactive(eq("multi-agent"), eq("调研竞品"), eq("50"), any(), any());
     }
 
-    /** 简单路径不再一律压回 general：按 session.agent_id 路由到会话绑定的 Agent */
+    /** 简单路径不再一律压回 general：绑定专属 Agent（≠general）跳过判定直接由其回答 */
     @Test
     void streamReactive_simple_shouldRouteToSessionBoundAgent() {
         ChatRequest req = new ChatRequest("你好啊", "50", null);
@@ -442,13 +440,13 @@ class ChatServiceImplTest {
         session.setAgentId(10);
         when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(10L)).thenReturn(Optional.of("coder"));
-        when(routeJudge.judge(eq("你好啊"), any(), any())).thenReturn(RouteDecision.SIMPLE);
         when(agentService.executeStreamReactive(eq("coder"), eq("你好啊"), eq("50"), any(), any()))
                 .thenReturn(Flux.just("coder 的回答"));
 
         List<String> lines = chatService.streamReactive(req).collectList().block();
 
         verify(agentService).executeStreamReactive(eq("coder"), eq("你好啊"), eq("50"), any(), any());
+        verify(routeJudge, never()).judge(any(), any(), any());
         verify(agentService, never()).executeStreamReactive(eq("general"), anyString(), anyString(), any(), any());
         assertTrue(lines.stream().anyMatch(l -> l.contains("\"stage\":\"agent\"") && l.contains("\"detail\":\"coder\"")),
                 "流首 agent 进度行应为会话绑定 Agent，而非 general: " + lines);
@@ -513,7 +511,7 @@ class ChatServiceImplTest {
                 "进度行不应以内容 token 形式泄漏");
     }
 
-    /** 流首 agent 进度行：指定 agentId + SIMPLE 时带上判定后实际路由的会话绑定 Agent 名 */
+    /** 流首 agent 进度行：指定 agentId 时带上实际直答的会话绑定 Agent 名（跳过判定） */
     @Test
     void streamReactive_agentIdPath_emitsAgentProgressWithResolvedName() {
         ChatRequest req = new ChatRequest("hi", "50", 2L);
@@ -521,7 +519,6 @@ class ChatServiceImplTest {
         session.setAgentId(2);
         when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("writer"));
-        when(routeJudge.judge(eq("hi"), any(), any())).thenReturn(RouteDecision.SIMPLE);
         when(agentService.executeStreamReactive(eq("writer"), eq("hi"), eq("50"), any(), any()))
                 .thenReturn(Flux.just("writer 的回答"));
 
