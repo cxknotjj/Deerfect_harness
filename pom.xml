@@ -32,6 +32,7 @@
         <module>shared</module>
         <module>server</module>
         <module>cli</module>
+        <module>wms-mcp-adapter</module>
     </modules>
 
     <properties>

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.dark</groupId>
+        <artifactId>javaHarness</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+    <artifactId>wms-mcp-adapter</artifactId>
+    <name>WMS :: mcp-adapter</name>
+    <description>WMS 只读能力 MCP 适配服务：独立 Spring Boot 应用（不进 server fat jar），把 WMS 只读 GET 端点包装为 10 个中文语义 MCP 工具</description>
+
+    <dependencies>
+        <!-- Web 容器：MCP Streamable HTTP 走 WebMVC 传输 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- MCP 服务端（Streamable-HTTP / WebMVC 传输）：与 harness server 模块同一 starter 坐标，
+             版本由 spring-ai-bom（1.1.4）与根 pom 锁定的 io.modelcontextprotocol.sdk:mcp 0.17.0 共同管理 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
