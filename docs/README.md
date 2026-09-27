@@ -31,6 +31,7 @@
 | [guides/cli.md](./guides/cli.md) | CLI 命令（/agent、/goal、/resume 等） |
 | [guides/knowledge-rag.md](./guides/knowledge-rag.md) | RAG 知识库配置（[EN](./guides/knowledge-rag_EN.md)） |
 | [guides/mcp-tools.md](./guides/mcp-tools.md) | MCP 工具接入（多 server、mcp-config.json） |
+| [guides/wms-mcp.md](./guides/wms-mcp.md) | WMS 仓储查询 MCP 适配（独立 adapter、只读工具集、双侧鉴权） |
 | [guides/qq-channel.md](./guides/qq-channel.md) | QQ 机器人接入（NapCat HTTP 模式） |
 | [guides/resume.md](./guides/resume.md) | 复杂编排断点续跑 |
 

@@ -100,6 +100,7 @@ curl -s -X POST http://localhost:8080/api/chat \
 | [`docs/guides/cli.md`](./docs/guides/cli.md) | CLI 命令 |
 | [`docs/guides/knowledge-rag.md`](./docs/guides/knowledge-rag.md) | RAG 知识库配置（[EN](./docs/guides/knowledge-rag_EN.md)） |
 | [`docs/guides/mcp-tools.md`](./docs/guides/mcp-tools.md) | MCP 工具接入 |
+| [`docs/guides/wms-mcp.md`](./docs/guides/wms-mcp.md) | WMS 仓储查询 MCP 适配（独立 adapter、只读工具集） |
 | [`docs/guides/qq-channel.md`](./docs/guides/qq-channel.md) | QQ 机器人接入 |
 | [`docs/guides/resume.md`](./docs/guides/resume.md) | 断点续跑 |
 | **协议与规范** | |
