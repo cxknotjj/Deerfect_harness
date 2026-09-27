@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -203,5 +204,25 @@ class WmsToolsTest {
                 .thenReturn(List.of(Map.of("trackingNo", "SF123")));
         String out = tools.searchShipments(null, null, null, null, null, null);
         assertThat(out).contains("SF001").contains("SF123").contains("\"details\"");
+    }
+
+    @Test
+    void pageSize_钳制在1到20之间() {
+        when(client.list(eq(WmsEndpoints.INVENTORY_LIST), anyMap())).thenReturn(new WmsPage(List.of(), 0));
+
+        // 传 100：实际发送 20（服务端上限）
+        tools.searchStock("p1", null, null, null, null, 2, 100);
+        verify(client).list(eq(WmsEndpoints.INVENTORY_LIST),
+                argThat(m -> "2".equals(m.get("pageNo")) && "20".equals(m.get("pageSize"))));
+
+        // 传 0：钳到下限 1
+        tools.searchStock("p1", null, null, null, null, null, 0);
+        verify(client).list(eq(WmsEndpoints.INVENTORY_LIST),
+                argThat(m -> "1".equals(m.get("pageSize"))));
+
+        // 缺省：默认 20（含第 1 次，累计 2 次 pageSize=20）
+        tools.searchStock("p1", null, null, null, null, null, null);
+        verify(client, times(2)).list(eq(WmsEndpoints.INVENTORY_LIST),
+                argThat(m -> "20".equals(m.get("pageSize"))));
     }
 }

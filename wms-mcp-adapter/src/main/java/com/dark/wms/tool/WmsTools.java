@@ -41,7 +41,9 @@ public class WmsTools {
     private static final int SHIPMENT_DETAIL_LIMIT = 10;
     /** 分页默认值 */
     private static final String DEFAULT_PAGE_NO = "1";
-    private static final String DEFAULT_PAGE_SIZE = "20";
+    private static final int DEFAULT_PAGE_SIZE = 20;
+    /** pageSize 服务端钳制上限：防模型传大页数一次拉取过多记录撑爆工具结果 */
+    private static final int MAX_PAGE_SIZE = 20;
 
     private final WmsRestClient client;
     private final ObjectMapper mapper;
@@ -66,7 +68,7 @@ public class WmsTools {
             @ToolParam(description = "批次号（可选，精确过滤）", required = false) String batchNumber,
             @ToolParam(description = "容器编码（可选，精确过滤）", required = false) String containerCode,
             @ToolParam(description = "页码，默认 1", required = false) Integer pageNo,
-            @ToolParam(description = "每页条数，默认 20", required = false) Integer pageSize) {
+            @ToolParam(description = "每页条数，服务端上限 20", required = false) Integer pageSize) {
         try {
             String pid = productId;
             Map<String, Object> matched = Map.of();
@@ -111,7 +113,7 @@ public class WmsTools {
             @ToolParam(description = "商品品牌（可选，精确过滤）", required = false) String productBrand,
             @ToolParam(description = "货主 id（可选，精确过滤）", required = false) String ownerId,
             @ToolParam(description = "页码，默认 1", required = false) Integer pageNo,
-            @ToolParam(description = "每页条数，默认 20", required = false) Integer pageSize) {
+            @ToolParam(description = "每页条数，服务端上限 20", required = false) Integer pageSize) {
         try {
             Map<String, String> query = filterParams("productName", productName, "productCode", productCode,
                     "productBarcode", productBarcode, "productBrand", productBrand, "ownerId", ownerId);
@@ -153,7 +155,7 @@ public class WmsTools {
             @ToolParam(description = "状态（可选，以 WMS 字典为准）", required = false) String status,
             @ToolParam(description = "预期到货时间（可选，格式 yyyy-MM-dd HH:mm:ss）", required = false) String expectedArrivalTime,
             @ToolParam(description = "页码，默认 1", required = false) Integer pageNo,
-            @ToolParam(description = "每页条数，默认 20", required = false) Integer pageSize) {
+            @ToolParam(description = "每页条数，服务端上限 20", required = false) Integer pageSize) {
         try {
             Map<String, String> query = filterParams("orderNumber", orderNumber, "orderType", orderType,
                     "status", status, "expectedArrivalTime", expectedArrivalTime);
@@ -198,7 +200,7 @@ public class WmsTools {
             @ToolParam(description = "仓库 id（可选，精确过滤）", required = false) String warehouseId,
             @ToolParam(description = "货主 id（可选，精确过滤）", required = false) String ownerId,
             @ToolParam(description = "页码，默认 1", required = false) Integer pageNo,
-            @ToolParam(description = "每页条数，默认 20", required = false) Integer pageSize) {
+            @ToolParam(description = "每页条数，服务端上限 20", required = false) Integer pageSize) {
         try {
             Map<String, String> query = filterParams("orderNo", orderNo, "orderType", orderType,
                     "status", status, "warehouseId", warehouseId, "ownerId", ownerId);
@@ -245,7 +247,7 @@ public class WmsTools {
             @ToolParam(description = "关联出库单号（可选，精确过滤）", required = false) String orderNo,
             @ToolParam(description = "状态（可选，以 WMS 字典为准）", required = false) String status,
             @ToolParam(description = "页码，默认 1", required = false) Integer pageNo,
-            @ToolParam(description = "每页条数，默认 20", required = false) Integer pageSize) {
+            @ToolParam(description = "每页条数，服务端上限 20", required = false) Integer pageSize) {
         try {
             Map<String, String> query = filterParams("shipmentNo", shipmentNo, "trackingNo", trackingNo,
                     "orderNo", orderNo, "status", status);
@@ -289,7 +291,7 @@ public class WmsTools {
             @ToolParam(description = "上级库区 id（location 层级可用）", required = false) String zoneId,
             @ToolParam(description = "状态（可选，以 WMS 字典为准）", required = false) String status,
             @ToolParam(description = "页码，默认 1", required = false) Integer pageNo,
-            @ToolParam(description = "每页条数，默认 20", required = false) Integer pageSize) {
+            @ToolParam(description = "每页条数，服务端上限 20", required = false) Integer pageSize) {
         try {
             String endpoint = switch (level == null ? "" : level.trim().toLowerCase()) {
                 case "warehouse" -> WmsEndpoints.WAREHOUSES_LIST;
@@ -327,7 +329,7 @@ public class WmsTools {
             @ToolParam(description = "状态（可选，以 WMS 字典为准）", required = false) String status,
             @ToolParam(description = "商品 id（receive/putaway/picking/shortage 可用）", required = false) String productId,
             @ToolParam(description = "页码，默认 1", required = false) Integer pageNo,
-            @ToolParam(description = "每页条数，默认 20", required = false) Integer pageSize) {
+            @ToolParam(description = "每页条数，服务端上限 20", required = false) Integer pageSize) {
         try {
             String type = taskType == null ? "" : taskType.trim().toLowerCase();
             String endpoint = switch (type) {
@@ -387,11 +389,15 @@ public class WmsTools {
         return map;
     }
 
-    /** 分页参数（jeecg list 必填 pageNo/pageSize，缺省 1/20，非法值回退默认） */
+    /**
+     * 分页参数（jeecg list 必填 pageNo/pageSize）：pageNo 缺省 1；pageSize 强制钳制在 [1, 20]，
+     * 缺省 20——超上限压回 20、非正数抬到 1，防止大页拉取撑爆工具结果。
+     */
     private static Map<String, String> paging(Integer pageNo, Integer pageSize) {
         Map<String, String> map = new LinkedHashMap<>();
         map.put("pageNo", pageNo == null || pageNo < 1 ? DEFAULT_PAGE_NO : String.valueOf(pageNo));
-        map.put("pageSize", pageSize == null || pageSize < 1 ? DEFAULT_PAGE_SIZE : String.valueOf(pageSize));
+        int size = pageSize == null ? DEFAULT_PAGE_SIZE : Math.max(1, Math.min(pageSize, MAX_PAGE_SIZE));
+        map.put("pageSize", String.valueOf(size));
         return map;
     }
 

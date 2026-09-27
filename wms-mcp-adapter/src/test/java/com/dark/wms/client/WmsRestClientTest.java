@@ -185,4 +185,40 @@ class WmsRestClientTest {
         assertThat(page.records()).isEmpty();
         assertThat(page.total()).isZero();
     }
+
+    @Test
+    void 审计字段黑名单统一剔除_业务字段保留_列表详情明细都生效() {
+        WmsRestClient client = newClient();
+        // 三类出口各声明一次期望：list（records）/ one（queryById）/ children（ByMainId）
+        server.expect(requestTo(containsString("/goods/wmsProducts/list")))
+                .andRespond(withSuccess("""
+                        {"success":true,"code":200,"result":{"records":[{"id":"p1","productName":"红牛",
+                        "createBy":"admin","createTime":"2026-01-01 00:00:00","updateBy":"admin",
+                        "updateTime":"2026-01-02 00:00:00","sysOrgCode":"A01"}],"total":1}}""",
+                        APPLICATION_JSON));
+        server.expect(requestTo(containsString("/goods/wmsProducts/queryById")))
+                .andRespond(withSuccess(
+                        "{\"success\":true,\"code\":200,\"result\":{\"id\":\"p1\",\"productName\":\"红牛\",\"updateBy\":\"admin\"}}",
+                        APPLICATION_JSON));
+        server.expect(requestTo(containsString("ByMainId")))
+                .andRespond(withSuccess(
+                        "{\"success\":true,\"code\":200,\"result\":[{\"id\":\"d1\",\"createTime\":\"2026-01-01 00:00:00\"}]}",
+                        APPLICATION_JSON));
+
+        // 列表：审计字段剔除，业务字段（id/productName）保留
+        WmsPage page = client.list(WmsEndpoints.PRODUCTS_LIST, Map.of());
+        assertThat(page.records()).hasSize(1);
+        assertThat(page.records().get(0))
+                .containsEntry("id", "p1")
+                .containsEntry("productName", "红牛")
+                .doesNotContainKeys("createBy", "createTime", "updateBy", "updateTime", "sysOrgCode");
+        // 详情：同样剔除
+        assertThat(client.one(WmsEndpoints.PRODUCTS_BY_ID, "p1"))
+                .containsEntry("id", "p1")
+                .doesNotContainKeys("updateBy");
+        // 子表明细：同样剔除
+        assertThat(client.children(WmsEndpoints.SHIPMENT_DETAILS, "s1").get(0))
+                .containsEntry("id", "d1")
+                .doesNotContainKeys("createTime");
+    }
 }

@@ -16,6 +16,7 @@ import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * WMS OpenAPI 只读 REST 客户端（Spring RestClient 封装）。
@@ -25,6 +26,8 @@ import java.util.Map;
  *   <li>可配置鉴权头（默认 {@code X-Access-Token}），token 经环境变量注入，未配置则不带</li>
  *   <li>连接/读取超时；非 2xx 与网络异常分类为中文可读提示（{@link WmsApiException}）</li>
  *   <li>jeecg 包装响应解包：{@code result.records} 分页结构 / {@code result} 对象 / {@code result} 数组</li>
+ *   <li>行投影：解包后统一剔除 jeecg 审计字段黑名单（createBy/createTime 等，见
+ *       {@link #AUDIT_FIELD_BLACKLIST}），列表与详情都生效，业务字段保留</li>
  * </ul>
  * 仅封装只读 GET——写操作端点不在本类中，作为只读守护的结构性保证。
  * 错误一律抛 {@link WmsApiException}（中文可读 message），由工具层捕获转结构化文本，
@@ -40,6 +43,13 @@ public class WmsRestClient {
 
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
+
+    /**
+     * jeecg 通用审计字段黑名单：对模型无业务价值，统一剔除以压缩工具结果体积
+     * （黑名单机制而非白名单——WMS API 业务字段多，白名单会漏；后续增删只改此处）。
+     */
+    private static final Set<String> AUDIT_FIELD_BLACKLIST =
+            Set.of("createBy", "createTime", "updateBy", "updateTime", "sysOrgCode");
 
     private final RestClient restClient;
     private final ObjectMapper mapper;
@@ -84,18 +94,18 @@ public class WmsRestClient {
         long total = 0;
         if (result.isArray()) {
             for (JsonNode n : result) {
-                records.add(mapper.convertValue(n, MAP_TYPE));
+                records.add(toRow(n));
             }
             total = records.size();
         } else if (result.isObject()) {
             JsonNode recordsNode = result.path("records");
             if (recordsNode.isArray()) {
                 for (JsonNode n : recordsNode) {
-                    records.add(mapper.convertValue(n, MAP_TYPE));
+                    records.add(toRow(n));
                 }
                 total = result.path("total").asLong(records.size());
             } else if (!result.isEmpty()) {
-                records.add(mapper.convertValue(result, MAP_TYPE));
+                records.add(toRow(result));
                 total = 1;
             }
         }
@@ -106,10 +116,10 @@ public class WmsRestClient {
     public Map<String, Object> one(String path, String id) {
         JsonNode result = exchange(path, Map.of("id", id == null ? "" : id));
         if (result.isArray()) {
-            return result.isEmpty() ? Map.of() : mapper.convertValue(result.get(0), MAP_TYPE);
+            return result.isEmpty() ? Map.of() : toRow(result.get(0));
         }
-        if (result.isObject()) {
-            return mapper.convertValue(result, MAP_TYPE);
+        if (result.isObject() && !result.isEmpty()) {
+            return toRow(result);
         }
         return Map.of();
     }
@@ -120,12 +130,22 @@ public class WmsRestClient {
         List<Map<String, Object>> rows = new ArrayList<>();
         if (result.isArray()) {
             for (JsonNode n : result) {
-                rows.add(mapper.convertValue(n, MAP_TYPE));
+                rows.add(toRow(n));
             }
         } else if (result.isObject() && !result.isEmpty()) {
-            rows.add(mapper.convertValue(result, MAP_TYPE));
+            rows.add(toRow(result));
         }
         return rows;
+    }
+
+    /**
+     * 行投影统一收口：JSON 节点转 Map 后剔除审计黑名单字段——
+     * 列表与详情（list/one/children）都经此处，业务字段（id 等）原样保留。
+     */
+    private Map<String, Object> toRow(JsonNode node) {
+        Map<String, Object> row = mapper.convertValue(node, MAP_TYPE);
+        AUDIT_FIELD_BLACKLIST.forEach(row::remove);
+        return row;
     }
 
     /** 统一 GET 执行：空地址前置拦截 → 请求 → 异常分类 → jeecg 信封解包 */
