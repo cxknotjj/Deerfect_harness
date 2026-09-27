@@ -26,7 +26,7 @@ class ToolLazyLoadDecoratorTest {
 
         List<ToolCallback> tools = List.of(mock(ToolCallback.class));
         List<ToolCallback> wrapped = List.of(mock(ToolCallback.class));
-        ToolDecorationContext ctx = new ToolDecorationContext("agent-a", "s1", null, true);
+        ToolDecorationContext ctx = new ToolDecorationContext("agent-a", "s1", null);
 
         when(manager.process(eq("s1"), same(tools))).thenReturn(wrapped);
 
@@ -42,7 +42,7 @@ class ToolLazyLoadDecoratorTest {
         ToolLazyLoadDecorator decorator = new ToolLazyLoadDecorator(manager);
 
         List<ToolCallback> tools = List.of(mock(ToolCallback.class));
-        ToolDecorationContext ctx = new ToolDecorationContext("agent-a", "s2", null, false);
+        ToolDecorationContext ctx = new ToolDecorationContext("agent-a", "s2", null);
 
         when(manager.process(eq("s2"), same(tools))).thenReturn(tools);
 

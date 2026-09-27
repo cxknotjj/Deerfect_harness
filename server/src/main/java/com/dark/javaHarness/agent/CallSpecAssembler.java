@@ -39,7 +39,7 @@ final class CallSpecAssembler {
                                                      boolean disableTools) {
         return new AgentRequestSpecFactory.Assembly(toolEmitter, disableTools,
                 memoryStore != null && memoryPolicy.shouldInject(forAgent, sessionId),
-                true, true, maxTokensForRole(forAgent));
+                true, maxTokensForRole(forAgent));
     }
 
     /** 观测名单计算（llm_call_log 装配名单列）：assembly.disableTools 时工具/子集置空、技能保留 */

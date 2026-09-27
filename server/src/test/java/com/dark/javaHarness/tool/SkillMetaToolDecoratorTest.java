@@ -24,7 +24,7 @@ class SkillMetaToolDecoratorTest {
             Mockito.mock(com.dark.javaHarness.prompt.SkillManager.class);
 
     private final ToolDecorationContext ctx =
-            new ToolDecorationContext("agentA", "session-1", null, true);
+            new ToolDecorationContext("agentA", "session-1", null);
 
     @Test
     @DisplayName("skillManager 为 null 时直通：返回传入列表同一引用")

@@ -15,19 +15,17 @@ class ToolDecorationContextTest {
         Consumer<String> emitter = line -> { };
 
         ToolDecorationContext ctx = new ToolDecorationContext(
-                "coder", "session-1", emitter, true);
+                "coder", "session-1", emitter);
 
         assertThat(ctx.agentName()).isEqualTo("coder");
         assertThat(ctx.sessionId()).isEqualTo("session-1");
         assertThat(ctx.emitter()).isSameAs(emitter);
-        assertThat(ctx.callBudgetEnabled()).isTrue();
 
         ToolDecorationContext noSse = new ToolDecorationContext(
-                "reviewer", "session-2", null, false);
+                "reviewer", "session-2", null);
 
         assertThat(noSse.agentName()).isEqualTo("reviewer");
         assertThat(noSse.sessionId()).isEqualTo("session-2");
         assertThat(noSse.emitter()).isNull();
-        assertThat(noSse.callBudgetEnabled()).isFalse();
     }
 }

@@ -52,8 +52,6 @@ final class AgentRequestSpecFactory {
      *   <li>{@code injectMemory}：是否只读注入会话历史（编排路径按 MemoryPolicy 判定仅 lead；
      *       路径 A 恒注入）</li>
      *   <li>{@code frequencyPenalty}：频率惩罚（长报告聚合复读抑制，仅编排路径启用）</li>
-     *   <li>{@code toolCallBudget}：工具次数/结果硬预算（仅编排路径启用；经 Context 传给
-     *       ToolBudgetDecorator 判定，不再依赖 emitter 非空）</li>
      *   <li>{@code maxTokens}：输出封顶档位（0 = 不限制，不写入保持模型默认）</li>
      * </ul>
      */
@@ -61,7 +59,6 @@ final class AgentRequestSpecFactory {
                     boolean disableTools,
                     boolean injectMemory,
                     boolean frequencyPenalty,
-                    boolean toolCallBudget,
                     int maxTokens) {
 
         /**
@@ -69,7 +66,7 @@ final class AgentRequestSpecFactory {
          * （原 AgentChatCaller.noToolsVariant 静态方法，超长类拆分 2026-09-25 下沉为本 record 派生行为）。
          */
         Assembly withoutTools() {
-            return new Assembly(null, true, injectMemory, toolCallBudget, frequencyPenalty, maxTokens);
+            return new Assembly(null, true, injectMemory, frequencyPenalty, maxTokens);
         }
     }
 
@@ -243,8 +240,7 @@ final class AgentRequestSpecFactory {
         }
         // 装饰链应用（可插拔）：按 Order 升序逐层装饰——观测(100)→预算(200)→懒加载(300)→
         // 元工具(400)；各装饰器自判适用条件（不适用原样直通）。顺序契约见 ToolCallbackDecorator。
-        ToolDecorationContext ctx = new ToolDecorationContext(
-                forAgent, sessionId, assembly.toolEmitter(), assembly.toolCallBudget());
+        ToolDecorationContext ctx = new ToolDecorationContext(forAgent, sessionId, assembly.toolEmitter());
         for (ToolCallbackDecorator decorator : decorators) {
             tools = Objects.requireNonNull(decorator.decorate(ctx, tools),
                     decorator.getClass().getSimpleName() + " 返回 null（禁止，组装期编程错误）");

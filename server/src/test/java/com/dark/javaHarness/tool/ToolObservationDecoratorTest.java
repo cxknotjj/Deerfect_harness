@@ -74,7 +74,7 @@ class ToolObservationDecoratorTest {
 
     private static ToolDecorationContext ctx(String agentName, String sessionId,
             Consumer<String> emitter) {
-        return new ToolDecorationContext(agentName, sessionId, emitter, false);
+        return new ToolDecorationContext(agentName, sessionId, emitter);
     }
 
     private static ToolCallback stubDelegate(String name, String result) {
