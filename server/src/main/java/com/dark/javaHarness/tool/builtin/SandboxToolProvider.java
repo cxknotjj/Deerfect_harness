@@ -1,6 +1,7 @@
-package com.dark.javaHarness.tool;
+package com.dark.javaHarness.tool.builtin;
 
 import com.alibaba.cloud.ai.sandbox.ToolkitInit;
+import com.dark.javaHarness.tool.ToolAssignments;
 import io.agentscope.runtime.sandbox.box.BaseSandbox;
 import io.agentscope.runtime.sandbox.box.BrowserSandbox;
 import io.agentscope.runtime.sandbox.box.Sandbox;

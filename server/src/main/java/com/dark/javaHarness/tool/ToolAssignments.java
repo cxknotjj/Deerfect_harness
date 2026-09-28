@@ -1,6 +1,10 @@
 package com.dark.javaHarness.tool;
 
 import com.dark.javaHarness.service.AgentConfigProvider;
+import com.dark.javaHarness.tool.builtin.DemoTools;
+import com.dark.javaHarness.tool.builtin.SandboxToolProvider;
+import com.dark.javaHarness.tool.builtin.WebTools;
+import com.dark.javaHarness.tool.mcp.McpToolProvider;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;

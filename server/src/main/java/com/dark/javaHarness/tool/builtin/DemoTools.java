@@ -1,4 +1,4 @@
-package com.dark.javaHarness.tool;
+package com.dark.javaHarness.tool.builtin;
 
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;

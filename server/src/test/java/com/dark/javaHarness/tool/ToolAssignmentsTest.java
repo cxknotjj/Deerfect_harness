@@ -10,6 +10,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.service.AgentConfigProvider;
+import com.dark.javaHarness.tool.builtin.SandboxToolProvider;
+import com.dark.javaHarness.tool.builtin.WebTools;
+import com.dark.javaHarness.tool.mcp.McpToolProvider;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;

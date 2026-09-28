@@ -1,4 +1,4 @@
-package com.dark.javaHarness.tool;
+package com.dark.javaHarness.tool.mcp;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;

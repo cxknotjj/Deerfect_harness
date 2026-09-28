@@ -1,6 +1,8 @@
 package com.dark.javaHarness.prompt;
 
 import com.dark.javaHarness.tool.ToolAssignments;
+import com.dark.javaHarness.tool.budget.ToolCallBudget;
+import com.dark.javaHarness.tool.trace.ToolCallTracer;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

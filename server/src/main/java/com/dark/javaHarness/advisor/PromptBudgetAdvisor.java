@@ -24,7 +24,7 @@ import reactor.core.publisher.Flux;
  *
  * <p>职责：对单次调用的静态 prompt（system + 历史 + user）做 token 预算约束——
  * 超预算时改写最后一条 user 消息（其余消息保留），保证进入模型的 prompt 有明确上界。
- * 与 {@link com.dark.javaHarness.tool.ToolCallBudget} 互补：本类管「调用发起时」的静态内容
+ * 与 {@link com.dark.javaHarness.tool.budget.ToolCallBudget} 互补：本类管「调用发起时」的静态内容
  * （聚合拼接结果 / lead 目标），工具循环内的动态追加由工具预算管。
  *
  * <p>挂载方式：请求级（{@code spec.advisors(...)}），不用 default advisor——

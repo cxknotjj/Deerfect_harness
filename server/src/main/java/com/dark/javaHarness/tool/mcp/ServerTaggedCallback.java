@@ -1,4 +1,4 @@
-package com.dark.javaHarness.tool;
+package com.dark.javaHarness.tool.mcp;
 
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;

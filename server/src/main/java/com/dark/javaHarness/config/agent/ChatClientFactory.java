@@ -1,7 +1,7 @@
 package com.dark.javaHarness.config.agent;
 
 import com.dark.javaHarness.config.ChatTimeoutProperties;
-import com.dark.javaHarness.tool.DemoTools;
+import com.dark.javaHarness.tool.builtin.DemoTools;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import org.slf4j.Logger;

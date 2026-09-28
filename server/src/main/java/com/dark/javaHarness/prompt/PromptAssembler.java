@@ -2,8 +2,8 @@ package com.dark.javaHarness.prompt;
 
 import com.dark.javaHarness.domain.AgentConfig;
 import com.dark.javaHarness.service.AgentService;
-import com.dark.javaHarness.tool.ServerTaggedCallback;
 import com.dark.javaHarness.tool.ToolAssignments;
+import com.dark.javaHarness.tool.mcp.ServerTaggedCallback;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;

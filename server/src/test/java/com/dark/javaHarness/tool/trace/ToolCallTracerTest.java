@@ -1,4 +1,4 @@
-package com.dark.javaHarness.tool;
+package com.dark.javaHarness.tool.trace;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.agent.ProgressLine;
 import com.dark.javaHarness.domain.ToolCallLog;
+import com.dark.javaHarness.tool.mcp.ServerTaggedCallback;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;

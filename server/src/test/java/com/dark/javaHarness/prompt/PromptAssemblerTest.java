@@ -12,11 +12,11 @@ import static org.mockito.ArgumentMatchers.anyString;
 
 import com.dark.javaHarness.domain.AgentConfig;
 import com.dark.javaHarness.service.AgentService;
-import com.dark.javaHarness.tool.McpToolProvider;
-import com.dark.javaHarness.tool.SandboxToolProvider;
-import com.dark.javaHarness.tool.ServerTaggedCallback;
 import com.dark.javaHarness.tool.ToolAssignments;
-import com.dark.javaHarness.tool.WebTools;
+import com.dark.javaHarness.tool.builtin.SandboxToolProvider;
+import com.dark.javaHarness.tool.builtin.WebTools;
+import com.dark.javaHarness.tool.mcp.McpToolProvider;
+import com.dark.javaHarness.tool.mcp.ServerTaggedCallback;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;

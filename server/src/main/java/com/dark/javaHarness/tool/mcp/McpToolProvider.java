@@ -1,7 +1,9 @@
-package com.dark.javaHarness.tool;
+package com.dark.javaHarness.tool.mcp;
 
 import com.dark.javaHarness.domain.McpServerLog;
 import com.dark.javaHarness.service.impl.McpServerRecorder;
+import com.dark.javaHarness.tool.ToolAssignments;
+import com.dark.javaHarness.tool.builtin.SandboxToolProvider;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;

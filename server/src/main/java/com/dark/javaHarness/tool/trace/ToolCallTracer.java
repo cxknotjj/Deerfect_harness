@@ -1,7 +1,8 @@
-package com.dark.javaHarness.tool;
+package com.dark.javaHarness.tool.trace;
 
 import com.dark.javaHarness.agent.ProgressLine;
 import com.dark.javaHarness.domain.ToolCallLog;
+import com.dark.javaHarness.tool.mcp.ServerTaggedCallback;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;

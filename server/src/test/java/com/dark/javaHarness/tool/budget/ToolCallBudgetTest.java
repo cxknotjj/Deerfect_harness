@@ -1,8 +1,9 @@
-package com.dark.javaHarness.tool;
+package com.dark.javaHarness.tool.budget;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.dark.javaHarness.tool.TokenEstimator;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.ToolCallback;

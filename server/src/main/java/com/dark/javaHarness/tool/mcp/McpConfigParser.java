@@ -1,4 +1,4 @@
-package com.dark.javaHarness.tool;
+package com.dark.javaHarness.tool.mcp;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

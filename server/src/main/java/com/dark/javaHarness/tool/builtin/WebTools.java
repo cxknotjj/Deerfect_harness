@@ -1,4 +1,4 @@
-package com.dark.javaHarness.tool;
+package com.dark.javaHarness.tool.builtin;
 
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;

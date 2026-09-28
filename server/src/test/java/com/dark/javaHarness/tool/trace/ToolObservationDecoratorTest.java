@@ -1,4 +1,4 @@
-package com.dark.javaHarness.tool;
+package com.dark.javaHarness.tool.trace;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.agent.ProgressLine;
 import com.dark.javaHarness.service.impl.LlmCallRecorder;
+import com.dark.javaHarness.tool.ToolDecorationContext;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;

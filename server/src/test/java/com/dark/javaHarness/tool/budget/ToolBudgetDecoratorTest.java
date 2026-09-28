@@ -1,4 +1,4 @@
-package com.dark.javaHarness.tool;
+package com.dark.javaHarness.tool.budget;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -12,6 +12,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.ToolCallback;
 
 import com.dark.javaHarness.config.ContextBudgetProperties;
+import com.dark.javaHarness.tool.TokenEstimator;
+import com.dark.javaHarness.tool.ToolDecorationContext;
 
 /**
  * ToolBudgetDecorator（预算装饰器）单测：
