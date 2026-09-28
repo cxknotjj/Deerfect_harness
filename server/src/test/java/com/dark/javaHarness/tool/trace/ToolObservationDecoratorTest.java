@@ -8,7 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.agent.ProgressLine;
-import com.dark.javaHarness.service.impl.LlmCallRecorder;
+import com.dark.javaHarness.service.impl.observe.LlmCallRecorder;
 import com.dark.javaHarness.tool.ToolDecorationContext;
 import java.util.ArrayList;
 import java.util.List;

@@ -1,6 +1,6 @@
 package com.dark.javaHarness.tool.trace;
 
-import com.dark.javaHarness.service.impl.LlmCallRecorder;
+import com.dark.javaHarness.service.impl.observe.LlmCallRecorder;
 import com.dark.javaHarness.tool.ToolCallbackDecorator;
 import com.dark.javaHarness.tool.ToolDecorationContext;
 import java.util.List;

@@ -16,6 +16,7 @@ import com.dark.javaHarness.service.ChatService;
 import com.dark.javaHarness.service.GoalService;
 import com.dark.javaHarness.service.RouteJudge;
 import com.dark.javaHarness.service.SessionService;
+import com.dark.javaHarness.service.impl.route.RagPrefetcher;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Future;

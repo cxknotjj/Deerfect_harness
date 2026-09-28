@@ -1,4 +1,4 @@
-package com.dark.javaHarness.service.impl;
+package com.dark.javaHarness.service.impl.route;
 
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import java.util.List;
@@ -17,7 +17,7 @@ import org.slf4j.LoggerFactory;
  * 被丢的请求退化为组装期现查）+ 会话绑定知识库解析 + 预取提交与汇合等待。
  * judge 与预取的汇合次序（并行后汇合）属聊天编排语义，仍由宿主 {@code resolveAgentWithPrefetch} 编排。
  */
-final class RagPrefetcher {
+public final class RagPrefetcher {
 
     private static final Logger log = LoggerFactory.getLogger(RagPrefetcher.class);
 
@@ -30,7 +30,7 @@ final class RagPrefetcher {
     private final Function<String, String> sessionAgentName;
     private final ThreadPoolExecutor pool;
 
-    RagPrefetcher(KnowledgeRetriever knowledgeRetriever,
+    public RagPrefetcher(KnowledgeRetriever knowledgeRetriever,
                   com.dark.javaHarness.service.AgentService agentService,
                   Function<String, String> sessionAgentName) {
         this.knowledgeRetriever = knowledgeRetriever;
@@ -50,7 +50,7 @@ final class RagPrefetcher {
     }
 
     /** 入口预取提交：任何失败静默返回 null（预取是纯加速，不影响主流程） */
-    Future<?> submit(String message, String sessionId) {
+    public Future<?> submit(String message, String sessionId) {
         try {
             return pool.submit(() -> doPrefetch(message, sessionId));
         } catch (Exception e) {
@@ -60,7 +60,7 @@ final class RagPrefetcher {
     }
 
     /** 汇合预取：judge 完成后小幅等待；超时取消放弃（预取是纯加速，失败退化为组装期现查） */
-    void await(Future<?> prefetch) {
+    public void await(Future<?> prefetch) {
         if (prefetch == null) {
             return;
         }

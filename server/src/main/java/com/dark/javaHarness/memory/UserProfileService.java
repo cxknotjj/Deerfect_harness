@@ -7,7 +7,7 @@ import com.dark.javaHarness.domain.LlmCallLog;
 import com.dark.javaHarness.domain.entity.SessionEntity;
 import com.dark.javaHarness.mapper.SessionMapper;
 import com.dark.javaHarness.service.SessionService;
-import com.dark.javaHarness.service.impl.LlmCallRecorder;
+import com.dark.javaHarness.service.impl.observe.LlmCallRecorder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
