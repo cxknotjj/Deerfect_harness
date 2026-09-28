@@ -2,7 +2,7 @@ package com.dark.javaHarness.agent;
 
 import com.dark.javaHarness.domain.LlmCallLog;
 import com.dark.javaHarness.prompt.PromptAssembler;
-import com.dark.javaHarness.service.impl.LlmCallRecorder;
+import com.dark.javaHarness.service.impl.observe.LlmCallRecorder;
 import org.springframework.ai.chat.metadata.Usage;
 
 /**

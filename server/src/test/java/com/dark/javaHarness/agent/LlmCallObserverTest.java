@@ -6,7 +6,7 @@ import static org.mockito.Mockito.verify;
 import com.dark.javaHarness.domain.entity.LlmCallLogEntity;
 import com.dark.javaHarness.mapper.LlmCallLogMapper;
 import com.dark.javaHarness.prompt.PromptAssembler;
-import com.dark.javaHarness.service.impl.LlmCallRecorder;
+import com.dark.javaHarness.service.impl.observe.LlmCallRecorder;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;

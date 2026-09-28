@@ -1,7 +1,8 @@
-package com.dark.javaHarness.agent;
+package com.dark.javaHarness.agent.orchestrate;
 
 import com.alibaba.cloud.ai.graph.GraphLifecycleListener;
 import com.alibaba.cloud.ai.graph.RunnableConfig;
+import com.dark.javaHarness.agent.ProgressLine;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,7 +20,7 @@ import reactor.core.publisher.Sinks;
  * <p>同时提供 Sink 串行化发射/关闸工具：并行钩子线程可能同时回调，
  * Reactor 单播 Sink 拒绝并发发射（FAIL_NON_SERIALIZED 会静默丢事件）。
  */
-final class BranchProgressListener implements GraphLifecycleListener {
+public final class BranchProgressListener implements GraphLifecycleListener {
 
     private static final Logger log = LoggerFactory.getLogger(BranchProgressListener.class);
 
@@ -75,14 +76,14 @@ final class BranchProgressListener implements GraphLifecycleListener {
     }
 
     /** 串行化向旁路 Sink 发射一条事件（并行钩子线程可能同时回调，单播 Sink 拒绝并发发射）。 */
-    static void tryEmitSerialized(Sinks.Many<String> sink, String line) {
+    public static void tryEmitSerialized(Sinks.Many<String> sink, String line) {
         synchronized (sink) {
             sink.tryEmitNext(line);
         }
     }
 
     /** 串行化关闸：与 {@link #tryEmitSerialized} 共用同一把锁，防止迟到发射与 complete 竞争。 */
-    static void tryCompleteSerialized(Sinks.Many<String> sink) {
+    public static void tryCompleteSerialized(Sinks.Many<String> sink) {
         synchronized (sink) {
             sink.tryEmitComplete();
         }

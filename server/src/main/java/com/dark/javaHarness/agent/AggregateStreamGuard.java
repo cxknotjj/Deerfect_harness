@@ -1,6 +1,8 @@
 package com.dark.javaHarness.agent;
 
 import com.dark.javaHarness.advisor.PromptBudgetAdvisor;
+import com.dark.javaHarness.agent.orchestrate.BranchProgressListener;
+import com.dark.javaHarness.agent.orchestrate.BudgetLedger;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
@@ -18,7 +20,7 @@ import reactor.core.publisher.Sinks;
  * </ul>
  * 例外：客户端断连中止（取消异常）不重试、部分输出不按成功返回，取消异常向上传播。
  */
-final class AggregateStreamGuard {
+public final class AggregateStreamGuard {
 
     private static final Logger log = LoggerFactory.getLogger(AggregateStreamGuard.class);
 
@@ -28,7 +30,7 @@ final class AggregateStreamGuard {
     /** 聚合预算 advisor 供给（按「【子任务N】」节边界等份额截断；每次求值与原实现一致） */
     private final java.util.function.Supplier<PromptBudgetAdvisor> aggregateAdvisor;
 
-    AggregateStreamGuard(AgentChatCaller chatCaller,
+    public AggregateStreamGuard(AgentChatCaller chatCaller,
                          String aggregatorRole,
                          String aggregatorPrompt,
                          java.util.function.Supplier<PromptBudgetAdvisor> aggregateAdvisor) {
@@ -43,7 +45,7 @@ final class AggregateStreamGuard {
      * budgetLedger 为 record-only 句柄（聚合不受熔断，仅记账；可 null）。
      * trace 为轨迹标识（聚合为派生调用：parent_span=lead 的 span_id，与子任务同树）。
      */
-    String predictStreaming(String sessionId,
+    public String predictStreaming(String sessionId,
                             String user,
                             Sinks.Many<String> liveTokens,
                             AtomicBoolean contentSent,

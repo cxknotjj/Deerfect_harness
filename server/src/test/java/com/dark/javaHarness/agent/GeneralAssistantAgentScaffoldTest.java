@@ -18,7 +18,7 @@ import com.dark.javaHarness.domain.Goal;
 import com.dark.javaHarness.domain.LlmCallLog;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.SessionService;
-import com.dark.javaHarness.service.impl.LlmCallRecorder;
+import com.dark.javaHarness.service.impl.observe.LlmCallRecorder;
 import com.dark.javaHarness.tool.ToolAssignments;
 import java.util.ArrayList;
 import java.util.List;

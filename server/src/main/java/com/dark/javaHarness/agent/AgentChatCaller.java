@@ -5,12 +5,13 @@ import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.config.agent.ChatClientFactory;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.AgentConfig;
-import com.dark.javaHarness.agent.BudgetLedger.BudgetExceededException;
+import com.dark.javaHarness.agent.orchestrate.BudgetLedger;
+import com.dark.javaHarness.agent.orchestrate.BudgetLedger.BudgetExceededException;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.prompt.SkillManager;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.SessionService;
-import com.dark.javaHarness.service.impl.LlmCallRecorder;
+import com.dark.javaHarness.service.impl.observe.LlmCallRecorder;
 import com.dark.javaHarness.tool.ToolAssignments;
 import com.dark.javaHarness.prompt.ToolLazyManager;
 import java.util.concurrent.CancellationException;
@@ -36,7 +37,7 @@ import reactor.core.publisher.Flux;
  * （{@link CallSpecAssembler#assemblyForRole}，仅 lead 注入记忆等编排语义）与 Assembly 直传入口
  * （路径 A 声明恒记忆/final 档等差异）。
  */
-final class AgentChatCaller {
+public final class AgentChatCaller {
 
     private static final org.slf4j.Logger log =
             org.slf4j.LoggerFactory.getLogger(AgentChatCaller.class);
@@ -91,7 +92,7 @@ final class AgentChatCaller {
      * {@link #DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS}。
      * 其余仅保留 4/5/6 参单测便捷重载（尾部组件取禁用态/null），中间历史重载已收敛删除。
      */
-    AgentChatCaller(ChatClientRegistry clientRegistry,
+    public AgentChatCaller(ChatClientRegistry clientRegistry,
                     AgentService agentService,
                     ToolAssignments toolAssignments,
                     LlmCallRecorder recorder,
@@ -161,7 +162,7 @@ final class AgentChatCaller {
     }
 
     /** 同上，可携带轨迹标识（编排节点传入：turn/trace 取 Goal，parentSpan 为父调用 span） */
-    String call(String sessionId, String forAgent, String fallbackSystem, String user,
+    public String call(String sessionId, String forAgent, String fallbackSystem, String user,
                 Consumer<String> toolEmitter, Advisor[] extraAdvisors, BooleanSupplier cancelled,
                 BudgetLedger ledger, CallTrace trace) {
         return callWithAssembly(sessionId, forAgent, fallbackSystem, user,
@@ -353,7 +354,7 @@ final class AgentChatCaller {
     }
 
     /** 同上，可携带轨迹标识（编排聚合节点传入：turn/trace 取 Goal，parentSpan 为 lead 的 span） */
-    String stream(String sessionId, String forAgent, String fallbackSystem, String user,
+    public String stream(String sessionId, String forAgent, String fallbackSystem, String user,
                   Consumer<String> onToken, Consumer<String> toolEmitter, Advisor[] extraAdvisors,
                   BooleanSupplier cancelled, BudgetLedger ledger, CallTrace trace) {
         return streamWithAssembly(sessionId, forAgent, fallbackSystem, user, onToken,

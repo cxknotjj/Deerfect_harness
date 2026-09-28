@@ -1,4 +1,4 @@
-package com.dark.javaHarness.agent;
+package com.dark.javaHarness.agent.orchestrate;
 
 import org.springframework.ai.chat.metadata.Usage;
 
@@ -14,7 +14,7 @@ import org.springframework.ai.chat.metadata.Usage;
  * </ul>
  * 聚合等「必发不受熔断」的调用方传 record-only 句柄（overBudget 恒 false，仅记账）。
  */
-interface BudgetLedger {
+public interface BudgetLedger {
 
     /** 熔断判定：true = 已达编排消费上限 */
     boolean overBudget();
@@ -27,13 +27,13 @@ interface BudgetLedger {
      * 一致）；有 usage 时增量已在流帧上记账，此处不再累计（避免重复计数）。ledger 可 null 直通。
      * （原 AgentChatCaller.recordEstimatedIfNoUsage，超长类拆分 2026-09-25 并入账本契约。）
      */
-    static void recordEstimatedIfNoUsage(BudgetLedger ledger, String content, Usage usage) {
+    public static void recordEstimatedIfNoUsage(BudgetLedger ledger, String content, Usage usage) {
         if (ledger == null) {
             return;
         }
         boolean hasRealUsage = usage != null && usage.getTotalTokens() != null && usage.getTotalTokens() > 0;
         if (!hasRealUsage) {
-            ledger.recordUsage(com.dark.javaHarness.service.impl.LlmCallRecorder.estimateTokens(content), true);
+            ledger.recordUsage(com.dark.javaHarness.service.impl.observe.LlmCallRecorder.estimateTokens(content), true);
         }
     }
 
@@ -41,9 +41,9 @@ interface BudgetLedger {
      * 编排预算熔断异常：超限断流/拒绝发起新调用时抛出。编排节点捕获后写
      * 「预算超限跳过」占位并注入聚合降级说明；非可重试错误（LlmRetry 天然旁路）。
      */
-    final class BudgetExceededException extends RuntimeException {
+    public final class BudgetExceededException extends RuntimeException {
 
-        BudgetExceededException() {
+        public BudgetExceededException() {
             super("budget-exceeded: 编排 token 消费已达上限，熔断中止调用");
         }
     }

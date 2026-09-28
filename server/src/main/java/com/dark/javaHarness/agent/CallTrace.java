@@ -12,13 +12,13 @@ import java.util.UUID;
  *
  * <p>纯内存构造（UUID + 字段引用），观测零主链路影响。
  */
-record CallTrace(String turnId, String traceId, String parentSpan, String spanId) {
+public record CallTrace(String turnId, String traceId, String parentSpan, String spanId) {
 
     /** 无轨迹场景兜底（调用方暂无 Goal 上下文） */
     static final CallTrace NONE = new CallTrace(null, null, null, null);
 
     /** 生成 span_id（32 位 hex UUID）：每次调用发起前调用一次，无锁无 IO */
-    static String newSpanId() {
+    public static String newSpanId() {
         return UUID.randomUUID().toString().replace("-", "");
     }
 

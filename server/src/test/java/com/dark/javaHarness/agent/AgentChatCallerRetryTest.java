@@ -103,8 +103,8 @@ class AgentChatCallerRetryTest {
                 Flux.error(new HttpServerErrorException(HttpStatus.INTERNAL_SERVER_ERROR)),
                 fluxOf("retried-ok"));
 
-        com.dark.javaHarness.service.impl.LlmCallRecorder recorder =
-                mock(com.dark.javaHarness.service.impl.LlmCallRecorder.class);
+        com.dark.javaHarness.service.impl.observe.LlmCallRecorder recorder =
+                mock(com.dark.javaHarness.service.impl.observe.LlmCallRecorder.class);
         org.mockito.ArgumentCaptor<com.dark.javaHarness.domain.LlmCallLog> captor =
                 org.mockito.ArgumentCaptor.forClass(com.dark.javaHarness.domain.LlmCallLog.class);
         when(clientRegistry.get(any())).thenReturn(stub.client());

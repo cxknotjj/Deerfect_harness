@@ -1,4 +1,4 @@
-package com.dark.javaHarness.agent;
+package com.dark.javaHarness.agent.orchestrate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -19,6 +19,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.advisor.ContextAssemblingAdvisor;
+import com.dark.javaHarness.agent.ProgressLine;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.Goal;
 import com.dark.javaHarness.service.AgentService;
