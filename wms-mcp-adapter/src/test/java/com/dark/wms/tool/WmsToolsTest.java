@@ -185,8 +185,19 @@ class WmsToolsTest {
         when(client.list(eq(WmsEndpoints.RECEIVE_TASKS_LIST), anyMap())).thenReturn(new WmsPage(List.of(), 0));
         tools.searchTasks("receive", "T001", "待执行", "p1", null, null);
         verify(client).list(eq(WmsEndpoints.RECEIVE_TASKS_LIST),
-                argThat(m -> "T001".equals(m.get("taskNumber")) && "receive".equals(m.get("taskType"))
+                argThat(m -> "T001".equals(m.get("taskNumber")) && "RECEIVE_TASK".equals(m.get("taskType"))
                         && "待执行".equals(m.get("taskStatus")) && "p1".equals(m.get("productId"))));
+    }
+
+    @Test
+    void searchTasks_taskType透传为jeecg字典枚举() {
+        // jeecg taskType 列存大写 TASK 枚举（PUTAWAY_TASK/PICKING_TASK），语义小写直传会恒 0 结果
+        when(client.list(eq(WmsEndpoints.PUTAWAY_TASKS_LIST), anyMap())).thenReturn(new WmsPage(List.of(), 0));
+        when(client.list(eq(WmsEndpoints.PICKING_TASKS_LIST), anyMap())).thenReturn(new WmsPage(List.of(), 0));
+        tools.searchTasks("putaway", null, null, null, null, null);
+        verify(client).list(eq(WmsEndpoints.PUTAWAY_TASKS_LIST), argThat(m -> "PUTAWAY_TASK".equals(m.get("taskType"))));
+        tools.searchTasks("picking", null, null, null, null, null);
+        verify(client).list(eq(WmsEndpoints.PICKING_TASKS_LIST), argThat(m -> "PICKING_TASK".equals(m.get("taskType"))));
     }
 
     @Test

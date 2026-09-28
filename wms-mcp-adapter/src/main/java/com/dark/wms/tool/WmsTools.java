@@ -346,7 +346,7 @@ public class WmsTools {
             Map<String, String> query = switch (type) {
                 // 三类任务共用同一组字段：taskNumber/taskType/taskStatus/productId
                 case "receive", "putaway", "picking" -> filterParams("taskNumber", taskNumber,
-                        "taskType", taskType.trim().toLowerCase(), "taskStatus", status, "productId", productId);
+                        "taskType", jeecgTaskType(type), "taskStatus", status, "productId", productId);
                 // 波次主表：waveNo/status（无任务号字段语义，taskNumber 即波次号）
                 case "wave" -> filterParams("waveNo", taskNumber, "status", status);
                 // 缺货登记：status/productId（无任务号字段）
@@ -359,6 +359,16 @@ public class WmsTools {
         } catch (Exception e) {
             return unexpected(e);
         }
+    }
+
+    /** 语义 taskType → jeecg 字典枚举（库中 taskType 列存大写 TASK 枚举，语义小写直传会恒 0 结果） */
+    private static String jeecgTaskType(String type) {
+        return switch (type) {
+            case "receive" -> "RECEIVE_TASK";
+            case "putaway" -> "PUTAWAY_TASK";
+            case "picking" -> "PICKING_TASK";
+            default -> type;
+        };
     }
 
     // ---------- 结果装配 ----------
