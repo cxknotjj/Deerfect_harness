@@ -1,5 +1,8 @@
-package com.dark.javaHarness.channel.qq;
+package com.dark.javaHarness.channel.qq.client;
 
+import com.dark.javaHarness.channel.qq.event.OneBotEventController;
+import com.dark.javaHarness.channel.qq.event.OneBotEventService;
+import com.dark.javaHarness.channel.qq.event.OneBotEventServiceImpl;
 import com.dark.javaHarness.mapper.OneBotSessionBindingMapper;
 import com.dark.javaHarness.service.ChatService;
 import com.dark.javaHarness.service.SessionService;

@@ -1,4 +1,4 @@
-package com.dark.javaHarness.channel.qq;
+package com.dark.javaHarness.channel.qq.reply;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -7,7 +7,7 @@ import java.util.List;
  * 回复分段纯函数集（自 {@link OneBotEventServiceImpl} 拆出，超长类拆分 2026-09-25）：
  * 渐进/超长两种策略的文本切分，无状态零依赖，便于单测直调。
  */
-final class ReplySplitter {
+public final class ReplySplitter {
 
     private ReplySplitter() {
     }
@@ -18,7 +18,7 @@ final class ReplySplitter {
      * （长 URL、代码段等）仍超长时原样成片，直接发送。
      * 返回的每片都 ≤ max，除非该片本身不可再分。
      */
-    static List<String> splitOversizedBlock(String block, int max) {
+    public static List<String> splitOversizedBlock(String block, int max) {
         if (max <= 0 || block.length() <= max) {
             return List.of(block);
         }
@@ -60,7 +60,7 @@ final class ReplySplitter {
      * 无字符硬切）；段落数超过 maxChunks 时尾部段落合并为最后一条（maxChunks &lt;= 0 = 不限制；
      * 合并条可能超过 max，可接受——仅极端长回答触发）。单段回答返回单条，行为与关闭渐进一致。
      */
-    static List<String> splitProgressive(String text, int max, int maxChunks) {
+    public static List<String> splitProgressive(String text, int max, int maxChunks) {
         String trimmed = text == null ? "" : text.trim();
         List<String> paragraphs = new ArrayList<>();
         for (String p : trimmed.split("\n\n", -1)) {
@@ -88,7 +88,7 @@ final class ReplySplitter {
      * 超长分段：优先按空行段落边界打包（段间距保留在段内），单段仍超长再按字符硬切。
      * max &lt;= 0 表示不限制（整段一条发送）。
      */
-    static List<String> splitReply(String text, int max) {
+    public static List<String> splitReply(String text, int max) {
         String trimmed = text == null ? "" : text.trim();
         if (max <= 0 || trimmed.length() <= max) {
             return List.of(trimmed);

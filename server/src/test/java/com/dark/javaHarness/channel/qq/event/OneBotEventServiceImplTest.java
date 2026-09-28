@@ -1,4 +1,4 @@
-package com.dark.javaHarness.channel.qq;
+package com.dark.javaHarness.channel.qq.event;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -11,8 +11,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.dark.javaHarness.channel.qq.client.NapCatApiClient;
+import com.dark.javaHarness.channel.qq.client.NapCatProperties;
 import com.dark.javaHarness.channel.qq.dto.MessageSegment;
 import com.dark.javaHarness.channel.qq.dto.OneBotEvent;
+import com.dark.javaHarness.channel.qq.reply.EmojiReplies;
+import com.dark.javaHarness.channel.qq.reply.ReplySplitter;
 import com.dark.javaHarness.domain.dto.ChatRequest;
 import com.dark.javaHarness.domain.dto.ChatResponse;
 import com.dark.javaHarness.domain.entity.OneBotSessionBinding;

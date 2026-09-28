@@ -109,13 +109,18 @@ sequenceDiagram
 
 ```
 channel/qq/
-├── OneBotEventController     入站端点：验签/去重/ACK/异步分发
-├── OneBotEventService(Impl)  编排：过滤→提取→限频→建绑→聊天→回复（含表情钩子）
-├── NapCatApiClient(Impl)     出站客户端：发送 + 启动自检 + 成功/失败日志
-├── EmojiReplies              表情匹配器：JSON 映射加载 + tag/句尾判定 + image 段生成
-├── UserRateLimiter           同 uid 内存滑动窗限频
-├── MessageDedupCache         messageId 幂等去重（内存）
-├── NapCatChannelConfig       装配：napcat.enabled 条件装配 + onebotExecutor/chatExecutor
-├── NapCatProperties          yaml 绑定（reply/emoji/rate-limit/group-trigger 等）
-└── dto/                      OneBotEvent / MessageSegment / SendMsgRequest / ApiResult
+├── event/
+│   ├── OneBotEventController     入站端点：验签/去重/ACK/异步分发
+│   ├── OneBotEventService(Impl)  编排：过滤→提取→限频→建绑→聊天→回复（含表情钩子）
+│   ├── EventTextParser           事件文本提取（群聊 at|prefix|all 三模式）
+│   └── MessageDedupCache         messageId 幂等去重（内存）
+├── client/
+│   ├── NapCatApiClient(Impl)     出站客户端：发送 + 启动自检 + 成功/失败日志
+│   ├── NapCatChannelConfig       装配：napcat.enabled 条件装配 + onebotExecutor/chatExecutor
+│   └── NapCatProperties          yaml 绑定（reply/emoji/rate-limit/group-trigger 等）
+├── reply/
+│   ├── EmojiReplies              表情匹配器：JSON 映射加载 + tag/句尾判定 + image 段生成
+│   ├── ReplySplitter             分段发送：progressive 层级切片 + 超长切分
+│   └── UserRateLimiter           同 uid 内存滑动窗限频
+└── dto/                          OneBotEvent / MessageSegment / SendMsgRequest / ApiResult
 ```

@@ -1,5 +1,6 @@
-package com.dark.javaHarness.channel.qq;
+package com.dark.javaHarness.channel.qq.reply;
 
+import com.dark.javaHarness.channel.qq.client.NapCatProperties;
 import com.dark.javaHarness.channel.qq.dto.MessageSegment;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;

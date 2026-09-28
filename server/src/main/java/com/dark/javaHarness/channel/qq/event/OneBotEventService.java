@@ -1,4 +1,4 @@
-package com.dark.javaHarness.channel.qq;
+package com.dark.javaHarness.channel.qq.event;
 
 import com.dark.javaHarness.channel.qq.dto.OneBotEvent;
 

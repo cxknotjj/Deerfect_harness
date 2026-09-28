@@ -1,9 +1,10 @@
-package com.dark.javaHarness.channel.qq;
+package com.dark.javaHarness.channel.qq.reply;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+import com.dark.javaHarness.channel.qq.client.NapCatProperties;
 import com.dark.javaHarness.channel.qq.dto.MessageSegment;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;

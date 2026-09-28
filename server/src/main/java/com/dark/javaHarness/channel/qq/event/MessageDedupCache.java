@@ -1,4 +1,4 @@
-package com.dark.javaHarness.channel.qq;
+package com.dark.javaHarness.channel.qq.event;
 
 import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;

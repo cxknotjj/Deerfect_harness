@@ -1,4 +1,4 @@
-package com.dark.javaHarness.channel.qq;
+package com.dark.javaHarness.channel.qq.client;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;

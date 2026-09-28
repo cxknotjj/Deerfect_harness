@@ -1,9 +1,10 @@
-package com.dark.javaHarness.channel.qq;
+package com.dark.javaHarness.channel.qq.event;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
+import com.dark.javaHarness.channel.qq.client.NapCatProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Executor;

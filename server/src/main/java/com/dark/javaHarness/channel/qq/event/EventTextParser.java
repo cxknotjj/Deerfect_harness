@@ -1,5 +1,6 @@
-package com.dark.javaHarness.channel.qq;
+package com.dark.javaHarness.channel.qq.event;
 
+import com.dark.javaHarness.channel.qq.client.NapCatProperties;
 import com.dark.javaHarness.channel.qq.dto.MessageSegment;
 import com.dark.javaHarness.channel.qq.dto.OneBotEvent;
 import java.util.List;

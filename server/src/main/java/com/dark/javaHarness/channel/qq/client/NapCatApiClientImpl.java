@@ -1,4 +1,4 @@
-package com.dark.javaHarness.channel.qq;
+package com.dark.javaHarness.channel.qq.client;
 
 import com.dark.javaHarness.channel.qq.dto.ApiResult;
 import com.dark.javaHarness.channel.qq.dto.MessageSegment;
