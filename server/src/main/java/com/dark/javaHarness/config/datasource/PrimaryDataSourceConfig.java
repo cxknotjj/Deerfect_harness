@@ -1,4 +1,4 @@
-package com.dark.javaHarness.config;
+package com.dark.javaHarness.config.datasource;
 
 import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;

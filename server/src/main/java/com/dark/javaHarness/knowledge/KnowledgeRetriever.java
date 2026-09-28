@@ -1,6 +1,6 @@
 package com.dark.javaHarness.knowledge;
 
-import com.dark.javaHarness.config.KnowledgeProperties;
+import com.dark.javaHarness.config.knowledge.KnowledgeProperties;
 import com.dark.javaHarness.domain.dto.KnowledgeSource;
 import com.dark.javaHarness.tool.TokenEstimator;
 import java.util.ArrayList;

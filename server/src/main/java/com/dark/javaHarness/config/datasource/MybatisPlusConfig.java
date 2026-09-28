@@ -1,4 +1,4 @@
-package com.dark.javaHarness.config;
+package com.dark.javaHarness.config.datasource;
 
 import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;

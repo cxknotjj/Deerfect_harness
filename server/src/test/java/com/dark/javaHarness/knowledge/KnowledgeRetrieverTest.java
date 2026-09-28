@@ -13,7 +13,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.dark.javaHarness.config.KnowledgeProperties;
+import com.dark.javaHarness.config.knowledge.KnowledgeProperties;
 import com.dark.javaHarness.domain.dto.KnowledgeSource;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;

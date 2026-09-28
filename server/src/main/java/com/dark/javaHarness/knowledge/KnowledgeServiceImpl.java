@@ -2,7 +2,7 @@ package com.dark.javaHarness.knowledge;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dark.javaHarness.config.KnowledgeProperties;
+import com.dark.javaHarness.config.knowledge.KnowledgeProperties;
 import com.dark.javaHarness.domain.dto.PageResult;
 import com.dark.javaHarness.domain.entity.KbDocumentEntity;
 import com.dark.javaHarness.mapper.KbDocumentMapper;

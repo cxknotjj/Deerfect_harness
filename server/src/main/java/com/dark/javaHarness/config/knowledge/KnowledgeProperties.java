@@ -1,4 +1,4 @@
-package com.dark.javaHarness.config;
+package com.dark.javaHarness.config.knowledge;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;

@@ -1,4 +1,4 @@
-package com.dark.javaHarness.config;
+package com.dark.javaHarness.config.knowledge;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
