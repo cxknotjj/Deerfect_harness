@@ -1,7 +1,7 @@
 # 上下文管理优化方案
 
 > 状态：**已实现**（2026-09-06 核对；2026-09-08 增补消费侧预算——输出 maxTokens 分档与编排全程消费上限熔断，见第五节）——`app.context.*` 预算配置（`config/ContextBudgetProperties`）、静态 prompt 预算拦截器（`advisor/PromptBudgetAdvisor`，lead/聚合节点接入）、`tool/ToolCallBudget` 均已落地，由 `MultiAgentGraphAgent` / `GeneralAssistantAgent` 消费；本文保留为设计依据与参数口径说明。
-> 关联代码：`advisor/ContextAssemblingAdvisor`、`advisor/PromptBudgetAdvisor`、`tool/ToolCallBudget`、`tool/TokenEstimator`、`agent/MultiAgentGraphAgent`、`agent/AgentChatCaller`
+> 关联代码：`advisor/ContextAssemblingAdvisor`、`advisor/PromptBudgetAdvisor`、`tool/budget/ToolCallBudget`、`tool/TokenEstimator`、`agent/orchestrate/MultiAgentGraphAgent`、`agent/AgentChatCaller`
 > 背景：262 万 prompt token 事故复盘后，输入侧防线已补齐（工具预算/内容过滤/白名单），本方案补齐最后一个缺口——**静态 prompt 无预算**；消费侧（输出生成与编排累计）防线见第五节。
 
 ---

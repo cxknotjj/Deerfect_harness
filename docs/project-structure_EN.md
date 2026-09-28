@@ -22,17 +22,21 @@ src/main/java/com/dark/javaHarness/
 │   ├── RouteJudge.java           # Main-agent routing decision (SIMPLE / COMPLEX)
 │   ├── AgentConfigProvider.java  # Runtime config from the agent table (routing map)
 │   ├── ProviderAdminService.java # model_provider mapping management (hot refresh on add)
-│   └── impl/                     # Implementations (AgentServiceImpl / ChatServiceImpl / LlmRouteJudge / LlmCallRecorder / SseEncoder (SSE encoding) / RagPrefetcher (RAG prefetch) etc.)
+│   └── impl/                     # Implementations (AgentServiceImpl / ChatServiceImpl / SseEncoder (SSE encoding) etc.)
+│       ├── observe/              # LlmCallRecorder / McpServerRecorder (LLM/MCP call observation persistence) + ObservabilityLogCleaner (observation-table retention cleanup)
+│       └── route/                # LlmRouteJudge (main-agent routing decision) / RagPrefetcher (RAG entry prefetch)
 ├── advisor/                      # Spring AI Advisor interceptors (cross-cutting agent-flow management)
 │   ├── ContextAssemblingAdvisor.java  # Context assembly: filter / token-budget truncation / role normalization
 │   └── PromptBudgetAdvisor.java  # Prompt section budgets (history / user / tool-result truncation)
 ├── config/                       # Application configuration
 │   ├── GoalExecutorConfig.java   # Execution pools: goal-exec- background goal pool + mvc-async- MVC async slot
 │   ├── ContextBudgetProperties.java  # Unified context budget config (app.context.*; yaml is the single source of numbers)
-│   ├── KnowledgeProperties.java  # RAG knowledge-base config carrier (app.knowledge.*)
-│   ├── KnowledgeConfig.java      # Knowledge-base wiring: vector datasource / embedding model / PgVectorStore (conditional + lazy connections)
-│   ├── PrimaryDataSourceConfig.java  # Explicit primary (MySQL) datasource declaration (@Primary; Flyway/MyBatis ownership with multiple datasources)
-│   ├── MybatisPlusConfig.java    # MyBatis-Plus configuration (pagination etc.)
+│   ├── knowledge/                # RAG knowledge-base wiring
+│   │   ├── KnowledgeProperties.java  # RAG knowledge-base config carrier (app.knowledge.*)
+│   │   └── KnowledgeConfig.java      # Knowledge-base wiring: vector datasource / embedding model / PgVectorStore (conditional + lazy connections)
+│   ├── datasource/               # Datasource & MyBatis-Plus wiring
+│   │   ├── PrimaryDataSourceConfig.java  # Explicit primary (MySQL) datasource declaration (@Primary; Flyway/MyBatis ownership with multiple datasources)
+│   │   └── MybatisPlusConfig.java    # MyBatis-Plus configuration (pagination etc.)
 │   └── agent/                    # Agent configuration & assembly
 │       ├── ChatAgentConfig.java      # Registers agent beans + graph-core checkpoint store (MysqlSaver)
 │       ├── ChatClientFactory.java    # Builds OpenAI-compatible ChatClients per provider (Registry pattern)
@@ -58,19 +62,20 @@ src/main/java/com/dark/javaHarness/
 ├── agent/                        # Agent abstractions, orchestration & LLM calls
 │   ├── Agent.java / AgentRegistry.java    # Agent interface and registry
 │   ├── GeneralAssistantAgent.java  # Path A: single-model chat (true token-by-token stream)
-│   ├── MultiAgentGraphAgent.java   # Path B: StateGraph orchestration facade (graph assembly + execute/resume entries; node impls in OrchestrationNodes)
-│   ├── OrchestrationNodes.java     # Orchestration node impls (lead/subtask/aggregate + predict* bridges + streaming aggregation guard)
 │   ├── AgentChatCaller.java        # LLM call lifecycle facade (call/stream retry loops, cancellation interception, observation recording)
 │   ├── AgentChatPipeline.java      # Streaming pipeline core (streamAttempt/streamCore/tokenStream + watchdog idle timeout / frame accounting / empty-response guards)
 │   ├── CallContext.java            # Observation value object (llm_call_log parameter bundling, shared by call/stream)
 │   ├── CallSpecAssembler.java      # Role-based assembly policy (MemoryPolicy injection / maxTokens tiers / attachment list)
 │   ├── AgentRequestSpecFactory.java  # Shared request-assembly factory (system / memory injection / tool decoration / output tier)
-│   ├── LeadOutputParser.java       # Lead decomposition JSON parsing (subtask count + expert dispatch whitelist)
-│   ├── OrchestrationBudget.java    # Orchestration budget ledger (AtomicLong shared accounting + degradation note)
-│   ├── MultiAgentStreamPipeline.java  # Orchestration streaming pipeline (progress lines → SSE events, resume checkpoint selection)
-│   ├── BranchProgressListener.java # graph-core lifecycle-hook sidecar (serializes parallel-branch completion events)
 │   ├── LlmRetry.java               # LLM call retry policy
-│   └── ProgressLine.java           # Progress line wire protocol (MARK+stage+SEP+detail) codec
+│   ├── ProgressLine.java           # Progress line wire protocol (MARK+stage+SEP+detail) codec
+│   └── orchestrate/               # Path B multi-agent orchestration (complex requests)
+│       ├── MultiAgentGraphAgent.java   # Path B: StateGraph orchestration facade (graph assembly + execute/resume entries; node impls in OrchestrationNodes)
+│       ├── OrchestrationNodes.java     # Orchestration node impls (lead/subtask/aggregate + predict* bridges + streaming aggregation guard)
+│       ├── LeadOutputParser.java       # Lead decomposition JSON parsing (subtask count + expert dispatch whitelist)
+│       ├── OrchestrationBudget.java    # Orchestration budget ledger (AtomicLong shared accounting + degradation note)
+│       ├── MultiAgentStreamPipeline.java  # Orchestration streaming pipeline (progress lines → SSE events, resume checkpoint selection)
+│       └── BranchProgressListener.java # graph-core lifecycle-hook sidecar (serializes parallel-branch completion events)
 ├── cli/                          # CLI client (standalone process, pure HTTP to 8080)
 │   ├── ChatCli.java              # Facade: main / chatLoop / command dispatch / turn execution
 │   ├── ResumeStateStore.java     # /resume target persistence (state-file IO + tolerant parsing)

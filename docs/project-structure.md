@@ -23,17 +23,21 @@ src/main/java/com/dark/javaHarness/
 │   ├── RouteJudge.java           # 主 Agent 路由判断（SIMPLE / COMPLEX 分流）
 │   ├── AgentConfigProvider.java  # 从 agent 表读取运行配置（路由映射）
 │   ├── ProviderAdminService.java # model_provider 映射管理（新增即热刷新注册表）
-│   └── impl/                     # AgentServiceImpl / ChatServiceImpl / LlmRouteJudge / LlmCallRecorder / SseEncoder（SSE 编码）/ RagPrefetcher（RAG 预取）等
+│   └── impl/                     # AgentServiceImpl / ChatServiceImpl / SseEncoder（SSE 编码）等
+│       ├── observe/              # LlmCallRecorder / McpServerRecorder（LLM/MCP 调用观测落库）+ ObservabilityLogCleaner（观测表保留期清理）
+│       └── route/                # LlmRouteJudge（主 Agent 路由判定）/ RagPrefetcher（RAG 入口预取）
 ├── advisor/                      # Spring AI Advisor 拦截器（Agent 流程横切管理）
 │   ├── ContextAssemblingAdvisor.java  # 上下文组装：过滤/token 预算截断/role 归一化
 │   └── PromptBudgetAdvisor.java  # Prompt 分段预算（历史/user/工具结果三段裁剪）
 ├── config/                       # 应用配置
 │   ├── GoalExecutorConfig.java   # 执行线程池：goal-exec- 后台 Goal 池 + mvc-async- MVC 异步槽位
 │   ├── ContextBudgetProperties.java  # 上下文预算统一配置（app.context.*，yaml 为唯一数值源）
-│   ├── KnowledgeProperties.java  # RAG 知识库配置载体（app.knowledge.*）
-│   ├── KnowledgeConfig.java      # 知识库装配：向量库数据源/嵌入模型/PgVectorStore（条件装配+懒连接）
-│   ├── PrimaryDataSourceConfig.java  # 主库（MySQL）显式声明（@Primary，多数据源下 Flyway/MyBatis 归属）
-│   ├── MybatisPlusConfig.java    # MyBatis-Plus 分页等配置
+│   ├── knowledge/                # RAG 知识库装配
+│   │   ├── KnowledgeProperties.java  # RAG 知识库配置载体（app.knowledge.*）
+│   │   └── KnowledgeConfig.java      # 知识库装配：向量库数据源/嵌入模型/PgVectorStore（条件装配+懒连接）
+│   ├── datasource/               # 数据源与 MyBatis-Plus 装配
+│   │   ├── PrimaryDataSourceConfig.java  # 主库（MySQL）显式声明（@Primary，多数据源下 Flyway/MyBatis 归属）
+│   │   └── MybatisPlusConfig.java    # MyBatis-Plus 分页等配置
 │   └── agent/                    # Agent 配置与装配
 │       ├── ChatAgentConfig.java  # 注册各 Agent bean + graph-core 检查点存储器（MysqlSaver）
 │       ├── ChatClientFactory.java    # 按服务商构建 OpenAI 兼容 ChatClient（Registry 模式）
@@ -59,19 +63,20 @@ src/main/java/com/dark/javaHarness/
 ├── agent/                        # Agent 抽象、编排与 LLM 调用
 │   ├── Agent.java / AgentRegistry.java    # Agent 接口与注册表
 │   ├── GeneralAssistantAgent.java  # 路径 A：单模型对话（真·逐 token stream）
-│   ├── MultiAgentGraphAgent.java   # 路径 B：StateGraph 编排门面（图装配 + 执行/续跑入口；节点实现见 OrchestrationNodes）
-│   ├── OrchestrationNodes.java     # 编排三节点实现（lead/subtask/aggregate + predict* 桥接 + 流式聚合护栏）
 │   ├── AgentChatCaller.java        # LLM 调用生命周期编排门面（call/stream 重试循环、取消拦截、观测记录）
 │   ├── AgentChatPipeline.java      # 流管道核（streamAttempt/streamCore/tokenStream + watchdog 空闲超时/流帧记账/空响应防御）
 │   ├── CallContext.java            # 观测值对象（llm_call_log 落库参数收敛，call/stream 两通道共用）
 │   ├── CallSpecAssembler.java      # 角色装配策略（MemoryPolicy 记忆判定/maxTokens 档位/观测名单计算）
 │   ├── AgentRequestSpecFactory.java  # 两路径共用请求组装工厂（system/记忆注入/工具装饰/输出档位）
-│   ├── LeadOutputParser.java       # lead 拆解 JSON 解析（子任务数 + 专家指派白名单）
-│   ├── OrchestrationBudget.java    # 编排预算账本（AtomicLong 共享记账 + 降级说明）
-│   ├── MultiAgentStreamPipeline.java  # 编排流式管道（进度行 → SSE 事件装配、续跑检查点选择）
-│   ├── BranchProgressListener.java # graph-core 生命周期钩子旁路（并行分支完成事件串行发射）
 │   ├── LlmRetry.java               # LLM 调用重试策略
-│   └── ProgressLine.java           # 进度行线协议（MARK+stage+SEP+detail）编解码
+│   ├── ProgressLine.java           # 进度行线协议（MARK+stage+SEP+detail）编解码
+│   └── orchestrate/               # 路径 B 多 Agent 编排（复杂请求）
+│       ├── MultiAgentGraphAgent.java   # 路径 B：StateGraph 编排门面（图装配 + 执行/续跑入口；节点实现见 OrchestrationNodes）
+│       ├── OrchestrationNodes.java     # 编排三节点实现（lead/subtask/aggregate + predict* 桥接 + 流式聚合护栏）
+│       ├── LeadOutputParser.java       # lead 拆解 JSON 解析（子任务数 + 专家指派白名单）
+│       ├── OrchestrationBudget.java    # 编排预算账本（AtomicLong 共享记账 + 降级说明）
+│       ├── MultiAgentStreamPipeline.java  # 编排流式管道（进度行 → SSE 事件装配、续跑检查点选择）
+│       └── BranchProgressListener.java # graph-core 生命周期钩子旁路（并行分支完成事件串行发射）
 ├── knowledge/                    # RAG 知识库
 │   ├── KnowledgeDocumentScanner.java  # 知识目录扫描（.md/.txt、front-matter 标题、坏文件跳过）
 │   ├── MarkdownChunker.java      # 段落感知切分（~700 字符 + 重叠，纯函数）
