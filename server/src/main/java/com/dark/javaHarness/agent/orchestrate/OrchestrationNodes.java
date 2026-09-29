@@ -8,6 +8,7 @@ import com.dark.javaHarness.agent.CallTrace;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.enums.AgentConstants;
 import com.dark.javaHarness.prompt.PromptAssembler;
+import com.dark.javaHarness.service.impl.route.RagPrefetcher;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -41,15 +42,26 @@ final class OrchestrationNodes {
     private final OrchestrationBudget orchestrationBudget;
     /** 流式聚合护栏（失败自愈策略见 AggregateStreamGuard；聚合必发不受熔断） */
     private final AggregateStreamGuard streamGuard;
+    /** 子任务入口 RAG 预取器（与知识库同条件装配，可 null=知识库禁用 → 预取钩子零行为） */
+    private final RagPrefetcher ragPrefetcher;
 
     OrchestrationNodes(AgentChatCaller chatCaller,
                        PromptAssembler promptAssembler,
                        ContextBudgetProperties budgets,
                        OrchestrationBudget orchestrationBudget) {
+        this(chatCaller, promptAssembler, budgets, orchestrationBudget, null);
+    }
+
+    OrchestrationNodes(AgentChatCaller chatCaller,
+                       PromptAssembler promptAssembler,
+                       ContextBudgetProperties budgets,
+                       OrchestrationBudget orchestrationBudget,
+                       RagPrefetcher ragPrefetcher) {
         this.chatCaller = chatCaller;
         this.promptAssembler = promptAssembler;
         this.budgets = budgets;
         this.orchestrationBudget = orchestrationBudget;
+        this.ragPrefetcher = ragPrefetcher;
         this.streamGuard = new AggregateStreamGuard(this.chatCaller, ROLE_AGGREGATOR,
                 OrchestrationPrompts.AGGREGATOR_FALLBACK_PROMPT, this::aggregateBudgetAdvisor);
     }
@@ -106,6 +118,22 @@ final class OrchestrationNodes {
         }
         log.info("[multi-agent][lead] 拆解为 {} 个子任务，指派：{}", n,
                 items.subList(0, n).stream().map(LeadOutputParser.Subtask::agent).toList());
+        // 子任务 RAG 预取主提交点（lead 出口，spec 3.6）：拆解产物落定后立即对全部已布置槽位
+        // 批量提交，把检索延迟藏进子任务批的排队/执行等待窗口（subtask-concurrency 信号量在
+        // 图驱动层先取许可再执行节点方法体，节点入口钩子覆盖不到排队空档——主提交点随 spec
+        // 修订上移至此）。agentName 与执行期完全同源（resolvedExpert 口径），query=子任务文本；
+        // fire-and-forget：prefetcher 缺位（知识库禁用）或异常均静默，不影响拆解主流程；
+        // 与 subtask 入口补提交同参数重复幂等（KnowledgeRetriever 复合缓存键 sessionId+query），无需去重
+        if (ragPrefetcher != null) {
+            for (int i = 0; i < n; i++) {
+                LeadOutputParser.Subtask item = items.get(i);
+                try {
+                    ragPrefetcher.submit(resolvedExpert(item.agent()), sessionId, item.desc());
+                } catch (Exception e) {
+                    log.debug("[multi-agent][lead] RAG 预取提交失败（静默）：{}", e.getMessage());
+                }
+            }
+        }
         return updates;
     }
 
@@ -129,6 +157,19 @@ final class OrchestrationNodes {
         }
         String expert = state.value(MultiAgentGraphAgent.K_SUBTASK_AGENT_PREFIX + idx, String.class).orElse(null);
         String sessionId = state.value(MultiAgentGraphAgent.K_SESSION_ID, String.class).orElse(null);
+        // 子任务入口 RAG 预取补提交（fire-and-forget）：主提交点已上移 lead 出口（排队空档消化
+        // 检索延迟，spec 3.6），本钩子保留覆盖断点续跑（lead 不重跑、直接进入 subtask 节点）场景；
+        // 与 lead 出口首跑提交同参数重复幂等（KnowledgeRetriever 复合缓存键），无需去重。
+        // agentName 与执行期完全同源（同一 resolvedExpert 口径），query=子任务文本；
+        // 预取是纯加速：prefetcher 缺位（知识库禁用）或任何异常均静默，返回值忽略，
+        // 不等待完成、不影响编排主流程
+        if (ragPrefetcher != null) {
+            try {
+                ragPrefetcher.submit(resolvedExpert(expert), sessionId, task);
+            } catch (Exception e) {
+                log.debug("[multi-agent][subtask-{}] RAG 预取提交失败（静默）：{}", idx, e.getMessage());
+            }
+        }
         // 轨迹贯通：派生调用挂同一执行链（turn/trace），parent_span=lead 的 span_id
         CallTrace trace = new CallTrace(state.value(MultiAgentGraphAgent.K_TURN_ID, String.class).orElse(null),
                 state.value(MultiAgentGraphAgent.K_TRACE_ID, String.class).orElse(null),
@@ -235,6 +276,11 @@ final class OrchestrationNodes {
         return raw;
     }
 
+    /** 专家名同源解析：未指派（null/空白）回退默认专家 general——执行期与预取钩子共用同一口径 */
+    private static String resolvedExpert(String expert) {
+        return (expert == null || expert.isBlank()) ? AgentConstants.DEFAULT_AGENT : expert;
+    }
+
     /**
      * 子任务执行：按指派专家查配置调用（cancelled 传节点共享断连标志，同步路径为 null——
      * 执行中置位时在途调用随令牌中止，不再烧完剩余 token）。budgetLedger 门控账本句柄：
@@ -245,8 +291,7 @@ final class OrchestrationNodes {
                                   AtomicBoolean cancelled,
                                   BudgetLedger budgetLedger, CallTrace trace) {
         // 未指派（lead 输出旧格式或漏 agent 字段）→ 回退 general：通用兜底且持有全量工具
-        String resolved = (expert == null || expert.isBlank())
-                ? AgentConstants.DEFAULT_AGENT : expert;
+        String resolved = resolvedExpert(expert);
         // 专家 persona 与工具使用纪律经 PromptAssembler 统一组装（原硬编码拼接已删除）：
         // persona 作角色段兜底传入，工具索引/工具纪律/输出约定等段由调用器组装时追加
         String persona = promptAssembler.subtaskPersona(resolved);

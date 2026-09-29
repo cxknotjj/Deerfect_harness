@@ -24,6 +24,7 @@ import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.Goal;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.SessionService;
+import com.dark.javaHarness.service.impl.route.RagPrefetcher;
 import com.dark.javaHarness.tool.ToolAssignments;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -803,5 +804,112 @@ class MultiAgentGraphAgentTest {
                                 total / 2, total - total / 2, total))
                         .build()));
         return Flux.fromIterable(frames);
+    }
+
+    /* ---------------- 子任务 RAG 预取（lead 出口主提交 + subtask 入口补提交） ---------------- */
+
+    /** 全参构造便捷入口：单测只关注 ragPrefetcher，其余依赖沿用既有用例的最小桩（均可 null） */
+    private MultiAgentGraphAgent agentWithPrefetcher(RagPrefetcher ragPrefetcher) {
+        return new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, null, null, null, null, null, null, null, ragPrefetcher);
+    }
+
+    /** 已布置槽位触发预取提交：参数与执行完全同源（agentName=指派专家、query=子任务文本、sessionId=编排会话）；lead 出口主提交 + subtask 入口补提交各一次 */
+    @Test
+    void execute_assignedSubtasks_submitPrefetchWithSameSourceArgs() {
+        String leadJson = "{\"subtasks\":[{\"desc\":\"调研竞品\",\"agent\":\"researcher\"},"
+                + "{\"desc\":\"统计销量\",\"agent\":\"analyst\"}]}";
+        stubChat(leadJson);
+        RagPrefetcher prefetcher = mock(RagPrefetcher.class);
+        agent = agentWithPrefetcher(prefetcher);
+
+        agent.execute(new Goal("gp1", "调研竞品并统计销量", "sess-p1"));
+
+        // lead 出口 + subtask 入口各提交一次（同参数幂等重复）
+        verify(prefetcher, org.mockito.Mockito.times(2)).submit("researcher", "sess-p1", "调研竞品");
+        verify(prefetcher, org.mockito.Mockito.times(2)).submit("analyst", "sess-p1", "统计销量");
+        org.mockito.Mockito.verifyNoMoreInteractions(prefetcher);
+    }
+
+    /** 未布置空槽位不提交预取：lead 拆 2 条（旧格式未指派）→ 4 个并行槽位中仅 2 个已布置，空槽快速短路零提交 */
+    @Test
+    void execute_emptySlots_noPrefetchSubmission() {
+        stubChat(fixedContent());
+        RagPrefetcher prefetcher = mock(RagPrefetcher.class);
+        agent = agentWithPrefetcher(prefetcher);
+
+        agent.execute(new Goal("gp2", "调研竞品并输出报告", "sess-p2"));
+
+        // 仅 2 个已布置槽位提交（lead 出口 + subtask 入口各一次；未指派 → 执行回退 general，
+        // 预取同源用 general 查绑定）；槽位 2/3 未布置 → 快速短路零提交（NoMore 兜底证明零贡献）
+        verify(prefetcher, org.mockito.Mockito.times(2)).submit("general", "sess-p2", "子任务A");
+        verify(prefetcher, org.mockito.Mockito.times(2)).submit("general", "sess-p2", "子任务B");
+        org.mockito.Mockito.verifyNoMoreInteractions(prefetcher);
+    }
+
+    /** ragPrefetcher=null（知识库禁用 bean 缺位）→ 预取钩子零行为，编排流程与现状完全一致 */
+    @Test
+    void execute_nullPrefetcher_orchestrationUnchanged() {
+        stubChat(fixedContent());
+        agent = agentWithPrefetcher(null);
+
+        String reply = agent.execute(new Goal("gp3", "调研竞品并输出报告"));
+
+        assertEquals(fixedContent(), reply);
+        // lead + 2 子任务 + 聚合照常执行（零感知、零报错）
+        verify(requestSpec, org.mockito.Mockito.times(4)).stream();
+    }
+
+    /**
+     * lead 出口主提交点时序：submit 在 lead 阶段即被调用——以事件序列断言
+     * 「lead 拆解调用 → lead 出口批量提交预取」先于子任务批的任何 LLM 调用与入口补提交
+     * （子任务并行线程在 lead 节点返回后才启动，事件前缀跨线程确定；并行段不比次序，
+     * 故不用 InOrder——入口补提交与子任务流式调用在不同线程竞速）。
+     */
+    @Test
+    void execute_prefetchSubmittedAtLeadExit_beforeExpertCalls() {
+        String leadJson = "{\"subtasks\":[{\"desc\":\"调研竞品\",\"agent\":\"researcher\"},"
+                + "{\"desc\":\"统计销量\",\"agent\":\"analyst\"}]}";
+        stubChat(leadJson);
+        RagPrefetcher prefetcher = mock(RagPrefetcher.class);
+        // 事件流：记录每次 LLM stream 调用与预取提交的先后
+        java.util.List<String> events = new java.util.concurrent.CopyOnWriteArrayList<>();
+        when(requestSpec.stream()).thenAnswer(inv -> {
+            events.add("stream");
+            return streamSpec;
+        });
+        when(prefetcher.submit(any(), any(), any())).thenAnswer(inv -> {
+            events.add("submit:" + inv.getArgument(0, String.class));
+            return null;
+        });
+        agent = agentWithPrefetcher(prefetcher);
+
+        String reply = agent.execute(new Goal("gpo1", "调研竞品并统计销量", "sess-po1"));
+
+        assertNotNull(reply);
+        assertFalse(reply.isBlank(), "预取钩子不得影响编排产出");
+        // 前缀确定：lead 拆解调用 → lead 出口两个子任务的预取提交，先于子任务批的任何事件
+        assertEquals(java.util.List.of("stream", "submit:researcher", "submit:analyst"),
+                events.subList(0, 3), "lead 出口预取应先于子任务批的 LLM 调用与入口补提交: " + events);
+        // 全量 sanity：4 次 LLM 调用（lead+2子任务+聚合）+ 4 次预取提交（每子任务 lead 出口与入口各一）
+        assertEquals(8, events.size(), "事件总数应为 4 次 LLM 调用 + 4 次预取提交: " + events);
+    }
+
+    /** 同参数重复提交幂等：lead 出口 + subtask 入口对同一子任务各提交一次（同参数），编排零报错、行为正常 */
+    @Test
+    void execute_duplicatePrefetchSubmissions_idempotent() {
+        String leadJson = "{\"subtasks\":[{\"desc\":\"调研竞品\",\"agent\":\"researcher\"},"
+                + "{\"desc\":\"统计销量\",\"agent\":\"analyst\"}]}";
+        stubChat(leadJson);
+        RagPrefetcher prefetcher = mock(RagPrefetcher.class);
+        agent = agentWithPrefetcher(prefetcher);
+
+        String reply = agent.execute(new Goal("gpd1", "调研竞品并统计销量", "sess-pd1"));
+
+        assertEquals(leadJson, reply, "重复提交不得影响最终回答");
+        // 每个子任务恰好两次提交（lead 出口 + subtask 入口）：KnowledgeRetriever 复合缓存键下同参数幂等，无需去重
+        verify(prefetcher, org.mockito.Mockito.times(2)).submit("researcher", "sess-pd1", "调研竞品");
+        verify(prefetcher, org.mockito.Mockito.times(2)).submit("analyst", "sess-pd1", "统计销量");
+        org.mockito.Mockito.verifyNoMoreInteractions(prefetcher);
     }
 }

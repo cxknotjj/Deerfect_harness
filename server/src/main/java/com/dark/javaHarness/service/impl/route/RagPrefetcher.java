@@ -7,7 +7,6 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,6 +14,10 @@ import org.slf4j.LoggerFactory;
  * RAG 入口预取器（自 {@link ChatServiceImpl} 拆出，超长类拆分 2026-09-25）：
  * 进程级共享预取池（守护线程、core 空闲 60s 回收，饱和静默丢弃——预取是纯加速，
  * 被丢的请求退化为组装期现查）+ 会话绑定知识库解析 + 预取提交与汇合等待。
+ * 提交签名显式化（agentName, sessionId, query）：会话 agent 名解析留守宿主（入口解析后传入），
+ * kb 绑定解析内聚本类（agentService 查 config → parseBinding，未绑定不入池）；
+ * 以 bean 注册于 KnowledgeConfig（随 knowledgeRetriever 同条件装配，知识库禁用时缺位），
+ * 供入口与编排侧复用同一共享池。
  * judge 与预取的汇合次序（并行后汇合）属聊天编排语义，仍由宿主 {@code resolveAgentWithPrefetch} 编排。
  */
 public final class RagPrefetcher {
@@ -26,16 +29,12 @@ public final class RagPrefetcher {
 
     private final KnowledgeRetriever knowledgeRetriever;
     private final com.dark.javaHarness.service.AgentService agentService;
-    /** 会话绑定 Agent 名解析（宿主注入 {@code this::sessionAgentName}，预取按其知识库绑定发起） */
-    private final Function<String, String> sessionAgentName;
     private final ThreadPoolExecutor pool;
 
     public RagPrefetcher(KnowledgeRetriever knowledgeRetriever,
-                  com.dark.javaHarness.service.AgentService agentService,
-                  Function<String, String> sessionAgentName) {
+                  com.dark.javaHarness.service.AgentService agentService) {
         this.knowledgeRetriever = knowledgeRetriever;
         this.agentService = agentService;
-        this.sessionAgentName = sessionAgentName;
         this.pool = new ThreadPoolExecutor(
                 2, 2, 60, TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>(100),
@@ -49,10 +48,18 @@ public final class RagPrefetcher {
         this.pool.allowCoreThreadTimeOut(true);
     }
 
-    /** 入口预取提交：任何失败静默返回 null（预取是纯加速，不影响主流程） */
-    public Future<?> submit(String message, String sessionId) {
+    /**
+     * 入口预取提交（显式签名）：kb 绑定解析内聚——agent 名为 null/空白或未绑定知识库
+     * （config 缺失 / parseBinding 为 null）不入池无事发生；任何失败静默返回 null
+     * （预取是纯加速，不影响主流程）
+     */
+    public Future<?> submit(String agentName, String sessionId, String query) {
         try {
-            return pool.submit(() -> doPrefetch(message, sessionId));
+            List<String> kbs = resolveKbs(agentName);
+            if (kbs == null) {
+                return null; // 未绑定知识库（或 agent 名缺失），无事发生
+            }
+            return pool.submit(() -> doPrefetch(agentName, sessionId, query, kbs));
         } catch (Exception e) {
             log.debug("[chat] RAG 预取提交失败（静默）：{}", safeMessage(e));
             return null;
@@ -77,17 +84,20 @@ public final class RagPrefetcher {
         }
     }
 
-    /** 入口预取：解析会话绑定 agent 的知识库绑定并发起预取（任何失败静默，不影响主流程） */
-    private void doPrefetch(String message, String sessionId) {
+    /** kb 绑定解析（内聚）：agentService 查 config → parseBinding；agent 名缺失/未绑定返回 null（异常上抛由 submit 静默兜底） */
+    private List<String> resolveKbs(String agentName) {
+        if (agentName == null || agentName.isBlank()) {
+            return null;
+        }
+        com.dark.javaHarness.domain.AgentConfig config =
+                agentService.getAgentConfig(agentName).orElse(null);
+        return KnowledgeRetriever.parseBinding(config == null ? null : config.knowledge());
+    }
+
+    /** 入口预取：按已解析的知识库绑定发起预取（任何失败静默，不影响主流程） */
+    private void doPrefetch(String agentName, String sessionId, String query, List<String> kbs) {
         try {
-            String agentName = sessionAgentName.apply(sessionId);
-            com.dark.javaHarness.domain.AgentConfig config =
-                    agentName == null ? null : agentService.getAgentConfig(agentName).orElse(null);
-            List<String> kbs = KnowledgeRetriever.parseBinding(config == null ? null : config.knowledge());
-            if (kbs == null) {
-                return; // 未绑定知识库，无事发生
-            }
-            knowledgeRetriever.prefetch(agentName, sessionId, message, kbs);
+            knowledgeRetriever.prefetch(agentName, sessionId, query, kbs);
         } catch (Exception e) {
             log.debug("[chat] RAG 预取跳过（静默）：{}", safeMessage(e));
         }

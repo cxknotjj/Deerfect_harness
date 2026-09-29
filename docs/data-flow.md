@@ -565,6 +565,8 @@ sequenceDiagram
     L-->>U: 回答内联【出处N】+ meta.sources
 ```
 
+编排子任务并行预取（COMPLEX 路径）：lead 节点出口在拆解出全部子任务、写出状态键之后、扇出之前，对每个已布置子任务并行提交 RAG 预取——此为主提交点，检索延迟借此消化在子任务并发限流（`subtask-concurrency`）的排队空档内；subtask 节点入口另做轻量补提交，覆盖断点续跑（lead 不重跑）路径。预取参数与执行完全同源（agentName=实际执行专家名、query=子任务文本、sessionId=编排会话），预取缓存按 `sessionId + query` 复合键多条目共存、重复提交幂等；全部提交 fire-and-forget，失败静默降级——该子任务退化为执行期现查或无知识段，编排主流程零感知。
+
 触发条件一览（全配置驱动，改 `application.yaml` 即调）：
 
 | 触发条件 | 配置项 | 当前值 | 不满足时 |

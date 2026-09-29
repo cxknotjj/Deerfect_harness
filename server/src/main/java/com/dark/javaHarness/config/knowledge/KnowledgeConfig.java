@@ -5,6 +5,8 @@ import com.zaxxer.hikari.HikariDataSource;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.knowledge.KnowledgeService;
 import com.dark.javaHarness.knowledge.KnowledgeServiceImpl;
+import com.dark.javaHarness.service.AgentService;
+import com.dark.javaHarness.service.impl.route.RagPrefetcher;
 import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -168,5 +170,16 @@ public class KnowledgeConfig {
     public KnowledgeRetriever knowledgeRetriever(KnowledgeService knowledgeService,
                                                  KnowledgeProperties props) {
         return new KnowledgeRetriever(knowledgeService, props);
+    }
+
+    /**
+     * RAG 入口预取器（进程级共享预取池，2026-09-29 自 ChatServiceImpl 私有对象上移为 bean）：
+     * 与 knowledgeRetriever 同装配处注册——单一实例供 ChatServiceImpl 入口与编排侧复用同一池；
+     * app.knowledge.enabled=false 时随本配置类整体缺位，消费方以 ObjectProvider null 安全
+     * 解析（预取零行为）。
+     */
+    @Bean
+    public RagPrefetcher ragPrefetcher(KnowledgeRetriever knowledgeRetriever, AgentService agentService) {
+        return new RagPrefetcher(knowledgeRetriever, agentService);
     }
 }

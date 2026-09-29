@@ -53,20 +53,25 @@ public class ChatServiceImpl implements ChatService {
     /** COMPLEX 编排失败降级开关（app.chat.complex-fallback.enabled）：开启时编排失败降级为会话 Agent 单模型重答一次 */
     private final boolean complexFallbackEnabled;
 
-    /** RAG 入口预取器（共享池 + 会话绑定解析，超长类拆分 2026-09-25 拆出）；知识库禁用时为 null */
+    /** RAG 入口预取器（进程级共享池 bean，KnowledgeConfig 随 knowledgeRetriever 同条件装配）；知识库禁用时缺位 null */
     private final RagPrefetcher ragPrefetcher;
 
     public ChatServiceImpl(AgentService agentService, SessionService sessionService,
                            RouteJudge routeJudge, GoalService goalService) {
-        this(agentService, sessionService, routeJudge, goalService, null,
+        this(agentService, sessionService, routeJudge, goalService, null, null,
                 new com.dark.javaHarness.config.StreamConnectionLimiter(0), true);
     }
 
-    /** Spring 装配入口（多构造需显式标注）：knowledgeRetriever 仅知识库启用时非 null */
+    /**
+     * Spring 装配入口（多构造需显式标注）：knowledgeRetriever 仅知识库启用时非 null；
+     * ragPrefetcher 为进程级共享池 bean（KnowledgeConfig 同条件装配），经 ObjectProvider
+     * null 安全解析——bean 缺位（知识库禁用）即为 null，消费点零行为。
+     */
     @org.springframework.beans.factory.annotation.Autowired
     public ChatServiceImpl(AgentService agentService, SessionService sessionService,
                            RouteJudge routeJudge, GoalService goalService,
                            com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
+                           org.springframework.beans.factory.ObjectProvider<RagPrefetcher> ragPrefetcherProvider,
                            com.dark.javaHarness.config.StreamConnectionLimiter streamConnectionLimiter,
                            @org.springframework.beans.factory.annotation.Value("${app.chat.complex-fallback.enabled:true}")
                            boolean complexFallbackEnabled) {
@@ -77,8 +82,8 @@ public class ChatServiceImpl implements ChatService {
         this.knowledgeRetriever = knowledgeRetriever;
         this.streamConnectionLimiter = streamConnectionLimiter;
         this.complexFallbackEnabled = complexFallbackEnabled;
-        this.ragPrefetcher = knowledgeRetriever == null
-                ? null : new RagPrefetcher(knowledgeRetriever, agentService, this::sessionAgentName);
+        // 预取器不再随本类构造（会话 agent 名解析留守宿主），改为注入共享池 bean（缺位 null）
+        this.ragPrefetcher = ragPrefetcherProvider == null ? null : ragPrefetcherProvider.getIfAvailable();
     }
 
     private static final Logger log = LoggerFactory.getLogger(ChatServiceImpl.class);
@@ -108,7 +113,7 @@ public class ChatServiceImpl implements ChatService {
         // （SIMPLE 由 general 直答 / COMPLEX 进 multi-agent 编排）
         String boundAgent = sessionAgentName(sessionId);
         String resolvedAgent = AgentConstants.DEFAULT_AGENT.equals(boundAgent)
-                ? resolveAgentWithPrefetch(request.message(), sessionId, turnId)
+                ? resolveAgentWithPrefetch(boundAgent, request.message(), sessionId, turnId)
                 : boundAgent;
 
         Goal goal = agentService.executeSync(resolvedAgent, request.message(), sessionId, turnId);
@@ -230,7 +235,7 @@ public class ChatServiceImpl implements ChatService {
                     Flux.just(ProgressLine.encode("路由", useJudge ? "判定中…" : "直答")),
                     Mono.fromCallable(() -> {
                         String resolvedAgent = useJudge
-                                ? resolveAgentWithPrefetch(request.message(), ctx.sid(), turnId)
+                                ? resolveAgentWithPrefetch(boundAgent, request.message(), ctx.sid(), turnId)
                                 : boundAgent;
                         Flux<String> agentStream = agentService.executeStreamReactive(resolvedAgent, request.message(), ctx.sid(), turnId, traceId);
                         // COMPLEX 编排失败降级：编排自身异常（客户端断开走 cancel，不触发 onErrorResume）时
@@ -313,15 +318,15 @@ public class ChatServiceImpl implements ChatService {
         // doOnNext 收集完整回复，流正常结束后由 doOnComplete 统一写回会话记忆（保持多轮记忆语义）
         // 其中「进度行」（以 ProgressLine.MARK 开头，多 Agent 编排的阶段反馈）不计入会话摘要
         StringBuilder full = new StringBuilder();
-        // meta.sources 组装期求值（成功路径口径不变）；错误路径在 onErrorResume 内错误期求值（与原时机一致）
-        List<KnowledgeSource> sources = recentKnowledgeSources(sessionId);
+        // meta.sources 延迟到 meta 事件发射期求值（Flux.defer）：编排路径的知识检索发生在执行期
+        // （lead 出口预取 remember 在组装之后），组装期求值会恒取到空值；直答路径求值结果不变
         return agentTokens
                 .doOnNext(row -> { if (!ProgressLine.isProgress(row)) { full.append(row); } })
                 .flatMap(SseEncoder::toSseRows)
                 .concatWithValues("event: " + SseProtocol.EVENT_TOKEN
                         + "\ndata: " + SseProtocol.DONE_MARKER)
-                .concatWith(SseEncoder.metaEvent(sessionId, newSession, goalId,
-                        GoalStatus.SUCCEEDED.name(), null, sources))
+                .concatWith(Flux.defer(() -> SseEncoder.metaEvent(sessionId, newSession, goalId,
+                        GoalStatus.SUCCEEDED.name(), null, recentKnowledgeSources(sessionId))))
                 .doOnComplete(() -> writeBackContext(sessionId, userMessage, full.toString(), userSentAt))
                 // 客户端断开（Tomcat 报 AsyncRequestNotUsableException/Connection reset）：
                 // 框架层 ERROR 堆栈由 ClientAbortLogFilter 降噪，此处统一记可观测 warn 单行
@@ -351,9 +356,12 @@ public class ChatServiceImpl implements ChatService {
         return sources.isEmpty() ? null : sources;
     }
 
-    /** 预取提交 + judge 并行 + 汇合的收敛入口：sync/stream 两份重复块收编于此（汇合次序是聊天编排语义，留守宿主） */
-    private String resolveAgentWithPrefetch(String message, String sessionId, String turnId) {
-        Future<?> prefetch = ragPrefetcher == null ? null : ragPrefetcher.submit(message, sessionId);
+    /**
+     * 预取提交 + judge 并行 + 汇合的收敛入口：sync/stream 两份重复块收编于此（汇合次序是聊天编排语义，留守宿主）。
+     * 会话 agent 名由入口解析后显式传入（kb 绑定解析内聚预取器，null/空白不入池）。
+     */
+    private String resolveAgentWithPrefetch(String agentName, String message, String sessionId, String turnId) {
+        Future<?> prefetch = ragPrefetcher == null ? null : ragPrefetcher.submit(agentName, sessionId, message);
         try {
             String resolvedAgent = resolveAgent(message, sessionId, turnId);
             if (ragPrefetcher != null) { // 知识库禁用时预取器缺位，judge 完成即返回

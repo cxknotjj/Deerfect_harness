@@ -31,6 +31,7 @@ import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.GoalService;
 import com.dark.javaHarness.service.RouteJudge;
 import com.dark.javaHarness.service.SessionService;
+import com.dark.javaHarness.service.impl.route.RagPrefetcher;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,6 +42,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.beans.factory.ObjectProvider;
 import reactor.core.publisher.Flux;
 
 /**
@@ -63,16 +65,19 @@ class ChatServiceImplTest {
     private GoalService goalService;
     @Mock
     private KnowledgeRetriever knowledgeRetriever;
+    @Mock
+    private ObjectProvider<RagPrefetcher> ragPrefetcherProvider;
 
     private ChatServiceImpl chatService;
 
     @BeforeEach
     void setUp() {
-        // 手动构造（7 参 @Autowired 构造加入后 @InjectMocks 无法实例化）：null 知识检索器
-        // （知识库禁用语义）、限流器 0=不限制（计数语义由 StreamConnectionLimiterTest 覆盖）、
-        // 降级开关开启（降级用例依赖；既有用例无「COMPLEX + 失败」组合，不受影响）
+        // 手动构造（@Autowired 构造加入后 @InjectMocks 无法实例化）：null 知识检索器（知识库禁用
+        // 语义）、ObjectProvider 未打桩（getIfAvailable 返回 null → 预取器 bean 缺位，零行为）、
+        // 限流器 0=不限制（计数语义由 StreamConnectionLimiterTest 覆盖）、降级开关开启（降级用例依赖；
+        // 既有用例无「COMPLEX + 失败」组合，不受影响）
         chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
-                null, new StreamConnectionLimiter(0), true);
+                null, ragPrefetcherProvider, new StreamConnectionLimiter(0), true);
     }
 
     private Goal succeededGoal(String sessionId, String summary) {
@@ -314,7 +319,7 @@ class ChatServiceImplTest {
     @Test
     void streamReactive_limiterFull_secondRequestRejected_thenReleasedAfterTermination() {
         chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
-                null, new StreamConnectionLimiter(1), true);
+                null, ragPrefetcherProvider, new StreamConnectionLimiter(1), true);
         ChatRequest req = new ChatRequest("hi", "50", null);
         when(agentService.executeStreamReactive(eq("general"), eq("hi"), eq("50"), any(), any()))
                 .thenReturn(Flux.just("a"));  // 冷流：未订阅不发射，名额保持占用
@@ -610,11 +615,18 @@ class ChatServiceImplTest {
 
     /* ---------------- RouteJudge 与 RAG 预取并行汇合 ---------------- */
 
-    /** 绑定知识库的会话聊天：judge 前提交预取、judge 后汇合——prefetch 应以会话 Agent 的 kb 绑定被调用 */
+    /** 预取器注入桩：ObjectProvider 返回真实共享池实例（装配语义镜像 KnowledgeConfig.ragPrefetcher），端到端验证显式提交链路 */
+    private void stubRealPrefetcher() {
+        when(ragPrefetcherProvider.getIfAvailable())
+                .thenReturn(new RagPrefetcher(knowledgeRetriever, agentService));
+    }
+
+    /** 绑定知识库的会话聊天：judge 前提交预取、judge 后汇合——入口解析会话 agent 名后显式提交，预取以该 agent 的 kb 绑定发起 */
     @Test
     void chat_withKnowledgeBinding_shouldPrefetchBeforeJudge() {
+        stubRealPrefetcher();
         chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
-                knowledgeRetriever, new StreamConnectionLimiter(0), true);
+                knowledgeRetriever, ragPrefetcherProvider, new StreamConnectionLimiter(0), true);
         SessionEntity session = new SessionEntity();
         session.setAgentId(1);
         when(sessionService.getSession("42")).thenReturn(session);
@@ -628,14 +640,15 @@ class ChatServiceImplTest {
         ChatResponse resp = chatService.chat(new ChatRequest("什么是知识库", "42", null));
 
         assertEquals("SUCCEEDED", resp.status());
-        verify(knowledgeRetriever).prefetch(eq("general"), anyString(), eq("什么是知识库"), eq(List.of("kb1")));
+        verify(knowledgeRetriever).prefetch(eq("general"), eq("42"), eq("什么是知识库"), eq(List.of("kb1")));
     }
 
-    /** 流式路径同样并行预取：绑定知识库会话的 streamReactive 亦提交预取 */
+    /** 流式路径同样并行预取：绑定知识库会话的 streamReactive 亦显式提交预取（agentName/query 显式透传） */
     @Test
     void streamReactive_withKnowledgeBinding_shouldPrefetchBeforeJudge() {
+        stubRealPrefetcher();
         chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
-                knowledgeRetriever, new StreamConnectionLimiter(0), true);
+                knowledgeRetriever, ragPrefetcherProvider, new StreamConnectionLimiter(0), true);
         SessionEntity session = new SessionEntity();
         session.setAgentId(1);
         when(sessionService.getSession("50")).thenReturn(session);
@@ -647,14 +660,15 @@ class ChatServiceImplTest {
 
         chatService.streamReactive(new ChatRequest("hi", "50", null)).collectList().block();
 
-        verify(knowledgeRetriever).prefetch(eq("general"), anyString(), eq("hi"), eq(List.of("kb1")));
+        verify(knowledgeRetriever).prefetch(eq("general"), eq("50"), eq("hi"), eq(List.of("kb1")));
     }
 
     /** 预取异常静默：预取任务抛异常只记日志，聊天主流程照常返回（纯加速语义） */
     @Test
     void chat_prefetchFails_shouldNotBreakChat() {
+        stubRealPrefetcher();
         chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
-                knowledgeRetriever, new StreamConnectionLimiter(0), true);
+                knowledgeRetriever, ragPrefetcherProvider, new StreamConnectionLimiter(0), true);
         SessionEntity session = new SessionEntity();
         session.setAgentId(1);
         when(sessionService.getSession("42")).thenReturn(session);
@@ -669,5 +683,27 @@ class ChatServiceImplTest {
         ChatResponse resp = chatService.chat(new ChatRequest("hi", "42", null));
 
         assertEquals("SUCCEEDED", resp.status(), "预取异常不得影响聊天主流程");
+    }
+
+    /** judge 异常兜底：判定失败回退会话 Agent，主流程照常返回；预取先于 judge 提交，不受判定异常影响 */
+    @Test
+    void chat_judgeThrows_shouldFallbackToSessionAgentAndKeepPrefetch() {
+        stubRealPrefetcher();
+        chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
+                knowledgeRetriever, ragPrefetcherProvider, new StreamConnectionLimiter(0), true);
+        SessionEntity session = new SessionEntity();
+        session.setAgentId(1);
+        when(sessionService.getSession("42")).thenReturn(session);
+        when(agentService.findAgentNameById(1L)).thenReturn(Optional.of("general"));
+        when(agentService.getAgentConfig("general")).thenReturn(Optional.of(
+                new AgentConfig(1L, "gpt", null, "kb1")));
+        when(routeJudge.judge(eq("hi"), any(), any())).thenThrow(new IllegalStateException("judge down"));
+        when(agentService.executeSync(eq("general"), eq("hi"), eq("42"), any()))
+                .thenReturn(succeededGoal("42", "回答"));
+
+        ChatResponse resp = chatService.chat(new ChatRequest("hi", "42", null));
+
+        assertEquals("SUCCEEDED", resp.status(), "judge 异常应兜底回退会话 Agent，不阻塞请求");
+        verify(knowledgeRetriever).prefetch(eq("general"), eq("42"), eq("hi"), eq(List.of("kb1")));
     }
 }

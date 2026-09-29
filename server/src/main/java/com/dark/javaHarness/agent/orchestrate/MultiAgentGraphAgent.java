@@ -157,10 +157,8 @@ public class MultiAgentGraphAgent implements Agent {
     }
 
     /**
-     * 全参构造（含 skill 装配与 RAG 知识检索）：knowledgeRetriever 仅知识库启用时非 null
-     * （ChatAgentConfig 经 ObjectProvider 注入），透传给编排调用器后 lead/各子任务按
-     * 各自 user 文本检索（aggregator 由检索器角色策略跳过）。timeouts 透传给编排调用器
-     * 作流式空闲超时（null 时走调用器默认，见 AgentChatCaller.DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS）。
+     * 兼容重载（不接 RAG 预取器）：既有调用方/单测直接构造时预取钩子零行为，
+     * 与知识库禁用（ragPrefetcher bean 缺位）同语义。
      */
     public MultiAgentGraphAgent(String agentName,
                                 ChatClientRegistry clientRegistry,
@@ -175,6 +173,34 @@ public class MultiAgentGraphAgent implements Agent {
                                 SkillManager skillManager,
                                 com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
                                 ChatTimeoutProperties timeouts) {
+        this(agentName, clientRegistry, agentService, toolAssignments, recorder,
+                checkpointSaver, budgets, memoryStore, lazyTools, promptAssembler,
+                skillManager, knowledgeRetriever, timeouts, null);
+    }
+
+    /**
+     * 全参构造（含 skill 装配与 RAG 知识检索）：knowledgeRetriever 仅知识库启用时非 null
+     * （ChatAgentConfig 经 ObjectProvider 注入），透传给编排调用器后 lead/各子任务按
+     * 各自 user 文本检索（aggregator 由检索器角色策略跳过）。timeouts 透传给编排调用器
+     * 作流式空闲超时（null 时走调用器默认，见 AgentChatCaller.DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS）。
+     * ragPrefetcher 与 knowledgeRetriever 同条件装配（可 null=知识库禁用）：非 null 时
+     * 子任务节点入口经其异步提交 RAG 预取（把检索延迟藏进子任务排队/执行的等待窗口），
+     * null 时预取钩子零行为。
+     */
+    public MultiAgentGraphAgent(String agentName,
+                                ChatClientRegistry clientRegistry,
+                                AgentService agentService,
+                                ToolAssignments toolAssignments,
+                                LlmCallRecorder recorder,
+                                BaseCheckpointSaver checkpointSaver,
+                                ContextBudgetProperties budgets,
+                                SessionService memoryStore,
+                                ToolLazyManager lazyTools,
+                                PromptAssembler promptAssembler,
+                                SkillManager skillManager,
+                                com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
+                                ChatTimeoutProperties timeouts,
+                                com.dark.javaHarness.service.impl.route.RagPrefetcher ragPrefetcher) {
         ToolLazyManager lazy = lazyTools != null ? lazyTools : new ToolLazyManager(toolAssignments, false);
         this.agentName = agentName;
         // 工具索引段与延迟加载同源：开启时索引段追加 expand_tool 使用引导（与轻量态工具面对齐）
@@ -186,7 +212,8 @@ public class MultiAgentGraphAgent implements Agent {
         this.checkpointSaver = checkpointSaver;
         this.budgets = budgets != null ? budgets : new ContextBudgetProperties();
         this.orchestrationBudget = new OrchestrationBudget(this.budgets);
-        this.nodes = new OrchestrationNodes(chatCaller, assembler, this.budgets, this.orchestrationBudget);
+        this.nodes = new OrchestrationNodes(chatCaller, assembler, this.budgets, this.orchestrationBudget,
+                ragPrefetcher);
         this.streamPipeline = new MultiAgentStreamPipeline(
                 (liveTokens, contentSent, toolEvents, cancelled, listener) ->
                         buildStateGraph(liveTokens, contentSent, toolEvents, cancelled)

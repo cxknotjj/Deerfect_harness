@@ -43,8 +43,8 @@ public class KnowledgeRetriever {
     /** 不做知识检索的角色（aggregator 的材料是子任务结果，非自身提问） */
     private static final Set<String> SKIP_ROLES = Set.of("aggregator");
 
-    /** session→来源表上限（超过整体清空：防无界增长，出处属增强信息允许丢） */
-    private static final int MAX_SESSIONS = 512;
+    /** 缓存条目上限（预取缓存 / 会话→来源表共用，超过整体清空：防无界增长，均为增强信息允许丢） */
+    private static final int MAX_CACHE_ENTRIES = 512;
 
     private static final String BLOCK_HEADER =
             "【知识库检索结果】以下是从知识库中检索到的与当前问题可能相关的片段：\n";
@@ -66,10 +66,10 @@ public class KnowledgeRetriever {
     /** session → 最近一次命中的来源（保序，命中分数降序）；出处透出用 */
     private final ConcurrentHashMap<String, List<KnowledgeSource>> recentSources = new ConcurrentHashMap<>();
 
-    /** 一次预取结果：query 与 kb 绑定列表共同构成命中校验键（任一不同即视为未命中） */
+    /** 一次预取结果：query 进复合缓存键，kb 绑定列表用于命中校验（任一不同即视为未命中） */
     public record PrefetchedKnowledge(String query, List<String> kbs, String block) {}
 
-    /** 入口预取缓存（sessionId 键，容量仿 recentSources 超限整体清空） */
+    /** 入口预取缓存（sessionId+'|'+query 复合键，同会话多条目共存；容量仿 recentSources 超限整体清空） */
     private final ConcurrentHashMap<String, PrefetchedKnowledge> prefetchCache = new ConcurrentHashMap<>();
 
     public KnowledgeRetriever(KnowledgeService knowledgeService, KnowledgeProperties props) {
@@ -101,11 +101,11 @@ public class KnowledgeRetriever {
         if (props.getMinQueryChars() > 0 && query.length() < props.getMinQueryChars()) {
             return null;
         }
-        // 预取命中短路：同会话 + query 与 kb 绑定完全相等 → 直接复用预取块不再检索
-        //（命中后不删缓存：编排 lead 节点 user=用户原文可复用；专家节点 query=子任务描述天然不命中）
+        // 预取命中短路：同会话 + 同 query（复合键）+ kb 绑定完全相等 → 直接复用预取块不再检索
+        //（命中后不删缓存：入口预取与子任务预取按复合键多条目共存，各自复用）
         PrefetchedKnowledge prefetched = sessionId == null || sessionId.isBlank()
-                ? null : prefetchCache.get(sessionId);
-        if (prefetched != null && prefetched.query().equals(query) && prefetched.kbs().equals(kbs)) {
+                ? null : prefetchCache.get(sessionId + '|' + query);
+        if (prefetched != null && prefetched.kbs().equals(kbs)) {
             log.debug("[knowledge] 预取命中，跳过检索：sid={} query='{}'", sessionId, summarize(query));
             return prefetched.block();
         }
@@ -148,10 +148,11 @@ public class KnowledgeRetriever {
             String normalized = query == null ? "" : query.strip();
             String block = buildKnowledgeBlock(agentName, sessionId, normalized, kbs);
             if (block != null && sessionId != null && !sessionId.isBlank()) {
-                if (prefetchCache.size() >= MAX_SESSIONS && !prefetchCache.containsKey(sessionId)) {
+                String cacheKey = sessionId + '|' + normalized;
+                if (prefetchCache.size() >= MAX_CACHE_ENTRIES && !prefetchCache.containsKey(cacheKey)) {
                     prefetchCache.clear();
                 }
-                prefetchCache.put(sessionId, new PrefetchedKnowledge(normalized, List.copyOf(kbs), block));
+                prefetchCache.put(cacheKey, new PrefetchedKnowledge(normalized, List.copyOf(kbs), block));
                 log.debug("[knowledge] 预取完成 sid={} query='{}'", sessionId, summarize(normalized));
             }
         } catch (Exception e) {
@@ -192,12 +193,12 @@ public class KnowledgeRetriever {
                 index, hit.title(), hit.docName(), hit.score(), hit.text());
     }
 
-    /** 记录会话来源（有界：超 MAX_SESSIONS 整体清空，出处属增强信息允许丢） */
+    /** 记录会话来源（有界：超 MAX_CACHE_ENTRIES 整体清空，出处属增强信息允许丢） */
     private void remember(String sessionId, List<KnowledgeService.KnowledgeHit> hits) {
         if (sessionId == null || sessionId.isBlank()) {
             return;
         }
-        if (recentSources.size() >= MAX_SESSIONS && !recentSources.containsKey(sessionId)) {
+        if (recentSources.size() >= MAX_CACHE_ENTRIES && !recentSources.containsKey(sessionId)) {
             recentSources.clear();
         }
         List<KnowledgeSource> sources = new ArrayList<>(hits.size());

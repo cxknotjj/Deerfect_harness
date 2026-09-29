@@ -230,6 +230,40 @@ class KnowledgeRetrieverTest {
     }
 
     @Test
+    void prefetch_sameSessionMultipleQueries_coexistAndHit() {
+        when(knowledgeService.search(anyString(), anyList())).thenReturn(List.of(hit("a.md", 0.92)));
+
+        // 入口预取（query=用户原话）+ 两个子任务预取（query=各自子任务文本），同会话三条目共存
+        retriever.prefetch("lead", "s1", "用户原话", List.of("default"));
+        retriever.prefetch("researcher", "s1", "子任务一描述", List.of("default"));
+        retriever.prefetch("coder", "s1", "子任务二描述", List.of("default"));
+
+        // 三个条目各自命中，互不覆盖
+        assertNotNull(retriever.buildKnowledgeBlock("lead", "s1", "用户原话", List.of("default")));
+        assertNotNull(retriever.buildKnowledgeBlock("researcher", "s1", "子任务一描述", List.of("default")));
+        assertNotNull(retriever.buildKnowledgeBlock("coder", "s1", "子任务二描述", List.of("default")));
+
+        // 底层 search 只被调 prefetch 内部次数（3 次），组装时对同一 query 不重复现查
+        verify(knowledgeService, times(3)).search(anyString(), anyList());
+    }
+
+    @Test
+    void prefetch_sameSessionSameQueryDifferentKbs_missesAndSearches() {
+        when(knowledgeService.search(anyString(), anyList())).thenReturn(List.of(hit("a.md", 0.92)));
+
+        // 同会话同 query 两次预取不同 kb 绑定（复合键相同，后写覆盖前写）
+        retriever.prefetch("lead", "s1", "如何部署", List.of("default"));
+        retriever.prefetch("lead", "s1", "如何部署", List.of("java"));
+
+        // kbs=default 条目已被覆盖 → 不命中现查；kbs=java 条目命中
+        assertNotNull(retriever.buildKnowledgeBlock("lead", "s1", "如何部署", List.of("default")));
+        assertNotNull(retriever.buildKnowledgeBlock("lead", "s1", "如何部署", List.of("java")));
+
+        // 预取 2 次 + build(default) 现查 1 次 = 3 次；build(java) 命中不再查
+        verify(knowledgeService, times(3)).search(anyString(), anyList());
+    }
+
+    @Test
     void prefetch_differentQuery_missesAndSearches() {
         when(knowledgeService.search(anyString(), anyList())).thenReturn(List.of(hit("a.md", 0.92)));
 
@@ -263,12 +297,14 @@ class KnowledgeRetrieverTest {
     void prefetchCache_overflow_clearsAll() {
         when(knowledgeService.search(anyString(), anyList())).thenReturn(List.of(hit("a.md", 0.92)));
 
+        // 条目口径：同会话 513 个不同 query = 513 个条目（复合键 sid|query），超限整体清空
         for (int i = 0; i < 513; i++) {
-            retriever.prefetch("lead", "sid-" + i, "如何部署", List.of("default"));
+            retriever.prefetch("lead", "s1", "问题-" + i, List.of("default"));
         }
-        assertNotNull(retriever.buildKnowledgeBlock("lead", "sid-0", "如何部署", List.of("default")));
+        // 清空后条目「问题-0」已丢失 → 组装时未命中再现查
+        assertNotNull(retriever.buildKnowledgeBlock("lead", "s1", "问题-0", List.of("default")));
 
-        // 513 次预取各查一次；容量超限整体清空后 sid-0 未命中，组装时再现查 1 次
+        // 513 次预取各查一次；容量超限整体清空后「问题-0」未命中，组装时再现查 1 次
         verify(knowledgeService, times(514)).search(anyString(), anyList());
     }
 
