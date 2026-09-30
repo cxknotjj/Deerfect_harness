@@ -9,7 +9,7 @@ import { ref } from 'vue'
 defineProps<{ busy?: boolean; error?: string }>()
 const emit = defineEmits<{ submit: [password: string] }>()
 
-const password = ref('')
+const password = ref('123456')
 
 function submit(): void {
   const pwd = password.value
