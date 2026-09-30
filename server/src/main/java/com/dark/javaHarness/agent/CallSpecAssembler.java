@@ -37,9 +37,20 @@ final class CallSpecAssembler {
     AgentRequestSpecFactory.Assembly assemblyForRole(String forAgent, String sessionId,
                                                      java.util.function.Consumer<String> toolEmitter,
                                                      boolean disableTools) {
+        return assemblyForRole(forAgent, sessionId, toolEmitter, disableTools, null);
+    }
+
+    /**
+     * 同上，可携带工具包并名工具名单（子任务挂载领域工具包）：透传为 Assembly.extraToolNames，
+     * 由请求组装工厂在装饰链之前并入请求工具面；null/空 = 未声明（行为与既有完全一致）。
+     */
+    AgentRequestSpecFactory.Assembly assemblyForRole(String forAgent, String sessionId,
+                                                     java.util.function.Consumer<String> toolEmitter,
+                                                     boolean disableTools,
+                                                     java.util.List<String> extraToolNames) {
         return new AgentRequestSpecFactory.Assembly(toolEmitter, disableTools,
                 memoryStore != null && memoryPolicy.shouldInject(forAgent, sessionId),
-                true, maxTokensForRole(forAgent));
+                true, maxTokensForRole(forAgent), extraToolNames);
     }
 
     /** 观测名单计算（llm_call_log 装配名单列）：assembly.disableTools 时工具/子集置空、技能保留 */

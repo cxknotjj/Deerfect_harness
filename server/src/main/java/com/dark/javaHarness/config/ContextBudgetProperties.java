@@ -55,6 +55,17 @@ public class ContextBudgetProperties {
     /** 编排子任务任务书（brief）字符数上限，lead 出口写入状态前截断；0 = 不限制 */
     private int subtaskBriefMaxChars;
 
+    /**
+     * lead 拆解子任务数量上限（生效值 clamp [1,4]，0/超界回退内置兜底 4——拆解数量无
+     * "不限制"安全语义）；0 = 回退兜底。
+     */
+    private int subtaskMaxCount;
+
+    /**
+     * 编排子任务单执行墙钟上限（秒），deadline 包装取消令牌在 token 边界中止；0 = 不限制。
+     */
+    private int subtaskWallClockSeconds;
+
     public int getHistoryBudget() {
         return historyBudget;
     }
@@ -141,5 +152,21 @@ public class ContextBudgetProperties {
 
     public void setSubtaskBriefMaxChars(int subtaskBriefMaxChars) {
         this.subtaskBriefMaxChars = subtaskBriefMaxChars;
+    }
+
+    public int getSubtaskMaxCount() {
+        return subtaskMaxCount;
+    }
+
+    public void setSubtaskMaxCount(int subtaskMaxCount) {
+        this.subtaskMaxCount = subtaskMaxCount;
+    }
+
+    public int getSubtaskWallClockSeconds() {
+        return subtaskWallClockSeconds;
+    }
+
+    public void setSubtaskWallClockSeconds(int subtaskWallClockSeconds) {
+        this.subtaskWallClockSeconds = subtaskWallClockSeconds;
     }
 }

@@ -64,7 +64,10 @@ public class MultiAgentGraphAgent implements Agent {
 
     private static final Logger log = LoggerFactory.getLogger(MultiAgentGraphAgent.class);
 
-    /** 单个总任务拆解的子任务数上限，避免滚雪球（节点实现类 OrchestrationNodes 亦引用） */
+    /**
+     * 拆解子任务数兜底常量：配置缺省/非法（subtask-max-count 0/超界）时回退此值；
+     * KeyStrategy 槽位 0..3 由其界定（生效上限见 OrchestrationNodes.resolvedMaxSubtasks）
+     */
     static final int MAX_SUBTASKS = 4;
 
     /** 节点名常量 */
@@ -84,6 +87,8 @@ public class MultiAgentGraphAgent implements Agent {
     static final String K_SUBTASK_AGENT_PREFIX = "subtaskAgent_";
     /** 任务书键：lead 出口写入（已按预算截断），subtask 节点读出作 user 文本；旧 checkpoint 缺键 orElse(null) 安全 */
     static final String K_SUBTASK_BRIEF_PREFIX = "subtaskBrief_";
+    /** 工具包键：lead 出口写入包名 CSV（空名单写空串），subtask 节点读出逐包解析包定义；旧 checkpoint 缺键 orElse("") 与空串同口径=无包 */
+    static final String K_SUBTASK_PACKS_PREFIX = "subtaskPacks_";
     static final String K_RESULT_PREFIX = "result_";
     static final String K_FINAL = "final";
 
@@ -95,6 +100,12 @@ public class MultiAgentGraphAgent implements Agent {
      * 并在 prompt 注入降级说明；非空保证状态键有值、与「子任务失败无结果」区分。
      */
     static final String SKIPPED_RESULT = "（预算超限跳过：编排 token 消费已达上限）";
+
+    /**
+     * 子任务墙钟超时占位 result：与 {@link #SKIPPED_RESULT} 同构的占位通道（聚合排除出
+     * 真实结果、prompt 注入超时说明），文案区分跳过原因（超时 ≠ 预算超限）。
+     */
+    static final String TIMEOUT_SKIPPED_RESULT = "（子任务执行超时，已跳过）";
 
     private final String agentName;
     /** 编排消费上限熔断：各节点共享的预算账本（依赖 {@link #budgets}；节点实现类亦引用） */
@@ -160,7 +171,7 @@ public class MultiAgentGraphAgent implements Agent {
 
     /**
      * 兼容重载（不接 RAG 预取器）：既有调用方/单测直接构造时预取钩子零行为，
-     * 与知识库禁用（ragPrefetcher bean 缺位）同语义。
+     * 与知识库禁用（ragPrefetcher bean 缺位）同语义；工具包解析同取零行为（provider=null）。
      */
     public MultiAgentGraphAgent(String agentName,
                                 ChatClientRegistry clientRegistry,
@@ -177,17 +188,12 @@ public class MultiAgentGraphAgent implements Agent {
                                 ChatTimeoutProperties timeouts) {
         this(agentName, clientRegistry, agentService, toolAssignments, recorder,
                 checkpointSaver, budgets, memoryStore, lazyTools, promptAssembler,
-                skillManager, knowledgeRetriever, timeouts, null);
+                skillManager, knowledgeRetriever, timeouts, null, null);
     }
 
     /**
-     * 全参构造（含 skill 装配与 RAG 知识检索）：knowledgeRetriever 仅知识库启用时非 null
-     * （ChatAgentConfig 经 ObjectProvider 注入），透传给编排调用器后 lead/各子任务按
-     * 各自 user 文本检索（aggregator 由检索器角色策略跳过）。timeouts 透传给编排调用器
-     * 作流式空闲超时（null 时走调用器默认，见 AgentChatCaller.DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS）。
-     * ragPrefetcher 与 knowledgeRetriever 同条件装配（可 null=知识库禁用）：非 null 时
-     * 子任务节点入口经其异步提交 RAG 预取（把检索延迟藏进子任务排队/执行的等待窗口），
-     * null 时预取钩子零行为。
+     * 兼容重载（不接工具包定义读取器）：既有调用方/单测直接构造时工具包挂载零行为
+     * （子任务 toolPacks 声明被忽略、只按模板自身工具面执行），对齐 ragPrefetcher 先例。
      */
     public MultiAgentGraphAgent(String agentName,
                                 ChatClientRegistry clientRegistry,
@@ -203,6 +209,38 @@ public class MultiAgentGraphAgent implements Agent {
                                 com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
                                 ChatTimeoutProperties timeouts,
                                 com.dark.javaHarness.service.impl.route.RagPrefetcher ragPrefetcher) {
+        this(agentName, clientRegistry, agentService, toolAssignments, recorder,
+                checkpointSaver, budgets, memoryStore, lazyTools, promptAssembler,
+                skillManager, knowledgeRetriever, timeouts, ragPrefetcher, null);
+    }
+
+    /**
+     * 全参构造（含 skill 装配、RAG 知识检索与工具包定义读取）：knowledgeRetriever 仅知识库启用时非 null
+     * （ChatAgentConfig 经 ObjectProvider 注入），透传给编排调用器后 lead/各子任务按
+     * 各自 user 文本检索（aggregator 由检索器角色策略跳过）。timeouts 透传给编排调用器
+     * 作流式空闲超时（null 时走调用器默认，见 AgentChatCaller.DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS）。
+     * ragPrefetcher 与 knowledgeRetriever 同条件装配（可 null=知识库禁用）：非 null 时
+     * 子任务节点入口经其异步提交 RAG 预取（把检索延迟藏进子任务排队/执行的等待窗口），
+     * null 时预取钩子零行为。
+     * agentConfigProvider 为工具包定义读取器（子任务 toolPacks 挂载解析：
+     * 包工具并入请求工具面 + 包纪律段拼入 user 文本；可 null=包解析零行为，
+     * 对齐 ragPrefetcher 先例）。
+     */
+    public MultiAgentGraphAgent(String agentName,
+                                ChatClientRegistry clientRegistry,
+                                AgentService agentService,
+                                ToolAssignments toolAssignments,
+                                LlmCallRecorder recorder,
+                                BaseCheckpointSaver checkpointSaver,
+                                ContextBudgetProperties budgets,
+                                SessionService memoryStore,
+                                ToolLazyManager lazyTools,
+                                PromptAssembler promptAssembler,
+                                SkillManager skillManager,
+                                com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
+                                ChatTimeoutProperties timeouts,
+                                com.dark.javaHarness.service.impl.route.RagPrefetcher ragPrefetcher,
+                                com.dark.javaHarness.service.AgentConfigProvider agentConfigProvider) {
         ToolLazyManager lazy = lazyTools != null ? lazyTools : new ToolLazyManager(toolAssignments, false);
         this.agentName = agentName;
         // 工具索引段与延迟加载同源：开启时索引段追加 expand_tool 使用引导（与轻量态工具面对齐）
@@ -215,7 +253,7 @@ public class MultiAgentGraphAgent implements Agent {
         this.budgets = budgets != null ? budgets : new ContextBudgetProperties();
         this.orchestrationBudget = new OrchestrationBudget(this.budgets);
         this.nodes = new OrchestrationNodes(chatCaller, assembler, this.budgets, this.orchestrationBudget,
-                ragPrefetcher);
+                ragPrefetcher, agentConfigProvider);
         this.streamPipeline = new MultiAgentStreamPipeline(
                 (liveTokens, contentSent, toolEvents, cancelled, listener) ->
                         buildStateGraph(liveTokens, contentSent, toolEvents, cancelled)
@@ -439,6 +477,8 @@ public class MultiAgentGraphAgent implements Agent {
             strategies.put(K_SUBTASK_AGENT_PREFIX + i, replace);
             // 任务书随槽位落状态：旧 checkpoint 缺键时 orElse(null) 安全（执行退化为 desc）
             strategies.put(K_SUBTASK_BRIEF_PREFIX + i, replace);
+            // 工具包名单随槽位落状态：旧 checkpoint 缺键 → 读侧 orElse("") 归一化为空名单（无包现状）
+            strategies.put(K_SUBTASK_PACKS_PREFIX + i, replace);
             strategies.put(K_RESULT_PREFIX + i, replace);
         }
         return strategies;

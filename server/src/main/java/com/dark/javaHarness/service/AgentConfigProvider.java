@@ -130,6 +130,47 @@ public class AgentConfigProvider {
         }
     }
 
+    /**
+     * 工具包定义（包名 = agent 表 is_internal=0 且 tools 列非空的行名）：单查询取
+     * tools（工具名单 CSV）+ prompt（领域纪律段）+ is_internal（包资格判定）三列。
+     * 行不存在 / is_internal != 0（或 NULL，防御性视为非包）/ tools 拆分后无有效项 / 查询异常
+     * 均返回 empty + 单行日志（调用方静默跳过该包，不阻断主流程）。
+     */
+    public Optional<ToolPackDef> findToolPack(String packName) {
+        if (packName == null || packName.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            AgentEntity row = agentMapper.selectOne(new LambdaQueryWrapper<AgentEntity>()
+                    .eq(AgentEntity::getAgentName, packName)
+                    .select(AgentEntity::getTools, AgentEntity::getPrompt, AgentEntity::getIsInternal)
+                    .last("LIMIT 1"));
+            if (row == null || row.getIsInternal() == null || row.getIsInternal() != 0
+                    || row.getTools() == null || row.getTools().isBlank()) {
+                return Optional.empty();
+            }
+            // tools CSV 拆分：按逗号拆、逐项 trim、丢弃空白项、保持声明顺序
+            List<String> toolNames = new java.util.ArrayList<>();
+            for (String raw : row.getTools().split(",")) {
+                String token = raw.trim();
+                if (!token.isEmpty()) {
+                    toolNames.add(token);
+                }
+            }
+            if (toolNames.isEmpty()) {
+                return Optional.empty();
+            }
+            return Optional.of(new ToolPackDef(List.copyOf(toolNames), blankToNull(row.getPrompt())));
+        } catch (Exception e) {
+            log.warn("读取工具包定义失败 pack={}", packName, e);
+            return Optional.empty();
+        }
+    }
+
+    /** 工具包定义值对象：toolNames 为工具名单（trim 去空白后保序），disciplinePrompt 为领域纪律段原文（可 null=无纪律段） */
+    public record ToolPackDef(List<String> toolNames, String disciplinePrompt) {
+    }
+
     /** 按 model_provider.id 解析模型名（请求级 model 参数用）；id 空或查不到返回 null（走默认） */
     private String resolveModelName(Long modelProviderId) {
         if (modelProviderId == null) {

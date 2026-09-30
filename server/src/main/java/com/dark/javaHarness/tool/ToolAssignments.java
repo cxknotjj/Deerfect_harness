@@ -128,6 +128,19 @@ public class ToolAssignments {
         return legacyForAgent(agentName);
     }
 
+    /**
+     * 按工具名单声明解析（工具包通道）：与 {@link #forAgent} 共用 {@link #resolveDeclared}
+     * 的目录索引/组名展开/精确名查找/跨通道同名防重引擎，但不查 agent 表 tools 列、
+     * 无 legacy 兜底——名单来自子任务声明的领域工具包（包定义行 tools 列原文，由调用方传入），
+     * 未识别 token warn 单行跳过（与 forAgent 数据路径同口径）。
+     *
+     * @param packName    包名（仅用于未识别 token 的 warn 日志归因）
+     * @param declaredCsv 逗号分隔的组名/精确工具名声明（包定义 tools 列原文）
+     */
+    public ToolSet forNames(String packName, String declaredCsv) {
+        return resolveDeclared(packName, declaredCsv);
+    }
+
     /** 代码内置分配（legacy 兜底，与数据化前语义一致）；未登记的专家（含 multi-agent 编排器）返回空集 */
     private ToolSet legacyForAgent(String agentName) {
         return switch (agentName == null ? "" : agentName) {

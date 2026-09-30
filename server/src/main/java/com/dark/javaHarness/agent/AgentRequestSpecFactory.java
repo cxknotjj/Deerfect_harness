@@ -22,6 +22,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.ai.chat.messages.Message;
@@ -41,6 +43,8 @@ import org.springframework.ai.tool.ToolCallback;
  */
 final class AgentRequestSpecFactory {
 
+    private static final Logger log = LoggerFactory.getLogger(AgentRequestSpecFactory.class);
+
     /**
      * 单次请求的组装差异项（两条路径各自声明）：
      * <ul>
@@ -53,20 +57,26 @@ final class AgentRequestSpecFactory {
      *       路径 A 恒注入）</li>
      *   <li>{@code frequencyPenalty}：频率惩罚（长报告聚合复读抑制，仅编排路径启用）</li>
      *   <li>{@code maxTokens}：输出封顶档位（0 = 不限制，不写入保持模型默认）</li>
+     *   <li>{@code extraToolNames}：工具包并名工具名单（子任务声明 toolPacks 时非空，
+     *       null = 未声明）——build 期经 {@link ToolAssignments#forNames} 解析为回调并入请求
+     *       工具面（在装饰链之前并入：ToolBudgetDecorator 等统一装饰、预算无豁免；
+     *       模板自身工具按回调名优先保留，防同名重复注入）</li>
      * </ul>
      */
     record Assembly(Consumer<String> toolEmitter,
                     boolean disableTools,
                     boolean injectMemory,
                     boolean frequencyPenalty,
-                    int maxTokens) {
+                    int maxTokens,
+                    List<String> extraToolNames) {
 
         /**
          * 幻觉工具名降级（去工具重试）的装配变体：去 emitter、disableTools=true，其余档位原样保留
+         * （extraToolNames 同步置 null——去工具重试连包工具一并去除）
          * （原 AgentChatCaller.noToolsVariant 静态方法，超长类拆分 2026-09-25 下沉为本 record 派生行为）。
          */
         Assembly withoutTools() {
-            return new Assembly(null, true, injectMemory, frequencyPenalty, maxTokens);
+            return new Assembly(null, true, injectMemory, frequencyPenalty, maxTokens, null);
         }
     }
 
@@ -237,6 +247,34 @@ final class AgentRequestSpecFactory {
         List<ToolCallback> tools = new ArrayList<>(toolSet.callbacks());
         if (!toolSet.annotated().isEmpty()) {
             tools.addAll(List.of(ToolCallbacks.from(toolSet.annotated().toArray())));
+        }
+        // 工具包通道（子任务挂载领域工具包）：包工具名单解析为回调并入请求工具面——
+        // 在装饰链之前并入，ToolBudgetDecorator 等统一装饰、预算无豁免；按回调名去重
+        // （模板自身工具优先=先到者保留，防 Spring AI 同名工具注入同一请求被拒）；
+        // @Tool 注解对象先经 ToolCallbacks.from 转回调，与 callbacks 同口径参与去重
+        if (assembly.extraToolNames() != null && !assembly.extraToolNames().isEmpty()) {
+            ToolAssignments.ToolSet packSet = toolAssignments == null
+                    ? ToolAssignments.ToolSet.EMPTY
+                    : toolAssignments.forNames("toolPack", String.join(", ", assembly.extraToolNames()));
+            List<ToolCallback> packCallbacks = new ArrayList<>(packSet.callbacks());
+            if (!packSet.annotated().isEmpty()) {
+                packCallbacks.addAll(List.of(ToolCallbacks.from(packSet.annotated().toArray())));
+            }
+            java.util.Set<String> seenNames = new java.util.HashSet<>();
+            for (ToolCallback cb : tools) {
+                seenNames.add(cb.getToolDefinition().name());
+            }
+            for (ToolCallback cb : packCallbacks) {
+                if (seenNames.add(cb.getToolDefinition().name())) {
+                    tools.add(cb);
+                }
+            }
+            if (packCallbacks.isEmpty()) {
+                // 空工具面兜底（如下游 MCP server 未启动时的空缓存）：声明的包一个回调都没解析到，
+                // 子任务按无包工具继续执行（模型会如实告知无法查询），warn 留排查痕迹
+                log.warn("[spec] 工具包 {} 解析到 0 个工具回调（疑似下游服务未启动/空工具面），按无包工具执行",
+                        assembly.extraToolNames());
+            }
         }
         // 装饰链应用（可插拔）：按 Order 升序逐层装饰——观测(100)→预算(200)→懒加载(300)→
         // 元工具(400)；各装饰器自判适用条件（不适用原样直通）。顺序契约见 ToolCallbackDecorator。

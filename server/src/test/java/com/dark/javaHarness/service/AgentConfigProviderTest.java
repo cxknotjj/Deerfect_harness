@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.dark.javaHarness.domain.AgentConfig;
 import com.dark.javaHarness.domain.entity.AgentEntity;
 import com.dark.javaHarness.domain.entity.ModelProviderEntity;
@@ -11,6 +13,8 @@ import com.dark.javaHarness.mapper.AgentMapper;
 import com.dark.javaHarness.mapper.ModelProviderMapper;
 import java.util.List;
 import java.util.Optional;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -29,6 +33,14 @@ class AgentConfigProviderTest {
     private ModelProviderMapper modelProviderMapper;
 
     private AgentConfigProvider provider;
+
+    @BeforeAll
+    static void initEntityMeta() {
+        // LambdaQueryWrapper 的 select(lambda 列) 依赖 TableInfo 缓存（单测无 MyBatis 环境，与
+        // GoalServiceImplTest 同法手工初始化），否则 findToolPack/findAgentTools 构建 wrapper 即抛异常
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), ""), AgentEntity.class);
+    }
 
     private AgentConfigProvider newProvider() {
         return new AgentConfigProvider(agentMapper, modelProviderMapper);
@@ -149,5 +161,96 @@ class AgentConfigProviderTest {
                 .thenThrow(new RuntimeException("db down"));
 
         assertTrue(provider.listAgentNames().isEmpty(), "查询异常应返回空列表而非抛出");
+    }
+
+    // ================================================================
+    // 工具包定义（findToolPack）：包名 = is_internal=0 且 tools 列非空的行名
+    // ================================================================
+
+    @Test
+    void findToolPack_hit_shouldParseToolNamesAndPrompt() {
+        provider = newProvider();
+        AgentEntity row = new AgentEntity();
+        row.setIsInternal(0);
+        row.setTools("wms_stock_query, wms_inbound_create");
+        row.setPrompt("仓储操作纪律：先查后写");
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(row);
+
+        Optional<AgentConfigProvider.ToolPackDef> pack = provider.findToolPack("wms");
+
+        assertTrue(pack.isPresent());
+        assertEquals(List.of("wms_stock_query", "wms_inbound_create"), pack.get().toolNames(),
+                "tools CSV 按逗号拆分、trim、保序");
+        assertEquals("仓储操作纪律：先查后写", pack.get().disciplinePrompt());
+    }
+
+    @Test
+    void findToolPack_internalRow_shouldReturnEmpty() {
+        provider = newProvider();
+        AgentEntity row = new AgentEntity();
+        row.setIsInternal(1);
+        row.setTools("wms_stock_query");
+        row.setPrompt("内部角色");
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(row);
+
+        assertTrue(provider.findToolPack("lead").isEmpty(), "is_internal=1 的编排内部行不是工具包");
+    }
+
+    @Test
+    void findToolPack_nullInternal_shouldReturnEmpty() {
+        provider = newProvider();
+        AgentEntity row = new AgentEntity();
+        row.setIsInternal(null);
+        row.setTools("wms_stock_query");
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(row);
+
+        assertTrue(provider.findToolPack("wms").isEmpty(), "is_internal NULL 防御性视为非包");
+    }
+
+    @Test
+    void findToolPack_blankTools_shouldReturnEmpty() {
+        provider = newProvider();
+        AgentEntity row = new AgentEntity();
+        row.setIsInternal(0);
+        row.setTools("   ");
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(row);
+
+        assertTrue(provider.findToolPack("wms").isEmpty(), "tools 空白 → 非包");
+    }
+
+    @Test
+    void findToolPack_onlyBlankTokens_shouldReturnEmpty() {
+        provider = newProvider();
+        AgentEntity row = new AgentEntity();
+        row.setIsInternal(0);
+        row.setTools(" , , ");
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(row);
+
+        assertTrue(provider.findToolPack("wms").isEmpty(), "tools 拆分后无有效项 → 非包");
+    }
+
+    @Test
+    void findToolPack_rowMissing_shouldReturnEmpty() {
+        provider = newProvider();
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(null);
+
+        assertTrue(provider.findToolPack("no-such-pack").isEmpty(), "无该行 → 非包");
+    }
+
+    @Test
+    void findToolPack_queryError_shouldReturnEmptyNotThrow() {
+        provider = newProvider();
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new RuntimeException("db down"));
+
+        assertTrue(provider.findToolPack("wms").isEmpty(), "查询异常应返回 empty 而非抛出");
+    }
+
+    @Test
+    void findToolPack_nullOrBlankName_shouldReturnEmpty() {
+        provider = newProvider();
+
+        assertTrue(provider.findToolPack(null).isEmpty(), "null 包名应返回 empty");
+        assertTrue(provider.findToolPack("  ").isEmpty(), "空白包名应返回 empty");
     }
 }

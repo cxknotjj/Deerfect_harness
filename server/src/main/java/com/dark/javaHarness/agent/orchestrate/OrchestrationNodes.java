@@ -44,12 +44,17 @@ final class OrchestrationNodes {
     private final AggregateStreamGuard streamGuard;
     /** 子任务入口 RAG 预取器（与知识库同条件装配，可 null=知识库禁用 → 预取钩子零行为） */
     private final RagPrefetcher ragPrefetcher;
+    /**
+     * 工具包定义读取器（agent 表 is_internal=0 且 tools 列非空的包行，包工具并入请求工具面 +
+     * 包纪律段拼入 user 文本）；可 null=包解析零行为（单测场景，对齐 ragPrefetcher 先例）。
+     */
+    private final com.dark.javaHarness.service.AgentConfigProvider agentConfigProvider;
 
     OrchestrationNodes(AgentChatCaller chatCaller,
                        PromptAssembler promptAssembler,
                        ContextBudgetProperties budgets,
                        OrchestrationBudget orchestrationBudget) {
-        this(chatCaller, promptAssembler, budgets, orchestrationBudget, null);
+        this(chatCaller, promptAssembler, budgets, orchestrationBudget, null, null);
     }
 
     OrchestrationNodes(AgentChatCaller chatCaller,
@@ -57,11 +62,21 @@ final class OrchestrationNodes {
                        ContextBudgetProperties budgets,
                        OrchestrationBudget orchestrationBudget,
                        RagPrefetcher ragPrefetcher) {
+        this(chatCaller, promptAssembler, budgets, orchestrationBudget, ragPrefetcher, null);
+    }
+
+    OrchestrationNodes(AgentChatCaller chatCaller,
+                       PromptAssembler promptAssembler,
+                       ContextBudgetProperties budgets,
+                       OrchestrationBudget orchestrationBudget,
+                       RagPrefetcher ragPrefetcher,
+                       com.dark.javaHarness.service.AgentConfigProvider agentConfigProvider) {
         this.chatCaller = chatCaller;
         this.promptAssembler = promptAssembler;
         this.budgets = budgets;
         this.orchestrationBudget = orchestrationBudget;
         this.ragPrefetcher = ragPrefetcher;
+        this.agentConfigProvider = agentConfigProvider;
         this.streamGuard = new AggregateStreamGuard(this.chatCaller, ROLE_AGGREGATOR,
                 OrchestrationPrompts.AGGREGATOR_FALLBACK_PROMPT, this::aggregateBudgetAdvisor);
     }
@@ -105,10 +120,10 @@ final class OrchestrationNodes {
         List<LeadOutputParser.Subtask> items = LeadOutputParser.parseSubtasks(content);
         if (items.isEmpty()) {
             // 拆解失败：退化为单个子任务=objective
-            items.add(new LeadOutputParser.Subtask(objective, null, null));
+            items.add(new LeadOutputParser.Subtask(objective, null, null, List.of()));
         }
         Map<String, Object> updates = new HashMap<>();
-        int n = Math.min(items.size(), MultiAgentGraphAgent.MAX_SUBTASKS);
+        int n = Math.min(items.size(), resolvedMaxSubtasks());
         updates.put(MultiAgentGraphAgent.K_LEAD_SPAN, leadSpanId);
         updates.put(MultiAgentGraphAgent.K_SUBTASK_COUNT, n);
         for (int i = 0; i < n; i++) {
@@ -118,6 +133,8 @@ final class OrchestrationNodes {
             // 任务书随槽位落状态，截断在 lead 出口完成（写入即定稿）；旧 checkpoint 缺键 orElse(null) 安全。
             // brief 长文本不参与 RAG 预取（下方预取 query 仍为 desc），只作子任务执行的 user 文本
             updates.put(MultiAgentGraphAgent.K_SUBTASK_BRIEF_PREFIX + i, truncateBrief(item.brief()));
+            // 包名 CSV 随槽位落状态：空名单写空串（读侧 orElse("") 归一化，两种口径同义=无包）
+            updates.put(MultiAgentGraphAgent.K_SUBTASK_PACKS_PREFIX + i, String.join(",", item.packs()));
         }
         log.info("[multi-agent][lead] 拆解为 {} 个子任务，指派：{}", n,
                 items.subList(0, n).stream().map(LeadOutputParser.Subtask::agent).toList());
@@ -157,6 +174,19 @@ final class OrchestrationNodes {
     }
 
     /**
+     * 拆解数量上限（app.context.subtask-max-count）：clamp [1, 兜底4]，0/超界回退兜底
+     * （拆解数量无"不限制"安全语义）。仅用于截断 lead 拆解产物；KeyStrategy 槽位 0..3
+     * 仍由 {@link MultiAgentGraphAgent#MAX_SUBTASKS} 界定，两者解耦。
+     */
+    private int resolvedMaxSubtasks() {
+        int configured = budgets.getSubtaskMaxCount();
+        if (configured < 1 || configured > MultiAgentGraphAgent.MAX_SUBTASKS) {
+            return MultiAgentGraphAgent.MAX_SUBTASKS;
+        }
+        return configured;
+    }
+
+    /**
      * 子任务节点：读 subtask_i、指派的 subtaskAgent_i 与任务书 subtaskBrief_i，若存在则调用对应专家
      * ChatClient 生成 result_i。熔断下沉到 caller（方向 b）：门控账本句柄在调用发起前（零 HTTP）与每轮 roundtrip 的
      * usage 帧上检查，超限抛 {@link BudgetLedger.BudgetExceededException}——节点捕获后
@@ -177,6 +207,9 @@ final class OrchestrationNodes {
         String expert = state.value(MultiAgentGraphAgent.K_SUBTASK_AGENT_PREFIX + idx, String.class).orElse(null);
         // 任务书读出：旧 checkpoint 缺键 → null（执行退化为 task/desc，口径见 predictSubtask）
         String brief = state.value(MultiAgentGraphAgent.K_SUBTASK_BRIEF_PREFIX + idx, String.class).orElse(null);
+        // 工具包读出：旧 checkpoint 缺键 → orElse("") 归一化为无包（与空名单同口径，执行退化现状）
+        PackResolution packs = resolvePacks(
+                state.value(MultiAgentGraphAgent.K_SUBTASK_PACKS_PREFIX + idx, String.class).orElse(""));
         String sessionId = state.value(MultiAgentGraphAgent.K_SESSION_ID, String.class).orElse(null);
         // 子任务入口 RAG 预取补提交（fire-and-forget）：主提交点已上移 lead 出口（排队空档消化
         // 检索延迟，spec 3.6），本钩子保留覆盖断点续跑（lead 不重跑、直接进入 subtask 节点）场景；
@@ -195,15 +228,39 @@ final class OrchestrationNodes {
         CallTrace trace = new CallTrace(state.value(MultiAgentGraphAgent.K_TURN_ID, String.class).orElse(null),
                 state.value(MultiAgentGraphAgent.K_TRACE_ID, String.class).orElse(null),
                 state.value(MultiAgentGraphAgent.K_LEAD_SPAN, String.class).orElse(null), null);
+        // 子任务墙钟超时（app.context.subtask-wall-clock-seconds，0 = 不限制）：把断连令牌包装为
+        // 「断连 OR 超时」供给——独立包装、绝不置位共享 AtomicBoolean（超时不是客户端断开，
+        // 置位会连坐短路同批并行子任务与聚合）；超时命中时 caller 在 token 边界抛
+        // CancellationException，节点捕获后与真实断连区分（真实断连原样上抛保持现状）
+        int wallClock = budgets.getSubtaskWallClockSeconds();
+        long deadlineNanos = wallClock > 0 ? System.nanoTime() + wallClock * 1_000_000_000L : 0L;
+        java.util.function.BooleanSupplier cancelSignal =
+                (cancelled == null && deadlineNanos == 0) ? null
+                        : deadlineNanos == 0 ? cancelled::get
+                        : cancelled == null ? () -> System.nanoTime() >= deadlineNanos
+                        : () -> cancelled.get() || System.nanoTime() >= deadlineNanos;
+        long startNanos = System.nanoTime();
         String result;
         try {
-            result = predictSubtask(sessionId, task, brief, expert, toolEmitter, cancelled,
-                    orchestrationBudget.ledgerHandle(state, true), trace);
+            result = predictSubtask(sessionId, task, brief, expert, toolEmitter, cancelSignal,
+                    orchestrationBudget.ledgerHandle(state, true), trace, packs);
         } catch (BudgetLedger.BudgetExceededException e) {
             log.warn("[multi-agent][subtask-{}] 编排 token 消费已达上限（{} / {}），跳过专家调用",
                     idx, OrchestrationBudget.ledgerValue(state), budgets.getOrchestrationBudget());
             Map<String, Object> updates = new HashMap<>();
             updates.put(MultiAgentGraphAgent.K_RESULT_PREFIX + idx, MultiAgentGraphAgent.SKIPPED_RESULT);
+            return updates;
+        } catch (java.util.concurrent.CancellationException e) {
+            // 超时命中判定：deadline 已过且共享断连令牌未置位——真实客户端断开（令牌置位）
+            // 原样上抛（图终止、不写占位，现状不变）；超时写占位结果，聚合注入超时说明
+            if (deadlineNanos == 0 || System.nanoTime() < deadlineNanos
+                    || (cancelled != null && cancelled.get())) {
+                throw e;
+            }
+            log.warn("[multi-agent][subtask-{}] 子任务执行超时中止（耗时 {}s / 上限 {}s），写占位结果",
+                    idx, (System.nanoTime() - startNanos) / 1_000_000_000L, wallClock);
+            Map<String, Object> updates = new HashMap<>();
+            updates.put(MultiAgentGraphAgent.K_RESULT_PREFIX + idx, MultiAgentGraphAgent.TIMEOUT_SKIPPED_RESULT);
             return updates;
         }
         Map<String, Object> updates = new HashMap<>();
@@ -238,6 +295,7 @@ final class OrchestrationNodes {
                 state.value(MultiAgentGraphAgent.K_LEAD_SPAN, String.class).orElse(null), null);
         List<String> results = new ArrayList<>();
         int skipped = 0;
+        int timedOut = 0;
         for (int i = 0; i < n; i++) {
             String r = state.value(MultiAgentGraphAgent.K_RESULT_PREFIX + i, String.class).orElse(null);
             if (r == null || r.isBlank()) {
@@ -247,16 +305,24 @@ final class OrchestrationNodes {
                 skipped++; // 预算熔断跳过：不计入真实结果，降级说明交代
                 continue;
             }
+            if (MultiAgentGraphAgent.TIMEOUT_SKIPPED_RESULT.equals(r)) {
+                timedOut++; // 墙钟超时跳过：不计入真实结果，超时说明交代（与预算降级互不掺混）
+                continue;
+            }
             results.add(r);
         }
         String finalAnswer;
-        if (results.isEmpty() && skipped == 0) {
+        if (results.isEmpty() && skipped == 0 && timedOut == 0) {
             // 子任务全失败：兜底（原有行为）
             finalAnswer = state.value(MultiAgentGraphAgent.K_FINAL, String.class).orElse("（未生成最终回答）");
         } else {
             String user = OrchestrationPrompts.aggregateUserPrompt(results);
             if (skipped > 0) {
                 user = orchestrationBudget.degradationNote(skipped, state) + "\n\n" + user;
+            }
+            if (timedOut > 0) {
+                // 超时说明（与预算降级说明同构的前置段；degradationNote 文案为预算专属，超时独立成段）
+                user = timeoutNote(timedOut) + "\n\n" + user;
             }
             if (liveTokens == null) {
                 // 同步路径 cancelled 为 null（无取消语义），流式路径传共享断连标志
@@ -269,9 +335,15 @@ final class OrchestrationNodes {
         }
         Map<String, Object> updates = new HashMap<>();
         updates.put(MultiAgentGraphAgent.K_FINAL, finalAnswer);
-        log.info("[multi-agent][aggregate] 汇总 {} 个子任务结果（预算超限跳过 {} 个）",
-                results.size(), skipped);
+        log.info("[multi-agent][aggregate] 汇总 {} 个子任务结果（预算超限跳过 {} 个，超时跳过 {} 个）",
+                results.size(), skipped, timedOut);
         return updates;
+    }
+
+    /** 超时说明（聚合 prompt 前置）：N 个子任务执行超时未完成，与预算降级说明同构、互不掺混 */
+    private static String timeoutNote(int timedOut) {
+        return "【超时说明】" + timedOut + " 个子任务执行超时未完成，以下子任务结果不完整。"
+                + "请基于已有内容汇总最终回答，并在回答开头简要说明部分内容因超时未覆盖。";
     }
 
     /* ---------- ChatClient 单次调用 ---------- */
@@ -303,24 +375,83 @@ final class OrchestrationNodes {
     }
 
     /**
-     * 子任务执行：按指派专家查配置调用（cancelled 传节点共享断连标志，同步路径为 null——
-     * 执行中置位时在途调用随令牌中止，不再烧完剩余 token）。budgetLedger 门控账本句柄：
-     * caller 发起前与每轮 roundtrip 熔断判定 + 按 roundtrip 增量记账（可 null）。
+     * 子任务执行：按指派专家查配置调用。cancelSignal 为节点预包装的取消供给
+     * （「客户端断连 OR 墙钟超时」组合语义，可 null=同步路径无取消也不限时——
+     * 执行中供给返回 true 时在途调用随令牌中止，不再烧完剩余 token）。
+     * budgetLedger 门控账本句柄：caller 发起前与每轮 roundtrip 熔断判定 +
+     * 按 roundtrip 增量记账（可 null）。
      * user 文本口径：任务书 brief 非空 ? brief : task——brief 为自包含任务书（目标/背景/
-     * 约束/交付物）时优先，旧格式/未提供时退化为 desc（task），对旧产物完全兼容。
+     * 约束/交付物）时优先，旧格式/未提供时退化为 desc（task），对旧产物完全兼容；
+     * packs 非空时包纪律段以 {@code \n\n【领域规范·包名】} 标题拼在 user 文本之后
+     * （多包按声明顺序），包工具名单经 caller 新重载并入请求工具面。
      */
     private String predictSubtask(String sessionId, String task, String brief, String expert,
                                   java.util.function.Consumer<String> toolEmitter,
-                                  AtomicBoolean cancelled,
-                                  BudgetLedger budgetLedger, CallTrace trace) {
+                                  java.util.function.BooleanSupplier cancelSignal,
+                                  BudgetLedger budgetLedger, CallTrace trace,
+                                  PackResolution packs) {
         // 未指派（lead 输出旧格式或漏 agent 字段）→ 回退 general：通用兜底且持有全量工具
         String resolved = resolvedExpert(expert);
         // 专家 persona 与工具使用纪律经 PromptAssembler 统一组装（原硬编码拼接已删除）：
         // persona 作角色段兜底传入，工具索引/工具纪律/输出约定等段由调用器组装时追加
         String persona = promptAssembler.subtaskPersona(resolved);
         String user = (brief != null && !brief.isBlank()) ? brief : task;
+        // 包纪律段拼在 user 文本之后（brief/task 口径不变，无包时 null 原样——与第一阶段完全一致）
+        if (packs != null && packs.disciplineText() != null) {
+            user = user + packs.disciplineText();
+        }
         return chatCaller.call(sessionId, resolved, persona, user, toolEmitter,
-                new PromptBudgetAdvisor[0], cancelled == null ? null : cancelled::get, budgetLedger, trace);
+                new PromptBudgetAdvisor[0], cancelSignal, budgetLedger, trace,
+                packs == null ? null : packs.extraToolNames());
+    }
+
+    /**
+     * 子任务工具包解析（全程静默容错）：逐包查 agent 表包定义（is_internal=0 且 tools 列非空的行），
+     * 包工具名单跨包去重保序收集（extraToolNames），包纪律段按声明顺序拼为
+     * {@code \n\n【领域规范·包名】\n + prompt 原文}。CSV 空（无包声明/旧 checkpoint 缺键）
+     * 或 provider 为 null（单测场景）→ 零解析返回空产物；包无效（无该行/is_internal=1/
+     * tools 空白/查询异常）→ warn 单行跳过该包，不阻断子任务执行。
+     */
+    private PackResolution resolvePacks(String packsCsv) {
+        if (packsCsv == null || packsCsv.isBlank() || agentConfigProvider == null) {
+            return PackResolution.NONE;
+        }
+        List<String> toolNames = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        StringBuilder discipline = new StringBuilder();
+        for (String raw : packsCsv.split(",")) {
+            String packName = raw.trim();
+            if (packName.isEmpty()) {
+                continue;
+            }
+            com.dark.javaHarness.service.AgentConfigProvider.ToolPackDef pack =
+                    agentConfigProvider.findToolPack(packName).orElse(null);
+            if (pack == null) {
+                log.warn("[multi-agent][subtask] 工具包 '{}' 无有效定义（is_internal=0 且 tools 列非空的包行），跳过",
+                        packName);
+                continue;
+            }
+            for (String tool : pack.toolNames()) {
+                if (seen.add(tool)) {
+                    toolNames.add(tool);
+                }
+            }
+            if (pack.disciplinePrompt() != null && !pack.disciplinePrompt().isBlank()) {
+                discipline.append("\n\n【领域规范·").append(packName).append("】\n")
+                        .append(pack.disciplinePrompt());
+            }
+        }
+        return new PackResolution(List.copyOf(toolNames),
+                discipline.length() > 0 ? discipline.toString() : null);
+    }
+
+    /**
+     * 工具包解析产物：extraToolNames 为并入请求工具面的工具名单（跨包去重保序，无包为空列表），
+     * disciplineText 为拼入 user 文本的纪律段文本（无包/包无 prompt 为 null）。
+     */
+    private record PackResolution(List<String> extraToolNames, String disciplineText) {
+
+        static final PackResolution NONE = new PackResolution(List.of(), null);
     }
 
     /**

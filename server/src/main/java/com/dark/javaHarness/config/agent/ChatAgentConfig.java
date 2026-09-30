@@ -111,7 +111,7 @@ public class ChatAgentConfig {
                 .build();
     }
 
-    /** 复杂路径执行体：多 Agent 编排（lead 拆解 → 并行子任务 → 聚合），带 MySQL 检查点与静态 prompt 预算；memoryStore 与 GeneralAssistantAgent 同源，lead 拆解据此注入会话记忆；toolLazyManager 与路径 A 共享（会话展开集跨路径通用）；promptAssembler/skillManager 共享实例（skill 索引段与 load_skill 跨路径一致）；knowledgeRetriever 仅知识库启用时非 null（getIfAvailable 惰性解析，禁用时编排退化为无知识段）；ragPrefetcher 与 knowledgeRetriever 同条件缺位（禁用时子任务入口预取钩子零行为） */
+    /** 复杂路径执行体：多 Agent 编排（lead 拆解 → 并行子任务 → 聚合），带 MySQL 检查点与静态 prompt 预算；memoryStore 与 GeneralAssistantAgent 同源，lead 拆解据此注入会话记忆；toolLazyManager 与路径 A 共享（会话展开集跨路径通用）；promptAssembler/skillManager 共享实例（skill 索引段与 load_skill 跨路径一致）；knowledgeRetriever 仅知识库启用时非 null（getIfAvailable 惰性解析，禁用时编排退化为无知识段）；ragPrefetcher 与 knowledgeRetriever 同条件缺位（禁用时子任务入口预取钩子零行为）；agentConfigProvider 为工具包定义读取器（子任务 toolPacks 挂载：包工具并入工具面 + 包纪律段拼入 user） */
     @Bean
     public MultiAgentGraphAgent multiAgent(ChatClientRegistry registry,
                                            @Lazy AgentService agentService,
@@ -125,10 +125,11 @@ public class ChatAgentConfig {
                                            SkillManager skillManager,
                                            ObjectProvider<com.dark.javaHarness.knowledge.KnowledgeRetriever> knowledgeRetriever,
                                            ObjectProvider<com.dark.javaHarness.service.impl.route.RagPrefetcher> ragPrefetcher,
-                                           com.dark.javaHarness.config.ChatTimeoutProperties timeouts) {
+                                           com.dark.javaHarness.config.ChatTimeoutProperties timeouts,
+                                           AgentConfigProvider agentConfigProvider) {
         return new MultiAgentGraphAgent(AgentConstants.MULTI_AGENT, registry, agentService,
                 toolAssignments, recorder, graphCheckpointSaver, budgets, memoryStore,
                 toolLazyManager, promptAssembler, skillManager, knowledgeRetriever.getIfAvailable(),
-                timeouts, ragPrefetcher.getIfAvailable());
+                timeouts, ragPrefetcher.getIfAvailable(), agentConfigProvider);
     }
 }

@@ -57,7 +57,7 @@ class LlmRequestLogAdvisorChainTest {
         logger.addAppender(appender);
         try {
             AgentRequestSpecFactory.Assembly assembly =
-                    new AgentRequestSpecFactory.Assembly(null, false, false, false, 0);
+                    new AgentRequestSpecFactory.Assembly(null, false, false, false, 0, null);
             ChatClient.ChatClientRequestSpec spec = factory.build(
                     null, "s1", "general", "FALLBACK", "hello", assembly, null);
             spec.stream().chatResponse().collectList().block();

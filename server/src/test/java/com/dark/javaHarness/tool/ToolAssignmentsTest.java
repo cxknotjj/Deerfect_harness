@@ -244,4 +244,19 @@ class ToolAssignmentsTest {
                 "tools 列空白 → legacy 分配");
         assertEquals(5, dataDriven.forAgent("general").callbacks().size(), "回退结果为 legacy 只读面");
     }
+
+    // ================================================================
+    // 工具包通道（forNames）：按工具名单声明解析，复用 resolveDeclared 引擎
+    // ================================================================
+
+    @Test
+    void forNames_resolvesThroughDeclaredEngine_withDedupAndOrder() {
+        // 工具包通道：组名展开（web）+ 精确名跨目录查找（ro1）+ 同名去重（ro1 重复声明仅保留一次），
+        // 与 forAgent 数据路径同引擎；packName 仅用于日志归因，不影响解析结果
+        ToolAssignments.ToolSet set = assignments.forNames("wms", "web, ro1, ro1");
+
+        assertEquals(List.of(webTools), set.annotated(), "web 组 → 注解工具对象");
+        assertEquals(1, set.callbacks().size(), "重复声明的 ro1 应按名去重");
+        assertEquals("ro1", set.callbacks().get(0).getToolDefinition().name(), "精确名命中单个回调");
+    }
 }

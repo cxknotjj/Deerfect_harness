@@ -14,6 +14,7 @@ import com.dark.javaHarness.service.SessionService;
 import com.dark.javaHarness.service.impl.observe.LlmCallRecorder;
 import com.dark.javaHarness.tool.ToolAssignments;
 import com.dark.javaHarness.prompt.ToolLazyManager;
+import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -165,9 +166,21 @@ public final class AgentChatCaller {
     public String call(String sessionId, String forAgent, String fallbackSystem, String user,
                 Consumer<String> toolEmitter, Advisor[] extraAdvisors, BooleanSupplier cancelled,
                 BudgetLedger ledger, CallTrace trace) {
+        return call(sessionId, forAgent, fallbackSystem, user, toolEmitter, extraAdvisors, cancelled,
+                ledger, trace, null);
+    }
+
+    /**
+     * 同上，可携带工具包并名工具名单（子任务挂载领域工具包）：透传到角色装配
+     * （Assembly.extraToolNames），请求组装期把包工具并入请求工具面；null/空 = 未声明，
+     * 与既有重载行为完全一致（所有既有调用点零改动）。
+     */
+    public String call(String sessionId, String forAgent, String fallbackSystem, String user,
+                Consumer<String> toolEmitter, Advisor[] extraAdvisors, BooleanSupplier cancelled,
+                BudgetLedger ledger, CallTrace trace, List<String> extraToolNames) {
         return callWithAssembly(sessionId, forAgent, fallbackSystem, user,
-                assembler.assemblyForRole(forAgent, sessionId, toolEmitter, false), extraAdvisors, cancelled, ledger,
-                trace);
+                assembler.assemblyForRole(forAgent, sessionId, toolEmitter, false, extraToolNames),
+                extraAdvisors, cancelled, ledger, trace);
     }
 
     /**

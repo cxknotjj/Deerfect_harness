@@ -243,9 +243,9 @@ public class GeneralAssistantAgent implements Agent {
         return content.mergeWith(toolEvents.asFlux());
     }
 
-    /** 路径 A 装配差异声明：恒注入记忆、无频率惩罚、输出封顶 final 档（工具次数/结果预算两路径统一生效） */
+    /** 路径 A 装配差异声明：恒注入记忆、无频率惩罚、输出封顶 final 档（工具次数/结果预算两路径统一生效；路径 A 不挂工具包，extraToolNames=null） */
     private AgentRequestSpecFactory.Assembly assemblyPathA(Consumer<String> toolEmitter) {
-        return new AgentRequestSpecFactory.Assembly(toolEmitter, false, true, false, maxTokensFinal);
+        return new AgentRequestSpecFactory.Assembly(toolEmitter, false, true, false, maxTokensFinal, null);
     }
 
     /**

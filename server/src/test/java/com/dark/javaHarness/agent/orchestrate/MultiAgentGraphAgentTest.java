@@ -22,6 +22,7 @@ import com.dark.javaHarness.advisor.ContextAssemblingAdvisor;
 import com.dark.javaHarness.agent.ProgressLine;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.Goal;
+import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.SessionService;
 import com.dark.javaHarness.service.impl.route.RagPrefetcher;
@@ -39,6 +40,7 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.tool.ToolCallback;
 import reactor.core.publisher.Flux;
 
 /**
@@ -73,6 +75,8 @@ class MultiAgentGraphAgentTest {
     private ToolAssignments toolAssignments;
     @Mock
     private SessionService memoryStore;
+    @Mock
+    private AgentConfigProvider agentConfigProvider;
 
     private MultiAgentGraphAgent agent;
 
@@ -454,6 +458,96 @@ class MultiAgentGraphAgentTest {
         verify(agentService, atLeastOnce()).getAgentConfig("wms");
         verify(clientRegistry).get(203L);
         assertEquals(List.of("查库存"), wmsUsers, "wms 子任务应落到 wms 客户端且 user 文本为 desc: " + wmsUsers);
+    }
+
+    /* ---------------- 子任务工具包挂载（toolPacks：包工具并入工具面 + 包纪律段拼入 user） ---------------- */
+
+    /** 带 toolDefinition 名字的 mock 回调（与 ToolAssignmentsTest 同法，验证包工具并入请求工具面） */
+    private static ToolCallback namedCallback(String name) {
+        ToolCallback cb = mock(ToolCallback.class);
+        lenient().when(cb.getToolDefinition()).thenReturn(
+                org.springframework.ai.tool.definition.ToolDefinition.builder()
+                        .name(name).description("pack tool").inputSchema("{}").build());
+        return cb;
+    }
+
+    /** 全参构造便捷入口：单测只关注工具包挂载（agentConfigProvider），其余依赖沿用既有用例的最小桩（均可 null） */
+    private MultiAgentGraphAgent agentWithPackProvider(AgentConfigProvider provider) {
+        return new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, null, null, null, null, null, null, null, null, provider);
+    }
+
+    /**
+     * 声明 wms 包 → general 模板执行时：包工具并入请求工具面（spec.toolCallbacks 含包回调），
+     * 包纪律段以【领域规范·wms】标题拼在 brief 之后。
+     */
+    @Test
+    void execute_toolPackDeclared_packToolsMergedAndDisciplineAppendedAfterBrief() {
+        String leadJson = "{\"subtasks\":[{\"desc\":\"查库存\",\"agent\":\"general\",\"brief\":\"盘点任务书\","
+                + "\"toolPacks\":[\"wms\"]}]}";
+        stubChat(leadJson);
+        ToolCallback packTool = namedCallback("wms_stock_query");
+        when(agentConfigProvider.findToolPack("wms")).thenReturn(java.util.Optional.of(
+                new AgentConfigProvider.ToolPackDef(List.of("wms_stock_query"), "先查后写，差异必须复盘")));
+        when(toolAssignments.forNames("toolPack", "wms_stock_query"))
+                .thenReturn(new ToolAssignments.ToolSet(List.of(), List.of(packTool)));
+        when(requestSpec.toolCallbacks(org.mockito.ArgumentMatchers.any(ToolCallback[].class)))
+                .thenReturn(requestSpec);
+        agent = agentWithPackProvider(agentConfigProvider);
+
+        String reply = agent.execute(new Goal("gpk1", "查库存并核对差异"));
+
+        assertNotNull(reply);
+        assertFalse(reply.isBlank(), "挂包后编排应照常产出最终回答");
+        // 纪律段拼在 brief 之后（【领域规范·wms】标题 + 包 prompt 原文）
+        org.mockito.ArgumentCaptor<String> userCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(requestSpec, atLeastOnce()).user(userCaptor.capture());
+        String expectedUser = "盘点任务书\n\n【领域规范·wms】\n先查后写，差异必须复盘";
+        assertTrue(userCaptor.getAllValues().contains(expectedUser),
+                "子任务 user 文本应为 brief + 纪律段: " + userCaptor.getAllValues());
+        // 包工具并入请求工具面（general 模板自身工具为空 → toolCallbacks 仅含包回调）
+        org.mockito.ArgumentCaptor<ToolCallback[]> toolsCaptor =
+                org.mockito.ArgumentCaptor.forClass(ToolCallback[].class);
+        verify(requestSpec, org.mockito.Mockito.times(1)).toolCallbacks(toolsCaptor.capture());
+        ToolCallback[] injected = toolsCaptor.getAllValues().get(0);
+        assertEquals(1, injected.length, "包工具应并入请求工具面");
+        assertEquals("wms_stock_query", injected[0].getToolDefinition().name());
+        // 包工具经 forNames（名单 CSV）解析
+        verify(toolAssignments, atLeastOnce()).forNames("toolPack", "wms_stock_query");
+    }
+
+    /** 无 toolPacks（旧格式/缺字段）→ 行为与第一阶段完全一致：包解析零触发（回归） */
+    @Test
+    void execute_noToolPacks_behaviourUnchangedForNamesNeverCalled() {
+        stubChat(fixedContent());
+        agent = agentWithPackProvider(agentConfigProvider);
+
+        String reply = agent.execute(new Goal("gpk2", "调研竞品并输出报告"));
+
+        assertEquals(fixedContent(), reply);
+        // 无包声明：包定义不查、包工具不解析（状态键写空串，读侧归一化为无包——旧 checkpoint 缺键同口径）
+        verify(agentConfigProvider, never()).findToolPack(anyString());
+        verify(toolAssignments, never()).forNames(anyString(), anyString());
+    }
+
+    /** 无效包名（无该行/is_internal=1/tools 空白）→ 静默跳过不阻断：编排正常完成、无包工具并入 */
+    @Test
+    void execute_invalidPackName_skippedSilently() {
+        String leadJson = "{\"subtasks\":[{\"desc\":\"查库存\",\"agent\":\"general\","
+                + "\"toolPacks\":[\"no-such-pack\"]}]}";
+        stubChat(leadJson);
+        when(agentConfigProvider.findToolPack("no-such-pack")).thenReturn(java.util.Optional.empty());
+        agent = agentWithPackProvider(agentConfigProvider);
+
+        String reply = agent.execute(new Goal("gpk3", "查库存并核对差异"));
+
+        assertEquals(leadJson, reply, "无效包名应静默跳过、不阻断子任务执行");
+        // 包无效 → extraToolNames 为空 → 不触发包工具解析，user 文本无纪律段
+        verify(toolAssignments, never()).forNames(anyString(), anyString());
+        org.mockito.ArgumentCaptor<String> userCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(requestSpec, atLeastOnce()).user(userCaptor.capture());
+        assertTrue(userCaptor.getAllValues().contains("查库存"),
+                "子任务 user 文本应退化为 desc（无纪律段）: " + userCaptor.getAllValues());
     }
 
     /* ---------------- 静态 prompt 预算（PromptBudgetAdvisor 挂载） ---------------- */
@@ -848,6 +942,141 @@ class MultiAgentGraphAgentTest {
         String aggPrompt = userCaptor.getAllValues().get(userCaptor.getAllValues().size() - 1);
         assertFalse(aggPrompt.contains("预算降级说明"),
                 "未超限时聚合 prompt 不得含降级说明: " + aggPrompt);
+    }
+
+    /* ---------------- 拆解子任务数量上限（subtask-max-count 配置化） ---------------- */
+
+    /** 配置 2 且 lead 返回 3 条 → 仅前 2 条落槽位执行（lead 1 + 子任务 2 + 聚合 1 = 4 次 stream） */
+    @Test
+    void execute_subtaskMaxCount2_truncatesLeadItemsToTwoSlots() {
+        String leadJson = "{\"subtasks\":[\"任务一\",\"任务二\",\"任务三\"]}";
+        stubChat(leadJson);
+        com.dark.javaHarness.config.ContextBudgetProperties budgets =
+                new com.dark.javaHarness.config.ContextBudgetProperties();
+        budgets.setSubtaskMaxCount(2);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, budgets);
+
+        String reply = agent.execute(new Goal("gmc1", "调研竞品并输出报告"));
+
+        assertEquals(leadJson, reply);
+        // 只截断到 2 条：lead(1) + 已布置的 2 个子任务 + 聚合(1) = 4 次（第 3 条未布置零调用）
+        verify(requestSpec, org.mockito.Mockito.times(4)).stream();
+        org.mockito.ArgumentCaptor<String> userCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(requestSpec, atLeastOnce()).user(userCaptor.capture());
+        java.util.List<String> users = userCaptor.getAllValues();
+        assertTrue(users.contains("任务一") && users.contains("任务二"),
+                "前 2 条子任务应落槽位执行: " + users);
+        assertFalse(users.contains("任务三"), "第 3 条子任务应被上限截断（零执行）: " + users);
+    }
+
+    /** 配置 0（缺省）→ 回退兜底 4：lead 返回 4 条 → 4 条全部执行（6 次 stream，现状回归） */
+    @Test
+    void execute_subtaskMaxCountZero_fallsBackToFour() {
+        String leadJson = "{\"subtasks\":[\"任务一\",\"任务二\",\"任务三\",\"任务四\"]}";
+        stubChat(leadJson);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, new com.dark.javaHarness.config.ContextBudgetProperties());
+
+        String reply = agent.execute(new Goal("gmc2", "调研竞品并输出报告"));
+
+        assertEquals(leadJson, reply);
+        // 缺省 0 → 兜底 4：lead(1) + 4 子任务 + 聚合(1) = 6 次
+        verify(requestSpec, org.mockito.Mockito.times(6)).stream();
+    }
+
+    /** 配置 8（超界）→ clamp 回兜底 4：lead 返回 5 条 → 仅 4 条执行（6 次 stream） */
+    @Test
+    void execute_subtaskMaxCountOverBound_clampsToFour() {
+        String leadJson = "{\"subtasks\":[\"任务一\",\"任务二\",\"任务三\",\"任务四\",\"任务五\"]}";
+        stubChat(leadJson);
+        com.dark.javaHarness.config.ContextBudgetProperties budgets =
+                new com.dark.javaHarness.config.ContextBudgetProperties();
+        budgets.setSubtaskMaxCount(8);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, budgets);
+
+        String reply = agent.execute(new Goal("gmc3", "调研竞品并输出报告"));
+
+        assertEquals(leadJson, reply);
+        // 超界 8 → clamp 4：前 4 条执行（lead 1 + 4 + 聚合 1 = 6 次），第 5 条未布置零调用
+        verify(requestSpec, org.mockito.Mockito.times(6)).stream();
+        org.mockito.ArgumentCaptor<String> userCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(requestSpec, atLeastOnce()).user(userCaptor.capture());
+        assertFalse(userCaptor.getAllValues().contains("任务五"),
+                "第 5 条子任务应被 clamp 到 4 截断（零执行）: " + userCaptor.getAllValues());
+    }
+
+    /* ---------------- 子任务墙钟超时（subtask-wall-clock-seconds） ---------------- */
+
+    /** 延迟发 token 的流（模拟专家调用人为拖慢）：首个 token 在延迟后才到达 */
+    private static Flux<ChatResponse> delayedFluxOf(long delayMillis, String... tokens) {
+        return Flux.defer(() -> {
+            try {
+                Thread.sleep(delayMillis);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return fluxOf(tokens);
+        });
+    }
+
+    /**
+     * 超时命中（wall-clock=1s，子任务人为拖慢 2s）：caller 在 token 边界中止 → 节点写
+     * 「子任务执行超时」占位 → 聚合 prompt 前置超时说明（与预算降级互不掺混），编排正常终态。
+     */
+    @Test
+    void execute_subtaskWallClockTimeout_writesPlaceholderAndAggregatorNotes() {
+        String leadJson = "{\"subtasks\":[\"任务一\",\"任务二\"]}";
+        when(clientRegistry.get(any())).thenReturn(chatClient);
+        when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(anyString())).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        when(requestSpec.stream()).thenReturn(streamSpec);
+        // 调用序列（限并发=1 串行确定）：lead(立即) → 子任务A(拖 2s，超时) → 子任务B(拖 2s，超时) → 聚合(立即)
+        when(streamSpec.chatResponse()).thenReturn(
+                fluxOf(leadJson),
+                delayedFluxOf(2000, "子任务结果"),
+                delayedFluxOf(2000, "子任务结果"),
+                fluxOf("最终回答"));
+        com.dark.javaHarness.config.ContextBudgetProperties budgets =
+                new com.dark.javaHarness.config.ContextBudgetProperties();
+        budgets.setSubtaskWallClockSeconds(1);
+        budgets.setSubtaskConcurrency(1);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, budgets);
+
+        String reply = agent.execute(new Goal("gtw1", "调研竞品并输出报告"));
+
+        assertEquals("最终回答", reply, "超时占位后聚合应照常执行并产出最终回答");
+        // 聚合 prompt 前置超时说明：2 个子任务超时未执行，且不得混入预算降级文案
+        org.mockito.ArgumentCaptor<String> userCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(requestSpec, atLeastOnce()).user(userCaptor.capture());
+        String aggPrompt = userCaptor.getAllValues().get(userCaptor.getAllValues().size() - 1);
+        assertTrue(aggPrompt.contains("【超时说明】"), "聚合 prompt 应前置超时说明: " + aggPrompt);
+        assertTrue(aggPrompt.contains("2 个子任务执行超时"),
+                "超时说明应含超时子任务数: " + aggPrompt);
+        assertFalse(aggPrompt.contains("预算降级说明"),
+                "超时路径不得混入预算降级文案: " + aggPrompt);
+    }
+
+    /** wall-clock=0（缺省）→ 不限制：不包装取消供给，行为与现状完全一致（回归） */
+    @Test
+    void execute_wallClockZero_unlimited_normalCompletion() {
+        stubChat(fixedContent());
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, new com.dark.javaHarness.config.ContextBudgetProperties());
+
+        String reply = agent.execute(new Goal("gtw2", "调研竞品并输出报告"));
+
+        assertEquals(fixedContent(), reply);
+        // lead(1) + 2 子任务 + 聚合(1) = 4 次全部正常执行
+        verify(requestSpec, org.mockito.Mockito.times(4)).stream();
     }
 
     /** 流式路径熔断：行为与同步路径一致，聚合 token 旁路照常推流收尾 */

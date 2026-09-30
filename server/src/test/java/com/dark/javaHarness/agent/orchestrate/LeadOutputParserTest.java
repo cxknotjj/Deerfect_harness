@@ -9,9 +9,10 @@ import org.junit.jupiter.api.Test;
 
 /**
  * LeadOutputParser 纯静态单测（无 Spring/Mockito）：lead 拆解产物新旧格式解析——
- * 新格式三字段（desc/agent/brief，brief 可选且空白归一化为 null）、旧格式对象
- * （brief=null）与纯字符串数组（agent=null、brief=null）、非法/空输入回退空表、
- * 专家名白名单归一化（wms 不回退、白名单外与空白回退 null）。
+ * 新格式四字段（desc/agent/brief/toolPacks，brief/toolPacks 可选且分别归一化）、旧格式对象
+ * （brief=null、packs=空名单）与纯字符串数组（agent=null、brief=null、packs=空名单）、
+ * 非法/空输入回退空表、专家名白名单归一化（wms 不回退、白名单外与空白回退 null）、
+ * toolPacks 数组逐项 trim/去空白项/保序、缺省与非数组归一化为空名单。
  */
 class LeadOutputParserTest {
 
@@ -128,5 +129,49 @@ class LeadOutputParserTest {
         assertEquals(2, subtasks.size());
         assertNull(subtasks.get(0).agent(), "空白 agent 应归一化为 null");
         assertNull(subtasks.get(1).agent(), "缺 agent 字段应为 null");
+    }
+
+    /* ---------------- toolPacks 工具包名单解析 ---------------- */
+
+    /** toolPacks 数组解析：逐项 trim、丢弃空白项、保持声明顺序 */
+    @Test
+    void parse_toolPacks_trimmedBlankDroppedOrderKept() {
+        String content = "{\"subtasks\":[{\"desc\":\"查库存\",\"agent\":\"general\","
+                + "\"toolPacks\":[\" wms \",\"\",\"  \",\"erp\"]}]}";
+
+        List<LeadOutputParser.Subtask> subtasks = LeadOutputParser.parseSubtasks(content);
+
+        assertEquals(1, subtasks.size());
+        assertEquals(List.of("wms", "erp"), subtasks.get(0).packs(),
+                "空白项丢弃、首尾空白 trim、声明顺序保持");
+    }
+
+    /** toolPacks 缺省/非数组 → 空名单（不可变） */
+    @Test
+    void parse_toolPacksMissingOrNonArray_emptyList() {
+        String missing = "{\"subtasks\":[{\"desc\":\"查库存\",\"agent\":\"general\"}]}";
+        String nonArray = "{\"subtasks\":[{\"desc\":\"查库存\",\"agent\":\"general\",\"toolPacks\":\"wms\"}]}";
+
+        List<LeadOutputParser.Subtask> fromMissing = LeadOutputParser.parseSubtasks(missing);
+        List<LeadOutputParser.Subtask> fromNonArray = LeadOutputParser.parseSubtasks(nonArray);
+
+        assertEquals(List.of(), fromMissing.get(0).packs(), "缺 toolPacks 字段应归一化为空名单");
+        assertEquals(List.of(), fromNonArray.get(0).packs(), "toolPacks 非数组应归一化为空名单");
+    }
+
+    /** 旧格式兼容不变：旧格式对象与纯字符串数组的 packs 均为空名单，desc/agent/brief 解析不受影响 */
+    @Test
+    void parse_legacyFormats_packsEmptyUnchanged() {
+        String legacyObject = "{\"subtasks\":[{\"desc\":\"调研竞品\",\"agent\":\"researcher\"}]}";
+        String legacyStringArray = "{\"subtasks\":[\"调研 X\"]}";
+
+        List<LeadOutputParser.Subtask> fromObject = LeadOutputParser.parseSubtasks(legacyObject);
+        List<LeadOutputParser.Subtask> fromStrings = LeadOutputParser.parseSubtasks(legacyStringArray);
+
+        assertEquals("researcher", fromObject.get(0).agent());
+        assertNull(fromObject.get(0).brief());
+        assertEquals(List.of(), fromObject.get(0).packs(), "旧格式对象 packs 应为空名单");
+        assertEquals("调研 X", fromStrings.get(0).desc());
+        assertEquals(List.of(), fromStrings.get(0).packs(), "旧格式纯字符串 packs 应为空名单");
     }
 }

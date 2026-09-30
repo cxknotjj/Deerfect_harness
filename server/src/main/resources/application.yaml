@@ -87,6 +87,11 @@ app:
     subtask-brief-max-chars: 2000
                               # 子任务任务书（brief）字符上限：lead 出口写入状态前截断（超限 warn 单行）；
                               # 0 = 不限制
+    subtask-max-count: 4      # lead 拆解子任务数量上限：可下调 1~4（生效值 clamp 到 [1,4] 区间），
+                              # 0/超界回退内置兜底 4——拆解数量无「不限制」安全语义（防 lead 滚雪球）
+    subtask-wall-clock-seconds: 600
+                              # 编排子任务单执行墙钟上限（秒）：deadline 包装取消令牌，超时在 token
+                              # 边界中止在途调用、写占位结果，聚合 prompt 注入超时说明；0 = 不限制
   # 聊天并发与超时（过载保护）：
   chat:
     # 流式连接数上限：/api/chat/stream 与 /api/chat/resume 的活跃 SSE 流计数（超限 429）；
