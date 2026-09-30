@@ -106,6 +106,22 @@ class MultiAgentGraphAgentTest {
         return c;
     }
 
+    /** 捕获型专家客户端：独立 stub 且记录每次 user 文本，供断言专家实际收到的输入（brief/desc 口径） */
+    private ChatClient newCapturingClient(String content, java.util.List<String> userTexts) {
+        ChatClient c = mock(ChatClient.class);
+        ChatClientRequestSpec rs = mock(ChatClientRequestSpec.class);
+        StreamResponseSpec ss = mock(StreamResponseSpec.class);
+        when(c.prompt()).thenReturn(rs);
+        when(rs.system(anyString())).thenReturn(rs);
+        when(rs.user(anyString())).thenAnswer(inv -> {
+            userTexts.add(inv.getArgument(0, String.class));
+            return rs;
+        });
+        when(rs.stream()).thenReturn(ss);
+        when(ss.chatResponse()).thenReturn(fluxOf(content));
+        return c;
+    }
+
     @Test
     void execute_shouldBuildGraphAndReturnFinalAnswer() {
         stubChat(fixedContent());
@@ -319,6 +335,125 @@ class MultiAgentGraphAgentTest {
             assertTrue(o.getStreamUsage(), "streamUsage 统计应随每次调用开启");
             assertNull(o.getModel(), "无配置时不得设置模型名（走客户端默认）");
         });
+    }
+
+    /* ---------------- 动态子 Agent：模板 × 任务书（brief 注入 / 截断 / wms 白名单） ---------------- */
+
+    /**
+     * brief 注入执行：lead 新格式返回带自包含任务书的子任务 →
+     * researcher 专家客户端收到的 user 文本为 brief 全文（而非 desc）。
+     */
+    @Test
+    void execute_briefPresent_subtaskUserTextIsBriefNotDesc() {
+        String brief = "目标：对比定价\n背景：竞品 A/B/C\n约束：只看国内市场\n交付物：报告";
+        String leadJson = "{\"subtasks\":[{\"desc\":\"调研竞品定价\",\"agent\":\"researcher\","
+                + "\"brief\":\"目标：对比定价\\n背景：竞品 A/B/C\\n约束：只看国内市场\\n交付物：报告\"}]}";
+        stubChat(leadJson); // 默认客户端：lead + 聚合（get(any()) 兜底）
+        when(agentService.getAgentConfig(eq("researcher")))
+                .thenReturn(java.util.Optional.of(new com.dark.javaHarness.domain.AgentConfig(201L, "qwen-plus", "调研提示词", null)));
+        java.util.List<String> researcherUsers = new java.util.ArrayList<>();
+        ChatClient researcherClient = newCapturingClient("调研结果", researcherUsers);
+        when(clientRegistry.get(eq(201L))).thenReturn(researcherClient);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+
+        String reply = agent.execute(new Goal("gbr1", "调研竞品定价策略"));
+
+        assertNotNull(reply);
+        assertFalse(reply.isBlank(), "带 brief 的子任务执行后仍应产出聚合最终回答");
+        assertEquals(List.of(brief), researcherUsers, "子任务 user 文本应为 brief 全文（而非 desc）: " + researcherUsers);
+    }
+
+    /** 旧格式回归：lead 返回不含 brief 的旧格式 → 子任务 user 文本为 desc，行为与现状一致 */
+    @Test
+    void execute_legacyFormatWithoutBrief_subtaskUserTextIsDesc() {
+        String leadJson = "{\"subtasks\":[{\"desc\":\"调研竞品\",\"agent\":\"researcher\"},{\"desc\":\"撰写摘要\"}]}";
+        stubChat(leadJson);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+
+        String reply = agent.execute(new Goal("gbr2", "调研竞品并撰写摘要"));
+
+        assertNotNull(reply);
+        // lead 的 user 文本带「拆解目标：」前缀、聚合为长 prompt，均不与 desc 全等——
+        // 精确匹配命中即为子任务节点的 user 文本
+        org.mockito.ArgumentCaptor<String> userCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(requestSpec, atLeastOnce()).user(userCaptor.capture());
+        java.util.List<String> users = userCaptor.getAllValues();
+        assertTrue(users.contains("调研竞品"), "子任务 user 文本应为 desc: " + users);
+        assertTrue(users.contains("撰写摘要"), "子任务 user 文本应为 desc: " + users);
+    }
+
+    /** brief 超限截断：subtask-brief-max-chars=10 → 子任务 user 文本为前 10 字符 */
+    @Test
+    void execute_briefExceedsMaxChars_truncatedToLimit() {
+        String brief = "目标：对比定价策略，输出完整报告";
+        String leadJson = "{\"subtasks\":[{\"desc\":\"调研竞品定价\",\"agent\":\"researcher\","
+                + "\"brief\":\"目标：对比定价策略，输出完整报告\"}]}";
+        stubChat(leadJson);
+        when(agentService.getAgentConfig(eq("researcher")))
+                .thenReturn(java.util.Optional.of(new com.dark.javaHarness.domain.AgentConfig(202L, "qwen-plus", "调研提示词", null)));
+        java.util.List<String> researcherUsers = new java.util.ArrayList<>();
+        ChatClient researcherClient = newCapturingClient("调研结果", researcherUsers);
+        when(clientRegistry.get(eq(202L))).thenReturn(researcherClient);
+        com.dark.javaHarness.config.ContextBudgetProperties budgets =
+                new com.dark.javaHarness.config.ContextBudgetProperties();
+        budgets.setSubtaskBriefMaxChars(10);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, budgets);
+
+        String reply = agent.execute(new Goal("gbr3", "调研竞品定价策略"));
+
+        assertNotNull(reply);
+        assertEquals(List.of(brief.substring(0, 10)),
+                researcherUsers, "超限 brief 应截断为前 10 字符后下发: " + researcherUsers);
+    }
+
+    /** brief 上限=0（不限制）→ 全文透传不截断 */
+    @Test
+    void execute_briefMaxCharsZero_fullBriefPassthrough() {
+        String brief = "目标：对比定价策略，输出完整报告";
+        String leadJson = "{\"subtasks\":[{\"desc\":\"调研竞品定价\",\"agent\":\"researcher\","
+                + "\"brief\":\"目标：对比定价策略，输出完整报告\"}]}";
+        stubChat(leadJson);
+        when(agentService.getAgentConfig(eq("researcher")))
+                .thenReturn(java.util.Optional.of(new com.dark.javaHarness.domain.AgentConfig(204L, "qwen-plus", "调研提示词", null)));
+        java.util.List<String> researcherUsers = new java.util.ArrayList<>();
+        ChatClient researcherClient = newCapturingClient("调研结果", researcherUsers);
+        when(clientRegistry.get(eq(204L))).thenReturn(researcherClient);
+        com.dark.javaHarness.config.ContextBudgetProperties budgets =
+                new com.dark.javaHarness.config.ContextBudgetProperties();
+        budgets.setSubtaskBriefMaxChars(0);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, budgets);
+
+        String reply = agent.execute(new Goal("gbr5", "调研竞品定价策略"));
+
+        assertNotNull(reply);
+        assertEquals(List.of(brief), researcherUsers, "上限 0 = 不限制，brief 应全文透传: " + researcherUsers);
+    }
+
+    /**
+     * wms 指派（白名单领域模板）不回退：lead 指派 agent=wms → 按专家名查 wms 配置并取
+     * 其对应客户端执行（无 brief → user 文本回退 desc）。
+     */
+    @Test
+    void execute_wmsAgent_dispatchedToWmsClient() {
+        String leadJson = "{\"subtasks\":[{\"desc\":\"查库存\",\"agent\":\"wms\"}]}";
+        stubChat(leadJson); // 默认客户端：lead + 聚合（get(any()) 兜底）
+        when(agentService.getAgentConfig(eq("wms")))
+                .thenReturn(java.util.Optional.of(new com.dark.javaHarness.domain.AgentConfig(203L, "wms-model", "wms提示词", null)));
+        java.util.List<String> wmsUsers = new java.util.ArrayList<>();
+        ChatClient wmsClient = newCapturingClient("库存结果", wmsUsers);
+        when(clientRegistry.get(eq(203L))).thenReturn(wmsClient);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+
+        String reply = agent.execute(new Goal("gbr4", "查库存并核对差异"));
+
+        assertNotNull(reply);
+        // 子任务按指派查询 wms 配置并取其部署模型对应客户端
+        verify(agentService, atLeastOnce()).getAgentConfig("wms");
+        verify(clientRegistry).get(203L);
+        assertEquals(List.of("查库存"), wmsUsers, "wms 子任务应落到 wms 客户端且 user 文本为 desc: " + wmsUsers);
     }
 
     /* ---------------- 静态 prompt 预算（PromptBudgetAdvisor 挂载） ---------------- */

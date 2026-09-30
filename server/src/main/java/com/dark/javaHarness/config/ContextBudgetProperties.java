@@ -52,6 +52,9 @@ public class ContextBudgetProperties {
      */
     private int subtaskConcurrency;
 
+    /** 编排子任务任务书（brief）字符数上限，lead 出口写入状态前截断；0 = 不限制 */
+    private int subtaskBriefMaxChars;
+
     public int getHistoryBudget() {
         return historyBudget;
     }
@@ -130,5 +133,13 @@ public class ContextBudgetProperties {
 
     public void setSubtaskConcurrency(int subtaskConcurrency) {
         this.subtaskConcurrency = subtaskConcurrency;
+    }
+
+    public int getSubtaskBriefMaxChars() {
+        return subtaskBriefMaxChars;
+    }
+
+    public void setSubtaskBriefMaxChars(int subtaskBriefMaxChars) {
+        this.subtaskBriefMaxChars = subtaskBriefMaxChars;
     }
 }

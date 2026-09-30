@@ -31,4 +31,7 @@ public final class AgentConstants {
 
     /** 汇总撰写专家。 */
     public static final String EXPERT_WRITER = "writer";
+
+    /** 领域模板：仓储专员（wms_* MCP 工具，见 V25/V26 迁移）。 */
+    public static final String EXPERT_WMS = "wms";
 }

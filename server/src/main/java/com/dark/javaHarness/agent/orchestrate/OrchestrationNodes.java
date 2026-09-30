@@ -75,7 +75,7 @@ final class OrchestrationNodes {
 
     /**
      * lead：把 objective 拆解为 N 条子任务（可带专家指派），
-     * 写 subtask_0..n-1、subtaskAgent_0..n-1 与 subtaskCount。
+     * 写 subtask_0..n-1、subtaskAgent_0..n-1、subtaskBrief_0..n-1 与 subtaskCount。
      * 消耗经门控账本句柄按 roundtrip 增量记账（lead 是编排首调用，发起前账本为 0 不会熔断；
      * 极小预算下 usage 帧中途熔断时降级为「拆解失败」——退化为单子任务，交由后续熔断跳过，
      * 聚合注入降级说明）。lead 自身消耗计入账本供后续判定。
@@ -105,7 +105,7 @@ final class OrchestrationNodes {
         List<LeadOutputParser.Subtask> items = LeadOutputParser.parseSubtasks(content);
         if (items.isEmpty()) {
             // 拆解失败：退化为单个子任务=objective
-            items.add(new LeadOutputParser.Subtask(objective, null));
+            items.add(new LeadOutputParser.Subtask(objective, null, null));
         }
         Map<String, Object> updates = new HashMap<>();
         int n = Math.min(items.size(), MultiAgentGraphAgent.MAX_SUBTASKS);
@@ -115,6 +115,9 @@ final class OrchestrationNodes {
             LeadOutputParser.Subtask item = items.get(i);
             updates.put(MultiAgentGraphAgent.K_SUBTASK_PREFIX + i, item.desc());
             updates.put(MultiAgentGraphAgent.K_SUBTASK_AGENT_PREFIX + i, item.agent());
+            // 任务书随槽位落状态，截断在 lead 出口完成（写入即定稿）；旧 checkpoint 缺键 orElse(null) 安全。
+            // brief 长文本不参与 RAG 预取（下方预取 query 仍为 desc），只作子任务执行的 user 文本
+            updates.put(MultiAgentGraphAgent.K_SUBTASK_BRIEF_PREFIX + i, truncateBrief(item.brief()));
         }
         log.info("[multi-agent][lead] 拆解为 {} 个子任务，指派：{}", n,
                 items.subList(0, n).stream().map(LeadOutputParser.Subtask::agent).toList());
@@ -138,8 +141,24 @@ final class OrchestrationNodes {
     }
 
     /**
-     * 子任务节点：读 subtask_i 与指派的 subtaskAgent_i，若存在则调用对应专家 ChatClient 生成 result_i。
-     * 熔断下沉到 caller（方向 b）：门控账本句柄在调用发起前（零 HTTP）与每轮 roundtrip 的
+     * 任务书截断：超上限（app.context.subtask-brief-max-chars，0=不限制）时前 N 字符截断，
+     * warn 单行含前后长度。brief 长文本不参与 RAG 预取（预取 query=desc 口径不变），只作子任务 user 文本。
+     */
+    private String truncateBrief(String brief) {
+        if (brief == null) {
+            return null;
+        }
+        int max = budgets.getSubtaskBriefMaxChars();
+        if (max <= 0 || brief.length() <= max) {
+            return brief;
+        }
+        log.warn("[multi-agent][lead] 任务书超限截断：{} -> {} 字符", brief.length(), max);
+        return brief.substring(0, max);
+    }
+
+    /**
+     * 子任务节点：读 subtask_i、指派的 subtaskAgent_i 与任务书 subtaskBrief_i，若存在则调用对应专家
+     * ChatClient 生成 result_i。熔断下沉到 caller（方向 b）：门控账本句柄在调用发起前（零 HTTP）与每轮 roundtrip 的
      * usage 帧上检查，超限抛 {@link BudgetLedger.BudgetExceededException}——节点捕获后
      * result 写「预算超限跳过」占位，聚合据此注入降级说明。并行扇出下共享账本让后序调用
      * 及时看到前序消耗，配合 subtask-concurrency 错峰使「部分跳过」成为常态而非偶发。
@@ -156,6 +175,8 @@ final class OrchestrationNodes {
             return new HashMap<>();
         }
         String expert = state.value(MultiAgentGraphAgent.K_SUBTASK_AGENT_PREFIX + idx, String.class).orElse(null);
+        // 任务书读出：旧 checkpoint 缺键 → null（执行退化为 task/desc，口径见 predictSubtask）
+        String brief = state.value(MultiAgentGraphAgent.K_SUBTASK_BRIEF_PREFIX + idx, String.class).orElse(null);
         String sessionId = state.value(MultiAgentGraphAgent.K_SESSION_ID, String.class).orElse(null);
         // 子任务入口 RAG 预取补提交（fire-and-forget）：主提交点已上移 lead 出口（排队空档消化
         // 检索延迟，spec 3.6），本钩子保留覆盖断点续跑（lead 不重跑、直接进入 subtask 节点）场景；
@@ -176,7 +197,7 @@ final class OrchestrationNodes {
                 state.value(MultiAgentGraphAgent.K_LEAD_SPAN, String.class).orElse(null), null);
         String result;
         try {
-            result = predictSubtask(sessionId, task, expert, toolEmitter, cancelled,
+            result = predictSubtask(sessionId, task, brief, expert, toolEmitter, cancelled,
                     orchestrationBudget.ledgerHandle(state, true), trace);
         } catch (BudgetLedger.BudgetExceededException e) {
             log.warn("[multi-agent][subtask-{}] 编排 token 消费已达上限（{} / {}），跳过专家调用",
@@ -285,8 +306,10 @@ final class OrchestrationNodes {
      * 子任务执行：按指派专家查配置调用（cancelled 传节点共享断连标志，同步路径为 null——
      * 执行中置位时在途调用随令牌中止，不再烧完剩余 token）。budgetLedger 门控账本句柄：
      * caller 发起前与每轮 roundtrip 熔断判定 + 按 roundtrip 增量记账（可 null）。
+     * user 文本口径：任务书 brief 非空 ? brief : task——brief 为自包含任务书（目标/背景/
+     * 约束/交付物）时优先，旧格式/未提供时退化为 desc（task），对旧产物完全兼容。
      */
-    private String predictSubtask(String sessionId, String task, String expert,
+    private String predictSubtask(String sessionId, String task, String brief, String expert,
                                   java.util.function.Consumer<String> toolEmitter,
                                   AtomicBoolean cancelled,
                                   BudgetLedger budgetLedger, CallTrace trace) {
@@ -295,7 +318,8 @@ final class OrchestrationNodes {
         // 专家 persona 与工具使用纪律经 PromptAssembler 统一组装（原硬编码拼接已删除）：
         // persona 作角色段兜底传入，工具索引/工具纪律/输出约定等段由调用器组装时追加
         String persona = promptAssembler.subtaskPersona(resolved);
-        return chatCaller.call(sessionId, resolved, persona, task, toolEmitter,
+        String user = (brief != null && !brief.isBlank()) ? brief : task;
+        return chatCaller.call(sessionId, resolved, persona, user, toolEmitter,
                 new PromptBudgetAdvisor[0], cancelled == null ? null : cancelled::get, budgetLedger, trace);
     }
 

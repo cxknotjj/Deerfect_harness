@@ -43,7 +43,7 @@ import reactor.core.publisher.Sinks;
  * 每个阶段都是一次独立的 ChatClient 单次调用（复用 {@link ChatClientRegistry} 的客户端），
  * 配置（模型 + 提示词）均取自 agent 表对应角色行：
  * - lead 节点：查 {@code lead} 行（无则内置兜底），把复杂目标拆成至多 {@link #MAX_SUBTASKS} 条子任务
- *   （{@link LeadOutputParser} 解析），并为每条子任务指派专家（researcher/coder/analyst/writer/general，
+ *   （{@link LeadOutputParser} 解析），并为每条子任务指派专家（researcher/coder/analyst/writer/wms/general，
  *   白名单校验，非法回退）
  * - subtask-i 节点：并行执行，按指派的专家名查 agent 表配置取对应 ChatClient 产出该子任务结果
  * - aggregate 节点：查 {@code aggregator} 行（无则内置兜底），收集各子任务结果汇总成最终回答
@@ -82,6 +82,8 @@ public class MultiAgentGraphAgent implements Agent {
     static final String K_SUBTASK_COUNT = "subtaskCount";
     static final String K_SUBTASK_PREFIX = "subtask_";
     static final String K_SUBTASK_AGENT_PREFIX = "subtaskAgent_";
+    /** 任务书键：lead 出口写入（已按预算截断），subtask 节点读出作 user 文本；旧 checkpoint 缺键 orElse(null) 安全 */
+    static final String K_SUBTASK_BRIEF_PREFIX = "subtaskBrief_";
     static final String K_RESULT_PREFIX = "result_";
     static final String K_FINAL = "final";
 
@@ -435,6 +437,8 @@ public class MultiAgentGraphAgent implements Agent {
         for (int i = 0; i < MAX_SUBTASKS; i++) {
             strategies.put(K_SUBTASK_PREFIX + i, replace);
             strategies.put(K_SUBTASK_AGENT_PREFIX + i, replace);
+            // 任务书随槽位落状态：旧 checkpoint 缺键时 orElse(null) 安全（执行退化为 desc）
+            strategies.put(K_SUBTASK_BRIEF_PREFIX + i, replace);
             strategies.put(K_RESULT_PREFIX + i, replace);
         }
         return strategies;

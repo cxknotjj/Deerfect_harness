@@ -10,33 +10,42 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * lead 拆解产物解析（纯静态）：解析 lead 模型返回的 JSON 子任务列表，
- * 兼容新旧两种格式，专家名按白名单归一化。不感知编排图与 LLM 调用。
+ * lead 拆解产物解析（纯静态）：解析 lead 模型返回的 JSON 子任务列表，兼容新旧格式
+ * （brief 任务书可选），专家名按白名单归一化。不感知编排图与 LLM 调用。
  */
 final class LeadOutputParser {
 
     private static final Logger log = LoggerFactory.getLogger(LeadOutputParser.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-    /** lead 拆解可指派的专家白名单：不在名单中的 agent 名一律回退默认（general 语义） */
+    /**
+     * lead 拆解可指派的专家白名单（wms 为领域模板，对应 V26 lead prompt 的可选专家清单）：
+     * 不在名单中的 agent 名一律回退默认（general 语义）
+     */
     private static final Set<String> EXPERT_WHITELIST = Set.of(
             AgentConstants.EXPERT_RESEARCHER,
             AgentConstants.EXPERT_CODER,
             AgentConstants.EXPERT_ANALYST,
             AgentConstants.EXPERT_WRITER,
+            AgentConstants.EXPERT_WMS,
             AgentConstants.DEFAULT_AGENT);
 
-    /** lead 拆解产物：子任务描述 + 指派专家（agent 可为 null = 未指派，执行时回退默认） */
-    record Subtask(String desc, String agent) {
+    /**
+     * lead 拆解产物：子任务描述 + 指派专家 + 自包含任务书。
+     * agent 可为 null = 未指派，执行时回退默认；
+     * brief 为自包含任务书（目标/背景/约束/交付物），可为 null = 未提供（执行退化为 desc）。
+     */
+    record Subtask(String desc, String agent, String brief) {
     }
 
     private LeadOutputParser() {
     }
 
     /**
-     * 解析 lead 拆解返回的 JSON 子任务列表；非法返回空表。
-     * 兼容两种格式：新格式 {@code {"subtasks":[{"desc":"..","agent":"researcher"}]}}，
-     * 旧格式 {@code {"subtasks":[".."]}}（无指派，agent=null）；agent 名不在白名单一律回退 null。
+     * 解析 lead 拆解返回的 JSON 子任务列表，兼容新旧格式；非法返回空表。
+     * 新格式 {@code {"subtasks":[{"desc":"..","agent":"researcher","brief":".."}]}}（brief 可选），
+     * 旧格式对象无 brief（brief=null）、纯字符串数组 {@code {"subtasks":[".."]}}（agent=null、brief=null）；
+     * agent 名不在白名单一律回退 null；brief 空白归一化为 null。
      */
     static List<Subtask> parseSubtasks(String content) {
         if (content == null || content.isBlank()) {
@@ -47,11 +56,12 @@ final class LeadOutputParser {
             List<Subtask> out = new ArrayList<>();
             for (JsonNode s : node.path("subtasks")) {
                 if (s.isTextual()) {
-                    out.add(new Subtask(s.asText(), null)); // 旧格式：纯字符串
+                    out.add(new Subtask(s.asText(), null, null)); // 旧格式：纯字符串
                 } else {
                     String desc = s.path("desc").asText("");
                     String agent = normalizeAgent(s.path("agent").asText(null));
-                    out.add(new Subtask(desc, agent));
+                    String brief = normalizeBrief(s.path("brief").asText(null));
+                    out.add(new Subtask(desc, agent, brief));
                 }
             }
             return out;
@@ -68,6 +78,11 @@ final class LeadOutputParser {
         }
         String name = agent.trim();
         return EXPERT_WHITELIST.contains(name) ? name : null;
+    }
+
+    /** 任务书归一化：null/空白串视为未提供（null），执行时退化为 desc。 */
+    private static String normalizeBrief(String brief) {
+        return (brief == null || brief.isBlank()) ? null : brief;
     }
 
     private static String safe(Throwable t) {

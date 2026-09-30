@@ -84,6 +84,9 @@ app:
     # —— 消费侧：编排子任务并行限并发（0 = 不限并发，全部并行）——
     subtask-concurrency: 2    # 子任务并行扇出经信号量排队错峰执行：收敛下游 LLM 并发压力，
                               # 并把熔断后的在途超额窗口从「整批」收窄到「至多 N 个在途调用」
+    subtask-brief-max-chars: 2000
+                              # 子任务任务书（brief）字符上限：lead 出口写入状态前截断（超限 warn 单行）；
+                              # 0 = 不限制
   # 聊天并发与超时（过载保护）：
   chat:
     # 流式连接数上限：/api/chat/stream 与 /api/chat/resume 的活跃 SSE 流计数（超限 429）；
