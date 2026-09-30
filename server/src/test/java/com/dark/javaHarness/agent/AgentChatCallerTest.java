@@ -410,7 +410,7 @@ class AgentChatCallerTest {
 
         java.util.List<Throwable> errors = new ArrayList<>();
         guarded.tokenStreamWithWatchdog(spec, new java.util.concurrent.atomic.AtomicReference<>(),
-                        null, null, null, "m1")
+                        null, null, null, "m1", null)
                 .doOnError(errors::add)
                 .onErrorResume(e -> Flux.empty())
                 .blockLast();
@@ -434,11 +434,62 @@ class AgentChatCallerTest {
         when(streamSpec.chatResponse()).thenReturn(fluxOf("a", "b", "c"));
 
         List<String> tokens = guarded.tokenStreamWithWatchdog(spec, new java.util.concurrent.atomic.AtomicReference<>(),
-                        null, null, null, "m1")
+                        null, null, null, "m1", null)
                 .collectList()
                 .block();
 
         assertEquals(List.of("a", "b", "c"), tokens);
         verify(clientRegistry, never()).invalidateByModel(anyString());
+    }
+
+    /** 带思考增量的 ChatResponse 帧：AssistantMessage 的 metadata 构造器为 protected，经 mock 注入 */
+    private static ChatResponse respWithReasoning(String reasoning, String content) {
+        AssistantMessage msg = org.mockito.Mockito.mock(AssistantMessage.class);
+        org.mockito.Mockito.when(msg.getMetadata()).thenReturn(
+                java.util.Map.of("reasoningContent", reasoning == null ? "" : reasoning));
+        org.mockito.Mockito.when(msg.getText()).thenReturn(content);
+        Generation gen = org.mockito.Mockito.mock(Generation.class);
+        org.mockito.Mockito.when(gen.getOutput()).thenReturn(msg);
+        return new ChatResponse(List.of(gen));
+    }
+
+    /**
+     * 思考透传旁路（管道层）：思考模型的 reasoningContent delta 逐帧回调 tap，
+     * 且返回的完整内容完全不含思考文本（tap 为只读旁路，不触碰内容收集）。
+     */
+    @Test
+    @org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
+    void reasoningTap_receivesDeltas_contentExcludesThem() {
+        // 帧数组在 when() 之外构建：帧内含 mock（respWithReasoning），嵌在 when() 实参里
+        // 会触发 UnfinishedStubbingException（stub 套 stub）
+        ChatResponse[] frames = {
+                respWithReasoning("先想第一步", null),
+                respWithReasoning("再想第二步", null),
+                respWithReasoning(null, "最终"),
+                respWithReasoning(null, "答案")};
+        when(spec.stream()).thenReturn(streamSpec);
+        when(streamSpec.chatResponse()).thenReturn(Flux.fromArray(frames));
+
+        List<String> tapped = new ArrayList<>();
+        String content = caller.call("s1", "researcher", "sys", "u", null, new Advisor[0],
+                null, null, CallTrace.NONE, null, tapped::add);
+
+        assertEquals(List.of("先想第一步", "再想第二步"), tapped, "思考 delta 应逐帧回调 tap");
+        assertEquals("最终答案", content, "返回内容不得混入思考文本");
+    }
+
+    /** 思考透传旁路：无思考增量（正常文本帧）时 tap 零回调，行为与既有逐字节一致 */
+    @Test
+    @org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
+    void reasoningTap_absentReasoning_zeroCallbacks() {
+        when(spec.stream()).thenReturn(streamSpec);
+        when(streamSpec.chatResponse()).thenReturn(fluxOf("a", "b"));
+
+        List<String> tapped = new ArrayList<>();
+        String content = caller.call("s1", "researcher", "sys", "u", null, new Advisor[0],
+                null, null, CallTrace.NONE, null, tapped::add);
+
+        assertEquals("ab", content);
+        assertTrue(tapped.isEmpty(), "无 reasoningContent 帧时 tap 不应被回调");
     }
 }

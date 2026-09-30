@@ -48,6 +48,10 @@ final class AgentChatPipeline {
      * <p>预算门控（ledger 非 null）：发起前超限直接抛 {@link BudgetLedger.BudgetExceededException}
      * （零 HTTP 请求）；每轮 LLM roundtrip 的 usage 帧到达时按增量记账并复检——
      * 单次 call 内部工具循环的下一轮在超限后不再发起（断流阻止后续消耗）。
+     *
+     * <p>思考透传（reasoningTap 非 null）：ChatResponse 层旁路提取 metadata 键
+     * reasoningContent（思考模型 delta），非空白即回调——只读旁路，不触碰内容收集/
+     * 记账/watchdog；提取异常静默。null = 不透传（行为与既有完全一致）。
      */
     String streamAttempt(AgentConfig config, String sessionId, String forAgent, String fallbackSystem,
                          String user, AgentRequestSpecFactory.Assembly assembly,
@@ -55,7 +59,8 @@ final class AgentChatPipeline {
                          Consumer<String> onToken,
                          BooleanSupplier cancelled,
                          java.util.concurrent.atomic.AtomicReference<Usage> usageRef,
-                         java.util.concurrent.atomic.AtomicLong firstTokenAt, BudgetLedger ledger) {
+                         java.util.concurrent.atomic.AtomicLong firstTokenAt, BudgetLedger ledger,
+                         Consumer<String> reasoningTap) {
         if (cancelled != null && cancelled.getAsBoolean()) {
             throw CallCancellation.cancelException();
         }
@@ -68,7 +73,8 @@ final class AgentChatPipeline {
         java.util.concurrent.atomic.AtomicLong prevTotal = new java.util.concurrent.atomic.AtomicLong();
         try {
             return streamCore(config, sessionId, forAgent, fallbackSystem, user, assembly,
-                    extraAdvisors, trace, collected, onToken, cancelled, usageRef, prevTotal, firstTokenAt, ledger);
+                    extraAdvisors, trace, collected, onToken, cancelled, usageRef, prevTotal, firstTokenAt, ledger,
+                    reasoningTap);
         } catch (RuntimeException e) {
             // 取消置位时一律按取消归因（流取消竞态下 blockLast 可能抛出其他形态异常）
             if (cancelled != null && cancelled.getAsBoolean()) {
@@ -95,8 +101,9 @@ final class AgentChatPipeline {
                                          BudgetLedger ledger,
                                          java.util.concurrent.atomic.AtomicLong prevTotal,
                                          java.util.concurrent.atomic.AtomicLong firstTokenAt,
-                                         String model) {
-        return tokenStream(spec, usageRef, ledger, prevTotal, firstTokenAt)
+                                         String model,
+                                         Consumer<String> reasoningTap) {
+        return tokenStream(spec, usageRef, ledger, prevTotal, firstTokenAt, reasoningTap)
                 .timeout(streamIdleTimeout)
                 .doOnError(e -> clientRegistry.invalidateByModel(model));
     }
@@ -114,11 +121,13 @@ final class AgentChatPipeline {
                       BooleanSupplier cancelled,
                       java.util.concurrent.atomic.AtomicReference<Usage> usageRef,
                       java.util.concurrent.atomic.AtomicLong prevTotal,
-                      java.util.concurrent.atomic.AtomicLong firstTokenAt, BudgetLedger ledger) {
+                      java.util.concurrent.atomic.AtomicLong firstTokenAt, BudgetLedger ledger,
+                      Consumer<String> reasoningTap) {
         tokenStreamWithWatchdog(
                         specFactory.build(config, sessionId, forAgent, fallbackSystem, user, assembly, trace,
                                 extraAdvisors),
-                        usageRef, ledger, prevTotal, firstTokenAt, config != null ? config.model() : null)
+                        usageRef, ledger, prevTotal, firstTokenAt, config != null ? config.model() : null,
+                        reasoningTap)
                 .takeUntil(__ -> cancelled != null && cancelled.getAsBoolean())
                 .doOnNext(token -> {
                     if (cancelled != null && cancelled.getAsBoolean()) {
@@ -148,11 +157,17 @@ final class AgentChatPipeline {
                                             java.util.concurrent.atomic.AtomicReference<Usage> usageRef,
                                             BudgetLedger ledger,
                                             java.util.concurrent.atomic.AtomicLong prevTotal,
-                                            java.util.concurrent.atomic.AtomicLong firstTokenAt) {
+                                            java.util.concurrent.atomic.AtomicLong firstTokenAt,
+                                            Consumer<String> reasoningTap) {
         return spec
                 .stream()
                 .chatResponse()
-                .doOnNext(resp -> captureUsageAndAccount(resp, usageRef, ledger, prevTotal))
+                .doOnNext(resp -> {
+                    captureUsageAndAccount(resp, usageRef, ledger, prevTotal);
+                    // 思考透传旁路：ChatResponse 层提取 reasoningContent delta（tap null 直通；
+                    // 只读不触碰内容流，提取异常静默——透传是纯增强，绝不影响主内容）
+                    tapReasoning(resp, reasoningTap);
+                })
                 // streamUsage 末帧是只含 usage 的空帧（contentOf 为 null）：Reactor 的 map
                 // 不允许 null 返回（直接抛「The mapper returned a null value」），后面的
                 // filter 根本不会执行——必须用 handle 跳过空帧
@@ -170,6 +185,25 @@ final class AgentChatPipeline {
                         firstTokenAt.compareAndSet(0, System.currentTimeMillis());
                     }
                 });
+    }
+
+    /** 思考透传旁路：提取当前帧的 reasoningContent 增量回调 tap（tap null/无思考/异常均静默） */
+    private static void tapReasoning(org.springframework.ai.chat.model.ChatResponse resp,
+                                     Consumer<String> reasoningTap) {
+        if (reasoningTap == null) {
+            return;
+        }
+        try {
+            String reasoning = resp != null && resp.getResult() != null && resp.getResult().getOutput() != null
+                    ? resp.getResult().getOutput().getMetadata()
+                            .getOrDefault("reasoningContent", "").toString()
+                    : null;
+            if (reasoning != null && !reasoning.isBlank()) {
+                reasoningTap.accept(reasoning);
+            }
+        } catch (Exception e) {
+            // 思考透传是纯增强旁路：任何异常静默跳过该帧，绝不影响主内容流
+        }
     }
 
     /** 模型空响应防御：逐层取 assistant 文本，任一层缺失返回 null（call/stream 记录与展示共用） */

@@ -178,9 +178,21 @@ public final class AgentChatCaller {
     public String call(String sessionId, String forAgent, String fallbackSystem, String user,
                 Consumer<String> toolEmitter, Advisor[] extraAdvisors, BooleanSupplier cancelled,
                 BudgetLedger ledger, CallTrace trace, List<String> extraToolNames) {
+        return call(sessionId, forAgent, fallbackSystem, user, toolEmitter, extraAdvisors, cancelled,
+                ledger, trace, extraToolNames, null);
+    }
+
+    /**
+     * 同上，可携带思考透传旁路（reasoningTap 非 null 时该 agent 的思考增量经旁路回调；
+     * null = 不透传，行为与既有完全一致）。
+     */
+    public String call(String sessionId, String forAgent, String fallbackSystem, String user,
+                Consumer<String> toolEmitter, Advisor[] extraAdvisors, BooleanSupplier cancelled,
+                BudgetLedger ledger, CallTrace trace, List<String> extraToolNames,
+                Consumer<String> reasoningTap) {
         return callWithAssembly(sessionId, forAgent, fallbackSystem, user,
                 assembler.assemblyForRole(forAgent, sessionId, toolEmitter, false, extraToolNames),
-                extraAdvisors, cancelled, ledger, trace);
+                extraAdvisors, cancelled, ledger, trace, reasoningTap);
     }
 
     /**
@@ -200,7 +212,8 @@ public final class AgentChatCaller {
      */
     String callWithAssembly(String sessionId, String forAgent, String fallbackSystem, String user,
                             AgentRequestSpecFactory.Assembly assembly, Advisor[] extraAdvisors,
-                            BooleanSupplier cancelled, BudgetLedger ledger, CallTrace trace) {
+                            BooleanSupplier cancelled, BudgetLedger ledger, CallTrace trace,
+                            Consumer<String> reasoningTap) {
         AgentConfig config = configOf(forAgent);
         String model = config != null ? config.model() : null;
         CallTrace t = trace == null ? CallTrace.NONE : trace;
@@ -226,7 +239,8 @@ public final class AgentChatCaller {
                         new java.util.concurrent.atomic.AtomicLong();
                 int attempt = attemptCounter.incrementAndGet();
                 String content = pipeline.streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
-                        assembly, extraAdvisors, eff, null, cancelled, usageRef, firstTokenAt, ledger);
+                        assembly, extraAdvisors, eff, null, cancelled, usageRef, firstTokenAt, ledger,
+                        reasoningTap);
                 ctx.ok(ledger, start, content, usageRef.get(), firstTokenAt.get(), attempt, maxAttempts);
                 return content;
             } catch (RuntimeException e) {
@@ -264,7 +278,7 @@ public final class AgentChatCaller {
                         int attempt2 = attemptCounter.incrementAndGet();
                         String content = pipeline.streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
                                 assembly.withoutTools(), extraAdvisors, eff, null, cancelled, usageRef2,
-                                firstTokenAt2, ledger);
+                                firstTokenAt2, ledger, reasoningTap);
                         noToolsCtx.ok(ledger, start2, content, usageRef2.get(), firstTokenAt2.get(), attempt2, maxAttempts);
                         return content;
                     } catch (RuntimeException e2) {
@@ -292,7 +306,7 @@ public final class AgentChatCaller {
                 new java.util.concurrent.atomic.AtomicReference<>();
         java.util.concurrent.atomic.AtomicLong firstTokenAt = new java.util.concurrent.atomic.AtomicLong();
         String content = pipeline.streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
-                assembly, extraAdvisors, eff, null, null, usageRef, firstTokenAt, null);
+                assembly, extraAdvisors, eff, null, null, usageRef, firstTokenAt, null, null);
         ctx.ok(null, start, content, usageRef.get(), firstTokenAt.get(), 1, 1);
         return content;
     }
@@ -314,8 +328,10 @@ public final class AgentChatCaller {
                                          BudgetLedger ledger,
                                          java.util.concurrent.atomic.AtomicLong prevTotal,
                                          java.util.concurrent.atomic.AtomicLong firstTokenAt,
-                                         String model) {
-        return pipeline.tokenStreamWithWatchdog(spec, usageRef, ledger, prevTotal, firstTokenAt, model);
+                                         String model,
+                                         Consumer<String> reasoningTap) {
+        return pipeline.tokenStreamWithWatchdog(spec, usageRef, ledger, prevTotal, firstTokenAt, model,
+                reasoningTap);
     }
 
     /**
@@ -370,9 +386,21 @@ public final class AgentChatCaller {
     public String stream(String sessionId, String forAgent, String fallbackSystem, String user,
                   Consumer<String> onToken, Consumer<String> toolEmitter, Advisor[] extraAdvisors,
                   BooleanSupplier cancelled, BudgetLedger ledger, CallTrace trace) {
+        return stream(sessionId, forAgent, fallbackSystem, user, onToken, toolEmitter, extraAdvisors,
+                cancelled, ledger, trace, null);
+    }
+
+    /**
+     * 同上，可携带思考透传旁路（聚合节点接线：aggregator 行 thinking=1 时非 null；
+     * null = 不透传，行为与既有完全一致）。
+     */
+    public String stream(String sessionId, String forAgent, String fallbackSystem, String user,
+                  Consumer<String> onToken, Consumer<String> toolEmitter, Advisor[] extraAdvisors,
+                  BooleanSupplier cancelled, BudgetLedger ledger, CallTrace trace,
+                  Consumer<String> reasoningTap) {
         return streamWithAssembly(sessionId, forAgent, fallbackSystem, user, onToken,
                 assembler.assemblyForRole(forAgent, sessionId, toolEmitter, false), extraAdvisors, cancelled, ledger,
-                trace);
+                trace, reasoningTap);
     }
 
     /**
@@ -384,7 +412,7 @@ public final class AgentChatCaller {
     String streamWithAssembly(String sessionId, String forAgent, String fallbackSystem, String user,
                               Consumer<String> onToken, AgentRequestSpecFactory.Assembly assembly,
                               Advisor[] extraAdvisors, BooleanSupplier cancelled, BudgetLedger ledger,
-                              CallTrace trace) {
+                              CallTrace trace, Consumer<String> reasoningTap) {
         CallTrace t = trace == null ? CallTrace.NONE : trace;
         // spanId 原则上由本发起点生成；编排树 lead 场景由编排器预生成（t.spanId 非 null）沿用
         String spanId = t.spanId() != null ? t.spanId() : CallTrace.newSpanId();
@@ -417,7 +445,7 @@ public final class AgentChatCaller {
             try {
                 String out = pipeline.streamCore(config, sessionId, forAgent, fallbackSystem, user, assembly,
                         extraAdvisors, eff, collected, onToken, cancelled, usageRef, prevTotal,
-                        firstTokenAt, ledger);
+                        firstTokenAt, ledger, reasoningTap);
                 // streamUsage 回传真实 usage 时记真实值，无则按已收输出文本近似估算（原口径兜底）；
                 // 账本兜底入账：无真实 usage 帧时按输出估算补记（有则增量已在流帧上记账，不重复）
                 ctx.ok(ledger, start, out, usageRef.get(), firstTokenAt.get(), attempt, retry.maxAttempts());

@@ -457,6 +457,40 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 }
 .msg-progress-item::before { content: '▤'; font-size: 12px; opacity: 0.8; }
 
+/* 思考折叠区:灰色弱化、默认折叠可展开(「思考」=主回答/聚合,「思考N」=第 N 个子任务) */
+.msg-thinking { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.msg-thinking-block {
+  border: 1px solid var(--line-dim, rgba(0, 0, 0, 0.08));
+  border-radius: 8px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--ink-dim, #888) 6%, transparent);
+}
+.msg-thinking-head {
+  all: unset;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 10px;
+  font-size: 12.5px;
+  color: var(--ink-dim);
+  cursor: pointer;
+  user-select: none;
+}
+.msg-thinking-head::before { content: '▸ '; opacity: 0.8; }
+.msg-thinking-block.is-open .msg-thinking-head::before { content: '▾ '; }
+.msg-thinking-head:hover { color: var(--ink); }
+.msg-thinking-body {
+  margin: 0;
+  padding: 4px 12px 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink-dim);
+  max-height: 320px;
+  overflow-y: auto;
+}
+
 /* 消息操作栏:常显灰色图标组(复制/赞/踩/分享)+ 右侧相对时间(对齐截图) */
 .msg-actions { display: flex; align-items: center; gap: 2px; margin-top: 8px; }
 .msg-action-btn {

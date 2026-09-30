@@ -44,6 +44,7 @@ public final class AggregateStreamGuard {
      * 流式聚合：首个内容 token 前推「聚合」进度行，随后逐 token 实时发射（聚合只有流式一条语义路径）。
      * budgetLedger 为 record-only 句柄（聚合不受熔断，仅记账；可 null）。
      * trace 为轨迹标识（聚合为派生调用：parent_span=lead 的 span_id，与子任务同树）。
+     * reasoningTap 非 null 时聚合思考增量经旁路透出（aggregator 行 thinking 显示口径；可 null）。
      */
     public String predictStreaming(String sessionId,
                             String user,
@@ -51,12 +52,14 @@ public final class AggregateStreamGuard {
                             AtomicBoolean contentSent,
                             AtomicBoolean cancelled,
                             BudgetLedger budgetLedger,
-                            CallTrace trace) {
+                            CallTrace trace,
+                            java.util.function.Consumer<String> reasoningTap) {
         BranchProgressListener.tryEmitSerialized(liveTokens,
                 ProgressLine.encode("聚合", "汇总子任务结果，生成最终回答"));
         StringBuilder collected = new StringBuilder();
         try {
-            streamOnce(sessionId, user, collected, liveTokens, contentSent, cancelled, budgetLedger, trace);
+            streamOnce(sessionId, user, collected, liveTokens, contentSent, cancelled, budgetLedger, trace,
+                    reasoningTap);
             if (collected.length() > 0) {
                 return collected.toString();
             }
@@ -78,7 +81,8 @@ public final class AggregateStreamGuard {
         }
         // 护栏重试：到达此处必然未推出任何 token（重试零内容重复风险）
         try {
-            streamOnce(sessionId, user, collected, liveTokens, contentSent, cancelled, budgetLedger, trace);
+            streamOnce(sessionId, user, collected, liveTokens, contentSent, cancelled, budgetLedger, trace,
+                    reasoningTap);
         } catch (Exception e2) {
             if (e2 instanceof CancellationException ce) {
                 throw ce;
@@ -99,7 +103,8 @@ public final class AggregateStreamGuard {
     private void streamOnce(String sessionId, String user, StringBuilder collected,
                             Sinks.Many<String> liveTokens, AtomicBoolean contentSent,
                             AtomicBoolean cancelled,
-                            BudgetLedger budgetLedger, CallTrace trace) {
+                            BudgetLedger budgetLedger, CallTrace trace,
+                            java.util.function.Consumer<String> reasoningTap) {
         chatCaller.stream(sessionId, aggregatorRole, aggregatorPrompt,
                 user,
                 token -> {
@@ -113,7 +118,7 @@ public final class AggregateStreamGuard {
                 null,
                 new PromptBudgetAdvisor[]{aggregateAdvisor.get()},
                 cancelled == null ? null : cancelled::get,
-                budgetLedger, trace);
+                budgetLedger, trace, reasoningTap);
     }
 
     private static boolean isCancelled(AtomicBoolean cancelled) {

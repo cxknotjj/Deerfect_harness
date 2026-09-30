@@ -5,6 +5,7 @@ import com.dark.javaHarness.advisor.PromptBudgetAdvisor;
 import com.dark.javaHarness.agent.AgentChatCaller;
 import com.dark.javaHarness.agent.AggregateStreamGuard;
 import com.dark.javaHarness.agent.CallTrace;
+import com.dark.javaHarness.agent.ProgressLine;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.enums.AgentConstants;
 import com.dark.javaHarness.prompt.PromptAssembler;
@@ -14,6 +15,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Sinks;
@@ -240,10 +242,25 @@ final class OrchestrationNodes {
                         : cancelled == null ? () -> System.nanoTime() >= deadlineNanos
                         : () -> cancelled.get() || System.nanoTime() >= deadlineNanos;
         long startNanos = System.nanoTime();
+        // 思考透传（agent 表 thinking 列显示口径：仅控制是否显示思考内容，并不是控制模型是否思考）：
+        // expert 行 thinking=1 且流式旁路可用时，经合帧节流器透出「思考N · 专家名」进度行
+        // （N=idx+1 与前端「第 N 个子任务」口径一致；stage 携带归属专家，消除归属歧义）；
+        // 同步路径 toolEmitter=null 无显示通道不透传
+        ThinkingThrottle thinkingThrottle = null;
+        Consumer<String> reasoningTap = null;
+        if (toolEmitter != null && thinkingDisplayOf(resolvedExpert(expert))) {
+            thinkingThrottle = new ThinkingThrottle(
+                    "思考" + (idx + 1) + " · " + resolvedExpert(expert), toolEmitter);
+            reasoningTap = thinkingThrottle;
+        }
         String result;
         try {
             result = predictSubtask(sessionId, task, brief, expert, toolEmitter, cancelSignal,
-                    orchestrationBudget.ledgerHandle(state, true), trace, packs);
+                    orchestrationBudget.ledgerHandle(state, true), trace, packs, reasoningTap);
+            if (thinkingThrottle != null) {
+                // 流正常结束兜底发射残余缓冲（异常中止场景不执行此行，缓冲随作用域丢弃）
+                thinkingThrottle.flush();
+            }
         } catch (BudgetLedger.BudgetExceededException e) {
             log.warn("[multi-agent][subtask-{}] 编排 token 消费已达上限（{} / {}），跳过专家调用",
                     idx, OrchestrationBudget.ledgerValue(state), budgets.getOrchestrationBudget());
@@ -329,8 +346,15 @@ final class OrchestrationNodes {
                 finalAnswer = predictAggregate(sessionId, user, cancelled,
                         orchestrationBudget.ledgerHandle(state, false), trace);
             } else {
+                // 思考透传（agent 表 thinking 列显示口径）：aggregator 行 thinking=1 时经 liveTokens
+                // 旁路以「思考 · 聚合」进度行发射（进度行不置位 contentSent，不影响 END 兜底）
+                Consumer<String> aggregateTap = null;
+                if (thinkingDisplayOf(ROLE_AGGREGATOR)) {
+                    aggregateTap = delta -> BranchProgressListener.tryEmitSerialized(liveTokens,
+                            ProgressLine.encode("思考 · 聚合", delta));
+                }
                 finalAnswer = streamGuard.predictStreaming(sessionId, user, liveTokens, contentSent,
-                        cancelled, orchestrationBudget.ledgerHandle(state, false), trace);
+                        cancelled, orchestrationBudget.ledgerHandle(state, false), trace, aggregateTap);
             }
         }
         Map<String, Object> updates = new HashMap<>();
@@ -375,6 +399,21 @@ final class OrchestrationNodes {
     }
 
     /**
+     * agent 表 thinking 显示口径判定（仅控制是否显示思考内容，并不是控制模型是否思考——
+     * 模型思考由 model_provider.disable_thinking 端点配置决定）：行 thinking=1 才透传；
+     * 行缺失/查询失败/列 NULL 或 0 均不透传（getAgentConfig 内部容错返回 empty，此处不抛）。
+     * provider null（单测场景）恒不透传。
+     */
+    private boolean thinkingDisplayOf(String agentName) {
+        if (agentConfigProvider == null || agentName == null || agentName.isBlank()) {
+            return false;
+        }
+        return agentConfigProvider.getAgentConfig(agentName)
+                .map(cfg -> Boolean.TRUE.equals(cfg.thinking()))
+                .orElse(false);
+    }
+
+    /**
      * 子任务执行：按指派专家查配置调用。cancelSignal 为节点预包装的取消供给
      * （「客户端断连 OR 墙钟超时」组合语义，可 null=同步路径无取消也不限时——
      * 执行中供给返回 true 时在途调用随令牌中止，不再烧完剩余 token）。
@@ -389,7 +428,7 @@ final class OrchestrationNodes {
                                   java.util.function.Consumer<String> toolEmitter,
                                   java.util.function.BooleanSupplier cancelSignal,
                                   BudgetLedger budgetLedger, CallTrace trace,
-                                  PackResolution packs) {
+                                  PackResolution packs, Consumer<String> reasoningTap) {
         // 未指派（lead 输出旧格式或漏 agent 字段）→ 回退 general：通用兜底且持有全量工具
         String resolved = resolvedExpert(expert);
         // 专家 persona 与工具使用纪律经 PromptAssembler 统一组装（原硬编码拼接已删除）：
@@ -402,7 +441,7 @@ final class OrchestrationNodes {
         }
         return chatCaller.call(sessionId, resolved, persona, user, toolEmitter,
                 new PromptBudgetAdvisor[0], cancelSignal, budgetLedger, trace,
-                packs == null ? null : packs.extraToolNames());
+                packs == null ? null : packs.extraToolNames(), reasoningTap);
     }
 
     /**

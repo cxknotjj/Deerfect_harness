@@ -36,6 +36,12 @@ public class AgentEntity {
     /** 绑定的知识库（逗号分隔 kb 标识=knowledge/ 一级子目录名；NULL/空白 = 未绑定，不做知识检索） */
     private String knowledge;
 
+    /**
+     * 思考显示开关（仅控制是否显示思考内容，并不是控制模型是否思考——模型思考由
+     * model_provider.disable_thinking 端点配置决定）：NULL/0 = 不透传前端，1 = 透传
+     */
+    private Integer thinking;
+
     /** 状态：1-启用 0-禁用 */
     private Integer status;
 

@@ -20,6 +20,24 @@ marked.setOptions({ breaks: true })
 const props = defineProps<{ message: MessageItem; streaming?: boolean; canRegenerate?: boolean }>()
 const emit = defineEmits<{ retry: []; delete: []; regenerate: []; feedback: [type: string] }>()
 
+/** 思考折叠块的展开集合(按 stage 单选切换;默认全部折叠) */
+const expandedThinking = ref(new Set<string>())
+function toggleThinking(stage: string): void {
+  const next = new Set(expandedThinking.value)
+  if (next.has(stage)) next.delete(stage)
+  else next.add(stage)
+  expandedThinking.value = next
+}
+/** 展开态样式判定 */
+function isThinkingOpen(stage: string): boolean {
+  return expandedThinking.value.has(stage)
+}
+/** 折叠块标题:流式进行中(该块为最后一个思考块且正在流式)显示「思考中…」,否则显示 stage */
+function thinkingTitle(stage: string, index: number): string {
+  const isLast = index === (props.message.thinking?.length ?? 0) - 1
+  return props.streaming && isLast ? `${stage} · 思考中…` : stage
+}
+
 /** 单次 markdown 渲染(marked.parse + DOMPurify 净化 + 代码块包装) */
 function renderHtml(): string {
   const { role, content, error } = props.message
@@ -118,6 +136,25 @@ async function onBodyClick(e: MouseEvent): Promise<void> {
       <span v-for="(p, i) in message.progress" :key="i" class="msg-progress-item">
         {{ p.stage }}<template v-if="p.detail"> · {{ p.detail }}</template>
       </span>
+    </div>
+
+    <!-- 思考折叠区(灰色弱化,默认折叠可展开):「思考」=主回答/聚合,「思考N」=第 N 个子任务;
+         流结束后保留可回看,不进入回答气泡 -->
+    <div v-if="(message.thinking?.length ?? 0) > 0" class="msg-thinking">
+      <div
+        v-for="(t, i) in message.thinking"
+        :key="t.stage"
+        class="msg-thinking-block"
+        :class="{ 'is-open': isThinkingOpen(t.stage) }"
+      >
+        <button
+          class="msg-thinking-head"
+          type="button"
+          :aria-expanded="isThinkingOpen(t.stage)"
+          @click="toggleThinking(t.stage)"
+        >{{ thinkingTitle(t.stage, i) }}</button>
+        <pre v-if="isThinkingOpen(t.stage)" class="msg-thinking-body">{{ t.content }}</pre>
+      </div>
     </div>
 
     <!-- 错误消息:警示橙样式 + 重试 -->

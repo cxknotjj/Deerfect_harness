@@ -253,4 +253,29 @@ class AgentConfigProviderTest {
         assertTrue(provider.findToolPack(null).isEmpty(), "null 包名应返回 empty");
         assertTrue(provider.findToolPack("  ").isEmpty(), "空白包名应返回 empty");
     }
+
+    private AgentEntity agentRow(Integer thinking) {
+        AgentEntity row = new AgentEntity();
+        row.setAgentName("general");
+        row.setThinking(thinking);
+        return row;
+    }
+
+    /** thinking 列三态读取（显示口径）：1=透传 true；0/NULL=不透传 false */
+    @Test
+    void getAgentConfig_thinkingThreeStates() {
+        provider = newProvider();
+
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(agentRow(1));
+        assertTrue(provider.getAgentConfig("general").orElseThrow().thinking(),
+                "thinking=1 应映射为 true（透传显示）");
+
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(agentRow(0));
+        assertTrue(!provider.getAgentConfig("general").orElseThrow().thinking(),
+                "thinking=0 应映射为 false（不透传）");
+
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(agentRow(null));
+        assertTrue(!provider.getAgentConfig("general").orElseThrow().thinking(),
+                "thinking=NULL 应映射为 false（不透传）");
+    }
 }

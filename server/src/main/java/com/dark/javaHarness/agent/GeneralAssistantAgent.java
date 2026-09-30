@@ -163,7 +163,8 @@ public class GeneralAssistantAgent implements Agent {
     public String execute(Goal goal) {
         log.info("AI agent '{}' 开始处理目标: {}", name(), goal.objective());
         String reply = chatCaller.callWithAssembly(goal.sessionId(), agentName, DEFAULT_SYSTEM_PROMPT,
-                goal.objective(), assemblyPathA(null), new Advisor[0], null, null, CallTrace.fromGoal(goal));
+                goal.objective(), assemblyPathA(null), new Advisor[0], null, null, CallTrace.fromGoal(goal),
+                null);
         log.info("AI agent '{}' 得到回复: {}", name(), reply);
         return reply;
     }
@@ -177,7 +178,7 @@ public class GeneralAssistantAgent implements Agent {
     public void executeStream(Goal goal, Consumer<String> onToken) {
         log.info("AI agent '{}' 开始流式处理目标: {}", name(), goal.objective());
         chatCaller.streamWithAssembly(goal.sessionId(), agentName, DEFAULT_SYSTEM_PROMPT, goal.objective(),
-                onToken, assemblyPathA(null), new Advisor[0], null, null, CallTrace.fromGoal(goal));
+                onToken, assemblyPathA(null), new Advisor[0], null, null, CallTrace.fromGoal(goal), null);
         log.info("AI agent '{}' 流式输出完成", name());
     }
 
@@ -204,6 +205,13 @@ public class GeneralAssistantAgent implements Agent {
         AtomicLong firstTokenAt = new AtomicLong();
         AgentConfig config = agentService.getAgentConfig(agentName)
                 .orElse(new AgentConfig(null, null, null, null));
+        // 思考透传旁路（agent 表 thinking 列显示口径：仅控制是否显示思考内容，并不是控制模型是否思考）：
+        // thinking=1 时把 reasoningContent delta 编码为「思考 · agent名」进度行经工具旁路 sink 合入 SSE
+        //（stage 携带归属 agent，前端折叠块标题据此标注，消除「这是谁在思考」歧义）
+        Consumer<String> reasoningTap = Boolean.TRUE.equals(config.thinking())
+                ? delta -> BranchProgressListener.tryEmitSerialized(toolEvents,
+                        ProgressLine.encode("思考 · " + agentName, delta))
+                : null;
         // 关闸挂 merge 之前的主干段（多 Agent 侧同款死锁教训：关闸在 merge 后会循环等待）
         AgentRequestSpecFactory.Assembly assembly =
                 assemblyPathA(row -> BranchProgressListener.tryEmitSerialized(toolEvents, row));
@@ -215,7 +223,7 @@ public class GeneralAssistantAgent implements Agent {
                         chatCaller.buildSpec(config, goal.sessionId(), agentName, DEFAULT_SYSTEM_PROMPT,
                                 goal.objective(),
                                 assembly, CallTrace.fromGoal(goal).withSpan(spanId)),
-                        usageRef, null, null, firstTokenAt, config.model())
+                        usageRef, null, null, firstTokenAt, config.model(), reasoningTap)
                 .doOnNext(collected::append)
                 .doOnError(streamError::set)
                 .doFinally(sig -> {

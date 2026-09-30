@@ -12,13 +12,22 @@ import { api, isAbort } from '../api'
 import type { ProgressPayload, SessionMessageView } from '../api'
 import { loadCache, saveCache } from './chatCache'
 
-/** 单条聊天消息:role 决定对齐;progress 为执行阶段轨迹(流结束后清空);error 标记错误样式;
+/** 思考折叠块:stage 为后端 ProgressLine stage(「思考」=主回答/聚合,「思考N」=第 N 个子任务,1 基);
+ *  content 为该 stage 的思考全文(流式追加)。不落入服务端会话记忆,仅本轮视图内保留 */
+export interface ThinkingBlock {
+  stage: string
+  content: string
+}
+
+/** 单条聊天消息:role 决定对齐;progress 为执行阶段轨迹(流结束后清空);thinking 为思考折叠块
+ *  (流结束后保留,可展开回看;刷新/历史回显为空);error 标记错误样式;
  *  ts 为纯展示字段(消息头时间标注),不参与任何请求/逻辑;ts 为 0 表示时间未知(历史回显),不展示 */
 export interface MessageItem {
   id: number
   role: 'user' | 'assistant'
   content: string
   progress: ProgressPayload[]
+  thinking: ThinkingBlock[]
   error: boolean
   ts: number
 }
@@ -55,14 +64,14 @@ export function useChat(hooks: ChatHooks) {
   /** 当前流的取消控制器(同一时刻至多一个流) */
   let controller: AbortController | null = null
 
-  /** 由本地缓存构造消息桶(id 序列抬到缓存最大值之后避免重号;进度/错误态不持久化) */
+  /** 由本地缓存构造消息桶(id 序列抬到缓存最大值之后避免重号;进度/错误态/思考块不持久化) */
   function fromCache(key: string): MessageItem[] {
     if (key === DRAFT_KEY) return []
     const cached = loadCache(key)
     for (const m of cached) {
       if (m.id > seq) seq = m.id
     }
-    return cached.map((m) => ({ ...m, progress: [], error: false }))
+    return cached.map((m) => ({ ...m, progress: [], thinking: [], error: false }))
   }
 
   /** 取桶(无则建:优先用本地缓存填充,实现切回旧会话即时渲染) */
@@ -105,8 +114,27 @@ export function useChat(hooks: ChatHooks) {
       role: m.role === 'assistant' ? 'assistant' : 'user',
       content: m.content,
       progress: [],
+      thinking: [],
       error: false,
       ts: m.ts ?? 0,
+    }
+  }
+
+  /**
+   * 进度行分发:stage 以「思考」开头的行(「思考」=主回答/聚合,「思考N」=子任务)路由进
+   * 思考折叠块(同 stage 追加全文,新 stage 新建块),其余行保持进度轨迹;
+   * 思考块流结束后保留(可展开回看),进度轨迹照旧清空
+   */
+  function routeProgress(assistant: MessageItem, p: ProgressPayload): void {
+    if (!p.stage.startsWith('思考')) {
+      assistant.progress.push(p)
+      return
+    }
+    const last = assistant.thinking[assistant.thinking.length - 1]
+    if (last && last.stage === p.stage) {
+      last.content += p.detail
+    } else {
+      assistant.thinking.push({ stage: p.stage, content: p.detail })
     }
   }
 
@@ -156,7 +184,7 @@ export function useChat(hooks: ChatHooks) {
         { message: text, sessionId: hooks.getSessionId() || undefined },
         {
           onProgress: (p) => {
-            assistant.progress.push(p)
+            routeProgress(assistant, p)
           },
           onToken: (t) => {
             assistant.content += t
@@ -203,8 +231,8 @@ export function useChat(hooks: ChatHooks) {
 
     // user 消息与 assistant 占位立即进当前会话桶
     const list = messages.value
-    list.push({ id: ++seq, role: 'user', content: text, progress: [], error: false, ts: Date.now() })
-    list.push({ id: ++seq, role: 'assistant', content: '', progress: [], error: false, ts: Date.now() })
+    list.push({ id: ++seq, role: 'user', content: text, progress: [], thinking: [], error: false, ts: Date.now() })
+    list.push({ id: ++seq, role: 'assistant', content: '', progress: [], thinking: [], error: false, ts: Date.now() })
     // 从数组取回 reactive 代理引用:直接持有原始对象修改不会触发视图更新
     await streamText(list[list.length - 1], text)
   }
@@ -217,7 +245,7 @@ export function useChat(hooks: ChatHooks) {
     const prev = list[list.length - 2]
     if (last?.id !== id || last.role !== 'assistant' || prev?.role !== 'user') return
     list.pop()
-    list.push({ id: ++seq, role: 'assistant', content: '', progress: [], error: false, ts: Date.now() })
+    list.push({ id: ++seq, role: 'assistant', content: '', progress: [], thinking: [], error: false, ts: Date.now() })
     await streamText(list[list.length - 1], prev.content)
   }
 

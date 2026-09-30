@@ -536,6 +536,35 @@ class ChatServiceImplTest {
     }
 
     /**
+     * 思考行（stage=「思考 · 归属」/「思考N · 专家名」）应与其他进度行同通道转 event:progress，
+     * 且绝不作为内容 token 泄漏（会话内容收集口径 isProgress 过滤——思考不落 session_messages）
+     */
+    @Test
+    void streamReactive_shouldMapThinkingRowsToProgressEvent_notContent() {
+        ChatRequest req = new ChatRequest("调研竞品", null, null);
+        when(sessionService.createSession("anonymous", "调研竞品")).thenReturn("50");
+        when(agentService.executeStreamReactive(eq("multi-agent"), eq("调研竞品"), eq("50"), any(), any()))
+                .thenReturn(Flux.just(
+                        ProgressLine.encode("思考1 · researcher", "先检索新闻来源"),
+                        ProgressLine.encode("思考 · 聚合", "汇总各子任务结果"),
+                        "最终回答B"));
+        when(routeJudge.judge(eq("调研竞品"), any(), any())).thenReturn(RouteDecision.COMPLEX);
+
+        List<String> lines = chatService.streamReactive(req).collectList().block();
+
+        assertTrue(lines.stream().anyMatch(l -> l.startsWith("event: progress")
+                        && l.contains("\"stage\":\"思考1 · researcher\"")),
+                "子任务思考行应转 event:progress 并携带思考N·专家 stage: " + lines);
+        assertTrue(lines.stream().anyMatch(l -> l.startsWith("event: progress")
+                        && l.contains("\"stage\":\"思考 · 聚合\"")),
+                "聚合思考行应转 event:progress: " + lines);
+        assertFalse(lines.stream().anyMatch(l -> l.startsWith("event: token") && (l.contains("先检索新闻来源")
+                        || l.contains("汇总各子任务结果"))),
+                "思考行不得以内容 token 形式泄漏（不落会话内容）: " + lines);
+        assertTrue(lines.contains("event: token\ndata: 最终回答B"), "内容行照常输出: " + lines);
+    }
+
+    /**
      * 内容行含换行时必须转义为单条 SSE data 行：
      * 裸 \n 会把一条 data 断成多个物理行，CLI 按行解析只认前缀行，断行后半段被静默丢弃（结果不全）。
      */
