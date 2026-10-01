@@ -172,8 +172,13 @@ final class AgentRequestSpecFactory {
         // config 已由调用方查好传入：经三参 assemble 复载下传，角色段不再重复查表
         String system = promptAssembler.assemble(forAgent, fallbackSystem, config);
         if (knowledgeRetriever != null) {
+            // 执行期现查（source=inline_query）：turnId/traceId 经 build 的 trace 参数归因落
+            // kb_retrieval_log（预取行无轨迹，执行期行可挂到具体轮次与执行链）
             String knowledgeBlock = knowledgeRetriever.buildKnowledgeBlock(forAgent, sessionId, user,
-                    KnowledgeRetriever.parseBinding(config != null ? config.knowledge() : null));
+                    KnowledgeRetriever.parseBinding(config != null ? config.knowledge() : null),
+                    KnowledgeRetriever.SOURCE_INLINE,
+                    trace != null ? trace.turnId() : null,
+                    trace != null ? trace.traceId() : null);
             if (knowledgeBlock != null && !knowledgeBlock.isBlank()) {
                 system = system + "\n\n" + knowledgeBlock;
             }

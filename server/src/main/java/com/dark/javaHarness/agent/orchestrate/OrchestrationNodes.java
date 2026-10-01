@@ -8,6 +8,7 @@ import com.dark.javaHarness.agent.CallTrace;
 import com.dark.javaHarness.agent.ProgressLine;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.enums.AgentConstants;
+import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.service.impl.route.RagPrefetcher;
 import java.util.ArrayList;
@@ -97,7 +98,7 @@ final class OrchestrationNodes {
      * 极小预算下 usage 帧中途熔断时降级为「拆解失败」——退化为单子任务，交由后续熔断跳过，
      * 聚合注入降级说明）。lead 自身消耗计入账本供后续判定。
      */
-    Map<String, Object> lead(OverAllState state, AtomicBoolean cancelled) {
+    Map<String, Object> lead(OverAllState state, AtomicBoolean cancelled, Consumer<String> leadEmitter) {
         if (isCancelled(cancelled)) {
             log.info("[multi-agent][lead] 客户端已断开，跳过拆解");
             return new HashMap<>();
@@ -110,10 +111,16 @@ final class OrchestrationNodes {
         String traceId = state.value(MultiAgentGraphAgent.K_TRACE_ID, String.class).orElse(null);
         String leadSpanId = CallTrace.newSpanId();
         CallTrace leadTrace = new CallTrace(turnId, traceId, null, leadSpanId);
+        // 思考透传（agent 表 thinking 列显示口径）：lead 行 thinking=1 且流式旁路可用时，
+        // reasoningContent delta 编码为「思考 · lead」进度行经旁路 sink 合入（不节流，与聚合同口径）
+        Consumer<String> reasoningTap = null;
+        if (leadEmitter != null && thinkingDisplayOf(ROLE_LEAD)) {
+            reasoningTap = delta -> leadEmitter.accept(ProgressLine.encode("思考 · lead", delta));
+        }
         String content;
         try {
             content = predictLeadLogged(sessionId, objective, cancelled,
-                    orchestrationBudget.ledgerHandle(state, true), leadTrace);
+                    orchestrationBudget.ledgerHandle(state, true), leadTrace, reasoningTap);
         } catch (BudgetLedger.BudgetExceededException e) {
             log.warn("[multi-agent][lead] 编排预算超限中止拆解（已消耗 {} / 上限 {}），退化为单子任务",
                     OrchestrationBudget.ledgerValue(state), budgets.getOrchestrationBudget());
@@ -150,7 +157,8 @@ final class OrchestrationNodes {
             for (int i = 0; i < n; i++) {
                 LeadOutputParser.Subtask item = items.get(i);
                 try {
-                    ragPrefetcher.submit(resolvedExpert(item.agent()), sessionId, item.desc());
+                    ragPrefetcher.submit(resolvedExpert(item.agent()), sessionId, item.desc(),
+                            KnowledgeRetriever.SOURCE_LEAD_PREFETCH);
                 } catch (Exception e) {
                     log.debug("[multi-agent][lead] RAG 预取提交失败（静默）：{}", e.getMessage());
                 }
@@ -221,7 +229,8 @@ final class OrchestrationNodes {
         // 不等待完成、不影响编排主流程
         if (ragPrefetcher != null) {
             try {
-                ragPrefetcher.submit(resolvedExpert(expert), sessionId, task);
+                ragPrefetcher.submit(resolvedExpert(expert), sessionId, task,
+                        KnowledgeRetriever.SOURCE_SUBTASK_PREFETCH);
             } catch (Exception e) {
                 log.debug("[multi-agent][subtask-{}] RAG 预取提交失败（静默）：{}", idx, e.getMessage());
             }
@@ -379,16 +388,16 @@ final class OrchestrationNodes {
      * 每轮 roundtrip 熔断判定 + 增量记账；可 null）。
      */
     private String predictLead(String sessionId, String objective, AtomicBoolean cancelled,
-                               BudgetLedger budgetLedger, CallTrace trace) {
+                               BudgetLedger budgetLedger, CallTrace trace, Consumer<String> reasoningTap) {
         return chatCaller.call(sessionId, ROLE_LEAD, OrchestrationPrompts.LEAD_FALLBACK_PROMPT, "拆解目标：" + objective,
                 null, new PromptBudgetAdvisor[]{PromptBudgetAdvisor.tail(budgets.getLeadBudget())},
-                cancelled == null ? null : cancelled::get, budgetLedger, trace);
+                cancelled == null ? null : cancelled::get, budgetLedger, trace, null, reasoningTap);
     }
 
     /** lead 拆解前日志埋点便于诊断专家指派（raw 输出统一记审计） */
     private String predictLeadLogged(String sessionId, String objective, AtomicBoolean cancelled,
-                                     BudgetLedger budgetLedger, CallTrace trace) {
-        String raw = predictLead(sessionId, objective, cancelled, budgetLedger, trace);
+                                     BudgetLedger budgetLedger, CallTrace trace, Consumer<String> reasoningTap) {
+        String raw = predictLead(sessionId, objective, cancelled, budgetLedger, trace, reasoningTap);
         log.info("[multi-agent][lead] raw 拆解输出: {}", raw.length() > 300 ? raw.substring(0, 300) + "..." : raw);
         return raw;
     }

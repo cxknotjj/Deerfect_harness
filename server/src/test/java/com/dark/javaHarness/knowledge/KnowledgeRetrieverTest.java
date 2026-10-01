@@ -221,7 +221,7 @@ class KnowledgeRetrieverTest {
     void prefetch_sameQueryAndKbs_shortCircuitsSearch() {
         when(knowledgeService.search("如何部署", List.of("default"))).thenReturn(List.of(hit("a.md", 0.92)));
 
-        retriever.prefetch("lead", "s1", "如何部署", List.of("default"));
+        retriever.prefetch("lead", "s1", "如何部署", List.of("default"), KnowledgeRetriever.SOURCE_ENTRY_PREFETCH);
         String block = retriever.buildKnowledgeBlock("lead", "s1", "如何部署", List.of("default"));
 
         assertNotNull(block, "命中短路应返回预取知识块");
@@ -234,9 +234,9 @@ class KnowledgeRetrieverTest {
         when(knowledgeService.search(anyString(), anyList())).thenReturn(List.of(hit("a.md", 0.92)));
 
         // 入口预取（query=用户原话）+ 两个子任务预取（query=各自子任务文本），同会话三条目共存
-        retriever.prefetch("lead", "s1", "用户原话", List.of("default"));
-        retriever.prefetch("researcher", "s1", "子任务一描述", List.of("default"));
-        retriever.prefetch("coder", "s1", "子任务二描述", List.of("default"));
+        retriever.prefetch("lead", "s1", "用户原话", List.of("default"), KnowledgeRetriever.SOURCE_ENTRY_PREFETCH);
+        retriever.prefetch("researcher", "s1", "子任务一描述", List.of("default"), KnowledgeRetriever.SOURCE_ENTRY_PREFETCH);
+        retriever.prefetch("coder", "s1", "子任务二描述", List.of("default"), KnowledgeRetriever.SOURCE_ENTRY_PREFETCH);
 
         // 三个条目各自命中，互不覆盖
         assertNotNull(retriever.buildKnowledgeBlock("lead", "s1", "用户原话", List.of("default")));
@@ -252,8 +252,8 @@ class KnowledgeRetrieverTest {
         when(knowledgeService.search(anyString(), anyList())).thenReturn(List.of(hit("a.md", 0.92)));
 
         // 同会话同 query 两次预取不同 kb 绑定（复合键相同，后写覆盖前写）
-        retriever.prefetch("lead", "s1", "如何部署", List.of("default"));
-        retriever.prefetch("lead", "s1", "如何部署", List.of("java"));
+        retriever.prefetch("lead", "s1", "如何部署", List.of("default"), KnowledgeRetriever.SOURCE_ENTRY_PREFETCH);
+        retriever.prefetch("lead", "s1", "如何部署", List.of("java"), KnowledgeRetriever.SOURCE_ENTRY_PREFETCH);
 
         // kbs=default 条目已被覆盖 → 不命中现查；kbs=java 条目命中
         assertNotNull(retriever.buildKnowledgeBlock("lead", "s1", "如何部署", List.of("default")));
@@ -267,7 +267,7 @@ class KnowledgeRetrieverTest {
     void prefetch_differentQuery_missesAndSearches() {
         when(knowledgeService.search(anyString(), anyList())).thenReturn(List.of(hit("a.md", 0.92)));
 
-        retriever.prefetch("lead", "s1", "如何部署", List.of("default"));
+        retriever.prefetch("lead", "s1", "如何部署", List.of("default"), KnowledgeRetriever.SOURCE_ENTRY_PREFETCH);
         assertNotNull(retriever.buildKnowledgeBlock("lead", "s1", "子任务描述", List.of("default")));
 
         verify(knowledgeService, times(2)).search(anyString(), anyList());
@@ -277,7 +277,7 @@ class KnowledgeRetrieverTest {
     void prefetch_differentKbs_missesAndSearches() {
         when(knowledgeService.search(anyString(), anyList())).thenReturn(List.of(hit("a.md", 0.92)));
 
-        retriever.prefetch("lead", "s1", "如何部署", List.of("default"));
+        retriever.prefetch("lead", "s1", "如何部署", List.of("default"), KnowledgeRetriever.SOURCE_ENTRY_PREFETCH);
         assertNotNull(retriever.buildKnowledgeBlock("lead", "s1", "如何部署", List.of("java")));
 
         verify(knowledgeService, times(2)).search(anyString(), anyList());
@@ -287,7 +287,7 @@ class KnowledgeRetrieverTest {
     void prefetch_noHits_notCached() {
         when(knowledgeService.search("无命中问题", List.of("default"))).thenReturn(List.of());
 
-        retriever.prefetch("lead", "s1", "无命中问题", List.of("default"));
+        retriever.prefetch("lead", "s1", "无命中问题", List.of("default"), KnowledgeRetriever.SOURCE_ENTRY_PREFETCH);
         assertNull(retriever.buildKnowledgeBlock("lead", "s1", "无命中问题", List.of("default")));
 
         verify(knowledgeService, times(2)).search("无命中问题", List.of("default"));
@@ -299,7 +299,7 @@ class KnowledgeRetrieverTest {
 
         // 条目口径：同会话 513 个不同 query = 513 个条目（复合键 sid|query），超限整体清空
         for (int i = 0; i < 513; i++) {
-            retriever.prefetch("lead", "s1", "问题-" + i, List.of("default"));
+            retriever.prefetch("lead", "s1", "问题-" + i, List.of("default"), KnowledgeRetriever.SOURCE_ENTRY_PREFETCH);
         }
         // 清空后条目「问题-0」已丢失 → 组装时未命中再现查
         assertNotNull(retriever.buildKnowledgeBlock("lead", "s1", "问题-0", List.of("default")));
@@ -322,5 +322,96 @@ class KnowledgeRetrieverTest {
         assertEquals(List.of("a b"), KnowledgeRetriever.parseBinding(" a b "));
         // 表达式清洗（单引号剔除）统一由 kbFilterExpression 收口，此处不再处理
         assertEquals(List.of("'java'"), KnowledgeRetriever.parseBinding("'java'"));
+    }
+
+    // ===== 检索观测采集（kb_retrieval_log，recorder 非 null 时四类事件）=====
+
+    @Mock
+    private com.dark.javaHarness.service.impl.observe.KbRetrievalRecorder recorder;
+
+    private KnowledgeRetriever retrieverWithRecorder() {
+        return new KnowledgeRetriever(knowledgeService, props, recorder);
+    }
+
+    /** 现查命中：落 inline_query 行（hit_count=注入条数、ok=1、轨迹归因透传） */
+    @Test
+    void recorder_inlineQuery_capturesRow() {
+        when(knowledgeService.search("如何部署", List.of("default"))).thenReturn(List.of(hit("a.md", 0.92)));
+
+        assertNotNull(retrieverWithRecorder().buildKnowledgeBlock("lead", "s1", "如何部署",
+                List.of("default"), KnowledgeRetriever.SOURCE_INLINE, "turn-1", "trace-1"));
+
+        org.mockito.ArgumentCaptor<com.dark.javaHarness.domain.KbRetrievalLog> captor =
+                org.mockito.ArgumentCaptor.forClass(com.dark.javaHarness.domain.KbRetrievalLog.class);
+        verify(recorder).record(captor.capture());
+        com.dark.javaHarness.domain.KbRetrievalLog row = captor.getValue();
+        assertEquals("inline_query", row.source());
+        assertEquals("s1", row.sessionId());
+        assertEquals("lead", row.agentName());
+        assertEquals(1, row.hitCount());
+        assertEquals(Boolean.TRUE, row.ok());
+        assertEquals("turn-1", row.turnId());
+        assertEquals("trace-1", row.traceId());
+        assertNotNull(row.startedAt());
+        assertNotNull(row.durationMs());
+    }
+
+    /** 无命中：落 inline_query 行且 hit_count=0（ok=1） */
+    @Test
+    void recorder_noHit_capturesZeroCount() {
+        when(knowledgeService.search("这个问题需要知识吗", List.of("default"))).thenReturn(List.of());
+
+        assertNull(retrieverWithRecorder().buildKnowledgeBlock("lead", "s1", "这个问题需要知识吗",
+                List.of("default"), KnowledgeRetriever.SOURCE_INLINE, null, null));
+
+        org.mockito.ArgumentCaptor<com.dark.javaHarness.domain.KbRetrievalLog> captor =
+                org.mockito.ArgumentCaptor.forClass(com.dark.javaHarness.domain.KbRetrievalLog.class);
+        verify(recorder).record(captor.capture());
+        assertEquals(0, captor.getValue().hitCount());
+        assertEquals(Boolean.TRUE, captor.getValue().ok());
+    }
+
+    /** 检索异常降级：落 ok=0 行且 error_msg 非空（行为不变，仍返回 null） */
+    @Test
+    void recorder_searchFailure_capturesDegradation() {
+        props.setSearchTimeoutSeconds(1);
+        when(knowledgeService.search(anyString(), anyList()))
+                .thenThrow(new RuntimeException("pg down"));
+
+        assertNull(retrieverWithRecorder().buildKnowledgeBlock("lead", "s1", "如何部署",
+                List.of("default"), KnowledgeRetriever.SOURCE_INLINE, null, null));
+
+        org.mockito.ArgumentCaptor<com.dark.javaHarness.domain.KbRetrievalLog> captor =
+                org.mockito.ArgumentCaptor.forClass(com.dark.javaHarness.domain.KbRetrievalLog.class);
+        verify(recorder).record(captor.capture());
+        assertEquals(Boolean.FALSE, captor.getValue().ok());
+        assertTrue(captor.getValue().errorMsg() != null && !captor.getValue().errorMsg().isBlank(),
+                "降级行应携带 error_msg");
+    }
+
+    /** 预取后组装命中短路：第一行 source=预取标记，第二行 source=cache_hit（hit_count=NULL） */
+    @Test
+    void recorder_prefetchThenCacheHit_capturesBothSources() {
+        when(knowledgeService.search("如何部署", List.of("default"))).thenReturn(List.of(hit("a.md", 0.92)));
+        KnowledgeRetriever r = retrieverWithRecorder();
+
+        r.prefetch("lead", "s1", "如何部署", List.of("default"), KnowledgeRetriever.SOURCE_ENTRY_PREFETCH);
+        assertNotNull(r.buildKnowledgeBlock("lead", "s1", "如何部署", List.of("default")));
+
+        org.mockito.ArgumentCaptor<com.dark.javaHarness.domain.KbRetrievalLog> captor =
+                org.mockito.ArgumentCaptor.forClass(com.dark.javaHarness.domain.KbRetrievalLog.class);
+        verify(recorder, times(2)).record(captor.capture());
+        com.dark.javaHarness.domain.KbRetrievalLog first = captor.getAllValues().get(0);
+        com.dark.javaHarness.domain.KbRetrievalLog second = captor.getAllValues().get(1);
+        assertEquals(KnowledgeRetriever.SOURCE_ENTRY_PREFETCH, first.source());
+        assertEquals(KnowledgeRetriever.SOURCE_CACHE_HIT, second.source());
+        assertNull(second.hitCount(), "cache_hit 行 hit_count 应为 NULL");
+    }
+
+    /** 零行为短路（未绑定知识库等）不记行 */
+    @Test
+    void recorder_zeroBehaviorShortCircuit_noRows() {
+        assertNull(retrieverWithRecorder().buildKnowledgeBlock("lead", "s1", "这是一个足够长的问题", null));
+        verifyNoInteractions(recorder);
     }
 }

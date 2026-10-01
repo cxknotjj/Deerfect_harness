@@ -1,7 +1,9 @@
 package com.dark.javaHarness.knowledge;
 
 import com.dark.javaHarness.config.knowledge.KnowledgeProperties;
+import com.dark.javaHarness.domain.KbRetrievalLog;
 import com.dark.javaHarness.domain.dto.KnowledgeSource;
+import com.dark.javaHarness.service.impl.observe.LlmCallRecorder;
 import com.dark.javaHarness.tool.TokenEstimator;
 import java.util.ArrayList;
 import java.util.List;
@@ -43,6 +45,13 @@ public class KnowledgeRetriever {
     /** 不做知识检索的角色（aggregator 的材料是子任务结果，非自身提问） */
     private static final Set<String> SKIP_ROLES = Set.of("aggregator");
 
+    /** 检索来源标记（kb_retrieval_log.source 口径，单一定义点供各提交方引用） */
+    public static final String SOURCE_INLINE = "inline_query";
+    public static final String SOURCE_CACHE_HIT = "cache_hit";
+    public static final String SOURCE_ENTRY_PREFETCH = "entry_prefetch";
+    public static final String SOURCE_LEAD_PREFETCH = "lead_prefetch";
+    public static final String SOURCE_SUBTASK_PREFETCH = "subtask_prefetch";
+
     /** 缓存条目上限（预取缓存 / 会话→来源表共用，超过整体清空：防无界增长，均为增强信息允许丢） */
     private static final int MAX_CACHE_ENTRIES = 512;
 
@@ -56,6 +65,8 @@ public class KnowledgeRetriever {
 
     private final KnowledgeService knowledgeService;
     private final KnowledgeProperties props;
+    /** 检索观测记录器（kb_retrieval_log 落库面）；null = 单测/未装配零行为，采集纯旁路 */
+    private final com.dark.javaHarness.service.impl.observe.KbRetrievalRecorder recorder;
 
     /** 检索守护线程序号（线程命名 knowledge-search-N，JVM 内唯一） */
     private static final AtomicInteger SEARCH_THREAD_SEQ = new AtomicInteger();
@@ -73,8 +84,15 @@ public class KnowledgeRetriever {
     private final ConcurrentHashMap<String, PrefetchedKnowledge> prefetchCache = new ConcurrentHashMap<>();
 
     public KnowledgeRetriever(KnowledgeService knowledgeService, KnowledgeProperties props) {
+        this(knowledgeService, props, null);
+    }
+
+    /** 全参构造：recorder 为检索观测记录器（kb_retrieval_log），null 时零采集（单测/未装配场景） */
+    public KnowledgeRetriever(KnowledgeService knowledgeService, KnowledgeProperties props,
+                              com.dark.javaHarness.service.impl.observe.KbRetrievalRecorder recorder) {
         this.knowledgeService = knowledgeService;
         this.props = props;
+        this.recorder = recorder;
     }
 
     /**
@@ -86,9 +104,31 @@ public class KnowledgeRetriever {
      * @param kbs       该 agent 绑定的知识库列表（{@link #parseBinding} 解析 agent 表
      *                  knowledge 列；null/空 = 未绑定知识库，不检索）
      */
+    /**
+     * 构建知识块（4 参便捷重载，执行期现查口径：source=inline_query、无轨迹归因；
+     * 既有调用方与单测零改动）。
+     */
     public String buildKnowledgeBlock(String agentName, String sessionId, String user, List<String> kbs) {
+        return buildKnowledgeBlock(agentName, sessionId, user, kbs, SOURCE_INLINE, null, null);
+    }
+
+    /**
+     * 构建知识块（无命中/跳过/降级返回 null，调用方不注入）。
+     *
+     * @param agentName 角色名（aggregator 策略跳过）
+     * @param sessionId 会话 ID（来源记录键；路由判定等无会话场景不记录）
+     * @param user      当前 user 文本（检索 query）
+     * @param kbs       该 agent 绑定的知识库列表（{@link #parseBinding} 解析 agent 表
+     *                  knowledge 列；null/空 = 未绑定知识库，不检索）
+     * @param source    检索来源标记（kb_retrieval_log.source：执行期 inline_query；预取传
+     *                  entry_prefetch / lead_prefetch / subtask_prefetch；缓存短路恒记 cache_hit）
+     * @param turnId    轨迹归因轮次（预取场景传 null）
+     * @param traceId   轨迹归因执行链（预取场景传 null）
+     */
+    public String buildKnowledgeBlock(String agentName, String sessionId, String user, List<String> kbs,
+                                      String source, String turnId, String traceId) {
         if (kbs == null || kbs.isEmpty()) {
-            // agent 未绑定知识库（knowledge 列 NULL/空白）→ 不触发检索
+            // agent 未绑定知识库（knowledge 列 NULL/空白）→ 不触发检索（零行为短路不记行）
             return null;
         }
         if (agentName != null && SKIP_ROLES.contains(agentName)) {
@@ -107,10 +147,17 @@ public class KnowledgeRetriever {
                 ? null : prefetchCache.get(sessionId + '|' + query);
         if (prefetched != null && prefetched.kbs().equals(kbs)) {
             log.debug("[knowledge] 预取命中，跳过检索：sid={} query='{}'", sessionId, summarize(query));
+            recordRetrieval(sessionId, agentName, SOURCE_CACHE_HIT, query, kbs,
+                    null, 0L, true, null, turnId, traceId, System.currentTimeMillis());
             return prefetched.block();
         }
-        List<KnowledgeService.KnowledgeHit> hits = searchWithTimeout(query, kbs);
-        if (hits == null || hits.isEmpty()) {
+        long start = System.currentTimeMillis();
+        SearchOutcome outcome = searchWithTimeout(query, kbs);
+        if (outcome.hits() == null || outcome.hits().isEmpty()) {
+            // 无命中（ok=1, hit_count=0）或降级（ok=0 + error）：均落行，行为不变
+            recordRetrieval(sessionId, agentName, source, query, kbs,
+                    0, outcome.durationMs(), outcome.error() == null, outcome.error(),
+                    turnId, traceId, start);
             return null;
         }
         // 逐条累加渲染，超预算停止（contextBudget=0 不截断）：整条进出保语义完整，
@@ -118,12 +165,12 @@ public class KnowledgeRetriever {
         StringBuilder body = new StringBuilder();
         int used = TokenEstimator.estimateTokens(BLOCK_HEADER) + TokenEstimator.estimateTokens(BLOCK_FOOTER);
         int cited = 0;
-        for (KnowledgeService.KnowledgeHit hit : hits) {
+        for (KnowledgeService.KnowledgeHit hit : outcome.hits()) {
             String piece = renderCitation(cited + 1, hit);
             int cost = TokenEstimator.estimateTokens(piece);
             if (props.getContextBudget() > 0 && used + cost > props.getContextBudget()) {
                 log.debug("[knowledge] 知识块达预算上限（{} token），{} 条命中截留 {} 条",
-                        props.getContextBudget(), hits.size(), cited);
+                        props.getContextBudget(), outcome.hits().size(), cited);
                 break;
             }
             body.append(piece);
@@ -131,22 +178,31 @@ public class KnowledgeRetriever {
             cited++;
         }
         if (cited == 0) {
+            // 全部命中被预算截留：记无注入行，行为不变
+            recordRetrieval(sessionId, agentName, source, query, kbs,
+                    0, outcome.durationMs(), true, null, turnId, traceId, start);
             return null;
         }
-        remember(sessionId, hits.subList(0, cited));
+        remember(sessionId, outcome.hits().subList(0, cited));
+        recordRetrieval(sessionId, agentName, source, query, kbs,
+                cited, outcome.durationMs(), true, null, turnId, traceId, start);
         return BLOCK_HEADER + body + BLOCK_FOOTER;
     }
 
     /**
-     * 入口预取：提前完成一次完整检索并缓存（复用 buildKnowledgeBlock 全部前置检查、
+     * 预取：提前完成一次完整检索并缓存（复用 buildKnowledgeBlock 全部前置检查、
      * 超时包裹与预算截留），随后同会话同 query 同 kb 绑定的组装请求短路命中。
      * 无命中/异常静默——预取是纯加速，失败退化为后续现查。
+     *
+     * @param source 预取来源标记（kb_retrieval_log.source：entry_prefetch / lead_prefetch /
+     *               subtask_prefetch；内部命中缓存短路记 cache_hit）
      */
-    public void prefetch(String agentName, String sessionId, String query, List<String> kbs) {
+    public void prefetch(String agentName, String sessionId, String query, List<String> kbs, String source) {
+        String normalized = query == null ? "" : query.strip();
+        long start = System.currentTimeMillis();
         try {
             // 缓存键与 buildKnowledgeBlock 内部 strip 口径对齐（存原文会因首尾空白导致命中判定失败）
-            String normalized = query == null ? "" : query.strip();
-            String block = buildKnowledgeBlock(agentName, sessionId, normalized, kbs);
+            String block = buildKnowledgeBlock(agentName, sessionId, normalized, kbs, source, null, null);
             if (block != null && sessionId != null && !sessionId.isBlank()) {
                 String cacheKey = sessionId + '|' + normalized;
                 if (prefetchCache.size() >= MAX_CACHE_ENTRIES && !prefetchCache.containsKey(cacheKey)) {
@@ -157,6 +213,9 @@ public class KnowledgeRetriever {
             }
         } catch (Exception e) {
             log.debug("[knowledge] 预取失败（静默，后续现查）：{}", String.valueOf(e));
+            // 非检索类失败（缓存写入/渲染等）在此落 ok=0 行；检索类降级已由 buildKnowledgeBlock 落行
+            recordRetrieval(sessionId, agentName, source, normalized, kbs,
+                    null, System.currentTimeMillis() - start, false, String.valueOf(e), null, null, start);
         }
     }
 
@@ -209,14 +268,21 @@ public class KnowledgeRetriever {
     }
 
     /**
-     * 检索限时执行：searchTimeoutSeconds &gt; 0 时把 {@code knowledgeService.search} 包裹到
-     * 守护线程池限时执行，超时/异常降级 null（命中既有「无命中返回 null」语义，不阻断主链路）；
-     * 0 = 关闭包裹直通现状（行为与治理前逐字节一致，异常照常向上传播）。
+     * 检索限时执行结果：hits 为 null 表示降级（error 非空）；durationMs 为检索耗时（观测口径）。
      */
-    private List<KnowledgeService.KnowledgeHit> searchWithTimeout(String query, List<String> kbs) {
+    private record SearchOutcome(List<KnowledgeService.KnowledgeHit> hits, long durationMs, String error) {
+    }
+
+    /**
+     * 检索限时执行：searchTimeoutSeconds &gt; 0 时把 {@code knowledgeService.search} 包裹到
+     * 守护线程池限时执行，超时/异常/池拒绝降级为 error 非空的 outcome（命中既有「无命中返回 null」
+     * 语义，不阻断主链路）；0 = 关闭包裹直通现状（行为与治理前逐字节一致，异常照常向上传播）。
+     */
+    private SearchOutcome searchWithTimeout(String query, List<String> kbs) {
         int timeoutSeconds = props.getSearchTimeoutSeconds();
+        long start = System.currentTimeMillis();
         if (timeoutSeconds <= 0) {
-            return knowledgeService.search(query, kbs);
+            return new SearchOutcome(knowledgeService.search(query, kbs), System.currentTimeMillis() - start, null);
         }
         ExecutorService pool = ensureSearchPool();
         Future<List<KnowledgeService.KnowledgeHit>> future;
@@ -224,23 +290,44 @@ public class KnowledgeRetriever {
             future = pool.submit(() -> knowledgeService.search(query, kbs));
         } catch (RejectedExecutionException e) {
             log.warn("[knowledge] 检索池拒绝，降级跳过：query='{}'", summarize(query));
-            return null;
+            return new SearchOutcome(null, System.currentTimeMillis() - start, "检索池拒绝");
         }
-        long start = System.currentTimeMillis();
         try {
-            return future.get(timeoutSeconds, TimeUnit.SECONDS);
+            List<KnowledgeService.KnowledgeHit> hits = future.get(timeoutSeconds, TimeUnit.SECONDS);
+            return new SearchOutcome(hits, System.currentTimeMillis() - start, null);
         } catch (TimeoutException e) {
             future.cancel(true);
             log.warn("[knowledge] 知识检索超时（限时 {}s，实际 {}ms），降级跳过：query='{}'",
                     timeoutSeconds, System.currentTimeMillis() - start, summarize(query));
-            return null;
+            return new SearchOutcome(null, System.currentTimeMillis() - start,
+                    "检索超时（限时 " + timeoutSeconds + "s）");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             future.cancel(true);
-            return null;
+            return new SearchOutcome(null, System.currentTimeMillis() - start, "检索线程中断");
         } catch (ExecutionException e) {
             log.warn("[knowledge] 知识检索异常，降级跳过：{}", String.valueOf(e.getCause()));
-            return null;
+            return new SearchOutcome(null, System.currentTimeMillis() - start, String.valueOf(e.getCause()));
+        }
+    }
+
+    /**
+     * 检索观测采集（纯旁路）：recorder 缺位零行为；组装/落库异常吞掉记 debug，
+     * 绝不影响检索返回值与缓存语义（对齐 LlmCallRecorder「观测不影响主链路」约束）。
+     */
+    private void recordRetrieval(String sessionId, String agentName, String source, String query,
+                                 List<String> kbs, Integer hitCount, long durationMs, boolean ok,
+                                 String error, String turnId, String traceId, long startEpochMs) {
+        if (recorder == null) {
+            return;
+        }
+        try {
+            recorder.record(new KbRetrievalLog(sessionId, agentName, source, query,
+                    kbs == null ? null : String.join(",", kbs),
+                    hitCount, durationMs, ok, error, turnId, traceId,
+                    LlmCallRecorder.startedAt(startEpochMs)));
+        } catch (Exception e) {
+            log.debug("[knowledge] 检索观测采集失败（静默）：{}", String.valueOf(e));
         }
     }
 

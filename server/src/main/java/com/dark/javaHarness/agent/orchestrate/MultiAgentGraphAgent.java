@@ -423,8 +423,9 @@ public class MultiAgentGraphAgent implements Agent {
         java.util.function.Consumer<String> toolEmitter = toolEvents == null ? null
                 : row -> BranchProgressListener.tryEmitSerialized(toolEvents, row);
 
-        // lead：拆解复杂目标为多条子任务
-        g.addNode(NODE_LEAD, AsyncNodeAction.node_async(state -> nodes.lead(state, cancelled)));
+        // lead：拆解复杂目标为多条子任务（leadEmitter 供 lead 思考透传复用工具旁路 sink，
+        // lead 行 thinking=1 时在节点内门控接线；同步路径 toolEmitter=null 零行为）
+        g.addNode(NODE_LEAD, AsyncNodeAction.node_async(state -> nodes.lead(state, cancelled, toolEmitter)));
         // 子任务池：固定 MAX_SUBTASKS 个并行节点
         for (int i = 0; i < MAX_SUBTASKS; i++) {
             final int idx = i;

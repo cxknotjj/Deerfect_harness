@@ -43,7 +43,7 @@ class ContextBudgetPropertiesTest {
         assertEquals(5000, budgets.getToolResultBudget());
         assertEquals(8, budgets.getToolCallLimit());
         // 消费侧
-        assertEquals(2000, budgets.getMaxTokensLead());
+        assertEquals(4000, budgets.getMaxTokensLead());
         assertEquals(8000, budgets.getMaxTokensFinal());
         assertEquals(4000, budgets.getMaxTokensExpert());
         assertEquals(60000, budgets.getOrchestrationBudget());

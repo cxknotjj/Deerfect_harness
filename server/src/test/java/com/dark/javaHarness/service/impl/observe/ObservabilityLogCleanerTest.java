@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.dark.javaHarness.mapper.KbRetrievalLogMapper;
 import com.dark.javaHarness.mapper.LlmCallLogMapper;
 import com.dark.javaHarness.mapper.ToolCallLogMapper;
 import org.junit.jupiter.api.Test;
@@ -16,7 +17,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
- * 观测表保留期清理单测：禁用开关、分批循环、失败不抛三边界。
+ * 观测表保留期清理单测：禁用开关、分批循环、失败不抛三边界；
+ * kb_retrieval_log（V34）纳入同 retention 策略清理。
  */
 @ExtendWith(MockitoExtension.class)
 class ObservabilityLogCleanerTest {
@@ -25,29 +27,35 @@ class ObservabilityLogCleanerTest {
     private LlmCallLogMapper llmCallLogMapper;
     @Mock
     private ToolCallLogMapper toolCallLogMapper;
+    @Mock
+    private KbRetrievalLogMapper kbRetrievalLogMapper;
 
     private ObservabilityLogCleaner cleaner(int retentionDays) {
-        return new ObservabilityLogCleaner(llmCallLogMapper, toolCallLogMapper, retentionDays);
+        return new ObservabilityLogCleaner(llmCallLogMapper, toolCallLogMapper, kbRetrievalLogMapper,
+                retentionDays);
     }
 
-    /** retention-days=0：禁用清理，两个 mapper 均不被触碰 */
+    /** retention-days=0：禁用清理，三个 mapper 均不被触碰 */
     @Test
     void cleanOnce_zeroRetention_disables() {
         cleaner(0).cleanOnce();
         verify(llmCallLogMapper, never()).delete(any());
         verify(toolCallLogMapper, never()).delete(any());
+        verify(kbRetrievalLogMapper, never()).delete(any());
     }
 
-    /** 正常清理：两张表各删一批（返回量 < 单批上限即收尾） */
+    /** 正常清理：三张表各删一批（返回量 < 单批上限即收尾） */
     @Test
-    void cleanOnce_deletesBothTables() {
+    void cleanOnce_deletesAllTables() {
         when(llmCallLogMapper.delete(any())).thenReturn(3);
         when(toolCallLogMapper.delete(any())).thenReturn(0);
+        when(kbRetrievalLogMapper.delete(any())).thenReturn(5);
 
         cleaner(90).cleanOnce();
 
         verify(llmCallLogMapper, times(1)).delete(any());
         verify(toolCallLogMapper, times(1)).delete(any());
+        verify(kbRetrievalLogMapper, times(1)).delete(any());
     }
 
     /** 分批循环：单批满 1000 行则继续删下一批，直到不足量收尾；总数累计正确 */
@@ -55,6 +63,7 @@ class ObservabilityLogCleanerTest {
     void cleanOnce_batchLoop_untilExhausted() {
         when(llmCallLogMapper.delete(any())).thenReturn(ObservabilityLogCleaner.BATCH_LIMIT, 3);
         when(toolCallLogMapper.delete(any())).thenReturn(0);
+        when(kbRetrievalLogMapper.delete(any())).thenReturn(0);
 
         cleaner(90).cleanOnce();
 
@@ -67,6 +76,7 @@ class ObservabilityLogCleanerTest {
     void cleanOnce_wrapperTargetsCreatedAtWithLimit() {
         when(llmCallLogMapper.delete(any())).thenReturn(0);
         when(toolCallLogMapper.delete(any())).thenReturn(0);
+        when(kbRetrievalLogMapper.delete(any())).thenReturn(0);
 
         cleaner(90).cleanOnce();
 
@@ -80,14 +90,16 @@ class ObservabilityLogCleanerTest {
                 "删除应带分批 LIMIT，实际: " + sql);
     }
 
-    /** 删除抛异常：不向上传播（观测清理绝不影响主链路），且另一张表仍继续处理 */
+    /** 删除抛异常：不向上传播（观测清理绝不影响主链路），且其余表仍继续处理 */
     @Test
-    void cleanOnce_failureSwallowed_continuesOtherTable() {
+    void cleanOnce_failureSwallowed_continuesOtherTables() {
         when(llmCallLogMapper.delete(any())).thenThrow(new RuntimeException("db down"));
         when(toolCallLogMapper.delete(any())).thenReturn(0);
+        when(kbRetrievalLogMapper.delete(any())).thenReturn(0);
 
         cleaner(90).cleanOnce();
 
         verify(toolCallLogMapper, times(1)).delete(any());
+        verify(kbRetrievalLogMapper, times(1)).delete(any());
     }
 }

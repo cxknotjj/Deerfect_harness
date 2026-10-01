@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -25,11 +26,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
- * RagPrefetcher 显式签名单测（submit(agentName, sessionId, query)）：
- * - 显式提交 → kb 绑定解析正确并发起预取
+ * RagPrefetcher 显式签名单测（submit(agentName, sessionId, query, source)）：
+ * - 显式提交 → kb 绑定解析正确并发起预取（source 透传检索器）
  * - agent 名缺失 / 未绑定知识库 → 不入池零行为
  * - 绑定解析异常静默（返回 null 不上抛）
  * - await 超汇合窗口 → cancel 中断放弃
+ * - 三个提交点来源标记（entry/lead/subtask_prefetch）区分可验
  */
 @ExtendWith(MockitoExtension.class)
 class RagPrefetcherTest {
@@ -46,24 +48,45 @@ class RagPrefetcherTest {
         prefetcher = new RagPrefetcher(knowledgeRetriever, agentService);
     }
 
-    /** ①显式提交：kb 绑定解析正确（逗号拆分 + trim），并以显式参数（agentName/sessionId/query）发起预取 */
+    /** ①显式提交：kb 绑定解析正确（逗号拆分 + trim），并以显式参数（agentName/sessionId/query/source）发起预取 */
     @Test
     void submit_explicitArgs_shouldResolveKbsAndPrefetch() {
         when(agentService.getAgentConfig("general")).thenReturn(Optional.of(
                 new AgentConfig(1L, "gpt", null, "kb1, kb2")));
 
-        Future<?> prefetch = prefetcher.submit("general", "42", "什么是知识库");
+        Future<?> prefetch = prefetcher.submit("general", "42", "什么是知识库",
+                KnowledgeRetriever.SOURCE_ENTRY_PREFETCH);
 
         assertNotNull(prefetch, "已绑定知识库应入池");
         prefetcher.await(prefetch);
-        verify(knowledgeRetriever).prefetch("general", "42", "什么是知识库", List.of("kb1", "kb2"));
+        verify(knowledgeRetriever).prefetch("general", "42", "什么是知识库", List.of("kb1", "kb2"),
+                KnowledgeRetriever.SOURCE_ENTRY_PREFETCH);
+    }
+
+    /** ①b三提交点来源标记区分：同一签名不同 source 原样透传（entry/lead/subtask_prefetch） */
+    @Test
+    void submit_sourceTags_shouldPassThrough() {
+        when(agentService.getAgentConfig("general")).thenReturn(Optional.of(
+                new AgentConfig(1L, "gpt", null, "kb1")));
+
+        Future<?> lead = prefetcher.submit("general", "42", "q", KnowledgeRetriever.SOURCE_LEAD_PREFETCH);
+        Future<?> subtask = prefetcher.submit("general", "42", "q", KnowledgeRetriever.SOURCE_SUBTASK_PREFETCH);
+        prefetcher.await(lead);
+        prefetcher.await(subtask);
+
+        verify(knowledgeRetriever).prefetch("general", "42", "q", List.of("kb1"),
+                KnowledgeRetriever.SOURCE_LEAD_PREFETCH);
+        verify(knowledgeRetriever).prefetch("general", "42", "q", List.of("kb1"),
+                KnowledgeRetriever.SOURCE_SUBTASK_PREFETCH);
     }
 
     /** ②agent 名为 null/空白不入池：无事发生（不查 config、不发起预取） */
     @Test
     void submit_nullOrBlankAgentName_shouldNotEnqueue() {
-        assertNull(prefetcher.submit(null, "42", "q"), "agent 名 null 应不入池");
-        assertNull(prefetcher.submit("  ", "42", "q"), "agent 名空白应不入池");
+        assertNull(prefetcher.submit(null, "42", "q", KnowledgeRetriever.SOURCE_ENTRY_PREFETCH),
+                "agent 名 null 应不入池");
+        assertNull(prefetcher.submit("  ", "42", "q", KnowledgeRetriever.SOURCE_ENTRY_PREFETCH),
+                "agent 名空白应不入池");
         verifyNoInteractions(agentService, knowledgeRetriever);
     }
 
@@ -71,14 +94,16 @@ class RagPrefetcherTest {
     @Test
     void submit_noKbBinding_shouldNotEnqueue() {
         when(agentService.getAgentConfig("general")).thenReturn(Optional.empty());
-        assertNull(prefetcher.submit("general", "42", "q"), "config 缺失应不入池");
+        assertNull(prefetcher.submit("general", "42", "q", KnowledgeRetriever.SOURCE_ENTRY_PREFETCH),
+                "config 缺失应不入池");
 
         // knowledge 列为空串同样零行为（parseBinding → null）
         when(agentService.getAgentConfig("general")).thenReturn(Optional.of(
                 new AgentConfig(1L, "gpt", null, "")));
-        assertNull(prefetcher.submit("general", "42", "q"), "未绑定知识库应不入池");
+        assertNull(prefetcher.submit("general", "42", "q", KnowledgeRetriever.SOURCE_ENTRY_PREFETCH),
+                "未绑定知识库应不入池");
 
-        verify(knowledgeRetriever, never()).prefetch(any(), any(), any(), any());
+        verify(knowledgeRetriever, never()).prefetch(any(), any(), any(), any(), any());
     }
 
     /** ③解析异常静默：config 查询失败不上抛，返回 null（预取是纯加速，不影响主流程） */
@@ -86,8 +111,9 @@ class RagPrefetcherTest {
     void submit_resolverThrows_shouldSilentlyReturnNull() {
         when(agentService.getAgentConfig("general")).thenThrow(new RuntimeException("db down"));
 
-        assertNull(prefetcher.submit("general", "42", "q"), "解析异常应静默返回 null");
-        verify(knowledgeRetriever, never()).prefetch(any(), any(), any(), any());
+        assertNull(prefetcher.submit("general", "42", "q", KnowledgeRetriever.SOURCE_ENTRY_PREFETCH),
+                "解析异常应静默返回 null");
+        verify(knowledgeRetriever, never()).prefetch(any(), any(), any(), any(), any());
     }
 
     /** ④await 超汇合窗口：预取超 2s 未完成 → cancel(true) 中断放弃（占用归还共享池） */
@@ -102,9 +128,9 @@ class RagPrefetcherTest {
             started.countDown();
             release.await();
             return null;
-        }).when(knowledgeRetriever).prefetch(any(), any(), any(), any());
+        }).when(knowledgeRetriever).prefetch(any(), any(), any(), any(), eq(KnowledgeRetriever.SOURCE_ENTRY_PREFETCH));
 
-        Future<?> prefetch = prefetcher.submit("general", "42", "q");
+        Future<?> prefetch = prefetcher.submit("general", "42", "q", KnowledgeRetriever.SOURCE_ENTRY_PREFETCH);
         assertNotNull(prefetch);
         assertTrue(started.await(5, TimeUnit.SECONDS), "预取任务应已开始");
 

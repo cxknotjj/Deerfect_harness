@@ -74,7 +74,8 @@ app:
     tool-result-budget: 5000  # 单次调用工具结果注入上下文的总预算
     tool-call-limit: 8       # 单次调用工具执行次数硬上限
     # —— 消费侧：输出封顶（生成侧防失控，设 maxTokens，0 = 不限制）——
-    max-tokens-lead: 2000     # lead 拆解单次输出上限（JSON 中间产物，本就该短）
+    max-tokens-lead: 4000     # lead 拆解单次输出上限（brief 四要素后输出变长：单条任务书可达 2000 字符，
+                              # 2000 token 会截断 JSON 丢失 agent 字段——e2e 实测后自 2000 上调）
     max-tokens-final: 8000    # 聚合与路径 A 直出单次输出上限（直出用户的最终回答）
     max-tokens-expert: 4000   # 编排子任务专家单次输出上限
     # —— 消费侧：编排全程消费上限（0 = 不限制）——

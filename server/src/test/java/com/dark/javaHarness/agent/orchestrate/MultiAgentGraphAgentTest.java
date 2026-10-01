@@ -22,6 +22,7 @@ import com.dark.javaHarness.advisor.ContextAssemblingAdvisor;
 import com.dark.javaHarness.agent.ProgressLine;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.Goal;
+import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.SessionService;
@@ -1190,8 +1191,10 @@ class MultiAgentGraphAgentTest {
         agent.execute(new Goal("gp1", "调研竞品并统计销量", "sess-p1"));
 
         // lead 出口 + subtask 入口各提交一次（同参数幂等重复）
-        verify(prefetcher, org.mockito.Mockito.times(2)).submit("researcher", "sess-p1", "调研竞品");
-        verify(prefetcher, org.mockito.Mockito.times(2)).submit("analyst", "sess-p1", "统计销量");
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("researcher", "sess-p1", "调研竞品", KnowledgeRetriever.SOURCE_LEAD_PREFETCH);
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("researcher", "sess-p1", "调研竞品", KnowledgeRetriever.SOURCE_SUBTASK_PREFETCH);
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("analyst", "sess-p1", "统计销量", KnowledgeRetriever.SOURCE_LEAD_PREFETCH);
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("analyst", "sess-p1", "统计销量", KnowledgeRetriever.SOURCE_SUBTASK_PREFETCH);
         org.mockito.Mockito.verifyNoMoreInteractions(prefetcher);
     }
 
@@ -1206,8 +1209,10 @@ class MultiAgentGraphAgentTest {
 
         // 仅 2 个已布置槽位提交（lead 出口 + subtask 入口各一次；未指派 → 执行回退 general，
         // 预取同源用 general 查绑定）；槽位 2/3 未布置 → 快速短路零提交（NoMore 兜底证明零贡献）
-        verify(prefetcher, org.mockito.Mockito.times(2)).submit("general", "sess-p2", "子任务A");
-        verify(prefetcher, org.mockito.Mockito.times(2)).submit("general", "sess-p2", "子任务B");
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("general", "sess-p2", "子任务A", KnowledgeRetriever.SOURCE_LEAD_PREFETCH);
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("general", "sess-p2", "子任务A", KnowledgeRetriever.SOURCE_SUBTASK_PREFETCH);
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("general", "sess-p2", "子任务B", KnowledgeRetriever.SOURCE_LEAD_PREFETCH);
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("general", "sess-p2", "子任务B", KnowledgeRetriever.SOURCE_SUBTASK_PREFETCH);
         org.mockito.Mockito.verifyNoMoreInteractions(prefetcher);
     }
 
@@ -1242,7 +1247,7 @@ class MultiAgentGraphAgentTest {
             events.add("stream");
             return streamSpec;
         });
-        when(prefetcher.submit(any(), any(), any())).thenAnswer(inv -> {
+        when(prefetcher.submit(any(), any(), any(), any())).thenAnswer(inv -> {
             events.add("submit:" + inv.getArgument(0, String.class));
             return null;
         });
@@ -1272,8 +1277,10 @@ class MultiAgentGraphAgentTest {
 
         assertEquals(leadJson, reply, "重复提交不得影响最终回答");
         // 每个子任务恰好两次提交（lead 出口 + subtask 入口）：KnowledgeRetriever 复合缓存键下同参数幂等，无需去重
-        verify(prefetcher, org.mockito.Mockito.times(2)).submit("researcher", "sess-pd1", "调研竞品");
-        verify(prefetcher, org.mockito.Mockito.times(2)).submit("analyst", "sess-pd1", "统计销量");
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("researcher", "sess-pd1", "调研竞品", KnowledgeRetriever.SOURCE_LEAD_PREFETCH);
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("researcher", "sess-pd1", "调研竞品", KnowledgeRetriever.SOURCE_SUBTASK_PREFETCH);
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("analyst", "sess-pd1", "统计销量", KnowledgeRetriever.SOURCE_LEAD_PREFETCH);
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("analyst", "sess-pd1", "统计销量", KnowledgeRetriever.SOURCE_SUBTASK_PREFETCH);
         org.mockito.Mockito.verifyNoMoreInteractions(prefetcher);
     }
 }

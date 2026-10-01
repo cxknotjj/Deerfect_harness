@@ -121,9 +121,10 @@ export function useChat(hooks: ChatHooks) {
   }
 
   /**
-   * 进度行分发:stage 以「思考」开头的行(「思考」=主回答/聚合,「思考N」=子任务)路由进
+   * 进度行分发:stage 以「思考」开头的行(「思考 · agent名」=主回答/lead,「思考N · 专家名」=子任务)路由进
    * 思考折叠块(同 stage 追加全文,新 stage 新建块),其余行保持进度轨迹;
-   * 思考块流结束后保留(可展开回看),进度轨迹照旧清空
+   * 思考块流结束后保留(可展开回看),进度轨迹照旧清空。
+   * 观测口径:思考内容全量保留,不做截断(数据完整性优先)
    */
   function routeProgress(assistant: MessageItem, p: ProgressPayload): void {
     if (!p.stage.startsWith('思考')) {

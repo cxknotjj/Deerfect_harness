@@ -9,6 +9,7 @@ import com.dark.javaHarness.domain.dto.KnowledgeSource;
 import com.dark.javaHarness.enums.AgentConstants;
 import com.dark.javaHarness.enums.GoalStatus;
 import com.dark.javaHarness.enums.SseProtocol;
+import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.domain.entity.SessionEntity;
 import com.dark.javaHarness.exception.ResumeConflictException;
 import com.dark.javaHarness.service.AgentService;
@@ -361,7 +362,8 @@ public class ChatServiceImpl implements ChatService {
      * 会话 agent 名由入口解析后显式传入（kb 绑定解析内聚预取器，null/空白不入池）。
      */
     private String resolveAgentWithPrefetch(String agentName, String message, String sessionId, String turnId) {
-        Future<?> prefetch = ragPrefetcher == null ? null : ragPrefetcher.submit(agentName, sessionId, message);
+        Future<?> prefetch = ragPrefetcher == null ? null
+                : ragPrefetcher.submit(agentName, sessionId, message, KnowledgeRetriever.SOURCE_ENTRY_PREFETCH);
         try {
             String resolvedAgent = resolveAgent(message, sessionId, turnId);
             if (ragPrefetcher != null) { // 知识库禁用时预取器缺位，judge 完成即返回

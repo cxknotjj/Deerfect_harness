@@ -2,6 +2,7 @@ package com.dark.javaHarness.service.impl.observe;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.dark.javaHarness.mapper.KbRetrievalLogMapper;
 import com.dark.javaHarness.mapper.LlmCallLogMapper;
 import com.dark.javaHarness.mapper.ToolCallLogMapper;
 import java.time.LocalDateTime;
@@ -32,14 +33,17 @@ public class ObservabilityLogCleaner {
 
     private final LlmCallLogMapper llmCallLogMapper;
     private final ToolCallLogMapper toolCallLogMapper;
+    private final KbRetrievalLogMapper kbRetrievalLogMapper;
     /** 保留天数（0 = 禁用清理） */
     private final int retentionDays;
 
     public ObservabilityLogCleaner(LlmCallLogMapper llmCallLogMapper,
                                    ToolCallLogMapper toolCallLogMapper,
+                                   KbRetrievalLogMapper kbRetrievalLogMapper,
                                    @Value("${app.observability.retention-days:90}") int retentionDays) {
         this.llmCallLogMapper = llmCallLogMapper;
         this.toolCallLogMapper = toolCallLogMapper;
+        this.kbRetrievalLogMapper = kbRetrievalLogMapper;
         this.retentionDays = retentionDays;
         log.info("[observability-clean] 观测表清理已装配：保留期 {} 天（0 = 禁用）", retentionDays);
     }
@@ -53,9 +57,10 @@ public class ObservabilityLogCleaner {
         LocalDateTime threshold = LocalDateTime.now().minusDays(retentionDays);
         long llm = deleteInBatches("llm_call_log", llmCallLogMapper, threshold);
         long tool = deleteInBatches("tool_call_log", toolCallLogMapper, threshold);
-        if (llm > 0 || tool > 0) {
-            log.info("[observability-clean] 保留期 {} 天：清理 llm_call_log {} 行、tool_call_log {} 行",
-                    retentionDays, llm, tool);
+        long kb = deleteInBatches("kb_retrieval_log", kbRetrievalLogMapper, threshold);
+        if (llm > 0 || tool > 0 || kb > 0) {
+            log.info("[observability-clean] 保留期 {} 天：清理 llm_call_log {} 行、tool_call_log {} 行、kb_retrieval_log {} 行",
+                    retentionDays, llm, tool, kb);
         }
     }
 

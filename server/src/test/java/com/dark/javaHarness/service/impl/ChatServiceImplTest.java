@@ -669,7 +669,7 @@ class ChatServiceImplTest {
         ChatResponse resp = chatService.chat(new ChatRequest("什么是知识库", "42", null));
 
         assertEquals("SUCCEEDED", resp.status());
-        verify(knowledgeRetriever).prefetch(eq("general"), eq("42"), eq("什么是知识库"), eq(List.of("kb1")));
+        verify(knowledgeRetriever).prefetch(eq("general"), eq("42"), eq("什么是知识库"), eq(List.of("kb1")), eq(KnowledgeRetriever.SOURCE_ENTRY_PREFETCH));
     }
 
     /** 流式路径同样并行预取：绑定知识库会话的 streamReactive 亦显式提交预取（agentName/query 显式透传） */
@@ -689,7 +689,7 @@ class ChatServiceImplTest {
 
         chatService.streamReactive(new ChatRequest("hi", "50", null)).collectList().block();
 
-        verify(knowledgeRetriever).prefetch(eq("general"), eq("50"), eq("hi"), eq(List.of("kb1")));
+        verify(knowledgeRetriever).prefetch(eq("general"), eq("50"), eq("hi"), eq(List.of("kb1")), eq(KnowledgeRetriever.SOURCE_ENTRY_PREFETCH));
     }
 
     /** 预取异常静默：预取任务抛异常只记日志，聊天主流程照常返回（纯加速语义） */
@@ -707,7 +707,7 @@ class ChatServiceImplTest {
         when(agentService.executeSync(eq("general"), eq("hi"), eq("42"), any()))
                 .thenReturn(succeededGoal("42", "回答"));
         doThrow(new RuntimeException("boom")).when(knowledgeRetriever)
-                .prefetch(eq("general"), anyString(), eq("hi"), eq(List.of("kb1")));
+                .prefetch(eq("general"), anyString(), eq("hi"), eq(List.of("kb1")), eq(KnowledgeRetriever.SOURCE_ENTRY_PREFETCH));
 
         ChatResponse resp = chatService.chat(new ChatRequest("hi", "42", null));
 
@@ -733,6 +733,7 @@ class ChatServiceImplTest {
         ChatResponse resp = chatService.chat(new ChatRequest("hi", "42", null));
 
         assertEquals("SUCCEEDED", resp.status(), "judge 异常应兜底回退会话 Agent，不阻塞请求");
-        verify(knowledgeRetriever).prefetch(eq("general"), eq("42"), eq("hi"), eq(List.of("kb1")));
+        verify(knowledgeRetriever).prefetch(eq("general"), eq("42"), eq("hi"), eq(List.of("kb1")),
+                eq(KnowledgeRetriever.SOURCE_ENTRY_PREFETCH));
     }
 }

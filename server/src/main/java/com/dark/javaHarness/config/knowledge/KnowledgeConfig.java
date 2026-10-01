@@ -165,11 +165,12 @@ public class KnowledgeConfig {
                 knowledgeService, scanner.dir(), props.getWatchDebounceSeconds());
     }
 
-    /** 检索增强器（挂 AgentRequestSpecFactory，路径 A/B 唯一请求组装汇合点） */
+    /** 检索增强器（挂 AgentRequestSpecFactory，路径 A/B 唯一请求组装汇合点；recorder 落 kb_retrieval_log） */
     @Bean
     public KnowledgeRetriever knowledgeRetriever(KnowledgeService knowledgeService,
-                                                 KnowledgeProperties props) {
-        return new KnowledgeRetriever(knowledgeService, props);
+                                                 KnowledgeProperties props,
+                                                 com.dark.javaHarness.service.impl.observe.KbRetrievalRecorder recorder) {
+        return new KnowledgeRetriever(knowledgeService, props, recorder);
     }
 
     /**

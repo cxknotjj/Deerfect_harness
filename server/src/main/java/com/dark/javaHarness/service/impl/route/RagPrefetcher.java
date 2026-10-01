@@ -51,15 +51,16 @@ public final class RagPrefetcher {
     /**
      * 入口预取提交（显式签名）：kb 绑定解析内聚——agent 名为 null/空白或未绑定知识库
      * （config 缺失 / parseBinding 为 null）不入池无事发生；任何失败静默返回 null
-     * （预取是纯加速，不影响主流程）
+     * （预取是纯加速，不影响主流程）。source 为检索观测来源标记（kb_retrieval_log.source：
+     * entry_prefetch / lead_prefetch / subtask_prefetch，三个提交点各传各的）。
      */
-    public Future<?> submit(String agentName, String sessionId, String query) {
+    public Future<?> submit(String agentName, String sessionId, String query, String source) {
         try {
             List<String> kbs = resolveKbs(agentName);
             if (kbs == null) {
                 return null; // 未绑定知识库（或 agent 名缺失），无事发生
             }
-            return pool.submit(() -> doPrefetch(agentName, sessionId, query, kbs));
+            return pool.submit(() -> doPrefetch(agentName, sessionId, query, kbs, source));
         } catch (Exception e) {
             log.debug("[chat] RAG 预取提交失败（静默）：{}", safeMessage(e));
             return null;
@@ -95,9 +96,9 @@ public final class RagPrefetcher {
     }
 
     /** 入口预取：按已解析的知识库绑定发起预取（任何失败静默，不影响主流程） */
-    private void doPrefetch(String agentName, String sessionId, String query, List<String> kbs) {
+    private void doPrefetch(String agentName, String sessionId, String query, List<String> kbs, String source) {
         try {
-            knowledgeRetriever.prefetch(agentName, sessionId, query, kbs);
+            knowledgeRetriever.prefetch(agentName, sessionId, query, kbs, source);
         } catch (Exception e) {
             log.debug("[chat] RAG 预取跳过（静默）：{}", safeMessage(e));
         }
