@@ -1151,6 +1151,30 @@ class MultiAgentGraphAgentTest {
         assertFalse(aggPrompt.contains("预算降级说明"), "失败路径不得混入预算降级文案: " + aggPrompt);
     }
 
+    /**
+     * 子任务工具行归属改写：tool/tool-done 行 stage 追加「N · 专家名」（tool1 · researcher /
+     * tool-done1 · researcher），非工具行（思考行/内容 token）原样返回（2026-10-02）。
+     */
+    @Test
+    void attributeToolLine_rewritesToolStages_keepsOthers() {
+        String attribution = "1 · researcher";
+        assertEquals(
+                com.dark.javaHarness.agent.ProgressLine.encode("tool1 · researcher", "WriteFile(/tmp/a.py)"),
+                OrchestrationNodes.attributeToolLine(
+                        com.dark.javaHarness.agent.ProgressLine.encode("tool", "WriteFile(/tmp/a.py)"), attribution),
+                "起始行 stage 应追加归属后缀");
+        assertEquals(
+                com.dark.javaHarness.agent.ProgressLine.encode("tool-done1 · researcher", "WriteFile ✓ 1.2s"),
+                OrchestrationNodes.attributeToolLine(
+                        com.dark.javaHarness.agent.ProgressLine.encode("tool-done", "WriteFile ✓ 1.2s"), attribution),
+                "结束行 stage 应追加归属后缀");
+        String thinking = com.dark.javaHarness.agent.ProgressLine.encode("思考1 · researcher", "思考内容");
+        assertEquals(thinking, OrchestrationNodes.attributeToolLine(thinking, attribution),
+                "思考行不应被改写");
+        assertEquals("普通内容token", OrchestrationNodes.attributeToolLine("普通内容token", attribution),
+                "内容 token 不应被改写");
+    }
+
     /** wall-clock=0（缺省）→ 不限制：不包装取消供给，行为与现状完全一致（回归） */
     @Test
     void execute_wallClockZero_unlimited_normalCompletion() {

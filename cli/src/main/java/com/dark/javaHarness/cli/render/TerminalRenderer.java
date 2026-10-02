@@ -94,33 +94,38 @@ public final class TerminalRenderer {
      */
     public void onProgress(String stage, String detail) {
         synchronized (lock) {
-            switch (stage == null ? "" : stage) {
-                case "拆解" -> {
-                    spinner.finishAsDone();
-                    archiveLine("✓ " + detail);
-                }
-                case "子任务" -> {
-                    subtaskDone++;
-                    spinner.finishAsDone();
-                    archiveLine("✓ " + detail);
-                }
-                // 工具调用行：起始转 spinner（⏺ 工具名(参数)），结果归档为着色摘要行
-                case "tool" -> spinner.start("⏺ " + detail, "");
-                case "tool-done" -> {
-                    spinner.cancel();
-                    archiveToolDone(detail);
-                }
-                // 回答归属：记录「agentName> 」前缀（不转 spinner），首个回答 token 前打印
-                case "agent" -> {
-                    if (detail != null && !detail.isBlank() && !prefixPrinted) {
-                        answerPrefix = Ansi.BOLD + Ansi.CYAN + detail + "> " + Ansi.RESET;
+            String s = stage == null ? "" : stage;
+            // 工具调用行：起始转 spinner（⏺ 工具名(参数)），结果归档为着色摘要行。
+            // 前缀匹配（tool-done 优先判别）：子任务工具行 stage 带归属后缀
+            // （tool1 · researcher / tool-done1 · researcher），起止行为不变
+            if (s.startsWith("tool-done")) {
+                spinner.cancel();
+                archiveToolDone(detail);
+            } else if (s.startsWith("tool")) {
+                spinner.start("⏺ " + detail, "");
+            } else {
+                switch (s) {
+                    case "拆解" -> {
+                        spinner.finishAsDone();
+                        archiveLine("✓ " + detail);
                     }
-                }
-                // 杂散/空 stage 行（无阶段名的进度噪声，如 MCP 工具回放的残留）直接忽略，
-                // 否则 startSpinner("") 会以空标题起 spinner，折叠时渲染成「✓  · 0s」的孤立空行
-                default -> {
-                    if (stage != null && !stage.isBlank()) {
-                        spinner.start(stage, detail);
+                    case "子任务" -> {
+                        subtaskDone++;
+                        spinner.finishAsDone();
+                        archiveLine("✓ " + detail);
+                    }
+                    // 回答归属：记录「agentName> 」前缀（不转 spinner），首个回答 token 前打印
+                    case "agent" -> {
+                        if (detail != null && !detail.isBlank() && !prefixPrinted) {
+                            answerPrefix = Ansi.BOLD + Ansi.CYAN + detail + "> " + Ansi.RESET;
+                        }
+                    }
+                    // 杂散/空 stage 行（无阶段名的进度噪声，如 MCP 工具回放的残留）直接忽略，
+                    // 否则 startSpinner("") 会以空标题起 spinner，折叠时渲染成「✓  · 0s」的孤立空行
+                    default -> {
+                        if (!s.isBlank()) {
+                            spinner.start(s, detail);
+                        }
                     }
                 }
             }

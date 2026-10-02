@@ -124,9 +124,23 @@ export function useChat(hooks: ChatHooks) {
    * 进度行分发:stage 以「思考」开头的行(「思考 · agent名」=主回答/lead,「思考N · 专家名」=子任务)路由进
    * 思考折叠块(同 stage 追加全文,新 stage 新建块),其余行保持进度轨迹;
    * 思考块流结束后保留(可展开回看),进度轨迹照旧清空。
+   * 工具行(tool/tool-done,子任务行带归属「toolN · 专家名」)路由进工具折叠块(复用思考块结构,
+   * 归组键去掉 -done 使起止行同块;主回答行无归属,同归一块),不再平铺在进度轨迹中;
    * 观测口径:思考内容全量保留,不做截断(数据完整性优先)
    */
   function routeProgress(assistant: MessageItem, p: ProgressPayload): void {
+    if (p.stage.startsWith('tool')) {
+      // 起始行(toolN)/结束行(tool-doneN)归同一块;detail 逐行追加(参数摘要 + ✓ 耗时)
+      const key = p.stage.replace('tool-done', 'tool')
+      const line = p.detail + '\n'
+      const existing = assistant.thinking.find((t) => t.stage === key)
+      if (existing) {
+        existing.content += line
+      } else {
+        assistant.thinking.push({ stage: key, content: line })
+      }
+      return
+    }
     if (!p.stage.startsWith('思考')) {
       assistant.progress.push(p)
       return

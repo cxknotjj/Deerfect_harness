@@ -262,9 +262,16 @@ final class OrchestrationNodes {
                     "思考" + (idx + 1) + " · " + resolvedExpert(expert), toolEmitter);
             reasoningTap = thinkingThrottle;
         }
+        // 子任务工具行归属改写（镜像思考行「思考N · 专家名」口径）：tool/tool-done 行 stage
+        // 追加「N · 专家名」（tool1 · researcher / tool-done1 · researcher），前端据此把工具行
+        // 归组到所属子 agent 的折叠块；CLI 匹配同步放宽为前缀（TerminalRenderer）。
+        // 思考行经 thinkingThrottle 直发原 emitter，不经此改写
+        Consumer<String> attributedToolEmitter = toolEmitter == null ? null
+                : row -> toolEmitter.accept(
+                        attributeToolLine(row, (idx + 1) + " · " + resolvedExpert(expert)));
         String result;
         try {
-            result = predictSubtask(sessionId, task, brief, expert, toolEmitter, cancelSignal,
+            result = predictSubtask(sessionId, task, brief, expert, attributedToolEmitter, cancelSignal,
                     orchestrationBudget.ledgerHandle(state, true), trace, packs, reasoningTap);
             if (thinkingThrottle != null) {
                 // 流正常结束兜底发射残余缓冲（异常中止场景不执行此行，缓冲随作用域丢弃）
@@ -407,6 +414,23 @@ final class OrchestrationNodes {
     /** 异常消息摘要（null 兜底类名，日志/占位说明用） */
     private static String safeMessage(Throwable t) {
         return t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage();
+    }
+
+    /**
+     * 子任务工具行归属改写：tool/tool-done 进度行的 stage 追加归属后缀（如 {@code tool1 · researcher}），
+     * 非工具行（思考行等）与其他内容原样返回。协议 base 保持英文便于机器判别，显示层（web/CLI）负责中文化。
+     */
+    static String attributeToolLine(String row, String attribution) {
+        ProgressLine.StageRow r = ProgressLine.decode(row);
+        if (r == null) {
+            return row;
+        }
+        String base = r.stage();
+        if (com.dark.javaHarness.tool.trace.ToolCallTracer.STAGE_TOOL.equals(base)
+                || com.dark.javaHarness.tool.trace.ToolCallTracer.STAGE_TOOL_DONE.equals(base)) {
+            return ProgressLine.encode(base + attribution, r.detail());
+        }
+        return row;
     }
 
     /* ---------- ChatClient 单次调用 ---------- */

@@ -32,10 +32,13 @@ function toggleThinking(stage: string): void {
 function isThinkingOpen(stage: string): boolean {
   return expandedThinking.value.has(stage)
 }
-/** 折叠块标题:流式进行中(该块为最后一个思考块且正在流式)显示「思考中…」,否则显示 stage */
+/** 折叠块标题:工具块(tool 前缀,协议 base 英文)显示层中文化「工具N · 专家名」;流式进行中
+ * (该块为最后一个思考块且正在流式)按块类型显示「思考中…/执行中…」,否则显示 stage */
 function thinkingTitle(stage: string, index: number): string {
+  const title = stage.startsWith('tool') ? '工具' + stage.slice(4) : stage
+  const running = stage.startsWith('tool') ? '执行中…' : '思考中…'
   const isLast = index === (props.message.thinking?.length ?? 0) - 1
-  return props.streaming && isLast ? `${stage} · 思考中…` : stage
+  return props.streaming && isLast ? `${title} · ${running}` : title
 }
 
 /** 单次 markdown 渲染(marked.parse + DOMPurify 净化 + 代码块包装) */

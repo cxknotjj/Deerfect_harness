@@ -165,6 +165,24 @@ class TerminalRendererTest {
         assertTrue(out.contains("0.3s"), "失败结果行应含耗时 sign: " + out);
     }
 
+    /** 子任务工具行带归属后缀（toolN · 专家名）：前缀匹配起止行为不变（2026-10-02 归属改写适配） */
+    @Test
+    void toolCall_attributedStage_spinsThenArchives() {
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        TerminalRenderer renderer = new TerminalRenderer(
+                new PrintStream(buf, true, StandardCharsets.UTF_8));
+
+        renderer.beginTurn();
+        renderer.onProgress("tool1 · researcher", "tavily_search(\"竞品\")");        // ⏺ spinner 起
+        renderer.onProgress("tool-done1 · researcher", "tavily_search ✓ 2.1s · +0/-0 行");
+        renderer.endTurn(true, null);
+
+        String out = buf.toString(StandardCharsets.UTF_8);
+        assertTrue(out.contains("⏺ tavily_search(\"竞品\")"), "带归属工具行应照常起始 spinner: " + out);
+        assertTrue(out.contains("2.1s"), "带归属结果行应照常归档耗时: " + out);
+        assertFalse(out.contains("✓ ⏺"), "起始行不应被二次归档: " + out);
+    }
+
     // ---- 空 stage 过滤：杂散进度行不渲染空标题 spinner / 空 ✓ 行 ----
 
     @Test
