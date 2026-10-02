@@ -43,11 +43,13 @@ onMounted(() => {
 })
 onUnmounted(() => window.clearInterval(tickTimer))
 
-/** 会话 id → 相对时间文案;真实最近活跃时刻优先,缺失回退首见时间;tick 驱动重算 */
+/** 会话 id → 相对时间文案;真实最近活跃时刻优先,缺失回退首见时间;tick 驱动重算。
+ *  「刚刚」不加「前」后缀(「刚刚前」语病),其余档位补「前」(N分钟前/N小时前…) */
 const timeLabels = computed<Record<string, string>>(() => {
   const labels: Record<string, string> = {}
   for (const s of props.sessions) {
-    labels[s.id] = relativeTime(s.lastActiveAt ?? touch(s.id), nowTick.value)
+    const raw = relativeTime(s.lastActiveAt ?? touch(s.id), nowTick.value)
+    labels[s.id] = raw === '刚刚' ? raw : raw + '前'
   }
   return labels
 })
@@ -108,7 +110,7 @@ function onItemKeydown(id: string, e: KeyboardEvent): void {
         @keydown="onItemKeydown(s.id, $event)"
       >
         <span class="session-item-name">{{ s.name }}</span>
-        <span class="session-item-time">{{ timeLabels[s.id] }}前</span>
+        <span class="session-item-time">{{ timeLabels[s.id] }}</span>
         <!-- 删除入口:hover 显现;确认后交外层执行;键盘可达,阻断冒泡避免触发会话选中 -->
         <button
           class="session-item-del"
