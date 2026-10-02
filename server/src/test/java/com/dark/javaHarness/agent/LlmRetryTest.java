@@ -74,6 +74,16 @@ class LlmRetryTest {
                 "沿 cause 链剥壳应判定可重试");
     }
 
+    /** 流式看门狗超时（Flux.timeout 抛 TimeoutException，外层再包 ReactiveException）→ 可重试：
+     *  doOnError 已丢池重建，重试即拿新连接（2026-10-02 初次访问死连接自愈） */
+    @Test
+    void watchdogTimeout_isRetryable() {
+        RuntimeException e = new RuntimeException(
+                "Did not observe any item or terminal signal within 120000ms in 'peek'",
+                new java.util.concurrent.TimeoutException("Did not observe any item or terminal signal"));
+        assertTrue(LlmRetry.isRetryable(e), "看门狗超时（疑似连接黑洞）应可重试");
+    }
+
     // ---- 重试行为 ----
 
     @Test
