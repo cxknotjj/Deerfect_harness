@@ -78,7 +78,11 @@ public final class BranchProgressListener implements GraphLifecycleListener {
     /** 串行化向旁路 Sink 发射一条事件（并行钩子线程可能同时回调，单播 Sink 拒绝并发发射）。 */
     public static void tryEmitSerialized(Sinks.Many<String> sink, String line) {
         synchronized (sink) {
-            sink.tryEmitNext(line);
+            Sinks.EmitResult result = sink.tryEmitNext(line);
+            // 发射失败原本静默（FAIL_NON_SERIALIZED 等）——事件无声丢失极难排查，失败必须留痕
+            if (result != Sinks.EmitResult.OK) {
+                log.warn("[multi-agent][bypass] 旁路 sink 发射失败 result={} rowChars={}", result, line.length());
+            }
         }
     }
 
