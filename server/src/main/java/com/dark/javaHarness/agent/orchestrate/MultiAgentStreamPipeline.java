@@ -25,6 +25,11 @@ import reactor.core.publisher.Sinks;
  *
  * <p>⚠️ 死锁教训：关闸 {@code doFinally} 必须挂在 mergeWith **之前**的主干段上——
  * merge 要求两源都终结才向下传 complete，关闸挂 merge 之后会循环等待、永不收尾。
+ *
+ * <p>⚠️ 订阅顺序教训（2026-10-02 最小复现）：FluxMerge 按序订阅各源，graph 冷流的
+ * 订阅栈内同步执行首个 superstep（lead 同步 LLM 调用）——mainLine 排在前会把旁路
+ * sink 的订阅推迟到主线让出，lead 执行期的旁路行全部积压到 lead 结束才涌出。
+ * 旁路 sink 必须排在 mainLine 之前订阅（见 {@link #run}）。
  */
 final class MultiAgentStreamPipeline {
 
@@ -82,10 +87,16 @@ final class MultiAgentStreamPipeline {
                     BranchProgressListener.tryCompleteSerialized(toolEvents);
                 });
 
-        return mainLine
-                .mergeWith(branchEvents.asFlux())
+        // 订阅顺序即时序契约：FluxMerge 按序订阅各源。graph 冷流的订阅栈内会同步执行
+        // 第一个 superstep（lead 为 node_async 包装的同步 LLM 调用 = 立即完成 future，订阅
+        // 线程阻塞至 lead 结束）——mainLine 若排在前，三个旁路 sink 的订阅将被推迟到主线
+        // 让出（并行子任务阶段）才完成，lead 执行期的思考/工具行全部积压在 sink 缓冲，
+        // 到 lead 结束才一股脑涌出（2026-10-02 最小复现钉死）。旁路 sink 放订阅序前列，
+        // 先获得 subscriber，lead 执行期行实时流出；merge 输出与源顺序无关，行序不变。
+        return branchEvents.asFlux()
                 .mergeWith(liveTokens.asFlux())
                 .mergeWith(toolEvents.asFlux())
+                .mergeWith(mainLine)
                 .doOnCancel(() -> {
                     // 客户端断开（Reactor cancel）置位：后续 superstep 的节点短路，不再发起新的 LLM 调用
                     cancelled.set(true);
