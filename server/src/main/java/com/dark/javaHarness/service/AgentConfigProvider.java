@@ -100,7 +100,7 @@ public class AgentConfigProvider {
                         blankToNull(row.getKnowledge()),
                         row.getThinking() != null && row.getThinking() == 1);
                 log.info("[agent配置] agentName='{}' -> modelProviderId={}, model={}, prompt={}, knowledge={}, thinking={}",
-                        agentName, cfg.modelProviderId(), cfg.model(), cfg.knowledge(), cfg.thinking());
+                        agentName, cfg.modelProviderId(), cfg.model(), cfg.prompt(), cfg.knowledge(), cfg.thinking());
                 return Optional.of(cfg);
             }
             log.warn("[agent配置] agent 表无 agentName='{}' 记录，将使用默认配置", agentName);
