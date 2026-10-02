@@ -72,7 +72,7 @@ app:
     lead-budget: 4000         # 编排 lead 拆解 prompt（超出对目标文本尾截）
     aggregate-budget: 12000   # 编排聚合 prompt（超出按子任务等份额截断）
     tool-result-budget: 5000  # 单次调用工具结果注入上下文的总预算
-    tool-call-limit: 8       # 单次调用工具执行次数硬上限
+    tool-call-limit: 4       # 单次调用工具执行次数硬上限
     # —— 消费侧：输出封顶（生成侧防失控，设 maxTokens，0 = 不限制）——
     max-tokens-lead: 4000     # lead 拆解单次输出上限（brief 四要素后输出变长：单条任务书可达 2000 字符，
                               # 2000 token 会截断 JSON 丢失 agent 字段——e2e 实测后自 2000 上调）
