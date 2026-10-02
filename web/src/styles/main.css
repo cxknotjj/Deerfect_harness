@@ -457,6 +457,32 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 }
 .msg-progress-item::before { content: '▤'; font-size: 12px; opacity: 0.8; }
 
+/* RAG 知识引用行:回答气泡下方,蓝色标签弱化展示(本轮命中知识库才出现) */
+.msg-sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 11px;
+}
+.msg-sources-label {
+  color: var(--ink-dim);
+  letter-spacing: 0.05em;
+}
+.msg-source-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--blueprint);
+  border: 1px solid var(--grid-line);
+  border-radius: 4px;
+  padding: 1px 6px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* 思考折叠区:灰色弱化、默认折叠可展开(「思考」=主回答/聚合,「思考N」=第 N 个子任务) */
 .msg-thinking { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
 .msg-thinking-block {
@@ -1016,7 +1042,7 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   transition: background 0.15s;
 }
 .trace-row:hover { background: var(--hover-veil); }
-/* 类型徽章:mono 小字描边,LLM 蓝 / TOOL 灰 */
+/* 类型徽章:mono 小字描边,LLM 蓝 / TOOL 灰 / RAG 绿 */
 .trace-kind {
   flex-shrink: 0;
   width: 46px;
@@ -1030,6 +1056,7 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 }
 .trace-kind.is-llm { color: var(--accent); }
 .trace-kind.is-tool { color: var(--ink-dim); }
+.trace-kind.is-kb { color: var(--blueprint); }
 .trace-name {
   flex-shrink: 0;
   max-width: 160px;

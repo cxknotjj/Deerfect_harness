@@ -126,6 +126,37 @@ export interface ToolCallItem {
   parentSpan?: string | null
 }
 
+/** RAG 检索观测条目(GET /api/kb-retrievals?sessionId=;对齐 KbRetrievalLogEntity 序列化,V34) */
+export interface KbRetrievalItem {
+  id: number
+  sessionId: string
+  /** 调用方角色(lead/researcher/general 等;预取为被预取的 agent) */
+  agentName: string | null
+  /** 来源:entry_prefetch / lead_prefetch / subtask_prefetch / inline_query / cache_hit */
+  source: string | null
+  /** 检索查询文本(超长截断 512) */
+  query: string | null
+  /** 检索的知识库列表(CSV) */
+  kbs: string | null
+  /** 注入条数(预算截留后;cache_hit 行为 null;无命中为 0) */
+  hitCount: number | null
+  /** 检索耗时(毫秒;cache_hit ≈ 0) */
+  durationMs: number | null
+  /** 1-成功 0-降级/失败 */
+  ok: number | null
+  /** 降级原因(超时/异常/池拒绝;成功为 null) */
+  errorMsg: string | null
+  /** 所属轮次(执行期检索携带;预取为 null) */
+  turnId?: string | null
+  /** 所属执行链(执行期检索携带;预取为 null) */
+  traceId?: string | null
+  /** kb_retrieval_log 未记录 span,恒为 null(结构对齐 ToolCallItem 供缩进计算访问) */
+  parentSpan?: string | null
+  /** 检索发起时刻(排序键) */
+  startedAt: string | null
+  createdAt: string | null
+}
+
 /** LLM 调用观测条目(GET /api/llm-calls?sessionId=;对齐 LlmCallLogEntity 序列化) */
 export interface LlmCallItem {
   id: number

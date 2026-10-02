@@ -186,6 +186,13 @@ async function onBodyClick(e: MouseEvent): Promise<void> {
     <!-- assistant:markdown 渲染(已净化)+ 代码块复制(委托)+ 常显操作栏(复制/赞/踩/分享 + 相对时间) -->
     <template v-else>
       <div class="msg-bubble msg-bubble-assistant md-body" @click="onBodyClick" v-html="html"></div>
+      <!-- RAG 知识引用:流末 meta 回传(本轮命中知识库才展示),回答结束后可感知 RAG 是否执行 -->
+      <div v-if="message.sources.length > 0" class="msg-sources" title="本轮回答引用的知识库片段">
+        <span class="msg-sources-label">知识引用</span>
+        <span v-for="(s, i) in message.sources" :key="i" class="msg-source-tag" :title="s.title">
+          {{ s.docName }}<template v-if="s.score != null"> · {{ (s.score * 100).toFixed(0) }}%</template>
+        </span>
+      </div>
       <div class="msg-actions">
         <button
           class="msg-action-btn"

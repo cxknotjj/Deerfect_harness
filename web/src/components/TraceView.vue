@@ -15,11 +15,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { api } from '../api'
-import type { LlmCallItem, ToolCallItem } from '../api'
+import type { KbRetrievalItem, LlmCallItem, ToolCallItem } from '../api'
 
 type TraceRow =
   | { kind: 'llm'; key: string; ts: number; item: LlmCallItem }
   | { kind: 'tool'; key: string; ts: number; item: ToolCallItem }
+  | { kind: 'kb'; key: string; ts: number; item: KbRetrievalItem }
 
 /** 带缩进深度的展示行:depth = 同轮内 parentSpan 链层级(根调用 = 0) */
 type DisplayRow = { row: TraceRow; depth: number }
@@ -49,7 +50,11 @@ async function load(): Promise<void> {
   loading.value = true
   try {
     const sid = props.sessionId
-    const [tools, llms] = await Promise.all([api.listToolCalls(sid), api.listLlmCalls(sid)])
+    const [tools, llms, kbs] = await Promise.all([
+      api.listToolCalls(sid),
+      api.listLlmCalls(sid),
+      api.listKbRetrievals(sid),
+    ])
     if (seq !== fetchSeq) return
     rows.value = [
       ...llms.map((i): TraceRow => ({
@@ -60,6 +65,8 @@ async function load(): Promise<void> {
         item: i,
       })),
       ...tools.map((i): TraceRow => ({ kind: 'tool', key: `t${i.id}`, ts: Date.parse(i.createdAt ?? ''), item: i })),
+      // RAG 检索行:发起时刻优先(预取先于 LLM 调用),历史行回退落库时刻
+      ...kbs.map((i): TraceRow => ({ kind: 'kb', key: `k${i.id}`, ts: Date.parse(i.startedAt ?? i.createdAt ?? ''), item: i })),
     ].sort((a, b) => a.ts - b.ts)
   } catch {
     if (seq === fetchSeq) rows.value = []
@@ -77,6 +84,8 @@ const stats = computed(() => {
   let totalMs = 0
   let llmCount = 0
   let toolCount = 0
+  let kbCount = 0
+  let kbHits = 0
   let promptTotal = 0
   let completionTotal = 0
   let cachedTotal = 0
@@ -84,21 +93,26 @@ const stats = computed(() => {
   let errors = 0
   for (const r of rows.value) {
     totalMs += r.item.durationMs ?? 0
-    if (r.item.status === 'ERROR') errors++
     if (r.kind === 'llm') {
       llmCount++
+      if (r.item.status === 'ERROR') errors++
       promptTotal += r.item.promptTokens ?? 0
       completionTotal += r.item.completionTokens ?? 0
       if (r.item.cachedTokens != null) {
         cachedTotal += r.item.cachedTokens
         cachedSamples++
       }
-    } else {
+    } else if (r.kind === 'tool') {
       toolCount++
+      if (r.item.status === 'ERROR') errors++
+    } else {
+      kbCount++
+      kbHits += r.item.hitCount ?? 0
+      if (r.item.ok === 0) errors++
     }
   }
   const cacheRate = promptTotal > 0 ? (cachedTotal / promptTotal) * 100 : 0
-  return { totalMs, llmCount, toolCount, promptTotal, completionTotal, cachedTotal, cachedSamples, cacheRate, errors }
+  return { totalMs, llmCount, toolCount, kbCount, kbHits, promptTotal, completionTotal, cachedTotal, cachedSamples, cacheRate, errors }
 })
 
 /** 调用发生时间(绝对时间,观测回看语义):当日 HH:mm:ss,跨日 MM-dd HH:mm */
@@ -125,12 +139,14 @@ const bands = computed(() =>
   rows.value.map((r) => ({
     key: r.key,
     kind: r.kind,
-    error: r.item.status === 'ERROR',
+    error: r.kind === 'kb' ? r.item.ok === 0 : r.item.status === 'ERROR',
     grow: Math.max(r.item.durationMs ?? 0, 1),
     title:
       r.kind === 'llm'
         ? `LLM ${r.item.model ?? ''} · ${fmtMs(r.item.durationMs)}`
-        : `TOOL ${r.item.toolName ?? ''} · ${fmtMs(r.item.durationMs)}`,
+        : r.kind === 'kb'
+          ? `RAG ${r.item.source ?? ''} · ${fmtMs(r.item.durationMs)}`
+          : `TOOL ${r.item.toolName ?? ''} · ${fmtMs(r.item.durationMs)}`,
   })),
 )
 
@@ -224,6 +240,30 @@ function fmtMs(ms: number | null | undefined): string {
   return s > 0 ? `${m}m${s}s` : `${m}m`
 }
 
+/** RAG 来源 → 中文标签(口径与 kb_retrieval_log.source 一致) */
+function sourceLabel(source: string | null): string {
+  switch (source) {
+    case 'entry_prefetch':
+      return '入口预取'
+    case 'lead_prefetch':
+      return 'lead 预取'
+    case 'subtask_prefetch':
+      return '子任务预取'
+    case 'inline_query':
+      return '现查'
+    case 'cache_hit':
+      return '缓存命中'
+    default:
+      return source ?? 'RAG'
+  }
+}
+
+/** 行错误态:llm/tool 看 status,RAG 看 ok(判别联合按 kind 收窄) */
+function isRowError(r: TraceRow): boolean {
+  if (r.kind === 'kb') return r.item.ok === 0
+  return r.item.status === 'ERROR'
+}
+
 /** token 数 → 紧凑计数:812 / 1.2k / 435.0k */
 function fmtTokens(n: number | null | undefined): string {
   if (n == null) return '—'
@@ -251,6 +291,7 @@ function fmtTokenFlow(p: number | null, c: number | null): string | null {
         <span class="trace-chip">总耗时 {{ fmtMs(stats.totalMs) }}</span>
         <span class="trace-chip">LLM {{ stats.llmCount }} 次</span>
         <span class="trace-chip">工具 {{ stats.toolCount }} 次</span>
+        <span v-if="stats.kbCount > 0" class="trace-chip">RAG {{ stats.kbCount }} 次 · 命中 {{ stats.kbHits }} 段</span>
         <span class="trace-chip">输入 {{ fmtTokens(stats.promptTotal) }} tok</span>
         <span class="trace-chip">输出 {{ fmtTokens(stats.completionTotal) }} tok</span>
         <span v-if="stats.cachedSamples > 0" class="trace-chip">缓存命中 {{ stats.cacheRate.toFixed(1) }}%</span>
@@ -276,11 +317,11 @@ function fmtTokenFlow(p: number | null, c: number | null): string | null {
               v-for="{ row: r, depth } in seg.rows"
               :key="r.key"
               class="trace-row"
-              :class="{ 'is-error': r.item.status === 'ERROR', 'is-expanded': expandedKey === r.key }"
+              :class="{ 'is-error': isRowError(r), 'is-expanded': expandedKey === r.key }"
               :style="depth > 0 ? { marginLeft: `${depth * INDENT_PX}px` } : undefined"
               @dblclick="toggleExpand(r.key)"
             >
-              <span class="trace-kind" :class="`is-${r.kind}`">{{ r.kind === 'llm' ? 'LLM' : 'TOOL' }}</span>
+              <span class="trace-kind" :class="`is-${r.kind}`">{{ r.kind === 'llm' ? 'LLM' : r.kind === 'kb' ? 'RAG' : 'TOOL' }}</span>
               <template v-if="r.kind === 'llm'">
                 <span class="trace-name" :title="r.item.model ?? ''">{{ r.item.model ?? 'LLM' }}</span>
                 <span class="trace-meta">
@@ -296,6 +337,17 @@ function fmtTokenFlow(p: number | null, c: number | null): string | null {
                   class="trace-detail"
                   :title="r.item.errorMsg ?? r.item.outputSummary ?? ''"
                 >{{ r.item.errorMsg ?? r.item.outputSummary }}</span>
+              </template>
+              <template v-else-if="r.kind === 'kb'">
+                <span class="trace-name" :title="r.item.query ?? ''">{{ sourceLabel(r.item.source) }}</span>
+                <span class="trace-meta">
+                  <template v-if="fmtCreatedAt(r.item.startedAt ?? r.item.createdAt)">{{ fmtCreatedAt(r.item.startedAt ?? r.item.createdAt) }} · </template>{{ r.item.agentName ?? '—' }} · {{ fmtMs(r.item.durationMs) }}<template v-if="r.item.kbs">
+                    · {{ r.item.kbs }}</template><template v-if="r.item.hitCount != null">
+                    · 命中 {{ r.item.hitCount }} 段</template>
+                </span>
+                <span class="trace-detail" :title="r.item.errorMsg ?? r.item.query ?? ''">
+                  {{ r.item.errorMsg ?? r.item.query }}
+                </span>
               </template>
               <template v-else>
                 <span class="trace-name" :title="r.item.toolName ?? ''">{{ r.item.toolName ?? 'TOOL' }}</span>

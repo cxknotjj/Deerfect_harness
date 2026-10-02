@@ -9,6 +9,7 @@
 import type {
   AgentListView,
   ChatRequest,
+  KbRetrievalItem,
   LlmCallItem,
   ProgressPayload,
   SessionAgentView,
@@ -139,6 +140,11 @@ export function listToolCalls(sessionId: string, limit = 200): Promise<ToolCallI
 /** LLM 调用观测(GET /api/llm-calls?sessionId=;按 id 倒序,上限 200) */
 export function listLlmCalls(sessionId: string, limit = 200): Promise<LlmCallItem[]> {
   return request(`/api/llm-calls?sessionId=${encodeURIComponent(sessionId)}&limit=${limit}`)
+}
+
+/** RAG 检索观测(GET /api/kb-retrievals?sessionId=;按 id 倒序,上限 200) */
+export function listKbRetrievals(sessionId: string, limit = 200): Promise<KbRetrievalItem[]> {
+  return request(`/api/kb-retrievals?sessionId=${encodeURIComponent(sessionId)}&limit=${limit}`)
 }
 
 /** 流式聊天回调集(全部可选,按需订阅) */
@@ -314,6 +320,7 @@ export interface Api {
   deleteSession(sessionId: string): Promise<void>
   listToolCalls(sessionId: string): Promise<ToolCallItem[]>
   listLlmCalls(sessionId: string): Promise<LlmCallItem[]>
+  listKbRetrievals(sessionId: string): Promise<KbRetrievalItem[]>
   streamChat(req: ChatRequest, handlers: StreamHandlers, signal?: AbortSignal): Promise<void>
   authState(): Promise<AuthStateView>
   login(password: string): Promise<void>
@@ -330,6 +337,7 @@ export const realApi: Api = {
   deleteSession,
   listToolCalls,
   listLlmCalls,
+  listKbRetrievals,
   streamChat,
   authState,
   login,

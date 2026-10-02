@@ -7,6 +7,7 @@ import type { Api, StreamHandlers } from '../client'
 import type {
   AgentListView,
   ChatRequest,
+  KbRetrievalItem,
   LlmCallItem,
   SessionAgentView,
   SessionCreatedView,
@@ -180,6 +181,30 @@ async function listLlmCalls(sessionId: string): Promise<LlmCallItem[]> {
   return (traces.get(sessionId)?.llm ?? []).map((t) => ({ ...t }))
 }
 
+/** RAG 检索观测 mock:固定一条样例(覆盖来源/命中/降级三形态),与真实现语义一致 */
+async function listKbRetrievals(sessionId: string): Promise<KbRetrievalItem[]> {
+  const now = new Date().toISOString()
+  const sample: KbRetrievalItem[] = [
+    {
+      id: 1,
+      sessionId,
+      agentName: 'general',
+      source: 'entry_prefetch',
+      query: '编排超时机制如何配置',
+      kbs: 'kb-guide',
+      hitCount: 3,
+      durationMs: 812,
+      ok: 1,
+      errorMsg: null,
+      turnId: null,
+      traceId: null,
+      startedAt: now,
+      createdAt: now,
+    },
+  ]
+  return sample.map((s) => ({ ...s }))
+}
+
 /** mock API 实现(与 realApi 同签名) */
 export const mockApi: Api = {
   listAgents,
@@ -190,6 +215,7 @@ export const mockApi: Api = {
   deleteSession,
   listToolCalls,
   listLlmCalls,
+  listKbRetrievals,
   streamChat,
   // mock 模式无鉴权:enabled=false 让登录门直接放行
   authState: async () => ({ enabled: false, authenticated: true }),
