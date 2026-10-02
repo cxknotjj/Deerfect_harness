@@ -58,11 +58,14 @@ Windows 控制台默认 GBK 代码页，**命令行内联中文**（`git commit 
 ## 提交纪律（硬性）
 
 1. **只提交明确在任内的文件**，禁止 `git add -A` / `git add .` 盲加
-2. **绝不提交**：`.mvn-repo/`、`.cli-history`、`target/`、`.idea/`、`.vscode/`、
+2. **单一功能**：一个 commit 只承载一个功能或修复，禁止多个独立改动混入同一 commit；
+   同轮完成多件事时按功能边界拆成多个 commit 依次提交，type/scope 各自准确；
+   确因文件交叉无法干净拆分而合并提交时，body 必须分条说明各部分改动及合并理由
+3. **绝不提交**：`.mvn-repo/`、`.cli-history`、`target/`、`.idea/`、`.vscode/`、
    `in.txt`、`cli-*.txt`、`server.log` 等临时/生成文件（已在 `.gitignore`）
-3. 未获用户明示（「提交」/「commit」/「push」等指令）**不得执行任何 git 提交类操作**
-4. 推送必须**双远程**：`origin`（GitHub）与 `gitee` 缺一不可
-5. 含密钥/凭据的文件永不入库
+4. 未获用户明示（「提交」/「commit」/「push」等指令）**不得执行任何 git 提交类操作**
+5. 推送必须**双远程**：`origin`（GitHub）与 `gitee` 缺一不可
+6. 含密钥/凭据的文件永不入库
 
 ## 示例
 
