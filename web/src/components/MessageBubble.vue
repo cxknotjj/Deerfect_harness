@@ -8,10 +8,11 @@
  * - error:红色错误样式 + 「重试」按钮(交由父级重发最后一条 user 消息)
  */
 <script setup lang="ts">
-import { onUnmounted, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import type { MessageItem } from '../composables/useChat'
+import type { MessageItem, ThinkingBlock } from '../composables/useChat'
+import type { ProgressPayload } from '../api'
 import { relativeTime } from '../utils/relativeTime'
 
 // 聊天场景:markdown 单换行渲染为 <br>,阅读更自然
@@ -40,6 +41,55 @@ function thinkingTitle(stage: string, index: number): string {
   const isLast = index === (props.message.thinking?.length ?? 0) - 1
   return props.streaming && isLast ? `${title} · ${running}` : title
 }
+
+/** 混排时间线项:进度行原样;思考块携带原始下标(thinkingTitle 的「最后一个块」语义依赖它) */
+type TimelineItem =
+  | { kind: 'progress'; p: ProgressPayload; i: number }
+  | { kind: 'thinking'; t: ThinkingBlock; i: number }
+
+/** 思考块的锚点行 stage:lead 思考跟「编排」行、子任务思考(思考N)与子任务工具块(toolN)
+ *  跟「拆解」行(同组保持到达序)、聚合思考跟「聚合」行;无锚点(主回答思考等)返回 null 挂尾部 */
+function anchorStageOf(t: ThinkingBlock): string | null {
+  if (t.stage === '思考 · lead') return '编排'
+  if (t.stage === '思考 · 聚合') return '聚合'
+  if (/^思考\d+ · /.test(t.stage) || t.stage.startsWith('tool')) return '拆解'
+  return null
+}
+
+/**
+ * 执行轨迹混排:思考折叠块不再堆在轨迹尾部,而是插入到触发它的进度行之后
+ * (lead 思考在「编排 · 开始拆解」下方、思考N 在「拆解 · 子任务已就绪」下方),
+ * 与执行的时序语义一致。锚点行尚未出现(流式中思考先行)或无锚点的块兜底挂尾部;
+ * 纯视图顺序编排,不改 progress/thinking 数据结构。
+ */
+const timeline = computed<TimelineItem[]>(() => {
+  const anchored = new Map<string, Array<{ t: ThinkingBlock; i: number }>>()
+  const used = new Set<ThinkingBlock>()
+  props.message.thinking.forEach((t, i) => {
+    const anchor = anchorStageOf(t)
+    if (anchor == null) return
+    const list = anchored.get(anchor)
+    if (list) list.push({ t, i })
+    else anchored.set(anchor, [{ t, i }])
+  })
+  const items: TimelineItem[] = []
+  props.message.progress.forEach((p, i) => {
+    items.push({ kind: 'progress', p, i })
+    const list = anchored.get(p.stage)
+    if (list) {
+      for (const { t, i: idx } of list) {
+        items.push({ kind: 'thinking', t, i: idx })
+        used.add(t)
+      }
+      anchored.delete(p.stage)
+    }
+  })
+  // 尾部兜底:无锚点的思考块 + 锚点行未到达的块(流式中先到先显)
+  props.message.thinking.forEach((t, i) => {
+    if (!used.has(t)) items.push({ kind: 'thinking', t, i })
+  })
+  return items
+})
 
 /** 单次 markdown 渲染(marked.parse + DOMPurify 净化 + 代码块包装) */
 function renderHtml(): string {
@@ -134,30 +184,28 @@ async function onBodyClick(e: MouseEvent): Promise<void> {
       new Date(message.ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
     }}</div>
 
-    <!-- 执行进度轨迹(图标 + 灰字行式) -->
-    <div v-if="message.progress.length > 0" class="msg-progress">
-      <span v-for="(p, i) in message.progress" :key="i" class="msg-progress-item">
-        {{ p.stage }}<template v-if="p.detail"> · {{ p.detail }}</template>
-      </span>
-    </div>
-
-    <!-- 思考折叠区(灰色弱化,默认折叠可展开):「思考」=主回答/聚合,「思考N」=第 N 个子任务;
-         流结束后保留可回看,不进入回答气泡 -->
-    <div v-if="(message.thinking?.length ?? 0) > 0" class="msg-thinking">
-      <div
-        v-for="(t, i) in message.thinking"
-        :key="t.stage"
-        class="msg-thinking-block"
-        :class="{ 'is-open': isThinkingOpen(t.stage) }"
-      >
-        <button
-          class="msg-thinking-head"
-          type="button"
-          :aria-expanded="isThinkingOpen(t.stage)"
-          @click="toggleThinking(t.stage)"
-        >{{ thinkingTitle(t.stage, i) }}</button>
-        <pre v-if="isThinkingOpen(t.stage)" class="msg-thinking-body">{{ t.content }}</pre>
-      </div>
+    <!-- 执行轨迹混排(图标 + 灰字行式):思考折叠块插入到触发它的进度行之后
+         (lead 思考跟「编排」行、思考N 跟「拆解」行、聚合思考跟「聚合」行),
+         无锚点的块(主回答思考/工具块/锚点行未到达)挂尾部 -->
+    <div v-if="timeline.length > 0" class="msg-progress">
+      <template v-for="item in timeline" :key="item.kind === 'progress' ? `p${item.i}` : item.t.stage">
+        <span v-if="item.kind === 'progress'" class="msg-progress-item">
+          {{ item.p.stage }}<template v-if="item.p.detail"> · {{ item.p.detail }}</template>
+        </span>
+        <div
+          v-else
+          class="msg-thinking-block"
+          :class="{ 'is-open': isThinkingOpen(item.t.stage) }"
+        >
+          <button
+            class="msg-thinking-head"
+            type="button"
+            :aria-expanded="isThinkingOpen(item.t.stage)"
+            @click="toggleThinking(item.t.stage)"
+          >{{ thinkingTitle(item.t.stage, item.i) }}</button>
+          <pre v-if="isThinkingOpen(item.t.stage)" class="msg-thinking-body">{{ item.t.content }}</pre>
+        </div>
+      </template>
     </div>
 
     <!-- 错误消息:警示橙样式 + 重试 -->
