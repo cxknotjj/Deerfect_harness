@@ -1066,6 +1066,91 @@ class MultiAgentGraphAgentTest {
                 "超时路径不得混入预算降级文案: " + aggPrompt);
     }
 
+    /**
+     * 子任务执行失败占位（2026-10-02）：子任务 A 模型流异常（不可重试错误，一次即失败）→
+     * 节点写「执行失败」占位不上抛 → 并行节点正常完成、子任务 B 真实结果保留 → 聚合 prompt
+     * 前置失败说明、编排正常终态（不再整图失败触发入口层降级 general 重答作废其他结果）。
+     */
+    @Test
+    void execute_subtaskFailure_writesPlaceholder_aggregatesRemainingResults() {
+        String leadJson = "{\"subtasks\":[\"任务一\",\"任务二\"]}";
+        when(clientRegistry.get(any())).thenReturn(chatClient);
+        when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(anyString())).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        when(requestSpec.stream()).thenReturn(streamSpec);
+        // 调用序列（限并发=1 串行确定）：lead(立即) → 子任务A(失败) → 子任务B(成功) → 聚合(立即)
+        when(streamSpec.chatResponse()).thenReturn(
+                fluxOf(leadJson),
+                Flux.error(new RuntimeException("模拟子任务执行失败")),
+                fluxOf("子任务B结果"),
+                fluxOf("最终回答"));
+        com.dark.javaHarness.config.ContextBudgetProperties budgets =
+                new com.dark.javaHarness.config.ContextBudgetProperties();
+        budgets.setSubtaskConcurrency(1);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, budgets);
+
+        String reply = agent.execute(new Goal("gfail1", "调研竞品并输出报告"));
+
+        assertEquals("最终回答", reply, "失败占位后聚合应照常执行并产出最终回答（其余子任务结果不作废）");
+        // 聚合 prompt 前置失败说明：1 个子任务失败已跳过，B 的真实结果保留，不得混入超时/预算文案
+        org.mockito.ArgumentCaptor<String> userCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(requestSpec, atLeastOnce()).user(userCaptor.capture());
+        String aggPrompt = userCaptor.getAllValues().get(userCaptor.getAllValues().size() - 1);
+        assertTrue(aggPrompt.contains("【失败说明】"), "聚合 prompt 应前置失败说明: " + aggPrompt);
+        assertTrue(aggPrompt.contains("1 个子任务执行失败"),
+                "失败说明应含失败子任务数: " + aggPrompt);
+        assertTrue(aggPrompt.contains("子任务B结果"),
+                "失败子任务不应连坐作废其余子任务的真实结果: " + aggPrompt);
+        assertFalse(aggPrompt.contains("【超时说明】"), "失败路径不得混入超时说明: " + aggPrompt);
+        assertFalse(aggPrompt.contains("预算降级说明"), "失败路径不得混入预算降级文案: " + aggPrompt);
+    }
+
+    /**
+     * 全部子任务执行失败 → 聚合照常执行（聚合必发，与预算/超时占位同语义）：
+     * prompt 前置失败说明交代占比，编排正常终态（不降级重答）。
+     */
+    @Test
+    void execute_allSubtasksFail_aggregatesWithFailureNote() {
+        String leadJson = "{\"subtasks\":[\"任务一\",\"任务二\"]}";
+        when(clientRegistry.get(any())).thenReturn(chatClient);
+        when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(anyString())).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        when(requestSpec.stream()).thenReturn(streamSpec);
+        // 调用序列（限并发=1 串行确定）：lead(立即) → 子任务A(失败) → 子任务B(失败) → 聚合(立即)
+        when(streamSpec.chatResponse()).thenReturn(
+                fluxOf(leadJson),
+                Flux.error(new RuntimeException("模拟子任务失败1")),
+                Flux.error(new RuntimeException("模拟子任务失败2")),
+                fluxOf("最终回答"));
+        com.dark.javaHarness.config.ContextBudgetProperties budgets =
+                new com.dark.javaHarness.config.ContextBudgetProperties();
+        budgets.setSubtaskConcurrency(1);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, budgets);
+
+        String reply = agent.execute(new Goal("gfail2", "调研竞品并输出报告"));
+
+        assertEquals("最终回答", reply, "全失败占位后聚合应照常执行并产出最终回答");
+        // 聚合 prompt 前置失败说明：2 个子任务失败，不得混入超时/预算文案
+        org.mockito.ArgumentCaptor<String> userCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(requestSpec, atLeastOnce()).user(userCaptor.capture());
+        String aggPrompt = userCaptor.getAllValues().get(userCaptor.getAllValues().size() - 1);
+        assertTrue(aggPrompt.contains("【失败说明】"), "聚合 prompt 应前置失败说明: " + aggPrompt);
+        assertTrue(aggPrompt.contains("2 个子任务执行失败"),
+                "失败说明应含失败子任务数: " + aggPrompt);
+        assertFalse(aggPrompt.contains("【超时说明】"), "失败路径不得混入超时说明: " + aggPrompt);
+        assertFalse(aggPrompt.contains("预算降级说明"), "失败路径不得混入预算降级文案: " + aggPrompt);
+    }
+
     /** wall-clock=0（缺省）→ 不限制：不包装取消供给，行为与现状完全一致（回归） */
     @Test
     void execute_wallClockZero_unlimited_normalCompletion() {

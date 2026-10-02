@@ -288,6 +288,14 @@ final class OrchestrationNodes {
             Map<String, Object> updates = new HashMap<>();
             updates.put(MultiAgentGraphAgent.K_RESULT_PREFIX + idx, MultiAgentGraphAgent.TIMEOUT_SKIPPED_RESULT);
             return updates;
+        } catch (Exception e) {
+            // 其余执行失败（模型调用异常/重试耗尽/看门狗 120s 零帧中止等）：写占位结果不向图上抛——
+            // 并行节点任一子任务异常会让整图失败、触发入口层降级 general 重答，其他子任务的
+            // 真实结果全部作废；失败占位后其余子任务照常完成，聚合注入失败说明（2026-10-02）
+            log.warn("[multi-agent][subtask-{}] 子任务执行失败，写占位结果：{}", idx, safeMessage(e), e);
+            Map<String, Object> updates = new HashMap<>();
+            updates.put(MultiAgentGraphAgent.K_RESULT_PREFIX + idx, MultiAgentGraphAgent.FAILED_RESULT);
+            return updates;
         }
         Map<String, Object> updates = new HashMap<>();
         updates.put(MultiAgentGraphAgent.K_RESULT_PREFIX + idx, result);
@@ -322,10 +330,11 @@ final class OrchestrationNodes {
         List<String> results = new ArrayList<>();
         int skipped = 0;
         int timedOut = 0;
+        int failed = 0;
         for (int i = 0; i < n; i++) {
             String r = state.value(MultiAgentGraphAgent.K_RESULT_PREFIX + i, String.class).orElse(null);
             if (r == null || r.isBlank()) {
-                continue; // 子任务失败（异常上抛）无结果
+                continue; // 子任务失败（异常上抛的旧路径/短路槽位）无结果
             }
             if (MultiAgentGraphAgent.SKIPPED_RESULT.equals(r)) {
                 skipped++; // 预算熔断跳过：不计入真实结果，降级说明交代
@@ -335,13 +344,19 @@ final class OrchestrationNodes {
                 timedOut++; // 墙钟超时跳过：不计入真实结果，超时说明交代（与预算降级互不掺混）
                 continue;
             }
+            if (MultiAgentGraphAgent.FAILED_RESULT.equals(r)) {
+                failed++; // 执行失败跳过：不计入真实结果，失败说明交代（与预算/超时互不掺混）
+                continue;
+            }
             results.add(r);
         }
         String finalAnswer;
-        if (results.isEmpty() && skipped == 0 && timedOut == 0) {
-            // 子任务全失败：兜底（原有行为）
+        if (results.isEmpty() && skipped == 0 && timedOut == 0 && failed == 0) {
+            // 子任务全失败（旧路径异常上抛，无任何占位）：兜底（原有行为）
             finalAnswer = state.value(MultiAgentGraphAgent.K_FINAL, String.class).orElse("（未生成最终回答）");
         } else {
+            // 有真实结果或存在占位（含全部被跳过/超时/失败）：照常调聚合模型（聚合必发，
+            // 与预算/超时占位同语义），各说明段前置交代占比
             String user = OrchestrationPrompts.aggregateUserPrompt(results);
             if (skipped > 0) {
                 user = orchestrationBudget.degradationNote(skipped, state) + "\n\n" + user;
@@ -349,6 +364,10 @@ final class OrchestrationNodes {
             if (timedOut > 0) {
                 // 超时说明（与预算降级说明同构的前置段；degradationNote 文案为预算专属，超时独立成段）
                 user = timeoutNote(timedOut) + "\n\n" + user;
+            }
+            if (failed > 0) {
+                // 失败说明（与预算/超时说明同构的前置段，互不掺混）
+                user = failedNote(failed) + "\n\n" + user;
             }
             if (liveTokens == null) {
                 // 同步路径 cancelled 为 null（无取消语义），流式路径传共享断连标志
@@ -368,8 +387,8 @@ final class OrchestrationNodes {
         }
         Map<String, Object> updates = new HashMap<>();
         updates.put(MultiAgentGraphAgent.K_FINAL, finalAnswer);
-        log.info("[multi-agent][aggregate] 汇总 {} 个子任务结果（预算超限跳过 {} 个，超时跳过 {} 个）",
-                results.size(), skipped, timedOut);
+        log.info("[multi-agent][aggregate] 汇总 {} 个子任务结果（预算超限跳过 {} 个，超时跳过 {} 个，失败跳过 {} 个）",
+                results.size(), skipped, timedOut, failed);
         return updates;
     }
 
@@ -377,6 +396,17 @@ final class OrchestrationNodes {
     private static String timeoutNote(int timedOut) {
         return "【超时说明】" + timedOut + " 个子任务执行超时未完成，以下子任务结果不完整。"
                 + "请基于已有内容汇总最终回答，并在回答开头简要说明部分内容因超时未覆盖。";
+    }
+
+    /** 失败说明（聚合 prompt 前置）：N 个子任务执行失败已跳过，与预算/超时说明同构、互不掺混 */
+    private static String failedNote(int failed) {
+        return "【失败说明】" + failed + " 个子任务执行失败已跳过，以下子任务结果不包含其内容。"
+                + "请基于已有内容汇总最终回答，并在回答开头简要说明部分内容因子任务失败未覆盖。";
+    }
+
+    /** 异常消息摘要（null 兜底类名，日志/占位说明用） */
+    private static String safeMessage(Throwable t) {
+        return t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage();
     }
 
     /* ---------- ChatClient 单次调用 ---------- */

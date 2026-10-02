@@ -107,6 +107,13 @@ public class MultiAgentGraphAgent implements Agent {
      */
     static final String TIMEOUT_SKIPPED_RESULT = "（子任务执行超时，已跳过）";
 
+    /**
+     * 子任务执行失败占位 result：与 {@link #TIMEOUT_SKIPPED_RESULT} 同构的第三条占位通道
+     * （模型调用异常/重试耗尽/看门狗中止等）。失败不向图上抛——并行节点任一子任务异常会让
+     * 整图失败、触发入口层降级 general 重答，其他子任务的真实结果全部作废（2026-10-02）。
+     */
+    static final String FAILED_RESULT = "（子任务执行失败，已跳过）";
+
     private final String agentName;
     /** 编排消费上限熔断：各节点共享的预算账本（依赖 {@link #budgets}；节点实现类亦引用） */
     private final OrchestrationBudget orchestrationBudget;

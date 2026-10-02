@@ -58,9 +58,21 @@ public final class BranchProgressListener implements GraphLifecycleListener {
         if (idx == null || !scheduled.remove(idx)) {
             return; // 非子任务帧或短路槽位：静默
         }
-        log.info("[multi-agent][hook] subtask-{} 完成", idx);
-        tryEmitSerialized(events,
-                ProgressLine.encode("子任务", "第 " + (idx + 1) + " 个子任务完成"));
+        // 占位结果区分播报：超时/预算/失败占位不是「完成」，按实际结局播报（state 取不到
+        // result 键时按「完成」播报兜底，与旧版行为一致）
+        Object result = state == null ? null : state.get(MultiAgentGraphAgent.K_RESULT_PREFIX + idx);
+        String line;
+        if (MultiAgentGraphAgent.FAILED_RESULT.equals(result)) {
+            line = ProgressLine.encode("子任务", "第 " + (idx + 1) + " 个子任务执行失败，已跳过");
+        } else if (MultiAgentGraphAgent.TIMEOUT_SKIPPED_RESULT.equals(result)) {
+            line = ProgressLine.encode("子任务", "第 " + (idx + 1) + " 个子任务执行超时，已跳过");
+        } else if (MultiAgentGraphAgent.SKIPPED_RESULT.equals(result)) {
+            line = ProgressLine.encode("子任务", "第 " + (idx + 1) + " 个子任务因预算超限跳过");
+        } else {
+            line = ProgressLine.encode("子任务", "第 " + (idx + 1) + " 个子任务完成");
+        }
+        log.info("[multi-agent][hook] subtask-{} 结局播报：{}", idx, line);
+        tryEmitSerialized(events, line);
     }
 
     /** 节点名为 "{prefix}{i}" 时返回索引 i，否则返回 null（供生命周期钩子判定是否子任务帧）。 */
