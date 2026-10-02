@@ -131,9 +131,11 @@ export function useChat(hooks: ChatHooks) {
       assistant.progress.push(p)
       return
     }
-    const last = assistant.thinking[assistant.thinking.length - 1]
-    if (last && last.stage === p.stage) {
-      last.content += p.detail
+    // 按 stage 标识全量归组（非仅连续段）：多子任务并行时思考行交错到达
+    // （思考1/思考2 交替），只看最后一块会把交错流拆成大量碎块
+    const existing = assistant.thinking.find((t) => t.stage === p.stage)
+    if (existing) {
+      existing.content += p.detail
     } else {
       assistant.thinking.push({ stage: p.stage, content: p.detail })
     }
