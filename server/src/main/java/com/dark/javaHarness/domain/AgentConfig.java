@@ -8,8 +8,8 @@ package com.dark.javaHarness.domain;
  * 作为请求级 model 参数发给厂商（同一模型在不同供应商下可有不同名称）。
  * knowledge 是 agent 表 knowledge 列原文（逗号分隔 kb 标识，解析在 KnowledgeRetriever），
  * null/空白 = 未绑定知识库（不做检索）。
- * thinking 是 agent 表 thinking 列（仅控制是否显示思考内容，并不是控制模型是否思考——
- * 模型思考由 model_provider.disable_thinking 端点配置决定）：NULL/0 = 不透传前端，1 = 透传。
+ * thinking 是 agent 表 thinking 列（思考显示开关）：仅控制该 agent 的思考内容是否透传前端显示，
+ * 与模型思考功能开关（enable_thinking，模型域）无关；NULL/0 = 不透传，1 = 透传。
  * 除 knowledge/thinking 外为空表示使用默认值（yaml 配置的默认客户端与模型）。
  */
 public record AgentConfig(Long modelProviderId, String model, String prompt, String knowledge,

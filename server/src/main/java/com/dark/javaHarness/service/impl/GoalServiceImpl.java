@@ -72,13 +72,19 @@ public class GoalServiceImpl implements GoalService {
                         .set(GoalEntity::getFinishedAt, java.time.LocalDateTime.now()));
     }
 
+    /** summary 列（TEXT 64KB）写入口径：超长截断防 updateById 失败连锁取消编排（e2e 实测）。
+     *  goal.summary 仅为元数据，完整回答仍由 ChatService 落 session_messages，不受影响 */
+    static final int SUMMARY_MAX_CHARS = 20000;
+
     private GoalEntity toEntity(Goal g) {
         GoalEntity e = new GoalEntity();
         e.setId(g.id());
         e.setObjective(g.objective());
         e.setSessionId(g.sessionId());
         e.setStatus(g.status().name());
-        e.setSummary(g.summary());
+        String summary = g.summary();
+        e.setSummary(summary != null && summary.length() > SUMMARY_MAX_CHARS
+                ? summary.substring(0, SUMMARY_MAX_CHARS) + "…（超长截断）" : summary);
         e.setCreatedAt(g.createdAt());
         e.setFinishedAt(g.finishedAt());
         return e;

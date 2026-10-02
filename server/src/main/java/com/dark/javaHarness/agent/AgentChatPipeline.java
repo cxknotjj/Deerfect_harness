@@ -103,8 +103,7 @@ final class AgentChatPipeline {
                                          java.util.concurrent.atomic.AtomicLong firstTokenAt,
                                          String model,
                                          Consumer<String> reasoningTap) {
-        return tokenStream(spec, usageRef, ledger, prevTotal, firstTokenAt, reasoningTap)
-                .timeout(streamIdleTimeout)
+        return tokenStream(spec, usageRef, ledger, prevTotal, firstTokenAt, reasoningTap, streamIdleTimeout)
                 .doOnError(e -> clientRegistry.invalidateByModel(model));
     }
 
@@ -158,7 +157,8 @@ final class AgentChatPipeline {
                                             BudgetLedger ledger,
                                             java.util.concurrent.atomic.AtomicLong prevTotal,
                                             java.util.concurrent.atomic.AtomicLong firstTokenAt,
-                                            Consumer<String> reasoningTap) {
+                                            Consumer<String> reasoningTap,
+                                            Duration streamIdleTimeout) {
         return spec
                 .stream()
                 .chatResponse()
@@ -168,6 +168,10 @@ final class AgentChatPipeline {
                     // 只读不触碰内容流，提取异常静默——透传是纯增强，绝不影响主内容）
                     tapReasoning(resp, reasoningTap);
                 })
+                // 空闲看门狗必须挂在原始 ChatResponse 帧（含 reasoning delta）：思考增量也是
+                // 「端点活着」的信号——挂在内容过滤之后时，纯思考期零内容 token 会被误判挂死
+                // （e2e 实测 lead 思考 120s 静默被杀、编排降级，与模型无关的链路缺陷）
+                .timeout(streamIdleTimeout)
                 // streamUsage 末帧是只含 usage 的空帧（contentOf 为 null）：Reactor 的 map
                 // 不允许 null 返回（直接抛「The mapper returned a null value」），后面的
                 // filter 根本不会执行——必须用 handle 跳过空帧

@@ -216,7 +216,10 @@ public class AgentServiceImpl implements AgentService {
 
     /** 取异常可读原因：getMessage 为空时回退到 toString，避免失败摘要为 null */
     private String errorReason(Throwable e) {
-        return e.getMessage() == null || e.getMessage().isBlank() ? e.toString() : e.getMessage();
+        String reason = e.getMessage() == null || e.getMessage().isBlank() ? e.toString() : e.getMessage();
+        // goal.summary 为 TEXT（64KB），Reactor 异常消息可能内嵌超长堆栈/供应商响应体撑爆列宽，
+        // updateById 失败会连锁把编排取消（e2e 实测）——失败原因截断到 2000 字符，诊断信息足够
+        return reason.length() > 2000 ? reason.substring(0, 2000) + "…（超长截断）" : reason;
     }
 
     /**
