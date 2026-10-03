@@ -120,8 +120,16 @@ public class ChatClientFactory {
             return null;
         }
         try {
-            // 阻塞调用通道（call）：连接/读超时防端点无响应时永久挂起
+            // 阻塞调用通道（call）：连接/读超时防端点无响应时永久挂起。
+            // 强制 HTTP/1.1：JDK 17 的 HTTP/2 连接进池后没有空闲驱逐（
+            // jdk.httpclient.keepalive.timeout.h2 属性不存在），而网络路径会静默丢弃
+            // 闲置几十秒~几分钟的连接——死连接躺在池里，空闲后第一发请求必黑洞
+            // （10s 读超时 / 120s 看门狗，llm_call_log 反复实证）。http1 连接有
+            // 30s 空闲主动清理（jdk.httpclient.keepalive.timeout 可调）：池内热连接
+            // 照常复用（编排一轮十几连发全在窗口内），超窗后 JDK 主动关掉，死连接
+            // 不复存在。代价是放弃 h2 多路复用——本应用低并发场景无收益。
             java.net.http.HttpClient jdkClient = HttpClient.newBuilder()
+                    .version(java.net.http.HttpClient.Version.HTTP_1_1)
                     .connectTimeout(resolve(timeouts.getConnectTimeoutSeconds(), DEFAULT_CONNECT_TIMEOUT_SECONDS))
                     .build();
             JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(jdkClient);
