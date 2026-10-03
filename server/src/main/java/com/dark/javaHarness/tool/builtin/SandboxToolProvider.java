@@ -197,6 +197,10 @@ public class SandboxToolProvider {
                             ToolkitInit.BrowserSnapshotTool(browserBox),
                             ToolkitInit.BrowserClickTool(browserBox),
                             ToolkitInit.BrowserTypeTool(browserBox),
+                            // 按键：agent 表 tools 列声明的页面交互四件套之一（与 legacy MCP
+                            // 白名单同名），此前漏挂导致「未识别 token」告警、声明落空。
+                            // 注：上游 ToolkitInit 无滚动工具（browser_scroll 无从注册）
+                            ToolkitInit.BrowserPressKeyTool(browserBox),
                             ToolkitInit.BrowserCloseTool(browserBox));
                     log.info("[sandbox] 浏览器沙箱就绪: 浏览器类={}", browser.size());
                 }
