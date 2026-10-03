@@ -1,6 +1,7 @@
 package com.dark.javaHarness.agent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -8,6 +9,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -18,10 +20,13 @@ import com.dark.javaHarness.mapper.LlmCallLogMapper;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.SessionService;
 import com.dark.javaHarness.service.impl.observe.LlmCallRecorder;
+import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.client.ChatClient;
@@ -142,5 +147,93 @@ class GeneralAssistantAgentTest {
                 "fetchUrl".equals(e.getToolNames())
                         && e.getSkillNames() == null
                         && e.getMcpToolNames() == null));
+    }
+
+    /**
+     * 直答路径响应式重试（补齐 6c1ece9 漏掉的路径 A 自愈）：首尝试看门狗超时
+     * （TimeoutException = 池内死连接黑洞表征）应在同一请求内重试自愈，
+     * 输出为重试轮内容，spec 按尝试重建（两次真实调用）。
+     */
+    @Test
+    void executeStreamReactive_watchdogTimeout_retriesWithinRequest() {
+        when(requestSpec.advisors(any(Advisor.class))).thenReturn(requestSpec);
+        when(requestSpec.system(anyString())).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        when(requestSpec.stream()).thenReturn(streamSpec);
+        when(streamSpec.chatResponse())
+                .thenReturn(Flux.error(new TimeoutException("Did not observe any item within 120000ms")))
+                .thenReturn(fluxOf("重试", "成功"));
+
+        List<String> out = agent.executeStreamReactive(new Goal("g4", "自我介绍"))
+                .collectList()
+                .block(Duration.ofSeconds(5));
+
+        assertEquals(List.of("重试", "成功"), out, "可重试错误应一次请求内自愈，输出为重试轮内容");
+        verify(requestSpec, times(2)).user(anyString());
+    }
+
+    /** 被重试丢弃的失败尝试按尝试粒度落库（attempt/max_attempts 与阻塞路径 ctx.error 同构） */
+    @Test
+    void executeStreamReactive_retry_recordsAttemptGranularRows() {
+        when(requestSpec.advisors(any(Advisor.class))).thenReturn(requestSpec);
+        when(requestSpec.system(anyString())).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        when(requestSpec.stream()).thenReturn(streamSpec);
+        when(streamSpec.chatResponse())
+                .thenReturn(Flux.error(new TimeoutException("watchdog")))
+                .thenReturn(fluxOf("好"));
+
+        LlmCallLogMapper mapper = mock(LlmCallLogMapper.class);
+        GeneralAssistantAgent observed = new GeneralAssistantAgent("general", clientRegistry, memoryStore,
+                agentService, toolAssignments,
+                new LlmCallRecorder(mapper, mock(com.dark.javaHarness.mapper.ToolCallLogMapper.class)));
+        observed.executeStreamReactive(new Goal("g5", "自我介绍")).collectList().block(Duration.ofSeconds(5));
+
+        ArgumentCaptor<LlmCallLogEntity> captor = ArgumentCaptor.forClass(LlmCallLogEntity.class);
+        verify(mapper, timeout(2000).times(2)).insert(captor.capture());
+        List<LlmCallLogEntity> rows = captor.getAllValues();
+        assertEquals(1, rows.get(0).getAttempt(), "失败尝试行 attempt=1");
+        assertEquals(3, rows.get(0).getMaxAttempts());
+        assertEquals("ERROR", rows.get(0).getStatus());
+        assertEquals(2, rows.get(1).getAttempt(), "成功行 attempt=2（重试轮）");
+        assertEquals(3, rows.get(1).getMaxAttempts());
+        assertEquals("OK", rows.get(1).getStatus());
+    }
+
+    /** 已有部分 token 下发不可回滚：失败后不得重试（重复输出），错误原样上抛 */
+    @Test
+    void executeStreamReactive_partialOutput_noRetry() {
+        when(requestSpec.advisors(any(Advisor.class))).thenReturn(requestSpec);
+        when(requestSpec.system(anyString())).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        when(requestSpec.stream()).thenReturn(streamSpec);
+        when(streamSpec.chatResponse()).thenReturn(Flux.concat(
+                fluxOf("你"), Flux.error(new TimeoutException("watchdog"))));
+
+        try {
+            agent.executeStreamReactive(new Goal("g6", "自我介绍")).collectList().block(Duration.ofSeconds(5));
+            assertTrue(false, "部分输出后失败应原样抛出，不应吞错");
+        } catch (RuntimeException expected) {
+            // 预期：错误上抛（block 包装形态不限）
+        }
+        verify(requestSpec, times(1)).user(anyString());
+    }
+
+    /** 不可重试错误（如供应商 4xx 类业务错误）重试只会重复失败：单次尝试即抛 */
+    @Test
+    void executeStreamReactive_nonRetryableError_noRetry() {
+        when(requestSpec.advisors(any(Advisor.class))).thenReturn(requestSpec);
+        when(requestSpec.system(anyString())).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        when(requestSpec.stream()).thenReturn(streamSpec);
+        when(streamSpec.chatResponse()).thenReturn(Flux.error(new IllegalStateException("供应商 4xx")));
+
+        try {
+            agent.executeStreamReactive(new Goal("g7", "自我介绍")).collectList().block(Duration.ofSeconds(5));
+            assertTrue(false, "不可重试错误应原样抛出");
+        } catch (RuntimeException expected) {
+            // 预期：错误上抛
+        }
+        verify(requestSpec, times(1)).user(anyString());
     }
 }

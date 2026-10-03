@@ -1,6 +1,7 @@
 package com.dark.javaHarness.agent;
 
 import java.io.IOException;
+import java.util.concurrent.CancellationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.client.HttpStatusCodeException;
@@ -170,6 +171,23 @@ public final class LlmRetry {
     /** 重试前等待（index 为「第几次重试前」，从 1 起）；供调用方在自管理循环里复用退避 */
     public void waitBeforeRetry(int attempt) {
         sleep(backoffDelay(attempt));
+    }
+
+    /** 重试前等待毫秒数（attempt 为「第几次重试前」，从 1 起）；供响应式链以 Mono.delay 非阻塞等待 */
+    public long backoffDelayMillis(int attempt) {
+        return backoffDelay(attempt);
+    }
+
+    /**
+     * 流式重试决策（阻塞循环与响应式递归共用的单一口径）：取消不是可重试错误；
+     * 已有部分输出不可回滚（重试必重复输出）；上限外/不可重试错误重试只会重复失败。
+     * attemptDone 为已完成的尝试序号（1 起）。
+     */
+    public boolean shouldRetry(Throwable e, int attemptDone, boolean hasPartialOutput) {
+        return !(e instanceof CancellationException)
+                && !hasPartialOutput
+                && attemptDone < maxAttempts
+                && isRetryable(e);
     }
 
     private void sleep(long ms) {

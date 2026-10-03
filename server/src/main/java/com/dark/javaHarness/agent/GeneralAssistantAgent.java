@@ -4,7 +4,6 @@ import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.agent.orchestrate.BranchProgressListener;
 import com.dark.javaHarness.domain.AgentConfig;
 import com.dark.javaHarness.domain.Goal;
-import com.dark.javaHarness.domain.LlmCallLog;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.prompt.SkillManager;
 import com.dark.javaHarness.service.AgentService;
@@ -13,6 +12,7 @@ import com.dark.javaHarness.service.impl.observe.LlmCallRecorder;
 import com.dark.javaHarness.tool.ToolAssignments;
 import com.dark.javaHarness.prompt.ToolLazyManager;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -51,12 +51,12 @@ public class GeneralAssistantAgent implements Agent {
 
     private final String agentName;
     private final AgentService agentService;
-    /** LLM 调用观测记录器（可 null：无观测场景下直通）；响应式链的终结钩子落库用 */
-    private final LlmCallRecorder recorder;
     /** 输出封顶（final 档，与编排聚合同为直出用户的最终回答；0 = 不限制），来自 app.context.max-tokens-final */
     private final int maxTokensFinal;
     /** 统一执行器（路径 A/B 收敛）：重试/取消/预算/观测/组装链的单一来源 */
     private final AgentChatCaller chatCaller;
+    /** 流式重试策略：响应式直答路径与调用器内部阻塞路径共享同一 LlmRetry 实例（口径/上限单一来源） */
+    private final LlmRetry streamRetry;
 
     public GeneralAssistantAgent(String agentName,
                                  ChatClientRegistry clientRegistry,
@@ -133,7 +133,6 @@ public class GeneralAssistantAgent implements Agent {
                                  com.dark.javaHarness.config.ChatTimeoutProperties timeouts) {
         this.agentName = agentName;
         this.agentService = agentService;
-        this.recorder = recorder;
         ToolLazyManager effectiveLazy = lazyTools != null ? lazyTools : new ToolLazyManager(toolAssignments, false);
         // 工具索引段与延迟加载同源：开启时索引段追加 expand_tool 使用引导（与轻量态工具面对齐）
         PromptAssembler effectiveAssembler = promptAssembler != null ? promptAssembler
@@ -143,8 +142,9 @@ public class GeneralAssistantAgent implements Agent {
         com.dark.javaHarness.config.ContextBudgetProperties effectiveBudgets =
                 budgets != null ? budgets : new com.dark.javaHarness.config.ContextBudgetProperties();
         this.maxTokensFinal = effectiveBudgets.getMaxTokensFinal();
+        this.streamRetry = new LlmRetry();
         this.chatCaller = new AgentChatCaller(clientRegistry, agentService, toolAssignments, recorder,
-                new LlmRetry(), effectiveBudgets, effectiveAssembler, memoryStore, effectiveLazy,
+                streamRetry, effectiveBudgets, effectiveAssembler, memoryStore, effectiveLazy,
                 skillManager, knowledgeRetriever, timeouts);
     }
 
@@ -192,7 +192,6 @@ public class GeneralAssistantAgent implements Agent {
     public Flux<String> executeStreamReactive(Goal goal) {
         log.info("AI agent '{}' 开始响应式流式处理目标: {}", name(), goal.objective());
         Sinks.Many<String> toolEvents = Sinks.many().unicast().onBackpressureBuffer();
-        long start = System.currentTimeMillis();
         // spanId 在调用发起前生成（本线程，纯内存）；turnId/traceId 取自 Goal，直答为根调用 parentSpan=null
         String spanId = CallTrace.newSpanId();
         StringBuilder collected = new StringBuilder();
@@ -203,6 +202,9 @@ public class GeneralAssistantAgent implements Agent {
         AtomicReference<Usage> usageRef = new AtomicReference<>();
         // 首 token 绝对时间戳（观测 TTFT，0=未触发）
         AtomicLong firstTokenAt = new AtomicLong();
+        // 当前尝试序号与起始时刻（观测行 attempt 口径：重试轮由尝试工厂回写，doFinally 终局行取实时值）
+        AtomicInteger attemptRef = new AtomicInteger();
+        AtomicLong attemptStartRef = new AtomicLong();
         AgentConfig config = agentService.getAgentConfig(agentName)
                 .orElse(new AgentConfig(null, null, null, null));
         // 思考透传旁路（agent 表 thinking 列显示口径：仅控制是否显示思考内容，并不是控制模型是否思考）：
@@ -217,22 +219,51 @@ public class GeneralAssistantAgent implements Agent {
                 assemblyPathA(row -> BranchProgressListener.tryEmitSerialized(toolEvents, row));
         // 观测名单装配期计算一次（llm_call_log 三名单列，与 AgentChatCaller 内聚口径一致）
         PromptAssembler.PromptAttachments attachments = chatCaller.attachmentsFor(agentName, assembly);
-        // 端点无响应兜底（空闲超时 + 失败丢池）：浏览器 SSE 主回答与阻塞路径共用同一层保护
-        // trace 带 spanId 下传 spec 组装：工具侧经 ToolContext 关联本调用（parent_span=spanId）
-        Flux<String> content = chatCaller.tokenStreamWithWatchdog(
-                        chatCaller.buildSpec(config, goal.sessionId(), agentName, DEFAULT_SYSTEM_PROMPT,
-                                goal.objective(),
-                                assembly, CallTrace.fromGoal(goal).withSpan(spanId)),
-                        usageRef, null, null, firstTokenAt, config.model(), reasoningTap)
-                .doOnNext(collected::append)
-                .doOnError(streamError::set)
+        // 观测上下文与阻塞路径同源（LlmCallObserver/CallContext 单一口径）；model 取装配期值
+        //（即请求实际使用的模型，比落库时重查 agent 表更真实）
+        CallContext ctx = chatCaller.ctxFor(goal.sessionId(), agentName, config.model(), attachments,
+                CallTrace.fromGoal(goal).withSpan(spanId));
+        // 端点无响应兜底（空闲超时 + 失败丢池）+ 响应式重试自愈（chatCaller.streamWithRetry）：
+        // 浏览器 SSE 主回答与阻塞路径共用同一层保护。trace 带 spanId 下传 spec 组装：
+        // 工具侧经 ToolContext 关联本调用（parent_span=spanId）
+        Flux<String> content = chatCaller.streamWithRetry(
+                        attempt -> {
+                            attemptRef.set(attempt);
+                            attemptStartRef.set(System.currentTimeMillis());
+                            return chatCaller.tokenStreamWithWatchdog(
+                                            chatCaller.buildSpec(config, goal.sessionId(), agentName,
+                                                    DEFAULT_SYSTEM_PROMPT, goal.objective(), assembly,
+                                                    CallTrace.fromGoal(goal).withSpan(spanId)),
+                                            usageRef, null, null, firstTokenAt, config.model(), reasoningTap)
+                                    .doOnNext(collected::append)
+                                    .doOnError(streamError::set);
+                        },
+                        () -> collected.length() > 0,
+                        (attempt, e) -> {
+                            // 被重试丢弃的失败尝试：按尝试粒度落观测行（ctx.error 与阻塞路径同构）
+                            ctx.error(attemptStartRef.get(), asException(e), attempt,
+                                    streamRetry.maxAttempts());
+                            if (attempt == 1) {
+                                // 首次失败带全量堆栈记一次（根因链是排错现场）；后续重试保持紧凑
+                                log.warn("[agent-{}] 流式调用失败，将重试（attempt {}/{}）：{}", agentName,
+                                        attempt + 1, streamRetry.maxAttempts(),
+                                        LlmCallRecorder.describeError(e), e);
+                            } else {
+                                log.warn("[agent-{}] 流式调用重试失败（attempt {}/{}）：{}", agentName,
+                                        attempt + 1, streamRetry.maxAttempts(),
+                                        LlmCallRecorder.describeError(e));
+                            }
+                            // 重试前重置每尝试观测状态：失败尝试的 usage/TTFT/错误不得泄漏进后续尝试
+                            usageRef.set(null);
+                            firstTokenAt.set(0);
+                            streamError.set(null);
+                        })
                 .doFinally(sig -> {
-                    // 终结（含 cancel/error）时记录本次调用观测：streamUsage 末帧 usage 优先，
-                    // 无则按已收文本估算。error 带真实异常（原因链展开后有供应商响应体），
-                    // CANCEL 单独标注不再记 null
-                    // 真实错误优先于信号类型：mergeWith(toolEvents) 下 Reactor 对出错源头
-                    // 执行 cancel——doFinally 收到 CANCEL 而非 ON_ERROR（实测信号语义），
-                    // 先看信号会把模型/网络真实报错误记成「客户端断开」
+                    // 终局行（成功/最终失败/取消）统一在此落库，时长/startedAt 取终局尝试口径
+                    //（与阻塞路径 attempt 粒度同构；单尝试场景即整轮）。真实错误优先于信号类型：
+                    // mergeWith(toolEvents) 下 Reactor 对出错源头执行 cancel——doFinally 收到
+                    // CANCEL 而非 ON_ERROR（实测信号语义），先看信号会把模型/网络真实报错
+                    // 误记成「客户端断开」
                     Throwable err;
                     if (streamError.get() != null) {
                         err = streamError.get();
@@ -243,58 +274,25 @@ public class GeneralAssistantAgent implements Agent {
                     } else {
                         err = null;
                     }
-                    recordCall(goal.sessionId(), true, err == null,
-                            usageRef.get(), collected, start, err, attachments, firstTokenAt.get(),
-                            goal.turnId(), goal.traceId(), spanId, null);
+                    if (err == null) {
+                        ctx.ok(null, attemptStartRef.get(), collected.toString(), usageRef.get(),
+                                firstTokenAt.get(), attemptRef.get(), streamRetry.maxAttempts());
+                    } else {
+                        ctx.error(attemptStartRef.get(), asException(err), attemptRef.get(),
+                                streamRetry.maxAttempts());
+                    }
                     BranchProgressListener.tryCompleteSerialized(toolEvents);
                 });
         return content.mergeWith(toolEvents.asFlux());
     }
 
+    /** ctx.error/ok 只收 Exception：Error 形态（OOM 等）包装为 IllegalStateException 保语义不炸钩子 */
+    private static Exception asException(Throwable t) {
+        return t instanceof Exception ex ? ex : new IllegalStateException(String.valueOf(t), t);
+    }
+
     /** 路径 A 装配差异声明：恒注入记忆、无频率惩罚、输出封顶 final 档（工具次数/结果预算两路径统一生效；路径 A 不挂工具包，extraToolNames=null） */
     private AgentRequestSpecFactory.Assembly assemblyPathA(Consumer<String> toolEmitter) {
         return new AgentRequestSpecFactory.Assembly(toolEmitter, false, true, false, maxTokensFinal, null);
-    }
-
-    /**
-     * 观测记录：调用结束（成功/失败/cancel）异步落 llm_call_log（仅响应式链使用；
-     * execute/executeStream 的记录由 AgentChatCaller 内聚）。
-     * 流式 usage 非 null 时记真实 token，无则按已收输出文本近似估算。
-     * 错误描述经 {@link LlmCallRecorder#describeError} 展开原因链（含供应商响应体）。
-     * 装配名单（技能/工具/MCP）由调用方装配期经 {@code chatCaller.attachmentsFor} 计算传入。
-     * turnId/traceId/spanId/parentSpan 为轨迹标识（直答为根调用，parentSpan 恒 null）。
-     */
-    private void recordCall(String sessionId, boolean stream, boolean ok,
-                            Usage usage,
-                            StringBuilder collected, long start, Throwable error,
-                            PromptAssembler.PromptAttachments attachments, long firstTokenAt,
-                            String turnId, String traceId, String spanId, String parentSpan) {
-        if (recorder == null) {
-            return;
-        }
-        Integer prompt = usage == null ? null : usage.getPromptTokens();
-        Integer completion = usage == null ? null : usage.getCompletionTokens();
-        Integer totalVal = usage == null ? null : usage.getTotalTokens();
-        Integer completionVal = completion;
-        boolean estimated = false;
-        if (stream && completionVal == null) {
-            // 流式无 usage 回包：估算输出 token（与 ContextAssemblingAdvisor 同口径）
-            completionVal = LlmCallRecorder.estimateTokens(collected == null ? "" : collected.toString());
-            totalVal = completionVal;
-            estimated = true;
-        }
-        String content = collected == null ? null : collected.toString();
-        recorder.record(new LlmCallLog(sessionId, agentName,
-                agentService.getAgentConfig(agentName).map(AgentConfig::model).orElse(null),
-                stream, ok, prompt, completionVal, totalVal, estimated,
-                System.currentTimeMillis() - start, LlmCallRecorder.describeError(error),
-                attachments == null ? null : attachments.skills(),
-                attachments == null ? null : attachments.tools(),
-                attachments == null ? null : attachments.mcpTools(),
-                ok && content != null && !content.isEmpty() ? content : null,
-                ok && firstTokenAt > 0 ? firstTokenAt - start : null,
-                LlmCallRecorder.extractCachedTokens(usage),
-                1, 1, turnId, traceId, spanId, parentSpan,
-                LlmCallRecorder.startedAt(start)));
     }
 }

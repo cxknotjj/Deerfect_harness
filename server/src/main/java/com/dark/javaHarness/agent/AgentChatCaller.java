@@ -14,14 +14,18 @@ import com.dark.javaHarness.service.SessionService;
 import com.dark.javaHarness.service.impl.observe.LlmCallRecorder;
 import com.dark.javaHarness.tool.ToolAssignments;
 import com.dark.javaHarness.prompt.ToolLazyManager;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CancellationException;
+import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.IntFunction;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.ai.chat.metadata.Usage;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 /**
  * 路径 A/B 统一 LLM 调用器（执行层单一来源）：查 agent 表配置 → 取注册客户端 → 组装请求 → 调用。
@@ -335,6 +339,51 @@ public final class AgentChatCaller {
     }
 
     /**
+     * 直答路径观测上下文：与阻塞路径同源（{@link LlmCallObserver}/{@link CallContext} 单一口径），
+     * 供路径 A 的成功/失败/取消行落库（attempt/max_attempts 重试口径与阻塞路径同构）。
+     */
+    CallContext ctxFor(String sessionId, String forAgent, String model,
+                       PromptAssembler.PromptAttachments attachments, CallTrace trace) {
+        return new CallContext(observer, sessionId, forAgent, model, attachments,
+                trace.turnId(), trace.traceId(), trace.spanId(), trace.parentSpan());
+    }
+
+    /**
+     * 响应式流式重试通道（路径 A 直答；与阻塞 stream 重试循环同口径）：
+     * 决策（{@link LlmRetry#shouldRetry}）/退避/上限/递归统一在此——非阻塞等待用
+     * {@code Mono.delay}（阻塞循环用 {@code Thread.sleep}，reactor 线程不可阻塞）；
+     * 取消走 Reactor cancel 信号（非 error）天然不进重试。
+     *
+     * @param attemptFlux        单次尝试工厂：入参尝试序号（1 起），返回该尝试的流；调用方在工厂内
+     *                           新建 spec 并回写尝试序号/起始时刻（观测行 attempt 口径）——路径 A 的
+     *                           reasoningTap/旁路 sink 生命周期绑定整轮，无法下沉到本引擎
+     * @param hasPartialOutput   部分输出探测：已有 token 下发不可回滚 → 不重试
+     * @param onRetryableFailure 可重试失败回调（决策通过、即将重试才触发）：调用方在此落被丢弃
+     *                           尝试的观测行、告警日志并重置每尝试观测状态
+     */
+    Flux<String> streamWithRetry(IntFunction<Flux<String>> attemptFlux,
+                                 BooleanSupplier hasPartialOutput,
+                                 BiConsumer<Integer, Throwable> onRetryableFailure) {
+        return streamWithRetry(attemptFlux, hasPartialOutput, onRetryableFailure, 1);
+    }
+
+    private Flux<String> streamWithRetry(IntFunction<Flux<String>> attemptFlux,
+                                         BooleanSupplier hasPartialOutput,
+                                         BiConsumer<Integer, Throwable> onRetryableFailure,
+                                         int attempt) {
+        return attemptFlux.apply(attempt)
+                .onErrorResume(e -> {
+                    if (!retry.shouldRetry(e, attempt, hasPartialOutput.getAsBoolean())) {
+                        return Flux.error(e);
+                    }
+                    onRetryableFailure.accept(attempt, e);
+                    return Mono.delay(Duration.ofMillis(retry.backoffDelayMillis(attempt)))
+                            .thenMany(streamWithRetry(attemptFlux, hasPartialOutput, onRetryableFailure,
+                                    attempt + 1));
+                });
+    }
+
+    /**
      * 流式 ChatClient 调用：请求组装与 {@link #call} 完全一致，但走 stream 通道——
      * 每个 token 到达即回调 {@code onToken}，方法阻塞至流结束并返回完整内容。
      *
@@ -462,8 +511,7 @@ public final class AgentChatCaller {
                 if (translated != null) {
                     throw translated;
                 }
-                boolean partialOutput = collected.length() > 0;
-                boolean canRetry = !partialOutput && LlmRetry.isRetryable(e) && attempt < retry.maxAttempts();
+                boolean canRetry = retry.shouldRetry(e, attempt, collected.length() > 0);
                 if (canRetry) {
                     // 首次失败带全量堆栈（排错现场），后续重试紧凑——口径与 LlmRetry 一致
                     if (attempt == 1) {
