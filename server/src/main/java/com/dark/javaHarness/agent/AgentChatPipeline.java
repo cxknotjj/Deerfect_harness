@@ -92,7 +92,8 @@ final class AgentChatPipeline {
      * 请求最终只能靠客户端断连收场）。
      *
      * <p>失败即丢池：连接可能已成网络黑洞（对端静默失活、不发 RST），丢池使下次调用
-     * 重建连接池，不再复用同一根死连接。
+     * 重建连接池，不再复用同一根死连接。例外：4xx 客户端错误（除 408，见
+     * {@link LlmErrorClassifier#isClientRequestError}）请求被拒但连接健康，跳过丢池。
      *
      * @param model 失败时用于重建客户端的模型名（null/未命中注册表则跳过丢池）
      */
@@ -104,7 +105,14 @@ final class AgentChatPipeline {
                                          String model,
                                          Consumer<String> reasoningTap) {
         return tokenStream(spec, usageRef, ledger, prevTotal, firstTokenAt, reasoningTap, streamIdleTimeout)
-                .doOnError(e -> clientRegistry.invalidateByModel(model));
+                .doOnError(e -> {
+                    // 4xx（除 408）= 请求内容/鉴权被供应商拒绝，连接本身健康：丢池无助益且
+                    // 波及同池在途请求，跳过重建；其余（网络黑洞/看门狗超时/5xx）保持丢池，
+                    // 重试即拿全新连接
+                    if (!LlmErrorClassifier.isClientRequestError(e)) {
+                        clientRegistry.invalidateByModel(model);
+                    }
+                });
     }
 
     /**
