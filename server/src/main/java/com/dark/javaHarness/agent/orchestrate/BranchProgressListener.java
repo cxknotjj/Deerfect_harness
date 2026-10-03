@@ -33,10 +33,25 @@ public final class BranchProgressListener implements GraphLifecycleListener {
     /** before 登记已布置槽位，after 消费：不在集合中即静默 */
     private final Set<Integer> scheduled = ConcurrentHashMap.newKeySet();
 
+    /**
+     * 子任务结局登记：graph-core 并行分支的 after 钩子拿到的是节点输入态快照
+     * （ParallelNode 在 action.apply 的 whenComplete 里传 state.data()，本节点写入的
+     * result 键要等所有分支结束后才由父节点合并进全局状态）——钩子里读 state 恒取不到
+     * 本轮写入的结果，占位区分播报全数落入「完成」兜底。节点动作返回前把最终 result
+     * （成功内容或占位常量）登记到此处，after 优先读登记值；state 读取保留作兜底
+     * （防未来库版本把合并后状态传进钩子）。
+     */
+    private final Map<Integer, String> outcomes = new ConcurrentHashMap<>();
+
     BranchProgressListener(Sinks.Many<String> events, String nodePrefix, String statePrefix) {
         this.events = events;
         this.nodePrefix = nodePrefix;
         this.statePrefix = statePrefix;
+    }
+
+    /** 节点动作返回前登记该子任务的最终 result（成功内容或占位常量），供 after 播报分类 */
+    public void recordOutcome(int idx, String result) {
+        outcomes.put(idx, result);
     }
 
     @Override
@@ -58,10 +73,14 @@ public final class BranchProgressListener implements GraphLifecycleListener {
         if (idx == null || !scheduled.remove(idx)) {
             return; // 非子任务帧或短路槽位：静默
         }
-        // 占位结果区分播报：超时/预算/失败占位不是「完成」，按实际结局播报（state 取不到
-        // result 键时按「完成」播报兜底，与旧版行为一致）
-        Object result = state == null ? null : state.get(MultiAgentGraphAgent.K_RESULT_PREFIX + idx);
+        // 结局分类：优先读节点登记值（输入态快照取不到本轮 result，见 outcomes 注释），
+        // 占位结果区分播报：超时/预算/失败占位不是「完成」，按实际结局播报（登记与 state
+        // 都取不到时按「完成」播报兜底，与旧版行为一致）
         String line;
+        Object result = outcomes.remove(idx);
+        if (result == null && state != null) {
+            result = state.get(MultiAgentGraphAgent.K_RESULT_PREFIX + idx);
+        }
         if (MultiAgentGraphAgent.FAILED_RESULT.equals(result)) {
             line = ProgressLine.encode("子任务", "第 " + (idx + 1) + " 个子任务执行失败，已跳过");
         } else if (MultiAgentGraphAgent.TIMEOUT_SKIPPED_RESULT.equals(result)) {

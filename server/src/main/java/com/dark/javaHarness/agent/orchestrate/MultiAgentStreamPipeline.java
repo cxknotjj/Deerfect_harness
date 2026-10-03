@@ -40,7 +40,7 @@ final class MultiAgentStreamPipeline {
     interface StreamingGraphCompiler {
         CompiledGraph compile(Sinks.Many<String> liveTokens, AtomicBoolean contentSent,
                               Sinks.Many<String> toolEvents, AtomicBoolean cancelled,
-                              com.alibaba.cloud.ai.graph.GraphLifecycleListener listener)
+                              BranchProgressListener listener)
                 throws GraphStateException;
     }
 

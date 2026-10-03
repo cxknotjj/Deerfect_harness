@@ -205,7 +205,8 @@ final class OrchestrationNodes {
      */
     Map<String, Object> subtask(OverAllState state, int idx,
                                 java.util.function.Consumer<String> toolEmitter,
-                                AtomicBoolean cancelled) {
+                                AtomicBoolean cancelled,
+                                BranchProgressListener progress) {
         String task = state.value(MultiAgentGraphAgent.K_SUBTASK_PREFIX + idx, String.class).orElse(null);
         if (task == null || task.isBlank()) {
             return new HashMap<>(); // lead 未设置该子任务 → 快速短路
@@ -282,6 +283,7 @@ final class OrchestrationNodes {
                     idx, OrchestrationBudget.ledgerValue(state), budgets.getOrchestrationBudget());
             Map<String, Object> updates = new HashMap<>();
             updates.put(MultiAgentGraphAgent.K_RESULT_PREFIX + idx, MultiAgentGraphAgent.SKIPPED_RESULT);
+            recordOutcome(progress, idx, MultiAgentGraphAgent.SKIPPED_RESULT);
             return updates;
         } catch (java.util.concurrent.CancellationException e) {
             // 超时命中判定：deadline 已过且共享断连令牌未置位——真实客户端断开（令牌置位）
@@ -294,6 +296,7 @@ final class OrchestrationNodes {
                     idx, (System.nanoTime() - startNanos) / 1_000_000_000L, wallClock);
             Map<String, Object> updates = new HashMap<>();
             updates.put(MultiAgentGraphAgent.K_RESULT_PREFIX + idx, MultiAgentGraphAgent.TIMEOUT_SKIPPED_RESULT);
+            recordOutcome(progress, idx, MultiAgentGraphAgent.TIMEOUT_SKIPPED_RESULT);
             return updates;
         } catch (Exception e) {
             // 其余执行失败（模型调用异常/重试耗尽/看门狗 120s 零帧中止等）：写占位结果不向图上抛——
@@ -302,12 +305,24 @@ final class OrchestrationNodes {
             log.warn("[multi-agent][subtask-{}] 子任务执行失败，写占位结果：{}", idx, safeMessage(e), e);
             Map<String, Object> updates = new HashMap<>();
             updates.put(MultiAgentGraphAgent.K_RESULT_PREFIX + idx, MultiAgentGraphAgent.FAILED_RESULT);
+            recordOutcome(progress, idx, MultiAgentGraphAgent.FAILED_RESULT);
             return updates;
         }
         Map<String, Object> updates = new HashMap<>();
         updates.put(MultiAgentGraphAgent.K_RESULT_PREFIX + idx, result);
+        recordOutcome(progress, idx, result);
         log.info("[multi-agent][subtask-{}] 完成（专家={}），结果长度={}", idx, expert, result.length());
         return updates;
+    }
+
+    /**
+     * 结局登记（graph-core 并行分支 after 钩子的输入态快照取不到本节点写入的 result 键，
+     * 播报分类依赖此处登记；progress 为 null（同步图无监听器）静默跳过）。
+     */
+    private static void recordOutcome(BranchProgressListener progress, int idx, String result) {
+        if (progress != null) {
+            progress.recordOutcome(idx, result);
+        }
     }
 
     /**

@@ -263,7 +263,7 @@ public class MultiAgentGraphAgent implements Agent {
                 ragPrefetcher, agentConfigProvider);
         this.streamPipeline = new MultiAgentStreamPipeline(
                 (liveTokens, contentSent, toolEvents, cancelled, listener) ->
-                        buildStateGraph(liveTokens, contentSent, toolEvents, cancelled)
+                        buildStateGraph(liveTokens, contentSent, toolEvents, cancelled, listener)
                                 .compile(compileConfig(listener)));
         try {
             this.stateGraph = buildStateGraph();
@@ -406,7 +406,7 @@ public class MultiAgentGraphAgent implements Agent {
     }
 
     private StateGraph buildStateGraph() throws GraphStateException {
-        return buildStateGraph(null, null, null, null);
+        return buildStateGraph(null, null, null, null, null);
     }
 
     /**
@@ -417,11 +417,15 @@ public class MultiAgentGraphAgent implements Agent {
      * @param contentSent 流式模式的内容已发射标志（与主干 {@link MultiAgentStreamPipeline#toRows} 共享，防重复发射）；可为 null
      * @param toolEvents  非 null 时子任务节点注入追踪版工具（执行起止经该 sink 发进度行，供 CLI 工具调用行）
      * @param cancelled   非 null 时节点执行前检查该标志：客户端已断开则短路（不再发起新的 LLM 调用）
+     * @param progress    子任务结局播报监听器（可 null：同步图无监听器）；子任务节点返回前向其
+     *                    登记实际结局——graph-core 并行分支的 after 钩子拿输入态快照，读不到
+     *                    本节点写入的 result 键（详见 {@link BranchProgressListener#recordOutcome}）
      */
     private StateGraph buildStateGraph(Sinks.Many<String> liveTokens,
                                        AtomicBoolean contentSent,
                                        Sinks.Many<String> toolEvents,
-                                       AtomicBoolean cancelled) throws GraphStateException {
+                                       AtomicBoolean cancelled,
+                                       BranchProgressListener progress) throws GraphStateException {
         // 注册编排 state 键的覆盖合并策略。关键：graph-core resume 时以 OverAllState#input()
         // 合并 checkpoint 状态，只保留「已注册 KeyStrategy」的键；不注册则断点续跑时
         // subtask/result/final 等全部丢失（全新执行走 withData 无此过滤，故首跑不受影响）
@@ -437,7 +441,7 @@ public class MultiAgentGraphAgent implements Agent {
         for (int i = 0; i < MAX_SUBTASKS; i++) {
             final int idx = i;
             g.addNode(subtaskName(idx),
-                    AsyncNodeAction.node_async(state -> nodes.subtask(state, idx, toolEmitter, cancelled)));
+                    AsyncNodeAction.node_async(state -> nodes.subtask(state, idx, toolEmitter, cancelled, progress)));
         }
         // 聚合：收集各子任务结果生成最终回答（流式模式逐 token 旁路推送）
         g.addNode(NODE_AGGREGATE,
