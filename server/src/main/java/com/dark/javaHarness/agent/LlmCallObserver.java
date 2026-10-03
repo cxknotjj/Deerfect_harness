@@ -30,13 +30,16 @@ final class LlmCallObserver {
         Integer prompt = usage == null ? null : usage.getPromptTokens();
         Integer completion = usage == null ? null : usage.getCompletionTokens();
         Integer total = usage == null ? null : usage.getTotalTokens();
-        if (completion == null) {
+        // 估算标记必须先于估算填充计算：填充后再判 completion==null 恒 false，标记恒丢失
+        //（路径 B 存量隐性缺陷，2026-10-03 直答路径接入统一落库时被估算断言暴露）
+        boolean tokensEstimated = completion == null;
+        if (tokensEstimated) {
             int tokens = LlmCallRecorder.estimateTokens(content);
             completion = tokens;
             total = tokens;
         }
         record(sessionId, agentName, model, true, true, prompt, completion, total, start, null,
-                content, firstTokenAt, usage, attachments, attempt, maxAttempts,
+                content, firstTokenAt, usage, attachments, tokensEstimated, attempt, maxAttempts,
                 turnId, traceId, spanId, parentSpan);
     }
 
@@ -49,21 +52,22 @@ final class LlmCallObserver {
                int attempt, int maxAttempts,
                String turnId, String traceId, String spanId, String parentSpan) {
         record(sessionId, agentName, model, stream, false, null, null, null, start,
-                LlmCallRecorder.describeError(e), null, 0L, null, attachments, attempt, maxAttempts,
-                turnId, traceId, spanId, parentSpan);
+                LlmCallRecorder.describeError(e), null, 0L, null, attachments, stream,
+                attempt, maxAttempts, turnId, traceId, spanId, parentSpan);
     }
 
     private void record(String sessionId, String agentName, String model, boolean stream, boolean ok,
                         Integer promptTokens, Integer completionTokens, Integer totalTokens,
                         long start, String errorMsg, String content, long firstTokenAt, Usage usage,
-                        PromptAssembler.PromptAttachments attachments, int attempt, int maxAttempts,
+                        PromptAssembler.PromptAttachments attachments, boolean tokensEstimated,
+                        int attempt, int maxAttempts,
                         String turnId, String traceId, String spanId, String parentSpan) {
         if (recorder == null) {
             return;
         }
         recorder.record(new LlmCallLog(sessionId, agentName, model, stream, ok,
                 promptTokens, completionTokens, totalTokens,
-                /* tokensEstimated */ stream && completionTokens == null,
+                tokensEstimated,
                 System.currentTimeMillis() - start, errorMsg,
                 attachments == null ? null : attachments.skills(),
                 attachments == null ? null : attachments.tools(),
