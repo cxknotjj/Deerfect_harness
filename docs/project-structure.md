@@ -12,19 +12,24 @@
 
 ```text
 src/main/java/com/dark/javaHarness/
-├── JavaHarnessApplication.java   # Spring Boot 启动类（@MapperScan 指向 mapper 包）
+├── JavaHarnessApplication.java   # Spring Boot 启动类（@MapperScan 扫 mapper + channel.qq.persistence 两包）
 ├── controller/                   # 表现层：REST 接口 + SSE 流式
 │   ├── ChatController.java       # 聊天接口（/api/chat、/stream、/resume、/goal-status）
 │   ├── HarnessController.java    # 管理接口（agents / submit / goals / sessions / 会话绑定 Agent）
 │   ├── ProviderAdminController.java  # 模型映射管理（/api/providers 查看与热刷新新增）
-│   └── LlmCallController.java    # LLM 调用观测查询（/api/llm-calls）
+│   ├── KnowledgeAdminController.java # 知识库管理（文档列表/上传/删除/增量同步）
+│   ├── LlmCallController.java    # LLM 调用观测查询（/api/llm-calls）
+│   ├── ToolCallController.java   # 工具调用观测查询（/api/tool-calls）
+│   └── KbRetrievalController.java # RAG 检索观测查询（/api/kb-retrievals）
 ├── service/                      # 业务层（接口 + impl/ 实现）
 │   ├── AgentService / GoalService / SessionService / ChatService  # 编排、目标、会话记忆、聊天用例
 │   ├── RouteJudge.java           # 主 Agent 路由判断（SIMPLE / COMPLEX 分流）
 │   ├── AgentConfigProvider.java  # 从 agent 表读取运行配置（路由映射）
 │   ├── ProviderAdminService.java # model_provider 映射管理（新增即热刷新注册表）
+│   ├── ObserveQueryService.java  # 观测日志查询收口（llm/tool/kb-retrieval 三表读取口径，controller 不直连 mapper）
+│   ├── SessionBindingCleaner.java # 渠道会话绑定清理端口（core 删会话 → 渠道清绑定；实现随 napcat.enabled 条件装配）
 │   └── impl/                     # AgentServiceImpl / ChatServiceImpl / SseEncoder（SSE 编码）等
-│       ├── observe/              # LlmCallRecorder / McpServerRecorder（LLM/MCP 调用观测落库）+ ObservabilityLogCleaner（观测表保留期清理）
+│       ├── observe/              # LlmCallRecorder / McpServerRecorder（LLM/MCP 调用观测落库）+ ObserveQueryServiceImpl（观测查询）+ ObservabilityLogCleaner（观测表保留期清理）
 │       └── route/                # LlmRouteJudge（主 Agent 路由判定）/ RagPrefetcher（RAG 入口预取）
 ├── advisor/                      # Spring AI Advisor 拦截器（Agent 流程横切管理）
 │   ├── ContextAssemblingAdvisor.java  # 上下文组装：过滤/token 预算截断/role 归一化
@@ -50,14 +55,16 @@ src/main/java/com/dark/javaHarness/
 │   ├── ToolLazyManager.java      # 工具 Schema 两段式延迟加载（轻量索引 → expand_tool 展开）
 │   └── PromptSection.java / SkillSectionProvider.java  # 段模型与 skill 扩展点
 ├── mapper/                       # 数据访问层：MyBatis-Plus Mapper
-│   └── AgentMapper / GoalMapper / SessionMapper / SessionMessageMapper / ModelProviderMapper / LlmCallLogMapper
+│   └── AgentMapper / GoalMapper / SessionMapper / SessionMessageMapper / ModelProviderMapper
+│       / LlmCallLogMapper / ToolCallLogMapper / KbRetrievalLogMapper / McpServerLogMapper / KbDocumentMapper
+│       （OneBot 会话绑定 Mapper 已随渠道收编至 channel/qq/persistence）
 ├── domain/                       # 领域模型（父包）
 │   ├── Goal.java                 # 目标 + 状态（PENDING/RUNNING/SUCCEEDED/FAILED）
 │   ├── AgentConfig.java          # Agent 运行配置（model + prompt），来自 agent 表
 │   ├── RouteDecision.java        # 路由决策枚举（SIMPLE / COMPLEX）
 │   ├── LlmCallLog.java           # 一次 LLM 调用的观测记录（耗时/token/成败）
 │   ├── dto/                      # 传输对象（ChatRequest/ChatResponse/SseMeta/分页等）
-│   └── entity/                   # 数据库实体（对应 agent / goal / session / model_provider / llm_call_log 表）
+│   └── entity/                   # 数据库实体（agent / goal / session / model_provider / 各观测日志表等）
 ├── enums/                        # 枚举与共享常量：GoalStatus、AgentConstants、SseProtocol
 ├── exception/                    # 全局异常处理（@RestControllerAdvice，统一 {code, message}）
 ├── agent/                        # Agent 抽象、编排与 LLM 调用
@@ -82,6 +89,15 @@ src/main/java/com/dark/javaHarness/
 │   ├── MarkdownChunker.java      # 段落感知切分（~700 字符 + 重叠，纯函数）
 │   ├── KnowledgeService(Impl).java  # 增量摄取（mtime 比对删旧写新）/ 删除 / 分页 / 检索
 │   └── KnowledgeRetriever.java   # 检索注入器：user 文本→top-k 命中→【出处N】知识段（预算截断）
+├── channel/qq/                   # QQ 渠道垂直包（NapCat/OneBot 11，napcat.enabled 条件装配，单向依赖 core 端口）
+│   ├── client/                   # NapCat HTTP 客户端与整链装配（NapCatChannelConfig @Bean）
+│   ├── event/                    # 上报端点与事件处理（过滤/白名单/限频/会话绑定/直调 ChatService）
+│   ├── reply/                    # 回复输出（渐进分段/限频器/表情包匹配）
+│   ├── dto/                      # OneBot 协议 DTO
+│   └── persistence/              # 渠道私有持久化（OneBotSessionBinding + Mapper + SessionBindingCleaner 实现）
+├── memory/                       # 用户画像（跨会话长期记忆）
+│   ├── UserProfileService.java   # 离线批量提炼空闲会话偏好 → 全局画像 Markdown（原子写）
+│   └── UserProfileSectionProviderImpl.java  # 画像段注入 general/lead 的 system prompt
 ├── cli/                          # 命令行客户端（独立进程，纯 HTTP 连 8080）
 │   ├── ChatCli.java              # 门面：main / chatLoop / 命令分发 / 回合执行
 │   ├── ResumeStateStore.java     # /resume 续跑目标持久化（状态文件读写 + 宽容解析）

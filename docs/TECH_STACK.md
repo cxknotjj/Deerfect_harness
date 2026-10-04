@@ -35,17 +35,18 @@
 | HTTP 客户端 | OkHttp                     | 4.12.0 | CLI 端调用主服务 REST/SSE（`cli/api/ChatApiClient`）                                   |
 | 序列化      | Jackson                    | 随 Boot | DTO 序列化 / SSE meta 解析                                                          |
 | 代码生成     | Lombok                     | -      | 实体类简化                                                                          |
-| 测试       | JUnit 5 / Mockito          | 随 Boot | 36 个测试类 / 258 用例（不依赖真实 DB/网络，见 docs/guides/functional-testing.md，2026-09-06 核对）           |
+| 测试       | JUnit 5 / Mockito          | 随 Boot | 服务端 75 个测试类 / 700 用例（另有 cli 3 类、wms-mcp-adapter 4 类），不依赖真实 DB/网络，见 docs/guides/functional-testing.md（2026-10-04 核对）           |
 | 日志       | SLF4J + Logback            | 随 Boot | Agent 执行状态日志                                                                   |
 | 初始化 SQL  | ~~schema.sql~~ 已移除         | -      | 由 Flyway 迁移脚本接管（见上）                                                            |
 
 ### 架构分层
 
 ```
-controller（REST + SSE 流式 + 全局异常处理 + LlmCallController 观测查询）
+controller（REST + SSE 流式 + 全局异常处理 + 观测查询三接口，查询统一经 ObserveQueryService 收口）
   └─ service（接口 + impl：AgentService / ChatService / GoalService / SessionService
              ├─ RouteJudge + LlmRouteJudge（主 Agent 分流判定）
              ├─ AgentConfigProvider（agent 表运行配置）
+             ├─ ObserveQueryService（观测三表查询收口）/ SessionBindingCleaner（渠道绑定清理端口）
              └─ LlmCallRecorder（LLM 调用观测异步落库）
         ├─ agent（Agent 抽象 + GeneralAssistantAgent 路径A + MultiAgentGraphAgent 路径B
         │     + AgentChatCaller 调用封装（含观测埋点） + BranchProgressListener 钩子旁路）
@@ -54,8 +55,9 @@ controller（REST + SSE 流式 + 全局异常处理 + LlmCallController 观测�
         ├─ tool（WebTools 网页抓取 / DemoTools 示例 / SandboxToolProvider 容器沙箱 / ToolAssignments 工具分配）
         ├─ knowledge（RAG 知识库：KnowledgeDocumentScanner 扫描 / MarkdownChunker 切分 / KnowledgeServiceImpl 增量摄取与检索 / KnowledgeRetriever 检索注入）
         ├─ cli（ChatCli 交互端） + cli/api（ChatApiClient：OkHttp + SSE 解析）
+        ├─ channel/qq（QQ 渠道垂直包：NapCat/OneBot 接入；OneBot 会话绑定持久化收编在 channel/qq/persistence）
         ├─ domain（领域模型父包，含 dto 与 entity；RouteDecision 分流决策枚举 / LlmCallLog 观测记录）
-        ├─ mapper（Agent / Goal / Session / SessionMessage / ModelProvider / LlmCallLog）
+        ├─ mapper（Agent / Goal / Session / SessionMessage / ModelProvider / 各观测日志 Mapper；OneBot 绑定 Mapper 在 channel/qq/persistence）
         ├─ enums（GoalStatus / AgentConstants）
         └─ 配置（application.yaml + config/agent：ChatAgentConfig、ChatClientFactory、ChatClientRegistry）
 ```

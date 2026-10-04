@@ -649,9 +649,9 @@ sequenceDiagram
 | 工具治理       | `ToolCallTracer`（进度行）+ `ToolCallBudget`（次数/结果 token 预算）+ `ToolLazyManager`（两段式延迟加载）+ `ToolAssignments`（专家分配硬边界） |
 | 沙箱工具面      | `SandboxToolProvider`（agentscope-runtime 容器）        |
 | MCP 工具        | `McpServerTools`（Server，3 工具→/mcp）+ `McpToolProvider`（Client，懒连接发现）+ `ToolAssignments` |
-| LLM 调用观测   | `LlmCallRecorder`（异步落库）+ `LlmCallController`（`/api/llm-calls` 查询）   |
+| 调用观测（LLM/工具/RAG 检索） | `LlmCallRecorder` 等（异步落库）+ `ObserveQueryService`（三表查询收口）+ 观测三接口（`/api/llm-calls`、`/api/tool-calls`、`/api/kb-retrievals`）   |
 | 执行通道线程池 | `GoalExecutorConfig`（`goalExecutor` 后台 Goal 池 + `applicationTaskExecutor` MVC 异步槽位） |
 | CLI 渲染     | `TerminalRenderer`（流式增量直出 + 着色行整行重绘升级 + spinner 原位刷新 + 工具行）   |
 
-> 更新日期：2026-08-28 / 5e MCP 接入、分配表与组件映射更新：2026-08-29 / 5f Prompt 动态装配、5g Agent 表驱动注册、6a 流式背书取消与 5c/5d/6 口径更新：2026-09-04 / 5h Goal 执行通道线程池治理、6 队列满与 Error 逃逸兜底、CLI 增量直出口径与组件映射更新：2026-09-06。
+> 更新日期：2026-08-28 / 5e MCP 接入、分配表与组件映射更新：2026-08-29 / 5f Prompt 动态装配、5g Agent 表驱动注册、6a 流式背书取消与 5c/5d/6 口径更新：2026-09-04 / 5h Goal 执行通道线程池治理、6 队列满与 Error 逃逸兜底、CLI 增量直出口径与组件映射更新：2026-09-06 / 观测查询收口 ObserveQueryService、QQ 绑定持久化收编 channel/qq/persistence 与组件映射更新：2026-10-04。
 

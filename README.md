@@ -16,7 +16,7 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.x-6DB33F?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
 [![Spring AI](https://img.shields.io/badge/Spring%20AI-1.1.x-6DB33F?logo=spring&logoColor=white)](https://spring.io/projects/spring-ai)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
-[![Tests](https://img.shields.io/badge/tests-682%20passing-brightgreen?logo=junit5&logoColor=white)](#-运行测试)
+[![Tests](https://img.shields.io/badge/tests-700%20passing-brightgreen?logo=junit5&logoColor=white)](#-运行测试)
 
 *简单问题直接答 · 复杂任务多 Agent 编排 · 全程流式可视化*
 

@@ -11,19 +11,24 @@ Classic layered architecture (Controller → Service → Mapper/Entity), with th
 
 ```text
 src/main/java/com/dark/javaHarness/
-├── JavaHarnessApplication.java   # Spring Boot entry (@MapperScan points to the mapper package)
+├── JavaHarnessApplication.java   # Spring Boot entry (@MapperScan scans mapper + channel.qq.persistence)
 ├── controller/                   # Presentation layer: REST endpoints + SSE streaming
 │   ├── ChatController.java       # Chat endpoints (/api/chat, /stream, /resume, /goal-status)
 │   ├── HarnessController.java    # Management endpoints (agents / submit / goals / sessions / session-bound agent)
 │   ├── ProviderAdminController.java  # Model-mapping management (/api/providers: list & hot-refresh add)
-│   └── LlmCallController.java    # LLM call observability queries (/api/llm-calls)
+│   ├── KnowledgeAdminController.java # Knowledge-base management (document list / upload / delete / incremental sync)
+│   ├── LlmCallController.java    # LLM call observability queries (/api/llm-calls)
+│   ├── ToolCallController.java   # Tool-call observability queries (/api/tool-calls)
+│   └── KbRetrievalController.java # RAG retrieval observability queries (/api/kb-retrievals)
 ├── service/                      # Business layer (interfaces + impl/)
 │   ├── AgentService / GoalService / SessionService / ChatService  # Orchestration, goals, session memory, chat use cases
 │   ├── RouteJudge.java           # Main-agent routing decision (SIMPLE / COMPLEX)
 │   ├── AgentConfigProvider.java  # Runtime config from the agent table (routing map)
 │   ├── ProviderAdminService.java # model_provider mapping management (hot refresh on add)
+│   ├── ObserveQueryService.java  # Unified observability-log queries (llm / tool / kb-retrieval; controllers never touch mappers directly)
+│   ├── SessionBindingCleaner.java # Channel session-binding cleanup port (core session delete → channel cleanup; impl wired conditionally on napcat.enabled)
 │   └── impl/                     # Implementations (AgentServiceImpl / ChatServiceImpl / SseEncoder (SSE encoding) etc.)
-│       ├── observe/              # LlmCallRecorder / McpServerRecorder (LLM/MCP call observation persistence) + ObservabilityLogCleaner (observation-table retention cleanup)
+│       ├── observe/              # LlmCallRecorder / McpServerRecorder (LLM/MCP call observation persistence) + ObserveQueryServiceImpl (observability queries) + ObservabilityLogCleaner (observation-table retention cleanup)
 │       └── route/                # LlmRouteJudge (main-agent routing decision) / RagPrefetcher (RAG entry prefetch)
 ├── advisor/                      # Spring AI Advisor interceptors (cross-cutting agent-flow management)
 │   ├── ContextAssemblingAdvisor.java  # Context assembly: filter / token-budget truncation / role normalization
@@ -49,14 +54,16 @@ src/main/java/com/dark/javaHarness/
 │   ├── ToolLazyManager.java      # Two-phase lazy tool-schema loading (lightweight index → expand_tool)
 │   └── PromptSection.java / SkillSectionProvider.java  # Section model and skill extension point
 ├── mapper/                       # Data access: MyBatis-Plus mappers
-│   └── AgentMapper / GoalMapper / SessionMapper / SessionMessageMapper / ModelProviderMapper / LlmCallLogMapper
+│   └── AgentMapper / GoalMapper / SessionMapper / SessionMessageMapper / ModelProviderMapper
+│       / LlmCallLogMapper / ToolCallLogMapper / KbRetrievalLogMapper / McpServerLogMapper / KbDocumentMapper
+│       (the OneBot session-binding mapper now lives with the channel in channel/qq/persistence)
 ├── domain/                       # Domain model (parent package)
 │   ├── Goal.java                 # Goal + status (PENDING/RUNNING/SUCCEEDED/FAILED)
 │   ├── AgentConfig.java          # Agent runtime config (model + prompt), from the agent table
 │   ├── RouteDecision.java        # Routing decision enum (SIMPLE / COMPLEX)
 │   ├── LlmCallLog.java           # Observability record of one LLM call (latency/tokens/outcome)
 │   ├── dto/                      # Transfer objects (ChatRequest/ChatResponse/SseMeta/pagination etc.)
-│   └── entity/                   # DB entities (agent / goal / session / model_provider / llm_call_log tables)
+│   └── entity/                   # DB entities (agent / goal / session / model_provider / observability log tables etc.)
 ├── enums/                        # Enums & shared constants: GoalStatus, AgentConstants, SseProtocol
 ├── exception/                    # Global exception handling (@RestControllerAdvice, uniform {code, message})
 ├── agent/                        # Agent abstractions, orchestration & LLM calls
@@ -76,6 +83,20 @@ src/main/java/com/dark/javaHarness/
 │       ├── OrchestrationBudget.java    # Orchestration budget ledger (AtomicLong shared accounting + degradation note)
 │       ├── MultiAgentStreamPipeline.java  # Orchestration streaming pipeline (progress lines → SSE events, resume checkpoint selection)
 │       └── BranchProgressListener.java # graph-core lifecycle-hook sidecar (serializes parallel-branch completion events)
+├── knowledge/                    # RAG knowledge base
+│   ├── KnowledgeDocumentScanner.java  # Knowledge directory scan (.md/.txt, front-matter titles, bad files skipped)
+│   ├── MarkdownChunker.java      # Paragraph-aware splitting (~700 chars + overlap, pure function)
+│   ├── KnowledgeService(Impl).java  # Incremental ingestion (mtime compare, delete-then-write) / delete / paging / search
+│   └── KnowledgeRetriever.java   # Retrieval injector: user text → top-k hits → 【出处N】knowledge section (budget-truncated)
+├── channel/qq/                   # QQ channel vertical package (NapCat/OneBot 11, conditional on napcat.enabled, one-way dependency on core ports)
+│   ├── client/                   # NapCat HTTP client & whole-chain assembly (NapCatChannelConfig @Bean)
+│   ├── event/                    # Report endpoint & event handling (filter / whitelist / rate limit / session binding / direct ChatService calls)
+│   ├── reply/                    # Reply output (progressive splitting / rate limiter / emoji matching)
+│   ├── dto/                      # OneBot protocol DTOs
+│   └── persistence/              # Channel-private persistence (OneBotSessionBinding + mapper + SessionBindingCleaner impl)
+├── memory/                       # User profile (cross-session long-term memory)
+│   ├── UserProfileService.java   # Offline batch preference extraction from idle sessions → global profile Markdown (atomic write)
+│   └── UserProfileSectionProviderImpl.java  # Profile section injected into general/lead system prompts
 ├── cli/                          # CLI client (standalone process, pure HTTP to 8080)
 │   ├── ChatCli.java              # Facade: main / chatLoop / command dispatch / turn execution
 │   ├── ResumeStateStore.java     # /resume target persistence (state-file IO + tolerant parsing)
@@ -93,6 +114,9 @@ src/main/java/com/dark/javaHarness/
     ├── McpServerTools.java       # Demo tools exposed by the in-process MCP server (Streamable-HTTP /mcp)
     ├── ToolAssignments.java      # Tool assignment table: per-expert toolsets (dual-channel injection, least privilege)
     ├── ToolCallBudget.java / ToolCallTracer.java    # Tool count/result hard budget / start-stop progress lines
+    ├── ToolCallbackDecorator.java / ToolDecorationContext.java  # Pluggable decorator interface & context (Ordered chain)
+    ├── ToolObservationDecorator.java / ToolBudgetDecorator.java / ToolLazyLoadDecorator.java / SkillMetaToolDecorator.java  # Default decorator chain (observation 100 → budget 200 → lazy-load 300 → meta-tool 400)
+    ├── DefaultToolDecorators.java  # Default decorator-chain factory (single source of truth; new decorator = new class + one registration line)
     ├── TokenEstimator.java       # Project-wide token estimation standard
     └── DemoTools.java            # Demo toolset (time / calculator / weather)
 ```

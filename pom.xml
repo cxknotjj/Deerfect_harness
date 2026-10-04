@@ -13,7 +13,7 @@
     <version>0.0.1-SNAPSHOT</version>
     <packaging>pom</packaging>
     <name>javaHarness</name>
-    <description>基于 Spring AI 的 Agent 编排框架 Demo（parent：shared + server + cli）</description>
+    <description>基于 Spring AI 的 Agent 编排框架 Demo（parent：shared + server + cli + wms-mcp-adapter）</description>
     <url/>
     <licenses>
         <license/>
