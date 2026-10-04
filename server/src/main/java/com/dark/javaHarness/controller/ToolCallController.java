@@ -1,8 +1,7 @@
 package com.dark.javaHarness.controller;
 
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.dark.javaHarness.domain.entity.ToolCallLogEntity;
-import com.dark.javaHarness.mapper.ToolCallLogMapper;
+import com.dark.javaHarness.service.ObserveQueryService;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -16,34 +15,22 @@ import org.springframework.web.bind.annotation.RestController;
  * server 名（非 MCP 工具该列为空），server 故障时可按 serverName 过滤定位。
  * GET /api/tool-calls?sessionId=xxx&amp;serverName=tavily&amp;limit=50
  * （sessionId / serverName 可省略查全量，按 id 倒序）。
+ * 查询逻辑收口在 {@link ObserveQueryService}（Controller 不直连 mapper）。
  */
 @RestController
 @RequestMapping("/api/tool-calls")
 public class ToolCallController {
 
-    /** 默认与最大返回条数（防全表拖取） */
-    private static final int DEFAULT_LIMIT = 50;
-    private static final int MAX_LIMIT = 200;
+    private final ObserveQueryService observeQueryService;
 
-    private final ToolCallLogMapper mapper;
-
-    public ToolCallController(ToolCallLogMapper mapper) {
-        this.mapper = mapper;
+    public ToolCallController(ObserveQueryService observeQueryService) {
+        this.observeQueryService = observeQueryService;
     }
 
     @GetMapping
     public List<ToolCallLogEntity> list(@RequestParam(required = false) String sessionId,
                                         @RequestParam(required = false) String serverName,
                                         @RequestParam(defaultValue = "50") int limit) {
-        int n = Math.min(Math.max(limit, 1), MAX_LIMIT);
-        QueryWrapper<ToolCallLogEntity> qw = new QueryWrapper<>();
-        if (sessionId != null && !sessionId.isBlank()) {
-            qw.eq("session_id", sessionId);
-        }
-        if (serverName != null && !serverName.isBlank()) {
-            qw.eq("server_name", serverName);
-        }
-        qw.orderByDesc("id").last("LIMIT " + n);
-        return mapper.selectList(qw);
+        return observeQueryService.listToolCalls(sessionId, serverName, limit);
     }
 }
