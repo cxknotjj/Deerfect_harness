@@ -1,4 +1,4 @@
-package com.dark.javaHarness.domain.entity;
+package com.dark.javaHarness.channel.qq.persistence;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;

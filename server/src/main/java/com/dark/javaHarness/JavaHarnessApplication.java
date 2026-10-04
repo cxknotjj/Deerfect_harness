@@ -6,7 +6,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
-@MapperScan("com.dark.javaHarness.mapper")
+@MapperScan({"com.dark.javaHarness.mapper", "com.dark.javaHarness.channel.qq.persistence"})
 @EnableScheduling
 public class JavaHarnessApplication {
 

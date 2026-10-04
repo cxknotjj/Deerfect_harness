@@ -3,8 +3,10 @@ package com.dark.javaHarness.channel.qq.client;
 import com.dark.javaHarness.channel.qq.event.OneBotEventController;
 import com.dark.javaHarness.channel.qq.event.OneBotEventService;
 import com.dark.javaHarness.channel.qq.event.OneBotEventServiceImpl;
-import com.dark.javaHarness.mapper.OneBotSessionBindingMapper;
+import com.dark.javaHarness.channel.qq.persistence.OneBotSessionBindingCleaner;
+import com.dark.javaHarness.channel.qq.persistence.OneBotSessionBindingMapper;
 import com.dark.javaHarness.service.ChatService;
+import com.dark.javaHarness.service.SessionBindingCleaner;
 import com.dark.javaHarness.service.SessionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.concurrent.Executor;
@@ -19,7 +21,8 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
  * 事件处理 + NapCat 客户端整链。
  *
  * <p>垂直包隔离（channel/qq 单向依赖）：对 core 只依赖 {@link ChatService} /
- * {@link SessionService} 两个端口与 mapper/entity（共享位置惯例），core 反向
+ * {@link SessionService} 两个端口；绑定持久化（persistence 子包）归渠道所有，
+ * core 删除会话时经 {@link SessionBindingCleaner} 端口通知清理，core 反向
  * import channel 禁止。整链 bean 全部在本类 @Bean 装配（类上不标 @Component），
  * {@code napcat.enabled=false} 时端点、线程池、出站客户端一并不存在。
  *
@@ -59,6 +62,12 @@ public class NapCatChannelConfig {
                                                  NapCatApiClient apiClient,
                                                  NapCatProperties props) {
         return new OneBotEventServiceImpl(chatService, sessionService, bindingMapper, apiClient, props);
+    }
+
+    /** core 删会话时的绑定清理端口实现（SessionServiceImpl 经 ObjectProvider 可选注入） */
+    @Bean
+    public SessionBindingCleaner sessionBindingCleaner(OneBotSessionBindingMapper bindingMapper) {
+        return new OneBotSessionBindingCleaner(bindingMapper);
     }
 
     @Bean

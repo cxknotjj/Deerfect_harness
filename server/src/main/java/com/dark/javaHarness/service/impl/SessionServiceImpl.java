@@ -4,13 +4,12 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dark.javaHarness.domain.dto.SessionMessagesView;
-import com.dark.javaHarness.domain.entity.OneBotSessionBinding;
 import com.dark.javaHarness.domain.entity.SessionEntity;
 import com.dark.javaHarness.domain.entity.SessionMessageEntity;
-import com.dark.javaHarness.mapper.OneBotSessionBindingMapper;
 import com.dark.javaHarness.mapper.SessionMapper;
 import com.dark.javaHarness.mapper.SessionMessageMapper;
 import com.dark.javaHarness.service.AgentConfigProvider;
+import com.dark.javaHarness.service.SessionBindingCleaner;
 import com.dark.javaHarness.service.SessionService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -25,6 +24,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -63,19 +63,19 @@ public class SessionServiceImpl implements SessionService {
     private final ObjectMapper objectMapper;
     /** agent 表读取器：switchAgent 校验目标 agentId 存在性 */
     private final AgentConfigProvider agentConfigProvider;
-    /** QQ 会话绑定表：删除会话时清理绑定行，避免 QQ 用户带着旧 id 重建孤儿快照 */
-    private final OneBotSessionBindingMapper bindingMapper;
+    /** 渠道会话绑定清理端口：删除会话时清理渠道侧绑定行（如 QQ），渠道未启用时无实现 */
+    private final ObjectProvider<SessionBindingCleaner> bindingCleaner;
 
     public SessionServiceImpl(SessionMapper sessionMapper,
                               SessionMessageMapper messageMapper,
                               ObjectMapper objectMapper,
                               AgentConfigProvider agentConfigProvider,
-                              OneBotSessionBindingMapper bindingMapper) {
+                              ObjectProvider<SessionBindingCleaner> bindingCleaner) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
         this.objectMapper = objectMapper;
         this.agentConfigProvider = agentConfigProvider;
-        this.bindingMapper = bindingMapper;
+        this.bindingCleaner = bindingCleaner;
     }
 
     /** 创建新会话（会话名取首条提问截断），返回自增主键的字符串形式 */
@@ -311,7 +311,9 @@ public class SessionServiceImpl implements SessionService {
     /**
      * 删除会话：软删 session 行（@TableLogic 使 deleteById 转为 UPDATE is_delete=1，
      * 已删行不匹配天然幂等）+ 物理删该会话的上下文快照行（残留会让 GET messages
-     * 仍可读到已删会话内容）+ 清 QQ 会话绑定行。不触碰调用日志与 goal 表。
+     * 仍可读到已删会话内容）+ 经 {@link SessionBindingCleaner} 端口清渠道侧绑定行
+     * （避免 QQ 用户带着旧 id 重建孤儿快照；渠道未启用时无实现静默跳过）。
+     * 不触碰调用日志与 goal 表。
      */
     @Override
     public void deleteSession(String sessionId) {
@@ -323,9 +325,10 @@ public class SessionServiceImpl implements SessionService {
         QueryWrapper<SessionMessageEntity> qw = new QueryWrapper<>();
         qw.eq("session_id", String.valueOf(sid));
         messageMapper.delete(qw);
-        QueryWrapper<OneBotSessionBinding> bw = new QueryWrapper<>();
-        bw.eq("session_id", sid);
-        bindingMapper.delete(bw);
+        SessionBindingCleaner cleaner = bindingCleaner.getIfAvailable();
+        if (cleaner != null) {
+            cleaner.deleteBySessionId(sid);
+        }
         log.info("删除会话 sessionId={}", sid);
     }
 
