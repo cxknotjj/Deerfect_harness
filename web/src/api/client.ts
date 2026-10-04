@@ -88,7 +88,7 @@ export async function login(password: string): Promise<void> {
 
 /** 登出(POST /api/auth/logout):服务端吊销登录态 + 清除 Cookie;幂等 */
 export function logout(): Promise<void> {
-  return requestVoid('/api/auth/logout')
+  return requestVoid('/api/auth/logout', 'POST')
 }
 
 /** Agent 列表(GET /api/harness/agents) */
@@ -118,9 +118,9 @@ export function listMessages(sessionId: string): Promise<SessionMessagesView> {
   return request(`/api/harness/sessions/${encodeURIComponent(sessionId)}/messages`)
 }
 
-/** 无响应体请求(DELETE):仅校验 2xx,不解析 JSON;401 触发统一登录钩子 */
-async function requestVoid(path: string): Promise<void> {
-  const resp = await fetch(path, { method: 'DELETE', headers: baseHeaders() })
+/** 无响应体请求(HTTP 方法由调用方指定):仅校验 2xx,不解析 JSON;401 触发统一登录钩子 */
+async function requestVoid(path: string, method: string): Promise<void> {
+  const resp = await fetch(path, { method, headers: baseHeaders() })
   if (!resp.ok) {
     if (resp.status === 401) notifyUnauthorized()
     throw new Error(`HTTP ${resp.status}: ${await resp.text()}`)
@@ -129,7 +129,7 @@ async function requestVoid(path: string): Promise<void> {
 
 /** 删除会话(DELETE /api/harness/sessions/{id};服务端幂等,成功返回空体) */
 export function deleteSession(sessionId: string): Promise<void> {
-  return requestVoid(`/api/harness/sessions/${encodeURIComponent(sessionId)}`)
+  return requestVoid(`/api/harness/sessions/${encodeURIComponent(sessionId)}`, 'DELETE')
 }
 
 /** 工具调用观测(GET /api/tool-calls?sessionId=;按 id 倒序,上限 200) */
