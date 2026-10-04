@@ -49,6 +49,8 @@ public final class AgentChatCaller {
 
     /** 流式空闲超时兜底默认（秒）：app.chat.timeouts.stream-idle-timeout-seconds 未配置时生效 */
     static final int DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS = 120;
+    /** 流式首帧超时兜底默认（秒）：黑洞连接快速判定；app.chat.timeouts.first-frame-timeout-seconds 未配置时生效 */
+    static final int DEFAULT_FIRST_FRAME_TIMEOUT_SECONDS = 20;
 
     private final AgentService agentService;
     /** LLM 调用观测封装（llm_call_log 落库口径见 {@link LlmCallObserver}；recorder null 直通） */
@@ -120,7 +122,11 @@ public final class AgentChatCaller {
         java.time.Duration streamIdleTimeout = ChatClientFactory.resolve(
                 timeouts != null ? timeouts.getStreamIdleTimeoutSeconds() : null,
                 DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS);
-        this.pipeline = new AgentChatPipeline(clientRegistry, this.specFactory, streamIdleTimeout);
+        java.time.Duration firstFrameTimeout = ChatClientFactory.resolve(
+                timeouts != null ? timeouts.getFirstFrameTimeoutSeconds() : null,
+                DEFAULT_FIRST_FRAME_TIMEOUT_SECONDS);
+        this.pipeline = new AgentChatPipeline(clientRegistry, this.specFactory, streamIdleTimeout,
+                firstFrameTimeout);
         this.assembler = new CallSpecAssembler(promptAssembler, memoryStore, this.budgets);
     }
 

@@ -25,6 +25,11 @@ public class ChatTimeoutProperties {
     /** 流式调用空闲超时（秒）：相邻信号间隔超过即判定端点挂起；null = 兜底 120 秒 */
     private Integer streamIdleTimeoutSeconds;
 
+    /** 流式首帧超时（秒）：发起后首个响应帧（含 reasoning delta）的 deadline，黑洞连接的
+     * 快速判定通道（正常 TTFT 含思考增量远小于此值）；null = 兜底 20 秒，0 = 关闭（回退
+     * stream-idle 首帧口径） */
+    private Integer firstFrameTimeoutSeconds;
+
     /** 路由判定读超时（秒）：route-judge 是带 SIMPLE 兜底的轻量内部调用，
      * 不共用 300s 长回答读超时；null = 兜底 10 秒 */
     private Integer judgeReadTimeoutSeconds;
@@ -47,6 +52,14 @@ public class ChatTimeoutProperties {
 
     public Integer getStreamIdleTimeoutSeconds() {
         return streamIdleTimeoutSeconds;
+    }
+
+    public Integer getFirstFrameTimeoutSeconds() {
+        return firstFrameTimeoutSeconds;
+    }
+
+    public void setFirstFrameTimeoutSeconds(Integer firstFrameTimeoutSeconds) {
+        this.firstFrameTimeoutSeconds = firstFrameTimeoutSeconds;
     }
 
     public Integer getJudgeReadTimeoutSeconds() {

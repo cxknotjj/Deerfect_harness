@@ -105,6 +105,10 @@ app:
       connect-timeout-seconds: 10
       read-timeout-seconds: 300
       stream-idle-timeout-seconds: 120
+      # 首帧超时（秒）：发起后首个响应帧（含 reasoning delta）的 deadline，黑洞连接的快速
+      # 判定通道——零帧请求 20s 即失败进重试自愈，无需等满 stream-idle；正常 TTFT（含思考
+      # 增量）远小于此值。0 = 关闭（首帧回退 stream-idle 口径）；未配置回退 20
+      first-frame-timeout-seconds: 20
       # 路由判定读超时（秒）：route-judge 是只发 system+user 的轻量内部调用，
       # 失败即兜底 SIMPLE，不共用 300s 长回答读超时；未配置回退 10
       judge-read-timeout-seconds: 10

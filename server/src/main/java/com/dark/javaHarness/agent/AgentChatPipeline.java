@@ -4,6 +4,7 @@ import com.dark.javaHarness.agent.orchestrate.BudgetLedger;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.AgentConfig;
 import java.time.Duration;
+import java.util.concurrent.TimeoutException;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import org.springframework.ai.chat.client.ChatClient;
@@ -19,6 +20,8 @@ import reactor.core.publisher.Flux;
  */
 final class AgentChatPipeline {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AgentChatPipeline.class);
+
     private final ChatClientRegistry clientRegistry;
     private final AgentRequestSpecFactory specFactory;
     /**
@@ -26,13 +29,21 @@ final class AgentChatPipeline {
      * 实测厂商端对该类请求为稳定挂死，重试同请求只会成倍放大等待）。
      */
     private final Duration streamIdleTimeout;
+    /**
+     * 流式首帧超时：发起后首个响应帧（含 reasoning delta）的 deadline——黑洞连接
+     * （请求被网络路径静默吞掉）的快速判定通道，超时即进重试自愈，无需等满空闲看门狗。
+     * 零/负值 = 关闭（首帧回退 stream-idle 口径）。
+     */
+    private final Duration firstFrameTimeout;
 
     AgentChatPipeline(ChatClientRegistry clientRegistry,
                       AgentRequestSpecFactory specFactory,
-                      Duration streamIdleTimeout) {
+                      Duration streamIdleTimeout,
+                      Duration firstFrameTimeout) {
         this.clientRegistry = clientRegistry;
         this.specFactory = specFactory;
         this.streamIdleTimeout = streamIdleTimeout;
+        this.firstFrameTimeout = firstFrameTimeout;
     }
 
     /**
@@ -104,7 +115,8 @@ final class AgentChatPipeline {
                                          java.util.concurrent.atomic.AtomicLong firstTokenAt,
                                          String model,
                                          Consumer<String> reasoningTap) {
-        return tokenStream(spec, usageRef, ledger, prevTotal, firstTokenAt, reasoningTap, streamIdleTimeout)
+        return tokenStream(spec, usageRef, ledger, prevTotal, firstTokenAt, reasoningTap,
+                        streamIdleTimeout, firstFrameTimeout)
                 .doOnError(e -> {
                     // 4xx（除 408）= 请求内容/鉴权被供应商拒绝，连接本身健康：丢池无助益且
                     // 波及同池在途请求，跳过重建；其余（网络黑洞/看门狗超时/5xx）保持丢池，
@@ -166,7 +178,8 @@ final class AgentChatPipeline {
                                             java.util.concurrent.atomic.AtomicLong prevTotal,
                                             java.util.concurrent.atomic.AtomicLong firstTokenAt,
                                             Consumer<String> reasoningTap,
-                                            Duration streamIdleTimeout) {
+                                            Duration streamIdleTimeout,
+                                            Duration firstFrameTimeout) {
         return spec
                 .stream()
                 .chatResponse()
@@ -176,10 +189,11 @@ final class AgentChatPipeline {
                     // 只读不触碰内容流，提取异常静默——透传是纯增强，绝不影响主内容）
                     tapReasoning(resp, reasoningTap);
                 })
-                // 空闲看门狗必须挂在原始 ChatResponse 帧（含 reasoning delta）：思考增量也是
-                // 「端点活着」的信号——挂在内容过滤之后时，纯思考期零内容 token 会被误判挂死
-                // （e2e 实测 lead 思考 120s 静默被杀、编排降级，与模型无关的链路缺陷）
-                .timeout(streamIdleTimeout)
+                // 两阶段看门狗：首帧 deadline（短——黑洞连接的快速判定，零帧请求 20s 即失败
+                // 进重试自愈，无需等满空闲看门狗）+ 帧间空闲看门狗（长——容忍模型慢启动；
+                // reasoning delta 也是存活信号，见 9b72886）。
+                .timeout(firstFrameDeadline(firstFrameTimeout, streamIdleTimeout),
+                        prev -> idleDeadline(streamIdleTimeout))
                 // streamUsage 末帧是只含 usage 的空帧（contentOf 为 null）：Reactor 的 map
                 // 不允许 null 返回（直接抛「The mapper returned a null value」），后面的
                 // filter 根本不会执行——必须用 handle 跳过空帧
@@ -196,6 +210,34 @@ final class AgentChatPipeline {
                     if (firstTokenAt != null) {
                         firstTokenAt.compareAndSet(0, System.currentTimeMillis());
                     }
+                });
+    }
+
+    /**
+     * 首帧 deadline：firstFrameTimeout 关闭（零/负）时回退 stream-idle 口径。
+     * 注：Reactor timeout(Publisher, Function) 触发时会用自己的 TimeoutException 文案
+     * （不透传本处构造的异常实例），可观测性由触发时的 WARN 日志承载。
+     */
+    private static reactor.core.publisher.Mono<TimeoutException> firstFrameDeadline(
+            Duration firstFrameTimeout, Duration streamIdleTimeout) {
+        Duration effective = firstFrameTimeout != null && !firstFrameTimeout.isZero() && !firstFrameTimeout.isNegative()
+                ? firstFrameTimeout
+                : streamIdleTimeout;
+        return reactor.core.publisher.Mono.delay(effective)
+                .map(x -> {
+                    log.warn("[watchdog] 首帧 {}s 未到达（疑似连接黑洞/端点无响应），失败进重试自愈",
+                            effective.getSeconds());
+                    return new TimeoutException("首帧超时（" + effective.getSeconds() + "s 未收到任何响应帧）");
+                });
+    }
+
+    /** 帧间空闲看门狗：相邻帧间隔超过 stream-idle 即判定端点挂起 */
+    private static reactor.core.publisher.Mono<TimeoutException> idleDeadline(Duration streamIdleTimeout) {
+        return reactor.core.publisher.Mono.delay(streamIdleTimeout)
+                .map(x -> {
+                    log.warn("[watchdog] 帧间空闲超 {}s（端点疑似挂起），失败进重试自愈",
+                            streamIdleTimeout.getSeconds());
+                    return new TimeoutException("帧间空闲超时（" + streamIdleTimeout.getSeconds() + "s 无任何响应帧）");
                 });
     }
 
