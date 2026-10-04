@@ -336,7 +336,7 @@ function downloadSessionLog(): void {
         <span v-if="tip" class="chat-tip" :class="{ 'chat-tip-error': tip.error }" role="status">{{
           tip.text
         }}</span>
-        <!-- 右上控制组:会话日志下载(无会话时置灰)+ 主题切换 -->
+        <!-- 右上控制组:会话日志下载(无会话时置灰)+ 主题切换 + 退出登录(带文字,高危操作显性化) -->
         <div class="chat-header-right">
           <button
             class="session-log"
@@ -347,36 +347,66 @@ function downloadSessionLog(): void {
           >Session log ↓</button>
           <button
             v-if="!sidebarCollapsed"
-            class="icon-btn"
+            class="hdr-icon"
             type="button"
             :title="theme === 'dark' ? '切换日间模式' : '切换夜间模式'"
+            :aria-label="theme === 'dark' ? '切换日间模式' : '切换夜间模式'"
             @click="toggleTheme"
-          >{{ theme === 'dark' ? '☀' : '☾' }}</button>
+          >
+            <svg v-if="theme === 'dark'" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="4.2" />
+              <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5 5l1.6 1.6M17.4 17.4 19 19M19 5l-1.6 1.6M6.6 17.4 5 19" />
+            </svg>
+            <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11Z" />
+            </svg>
+          </button>
           <button
             v-if="authEnabled"
-            class="icon-btn"
+            class="hdr-logout"
             type="button"
             title="退出登录"
             aria-label="退出登录"
             @click="onLogout"
-          >⎋</button>
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3" />
+              <path d="m16 17 5-5-5-5" />
+              <path d="M21 12H9" />
+            </svg>
+            <span class="hdr-logout-text">退出</span>
+          </button>
         </div>
       </header>
 
-      <!-- 对话/轨迹 tab(轨迹为占位) -->
-      <div class="chat-tabs">
+      <!-- 对话/轨迹 tab:分段控件,轨迹是可观测性主入口,与对话同级醒目呈现 -->
+      <div class="chat-tabs" role="tablist">
         <button
           class="chat-tab"
           :class="{ 'chat-tab-active': activeTab === 'chat' }"
           type="button"
+          role="tab"
+          :aria-selected="activeTab === 'chat'"
           @click="activeTab = 'chat'"
-        >对话</button>
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" />
+          </svg>
+          对话
+        </button>
         <button
           class="chat-tab"
           :class="{ 'chat-tab-active': activeTab === 'trace' }"
           type="button"
+          role="tab"
+          :aria-selected="activeTab === 'trace'"
           @click="activeTab = 'trace'"
-        >轨迹</button>
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+          </svg>
+          轨迹
+        </button>
       </div>
 
       <ChatWindow

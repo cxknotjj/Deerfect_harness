@@ -64,17 +64,26 @@ function submit(): void {
           v-if="!disabled"
           class="composer-send"
           type="button"
-          title="发送"
+          title="发送(Enter)"
           :disabled="text.trim() === ''"
           @click="submit"
-        >↑</button>
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 19V5" />
+            <path d="m5 12 7-7 7 7" />
+          </svg>
+        </button>
         <button
           v-else
           class="composer-send composer-send-stop"
           type="button"
-          title="停止"
+          title="停止生成"
           @click="emit('stop')"
-        >■</button>
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="7" y="7" width="10" height="10" rx="1.5" />
+          </svg>
+        </button>
       </div>
     </div>
   </section>

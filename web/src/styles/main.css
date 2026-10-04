@@ -6,9 +6,12 @@
      圆形发送键 + 底部状态栏;消息两端对齐(assistant 靠左/user 靠右)
    - 双主题共用 DS 蓝 #4D6BFE 主强调:夜间深蓝黑 + 图纸网格,
      日间纯白蓝白,只换中性色 token
+   - 字体对:拉丁/数字 = 本地打包 IBM Plex Sans + JetBrains Mono
+     (@fontsource 构建期引入,运行时零外链),CJK 回退系统字体栈;
+     阅读区 15px/1.75,UI 控件 13-14px;数据数字 tabular-nums 对齐
    - 圆角体系:控件 8px / 气泡 12px / 输入卡片 16px
    - mono 字体仅用于数据语义(时间戳/状态栏/代码)
-   - 唯一动效花哨点:流式输出块状光标;状态灯呼吸与光标闪烁均
+   - 动效:统一 --ease-out-quart;状态灯呼吸与光标闪烁均
      尊重 prefers-reduced-motion(降级为常亮)
    ============================================================ */
 
@@ -18,8 +21,8 @@
   --bg-panel: #141b26;    /* 面板/会话列表 */
   --bg-inset: #0a0f16;    /* 输入框/代码块内嵌 */
   --grid-line: #1c2735;   /* 图纸网格线,兼作 1px 边框色 */
-  --ink: #c8d2dc;         /* 正文 */
-  --ink-dim: #6b7a8c;     /* 次级文本 */
+  --ink: #d3dce6;         /* 正文(夜间提亮一档,长文更易读) */
+  --ink-dim: #7e8da0;     /* 次级文本(对比度 ≥4.5:1) */
   --accent: #4d6bfe;      /* DS 蓝(与日间一致):选中态/状态灯/发送键 */
   --accent-warm: #e08e45; /* 信号橙:错误/警示 */
   --blueprint: #7fa6cc;   /* 蓝图蓝:链接/引用/次级强调 */
@@ -45,9 +48,14 @@
   --menu-shadow: 0 8px 28px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4);
   --mask-veil: rgba(0, 0, 0, 0.55); /* 窄屏抽屉遮罩 */
 
-  /* 字体栈(零外链) */
+  /* 字体栈(零外链):拉丁/数字走本地打包的 IBM Plex Sans / JetBrains Mono
+     (main.ts 按权重引入 woff2),CJK 回退系统字体;两族构成「工程控制台」字体对 */
   --font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
-  --font-sans: -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+  --font-sans: 'IBM Plex Sans', -apple-system, 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Noto Sans SC', 'Segoe UI', sans-serif;
+
+  /* 动效曲线:自然减速,入场/微交互统一使用(animate 规范:不用默认 ease) */
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; scrollbar-width: thin; scrollbar-color: var(--thumb) transparent; }
@@ -59,6 +67,8 @@ body {
   font-size: 14px;
   color: var(--ink);
   background-color: var(--bg-base);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 /* 夜间专属:全画布图纸网格(日间为纯色,干净不装饰) */
@@ -169,24 +179,32 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   letter-spacing: 0.12em;
   color: var(--ink-dim);
 }
-/* 通栏「新会话」(同面板底色左对齐,对齐截图) */
+/* 通栏「新会话」:侧栏主行动,accent 微底 + accent 字,可点性一目了然 */
 .session-new { margin: 2px 14px 4px; }
 .btn-new {
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 6px;
-  padding: 9px 10px;
-  background: var(--bg-panel);
+  gap: 8px;
+  padding: 9px 12px;
+  background: var(--accent-lift);
   border: none;
   border-radius: var(--radius-ctl);
   font-size: 13.5px;
   font-weight: 600;
-  color: var(--ink);
-  transition: color 0.15s;
+  color: var(--accent);
+  transition: background 0.15s;
 }
-.btn-new:hover { color: var(--accent); }
+.btn-new:hover { background: var(--accent-lift-strong); }
+.btn-new svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
 /* 工作区标签行:左标签 + 右侧三个装饰小图标(不接行为) */
 .workspace-row {
   display: flex;
@@ -239,7 +257,7 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.session-item-time { flex-shrink: 0; font-size: 12px; color: var(--ink-dim); }
+.session-item-time { flex-shrink: 0; font-size: 12px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
 /* 会话删除入口:默认隐藏,hover 会话项时显现(与消息操作钮同款交互) */
 .session-item-del {
   flex: none;
@@ -345,29 +363,83 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 }
 .session-log:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .session-log:disabled { opacity: 0.4; }
+/* 顶栏描边图标钮(主题切换):有边界才有可点感,替代无轮廓字符图标 */
+.hdr-icon {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--grid-line);
+  border-radius: var(--radius-ctl);
+  color: var(--ink-dim);
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.hdr-icon:hover { color: var(--ink); border-color: var(--ink-dim); background: var(--hover-veil); }
+.hdr-icon svg,
+.hdr-logout svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* 退出登录:图标 + 文字的完整按钮,hover 转警示色(高危操作显性化,替代纯 ⎋ 猜谜图标) */
+.hdr-logout {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--grid-line);
+  border-radius: var(--radius-ctl);
+  font-size: 13px;
+  color: var(--ink-dim);
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.hdr-logout:hover { color: var(--accent-warm); border-color: var(--accent-warm); background: var(--accent-warm-soft); }
 .chat-tip { font-size: 13px; color: var(--blueprint); }
 .chat-tip-error { color: var(--accent-warm); }
 
-/* 对话/轨迹 tab 行(当前项 accent 下划线;底边线落在 tab 行,与顶栏构成一个面板区) */
+/* 对话/轨迹 tab 行:分段控件式胶囊(带图标,大点击区)——轨迹是可观测性主入口,
+   与对话同级醒目呈现;底边线仍落在 tab 行,与顶栏构成一个面板区 */
 .chat-tabs {
   display: flex;
   align-items: center;
-  gap: 20px;
-  padding: 0 20px;
+  gap: 8px;
+  padding: 10px 20px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--grid-line);
 }
 .chat-tab {
-  padding: 8px 2px 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
   font-size: 13px;
+  font-weight: 500;
   color: var(--ink-dim);
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  transition: color 0.15s, border-color 0.15s;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  transition: color 0.15s, background 0.15s, transform 0.12s var(--ease-out-quart);
+}
+.chat-tab svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .chat-tab:hover { color: var(--ink); }
+.chat-tab:active { transform: scale(0.97); }
 .chat-tab-active,
-.chat-tab-active:hover { color: var(--accent); border-bottom-color: var(--accent); }
+.chat-tab-active:hover { color: var(--accent); background: var(--accent-lift); }
 
 /* 轨迹占位(功能未实现) */
 .trace-placeholder {
@@ -403,18 +475,20 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   border-radius: 999px;
   font-size: 13px;
   color: var(--ink-dim);
-  transition: color 0.15s, border-color 0.15s;
+  transition: color 0.15s, border-color 0.15s, transform 0.12s var(--ease-out-quart);
 }
 .suggest-chip:hover { color: var(--accent); border-color: var(--accent); }
+.suggest-chip:active { transform: scale(0.97); }
 
 /* ---------- 消息行(窄栏 820px 居中,对齐截图) ---------- */
 .msg-row { display: flex; flex-direction: column; width: 100%; }
 .msg-row-user { align-self: flex-end; max-width: 72ch; align-items: flex-end; }
 .msg-row-assistant { align-self: stretch; }
 
-/* 消息头:mono 小字标注时间(数据语义) */
+/* 消息头:mono 小字标注时间(数据语义);时间/计数一律 tabular-nums 纵向对齐 */
 .msg-meta {
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: 11px;
   color: var(--ink-dim);
   letter-spacing: 0.05em;
@@ -435,6 +509,8 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   white-space: normal; /* markdown 正文换行交给渲染 */
   max-width: 80ch;     /* 正文行宽上限 */
   padding: 0;
+  font-size: 15px;     /* 阅读区比 UI 控件大一号,行距放宽(typeset:长文 1.7+) */
+  line-height: 1.75;
 }
 .msg-bubble-error {
   background: var(--bg-inset);
@@ -550,6 +626,7 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   align-self: center;
   font-size: 12px;
   color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
 }
 .msg-retry {
   display: inline-flex;
@@ -587,14 +664,13 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .md-body :first-child { margin-top: 0; }
 .md-body :last-child { margin-bottom: 0; }
 .md-body h1, .md-body h2, .md-body h3, .md-body h4 {
-  margin: 14px 0 8px;
+  margin: 16px 0 8px;
   line-height: 1.4;
   font-weight: 600;
-  letter-spacing: 0.02em;
 }
-.md-body h1 { font-size: 17px; }
-.md-body h2 { font-size: 15px; }
-.md-body h3 { font-size: 14px; }
+.md-body h1 { font-size: 19px; }
+.md-body h2 { font-size: 16.5px; }
+.md-body h3 { font-size: 15.5px; }
 .md-body p { margin: 6px 0; }
 .md-body ul, .md-body ol { margin: 6px 0; padding-left: 20px; }
 .md-body li { margin: 2px 0; }
@@ -610,12 +686,12 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .md-body pre {
   background: var(--bg-inset);
   border: 1px solid var(--grid-line);
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 12px 14px;
   overflow-x: auto;
   margin: 10px 0;
-  font-size: 12.5px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.65;
 }
 .md-body pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
 
@@ -665,9 +741,12 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   border: 1px solid var(--grid-line);
   border-radius: var(--radius-card);
   padding: 12px 14px 10px;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, box-shadow 0.2s var(--ease-out-quart);
 }
-.composer:focus-within { border-color: var(--accent); }
+.composer:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-lift); /* 聚焦光晕:输入卡片的「当前输入位」暗示 */
+}
 /* 卡片左上角附件入口(占位,点击仅轻提示) */
 .composer-attach {
   position: absolute;
@@ -733,21 +812,32 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .composer-dot.live { border-color: var(--accent); animation: dot-breathe 1.6s ease-in-out infinite; }
 .composer-send {
   flex-shrink: 0;
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
   background: var(--accent);
   color: var(--on-accent);
-  font-size: 14px;
-  line-height: 1;
-  transition: background 0.15s, opacity 0.15s;
+  transition: background 0.15s, opacity 0.15s, transform 0.12s var(--ease-out-quart);
 }
-.composer-send:hover:not(:disabled) { background: var(--accent-hover); }
+.composer-send svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.composer-send:hover:not(:disabled) { background: var(--accent-hover); transform: scale(1.05); }
+/* 按压反馈:quick dip(100ms 级),发送动作被界面确认 */
+.composer-send:active:not(:disabled) { transform: scale(0.92); }
 .composer-send:disabled { opacity: 0.35; }
+/* 停止键:空心橙描边 + 实心方块,与发送键一眼区分 */
 .composer-send-stop { background: transparent; color: var(--accent-warm); border: 1px solid var(--accent-warm); }
+.composer-send-stop svg { fill: currentColor; stroke: none; }
 .composer-send-stop:hover { background: var(--accent-warm-soft); }
 
 /* 底部状态栏:mono 小字分段式真实数据(N 条消息 │ 生成中…/空闲 │ 最近耗时) */
@@ -760,6 +850,7 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   justify-content: flex-start;
   gap: 10px;
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: 11px;
   color: var(--ink-dim);
   letter-spacing: 0.03em;
@@ -834,6 +925,48 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .agent-option-placeholder { color: var(--ink-dim); cursor: default; }
 .agent-option-placeholder:hover { background: none; }
 
+/* ---------- 会话交互动效 ----------
+   原则(animate 规范):每个动画都有理由——确认动作、软化状态切换、标示进行中;
+   只动 transform/opacity 走 GPU;时长 120-400ms,统一 --ease-out-quart;
+   prefers-reduced-motion 全量降级(见文末块) */
+
+/* 消息入场:仅最后一行(新消息插入时才挂载),fade + 上浮确认「已发出/已到达」;
+   历史回显与会话切换时同样只有末行动画,长列表不被拖慢 */
+.msg-row:last-child { animation: msg-in 0.24s var(--ease-out-quart); }
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* 执行进度行:到达时同款入场;streaming 中最后一行的 ▤ 标呼吸——「当前阶段进行中」 */
+.msg-progress-item { animation: msg-in 0.24s var(--ease-out-quart); }
+.msg-row-streaming .msg-progress > .msg-progress-item:last-of-type::before {
+  animation: dot-breathe 1.6s ease-in-out infinite;
+}
+
+/* 思考折叠块展开:v-if 重插时重放,fade + 轻微下滑软化硬切;收起瞬时(退出快于入场) */
+.msg-thinking-body { animation: thinking-in 0.26s var(--ease-out-quart); }
+@keyframes thinking-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* 空会话占位:logo → 标题 → 副文案 → 快捷提问逐级入场(唯一签名时刻);
+   backwards 保证延迟期间不可见, chips 按 nth-child 递进错拍 */
+.chat-empty > * { animation: rise-in 0.4s var(--ease-out-quart) backwards; }
+.chat-empty > :nth-child(2) { animation-delay: 70ms; }
+.chat-empty > :nth-child(3) { animation-delay: 140ms; }
+.chat-empty > :nth-child(4) { animation-delay: 210ms; }
+.chat-empty-suggest .suggest-chip { animation: rise-in 0.35s var(--ease-out-quart) backwards; }
+.chat-empty-suggest .suggest-chip:nth-child(1) { animation-delay: 280ms; }
+.chat-empty-suggest .suggest-chip:nth-child(2) { animation-delay: 320ms; }
+.chat-empty-suggest .suggest-chip:nth-child(3) { animation-delay: 360ms; }
+.chat-empty-suggest .suggest-chip:nth-child(4) { animation-delay: 400ms; }
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
 /* ---------- 动效降级:呼吸灯与光标闪烁降为常亮 ---------- */
 @media (prefers-reduced-motion: reduce) {
   body, .chat-header, .composer-wrap, .msg-bubble-user {
@@ -863,6 +996,21 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   .agent-select [class*='agent-menu'] {
     animation: none; /* 下拉滑入动画一并降级(原清单遗漏) */
   }
+  /* 会话交互动效降级:入场/展开/错拍动画去掉,微交互 transition 复位 */
+  .msg-row:last-child,
+  .msg-progress-item,
+  .msg-row-streaming .msg-progress > .msg-progress-item:last-of-type::before,
+  .msg-thinking-body,
+  .chat-empty > *,
+  .chat-empty-suggest .suggest-chip {
+    animation: none;
+  }
+  .composer,
+  .composer-send,
+  .chat-tab,
+  .suggest-chip {
+    transition: none;
+  }
 }
 
 /* ---------- 日间模式:蓝白(DeepSeek 配色) ----------
@@ -874,7 +1022,7 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   --bg-inset: #f5f7fa;     /* 输入框/代码块内嵌 */
   --grid-line: #e5e9f0;    /* 边框浅灰蓝 */
   --ink: #232a33;          /* 近黑正文 */
-  --ink-dim: #81858c;      /* 次级灰 */
+  --ink-dim: #6d7480;      /* 次级灰(白底对比度 ~4.9:1) */
   --accent: #4d6bfe;       /* DS 蓝:选中态/状态灯/发送键/链接 */
   --accent-warm: #c0392b;  /* 警示红:错误 */
   --blueprint: #4d6bfe;    /* 链接与主强调同色(单蓝语言) */
@@ -930,8 +1078,14 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   .rail-btn svg { display: block; }
   .rail-btn-bottom { margin-top: auto; }
   .chat-pane { margin-left: 56px; } /* 给固定 rail 让位 */
-  /* 窄屏顶栏空间有限:隐藏 Session log(下载入口仅桌面提供) */
+  /* 窄屏顶栏空间有限:隐藏 Session log(下载入口仅桌面提供);退出按钮收成纯图标 */
   .session-log { display: none; }
+  .hdr-logout { padding: 0 8px; }
+  .hdr-logout-text { display: none; }
+  .hdr-logout svg { width: 16px; height: 16px; }
+  /* tab 分段控件窄屏收紧 */
+  .chat-tabs { padding: 8px 12px; gap: 6px; }
+  .chat-tab { padding: 5px 12px; }
   /* Composer 控制行窄屏收缩:🛡 行隐藏文案只留图标位,右侧组收紧,
      容器两侧让出 8px,防左右两块在小屏上互相重叠 */
   .composer-wrap { padding-left: 12px; padding-right: 12px; }

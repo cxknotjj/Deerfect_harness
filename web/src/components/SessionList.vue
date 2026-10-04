@@ -77,7 +77,11 @@ function onItemKeydown(id: string, e: KeyboardEvent): void {
 
     <div class="session-new">
       <button class="btn-new" type="button" @click="emit('create')">
-        <span aria-hidden="true">+</span><span>新会话</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 5v14" />
+          <path d="M5 12h14" />
+        </svg>
+        <span>新会话</span>
       </button>
     </div>
 
