@@ -18,7 +18,7 @@ spring:
 
 wms:
   # WMS 服务根地址（如 http://wms.example.com:8080/jeecg-boot），零硬编码：留空则工具调用返回引导性错误
-  api-base: ${WMS_API_BASE:}
+  api-base: ${WMS_API_BASE:http://127.0.0.1:8081/jeecg-boot}
   # WMS 只读账号 token（经环境变量注入，禁止写入代码或配置文件）
   api-token: ${WMS_API_TOKEN:}
   # WMS 鉴权头名称：OpenAPI 未声明鉴权方案，默认 jeecg 惯例 X-Access-Token，接入前与 WMS 方确认
