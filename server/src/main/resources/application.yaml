@@ -116,6 +116,13 @@ app:
     # （一层兜底不递归；重答失败保留「编排失败 + 重答失败」两段错误信息）
     complex-fallback:
       enabled: true
+  # 容器沙箱 Docker daemon 地址（host:port 或 tcp://host:port）：
+  # SDK 默认发现只认 DOCKER_HOST 环境变量与 unix socket（/var/run/docker.sock）；
+  # WSL/远程 daemon 等无 socket 场景用此项直连 TCP（如 Windows 宿主机 Docker Desktop
+  # 暴露的 2375；镜像网络下用 127.0.0.1，勿用 localhost——IPv6 解析会超时）。
+  # 留空 = 走 SDK 默认发现；环境变量 DOCKER_HOST 优先级更高（docker-java 标准链）。
+  sandbox:
+    docker-host: "127.0.0.1:2375"
   # 工具 Schema 延迟加载（两段式工具暴露）：开启后请求级工具面轻量注入（名称+用途，schema 置空），
   # system 附工具索引段，模型经 expand_tool 元工具按需展开获取完整参数说明；
   # 关闭后回退全量注入现状（expand_tool 不注册）

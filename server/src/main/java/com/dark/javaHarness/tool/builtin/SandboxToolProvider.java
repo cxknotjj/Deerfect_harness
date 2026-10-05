@@ -7,6 +7,7 @@ import io.agentscope.runtime.sandbox.box.BrowserSandbox;
 import io.agentscope.runtime.sandbox.box.Sandbox;
 import io.agentscope.runtime.sandbox.manager.ManagerConfig;
 import io.agentscope.runtime.sandbox.manager.SandboxService;
+import io.agentscope.runtime.sandbox.manager.client.container.docker.DockerClientStarter;
 import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.util.List;
@@ -19,6 +20,7 @@ import java.util.concurrent.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
@@ -61,6 +63,15 @@ public class SandboxToolProvider {
     });
     /** 一次性初始化任务句柄：预热线程与请求线程共用，保证 init 全进程只跑一次 */
     private volatile Future<?> initTask;
+
+    /**
+     * Docker daemon 地址（application.yaml app.sandbox.docker-host）：形如 host:port 或
+     * tcp://host:port；非空时注入 SDK starter（探测与 SandboxService 同源），直连 TCP——
+     * 供 WSL/远程 daemon 等无 unix socket 场景使用；空 = SDK 默认发现
+     * （DOCKER_HOST 环境变量 / unix socket，环境变量优先级更高）。
+     */
+    @Value("${app.sandbox.docker-host:}")
+    private String dockerHost;
 
     /**
      * 初始化超时上限。Docker 未运行时 agentscope 的 Docker 发现会回退到 Windows
@@ -222,7 +233,15 @@ public class SandboxToolProvider {
                     + "（安装并启动 Docker 后重启应用恢复；其余功能不受影响）");
             return;
         }
-        SandboxService svc = new SandboxService(ManagerConfig.builder().build());
+        SandboxService svc;
+        DockerClientStarter starter = parseDockerStarter(dockerHost);
+        if (starter != null) {
+            // 配置了 docker-host：starter 注入 SandboxService（其内部 DockerClient 同源）
+            svc = new SandboxService(ManagerConfig.builder().clientStarter(starter).build());
+            log.info("[sandbox] 使用配置的 Docker daemon: {}:{}", starter.getHost(), starter.getPort());
+        } else {
+            svc = new SandboxService(ManagerConfig.builder().build());
+        }
         svc.start();
         Sandbox sandbox = new BaseSandbox(svc, SANDBOX_USER, SANDBOX_SESSION);
 
@@ -257,8 +276,11 @@ public class SandboxToolProvider {
      */
     protected boolean dockerReachable() {
         try {
+            DockerClientStarter starter = parseDockerStarter(dockerHost);
             io.agentscope.runtime.sandbox.manager.client.container.docker.DockerClient probe =
-                    new io.agentscope.runtime.sandbox.manager.client.container.docker.DockerClient();
+                    starter == null
+                            ? new io.agentscope.runtime.sandbox.manager.client.container.docker.DockerClient()
+                            : new io.agentscope.runtime.sandbox.manager.client.container.docker.DockerClient(starter);
             boolean ok = probe.connect();
             if (!ok) {
                 log.info("[sandbox] Docker 探测不可达（connect=false）");
@@ -268,6 +290,37 @@ public class SandboxToolProvider {
             log.info("[sandbox] Docker 探测异常: {}", t.toString());
             return false;
         }
+    }
+
+    /**
+     * 解析 docker-host 配置（形如 host:port 或 tcp://host:port）为 SDK starter：
+     * 空白/解析失败返回 null（回退 SDK 默认发现），合法值构建 TCP 直连 starter。
+     * 端口缺省按 Docker 惯例 2375。
+     */
+    private static DockerClientStarter parseDockerStarter(String spec) {
+        if (spec == null || spec.isBlank()) {
+            return null;
+        }
+        String s = spec.trim();
+        if (s.regionMatches(true, 0, "tcp://", 0, 6)) {
+            s = s.substring(6);
+        }
+        int idx = s.lastIndexOf(':');
+        String host = idx > 0 ? s.substring(0, idx) : s;
+        int port = 2375;
+        if (idx > 0) {
+            try {
+                port = Integer.parseInt(s.substring(idx + 1));
+            } catch (NumberFormatException e) {
+                log.warn("[sandbox] docker-host 端口非法（{}），回退 SDK 默认发现", spec);
+                return null;
+            }
+        }
+        if (host.isBlank()) {
+            log.warn("[sandbox] docker-host 缺少主机（{}），回退 SDK 默认发现", spec);
+            return null;
+        }
+        return DockerClientStarter.builder().host(host).port(port).build();
     }
 
     /** 应用退出时释放沙箱服务与全部容器（base + browser），并关闭初始化线程池 */
