@@ -1,0 +1,22 @@
+-- ============================================================
+-- V37 - 聚合节点思考内容透传开关打开：
+-- aggregator 行 thinking 置 1。V33 加列时初始显示范围仅 general/researcher，
+-- 聚合按需再开；本迁移响应「让聚合节点也显示思考内容」需求补齐该行。
+--
+-- 前置链路已就绪（代码无需改动）：OrchestrationNodes 聚合节点在
+-- thinkingDisplayOf(ROLE_AGGREGATOR) 为真时经 liveTokens 旁路以
+-- 「思考 · 聚合」进度行发射 reasoningContent delta（与主回答同口径，
+-- 不节流；进度行不置位 contentSent，不影响 END 兜底），AgentChatCaller
+-- 流式重载的 reasoningTap 参数承接。
+--
+-- 行为说明：
+--   1. 本开关仅控制「是否透传显示」，模型是否产出思考由
+--      model_provider.disable_thinking 端点配置决定；聚合走专家同档
+--      模型（qwen3.8-max / deepseek-v4-pro），deepseek 稳定产出思考，
+--      qwen3 系列为按需思考——聚合任务偏汇总，无思考 delta 时前端
+--      不出现「思考 · 聚合」折叠块，属正常。
+--   2. 幂等口径：UPDATE 天然幂等，按 uk_agent_name 精确匹配；空库上
+--      无 aggregator 行时影响 0 行，静默通过（aggregator 行由 V18 种子）。
+-- ============================================================
+
+UPDATE `agent` SET `thinking` = 1 WHERE `agent_name` = 'aggregator';
