@@ -57,7 +57,9 @@ final class MultiAgentStreamPipeline {
      */
     Flux<String> run(java.util.Map<String, Object> input, String objective, RunnableConfig config) {
         AtomicBoolean contentSent = new AtomicBoolean(false);
-        // 客户端断开（Reactor cancel）置位：后续 superstep 的节点短路，不再发起新的 LLM 调用
+        // 客户端断开（Reactor cancel）置位：后续 superstep 的节点短路，不再发起新的 LLM 调用；
+        // 在途流式调用经取消供给（子任务为「断连 OR 墙钟」组合、lead/聚合直连此标志）在
+        // 下一个 token 边界中止订阅，取消向上传播关闭 HTTP 连接（AgentChatPipeline.streamCore）
         AtomicBoolean cancelled = new AtomicBoolean(false);
 
         Sinks.Many<String> branchEvents = Sinks.many().unicast().onBackpressureBuffer();
@@ -98,9 +100,11 @@ final class MultiAgentStreamPipeline {
                 .mergeWith(toolEvents.asFlux())
                 .mergeWith(mainLine)
                 .doOnCancel(() -> {
-                    // 客户端断开（Reactor cancel）置位：后续 superstep 的节点短路，不再发起新的 LLM 调用
+                    // 客户端断开（Reactor cancel）置位：后续 superstep 的节点短路，不再发起新的
+                    // LLM 调用；在途流式调用经取消供给在下一个 token 边界中止（取消向上传播
+                    // 关闭 HTTP 连接），未产出 token 前的在途请求在首 token 到达时同样中止
                     cancelled.set(true);
-                    log.warn("[multi-agent] 客户端已断开，终止编排：不再发起新的 LLM 调用（进行中的调用等待自然结束）");
+                    log.warn("[multi-agent] 客户端已断开，终止编排：不再发起新的 LLM 调用；在途流式调用在下一个 token 边界中止");
                 })
                 .onErrorResume(e -> {
                     log.warn("[multi-agent] 流式执行异常：{}", safe(e));
