@@ -24,6 +24,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.env.Environment;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -50,6 +51,12 @@ import org.springframework.jdbc.core.JdbcTemplate;
 public class KnowledgeConfig {
 
     private static final Logger log = LoggerFactory.getLogger(KnowledgeConfig.class);
+
+    /** 嵌入客户端连接超时（秒） */
+    private static final int EMBED_CONNECT_TIMEOUT_SECONDS = 10;
+
+    /** 嵌入客户端读超时（秒）：正常嵌入 ~200ms，兜底防端点无响应时永久挂起 */
+    private static final int EMBED_READ_TIMEOUT_SECONDS = 10;
 
     /**
      * 知识库专用 PostgreSQL 数据源（真懒连接）：initializationFailTimeout=0 使 Hikari
@@ -97,9 +104,23 @@ public class KnowledgeConfig {
             throw new IllegalStateException(
                     "知识库嵌入未配置 api-key（app.knowledge.embedding.api-key 或环境变量 QWEN_API_KEY）");
         }
+        // 强制 HTTP/1.1 + 显式超时（对齐 ChatClientFactory 2026-10-03 修法）：默认 JDK
+        // HttpClient 的 HTTP/2 连接进池后无空闲驱逐（jdk.httpclient.keepalive.timeout.h2
+        // 属性不存在），网络路径会静默丢弃闲置几十秒~几分钟的连接——死连接躺在池里，
+        // 空闲后首调必黑洞（kb_retrieval_log 实证：失败簇全部精确卡满 10s 检索限时，
+        // 簇起点紧跟 4.5~11 分钟空闲）。http1 连接有 30s 空闲主动清理，死连接不再滞留。
+        // 嵌入为阻塞调用（OpenAiEmbeddingModel 走 RestClient，无流式），读超时兜底防
+        // 端点无响应时永久挂起；检索路径整体仍由 app.knowledge.search-timeout-seconds 外层限时。
+        java.net.http.HttpClient jdkClient = java.net.http.HttpClient.newBuilder()
+                .version(java.net.http.HttpClient.Version.HTTP_1_1)
+                .connectTimeout(java.time.Duration.ofSeconds(EMBED_CONNECT_TIMEOUT_SECONDS))
+                .build();
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(jdkClient);
+        requestFactory.setReadTimeout(java.time.Duration.ofSeconds(EMBED_READ_TIMEOUT_SECONDS));
         OpenAiApi api = OpenAiApi.builder()
                 .baseUrl(props.getEmbedding().getBaseUrl())
                 .apiKey(apiKey)
+                .restClientBuilder(org.springframework.web.client.RestClient.builder().requestFactory(requestFactory))
                 .build();
         log.info("[knowledge] 嵌入模型就绪: {} @ {}（{} 维）",
                 props.getEmbedding().getModel(), props.getEmbedding().getBaseUrl(),
