@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>智算云上的多智能体编排平台 — Deerfect Harness 技术文档</title>
+<style>
+:root{
+  --ink:#1B2A38;          /* 主色 1：墨蓝（标题/深色块） */
+  --accent:#2D5F8A;       /* 主色 2：钢蓝（强调/表头/序号） */
+  --accent-deep:#1B3A56;
+  --tint:#EDF2F6;
+  --line:#DDE3E8;
+  --text:#242A31;
+  --muted:#6E7780;
+  --serif:"Noto Serif SC","Songti SC","SimSun",serif;
+  --sans:"PingFang SC","Microsoft YaHei","Noto Sans SC","Alibaba PuHuiTi 2.0",sans-serif;
+  --mono:ui-monospace,"SF Mono",Consolas,"Courier New",monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{
+  font-family:var(--sans);
+  font-size:16px;line-height:1.75;
+  color:var(--text);background:#fff;
+  font-kerning:normal;
+}
+.col{max-width:50em;margin:0 auto;padding:0 26px}
+
+/* ── 封面（深墨蓝装裱板） ─────────────────────── */
+.cover{
+  position:relative;min-height:252mm;
+  display:flex;flex-direction:column;
+  max-width:none;padding:14mm 16mm;
+  background:var(--ink);
+  background-image:radial-gradient(circle,rgba(255,255,255,.055) 1px,transparent 1px);
+  background-size:22px 22px;
+  color:#EDE9E2;
+  break-after:page;
+  print-color-adjust:exact;-webkit-print-color-adjust:exact;
+}
+.cover::before{
+  content:'';position:absolute;left:0;top:50%;
+  transform:translateY(-50%);
+  width:4px;height:56%;background:var(--accent);
+}
+.cover .top{
+  display:flex;justify-content:space-between;gap:2em;
+  padding-bottom:12px;border-bottom:1px solid rgba(237,233,226,.16);
+  font-size:13px;color:rgba(237,233,226,.62);
+}
+.cover .mid{margin:auto 0;padding:50px 0}
+.cover .sub{
+  margin-top:24px;font-size:16px;line-height:1.85;
+  color:rgba(237,233,226,.8);max-width:30em;
+}
+.cover h1{
+  font-family:var(--serif);font-weight:900;
+  font-size:clamp(40px,5vw,56px);line-height:1.4;color:#F4F1EA;
+}
+.cover .meta{
+  display:flex;justify-content:space-between;gap:2em;flex-wrap:wrap;
+  padding-top:16px;border-top:1px solid rgba(237,233,226,.16);
+  font-size:13.5px;color:rgba(237,233,226,.66);
+}
+.cover .graph{
+  position:absolute;right:0;top:6%;height:88%;width:52%;
+  pointer-events:none;opacity:.6;
+}
+.cover .mid{position:relative;z-index:1}
+
+/* ── 数据条带（工程质量） ─────────────────────── */
+.stats{
+  display:flex;border-top:2px solid var(--accent);
+  border-bottom:1px solid var(--line);
+  margin:18px 0 16px;break-inside:avoid;
+  print-color-adjust:exact;-webkit-print-color-adjust:exact;
+}
+.stats .stat{flex:1;padding:16px 18px 14px;border-left:1px solid var(--line)}
+.stats .stat:first-child{border-left:none;padding-left:2px}
+.stats b{
+  display:block;font-family:var(--serif);font-weight:900;
+  font-size:33px;line-height:1.1;color:var(--accent-deep);
+}
+.stats b i{font-style:normal;font-size:22px;color:var(--accent)}
+.stats span{display:block;margin-top:6px;font-size:12.5px;line-height:1.55;color:var(--muted)}
+
+/* ── 目录 ─────────────────────────────────────── */
+.toc{break-after:page;padding-top:10mm}
+.toc h2{
+  font-family:var(--serif);font-weight:900;font-size:24px;color:var(--ink);
+  margin-bottom:8px;
+}
+.toc .tline{width:44px;height:3px;background:var(--accent);margin-bottom:26px}
+.toc ol{list-style:none}
+.toc li{margin-bottom:15px}
+.toc a{
+  display:flex;align-items:baseline;gap:12px;
+  text-decoration:none;color:var(--text);font-size:15.5px;
+}
+.toc a:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.toc .no{font-family:var(--serif);font-weight:900;color:var(--accent);font-size:18px;flex:none;width:1.4em}
+.toc .dots{flex:1;border-bottom:1px dotted #B9C0C7;transform:translateY(-4px)}
+.toc .pn{font-family:var(--mono);font-size:13px;color:var(--muted);flex:none}
+
+/* ── 正文 ─────────────────────────────────────── */
+main{padding-top:6mm}
+section{padding:14px 0 4px}
+h2{
+  font-family:var(--serif);font-weight:900;
+  font-size:24px;line-height:1.5;color:var(--ink);
+  display:flex;align-items:baseline;gap:14px;
+  margin-bottom:14px;padding-bottom:12px;
+  border-bottom:1px solid var(--line);
+  break-after:avoid;break-inside:avoid;
+}
+h2 .no{font-size:38px;line-height:1;color:var(--accent);flex:none;transform:translateY(3px)}
+h3{
+  font-size:16.5px;font-weight:700;color:var(--accent-deep);
+  margin:24px 0 10px;padding-left:12px;
+  border-left:3px solid var(--accent);line-height:1.6;
+  break-after:avoid;break-inside:avoid;
+}
+p{margin:0 0 13px}
+.prose ul{margin:0 0 14px;padding-left:1.4em}
+.prose li{margin-bottom:7px}
+.prose li::marker{color:var(--accent)}
+strong{color:var(--ink)}
+code{
+  font-family:var(--mono);font-size:.88em;
+  background:var(--tint);color:var(--accent-deep);
+  padding:1px 6px;border-radius:3px;
+}
+.callout{
+  border-left:3px solid var(--accent);background:var(--tint);
+  padding:14px 20px;margin:16px 0 20px;border-radius:0 6px 6px 0;
+  break-inside:avoid;print-color-adjust:exact;-webkit-print-color-adjust:exact;
+}
+.callout p{margin:0}
+
+/* ── 表格（居中对齐） ─────────────────────────── */
+table{
+  width:100%;border-collapse:collapse;
+  margin:16px auto 8px;font-size:14px;
+  break-inside:avoid;
+}
+thead th{
+  background:var(--accent);color:#fff;font-weight:700;
+  text-align:center;padding:9px 12px;font-size:14px;letter-spacing:.05em;
+  print-color-adjust:exact;-webkit-print-color-adjust:exact;
+}
+tbody td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+tbody tr:nth-child(even){background:var(--tint)}
+tbody tr{break-inside:avoid}
+td.mono,th.mono{font-family:var(--mono);font-size:.92em}
+td.num{text-align:center;font-family:var(--mono);font-size:.92em;color:var(--accent-deep);vertical-align:middle}
+caption{caption-side:bottom;text-align:center;font-size:12.5px;color:var(--muted);padding-top:7px}
+
+/* ── 架构图 ───────────────────────────────────── */
+figure.arch{margin:22px 0 8px;break-inside:avoid}
+figure.arch svg{width:100%;height:auto;display:block}
+figure.arch figcaption{font-size:13px;color:var(--muted);text-align:center;margin-top:10px}
+svg text{font-family:var(--sans)}
+
+/* ── 预算条图 ─────────────────────────────────── */
+.bars{margin:18px 0 6px;break-inside:avoid}
+.bars .row{display:grid;grid-template-columns:9.5em 1fr 5.5em;align-items:center;gap:12px;margin-bottom:9px}
+.bars .lbl{font-size:13.5px;color:var(--muted);text-align:right}
+.bars .track{background:#E9EDF0;height:14px;border-radius:3px;overflow:hidden}
+.bars .fill{display:block;height:100%;background:var(--accent);print-color-adjust:exact;-webkit-print-color-adjust:exact}
+.bars .val{font-family:var(--mono);font-size:12.5px;color:var(--accent-deep)}
+.bars .cap{font-size:12.5px;color:var(--muted);margin-top:8px;text-align:center}
+
+/* ── 打印 ─────────────────────────────────────── */
+@media print{
+  @page{size:A4;margin:20mm}
+  body{font-size:14px;line-height:1.75}
+  .col{max-width:none;padding:0}
+  .cover{min-height:252mm;padding:14mm 16mm}
+  .cover h1{font-size:38px}
+  .cover .sub{font-size:14px;margin-top:18px}
+  .cover .mid{padding:40px 0}
+  .cover .graph{opacity:.5}
+  .stats{margin:12px 0 10px}
+  .stats .stat{padding:10px 12px 8px}
+  .stats b{font-size:22px}
+  .stats b i{font-size:15px}
+  .stats span{font-size:11px}
+  .toc{padding-top:6mm}
+  .toc h2{font-size:20px}
+  .toc a{font-size:14px}
+  .toc li{margin-bottom:12px}
+  main{padding-top:4mm}
+  section{padding:12px 0 2px}
+  h2{font-size:20px;gap:11px;margin-bottom:12px}
+  h2 .no{font-size:26px}
+  h3{font-size:14.5px;margin:16px 0 7px}
+  p,li,td,th{font-size:14px}
+  .prose p{text-align:justify;orphans:2;widows:2}
+  .prose ul{margin-bottom:9px}
+  .prose li{margin-bottom:3px}
+  table{font-size:13px;margin:10px auto 4px}
+  thead th{padding:6px 9px;font-size:13px}
+  tbody td{padding:6px 9px}
+  figure.arch{margin:12px 0 6px}
+  figure.arch figcaption{font-size:12px;margin-top:5px}
+  .callout{padding:9px 14px;margin:10px 0 12px;font-size:14px}
+  .bars{margin:12px 0 4px}
+  .bars .row{margin-bottom:6px}
+  .bars .lbl,.bars .val,.bars .cap{font-size:12px}
+  .bars .track{height:9px}
+  a{color:inherit;text-decoration:none}
+}
+</style>
+</head>
+<body>
+
+<!-- ═══ 封面 ═══ -->
+<section class="cover">
+  <div class="top"><span>智算云主题技术文档</span><span>Deerfect Harness</span></div>
+  <div class="mid">
+    <h1>智算云上的<br>多智能体编排平台</h1>
+    <p class="sub">Deerfect Harness 面向 LLM 工作负载的调度、部署与成本管理实践——从底层算力优化，到基于云平台构建智能体、RAG 应用与 AI 服务，再到 AI 工作负载的监控、调度与成本管理。</p>
+  </div>
+  <div class="meta"><span>Deerfect Harness 团队</span><span>2026 年 10 月</span></div>
+  <svg class="graph" viewBox="0 0 640 560" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
+    <g stroke="rgba(255,255,255,.16)" stroke-width="1.2" fill="none">
+      <path d="M610,90 L520,160 L610,240 L545,310 L615,380 L500,430 L585,490"/>
+      <path d="M520,160 L545,310"/>
+      <path d="M610,240 L615,380"/>
+      <path d="M545,310 L585,490"/>
+      <path d="M610,90 L610,240"/>
+    </g>
+    <g stroke="rgba(127,168,204,.4)" stroke-width="1.2" fill="none">
+      <path d="M520,160 L615,380"/>
+      <path d="M500,430 L610,240"/>
+    </g>
+    <circle cx="610" cy="90"  r="14" fill="#2D5F8A" opacity=".55"/>
+    <circle cx="520" cy="160" r="7"  fill="none" stroke="#DCE6EF" stroke-width="1.5" opacity=".5"/>
+    <circle cx="610" cy="240" r="10" fill="#DCE6EF" opacity=".14"/>
+    <circle cx="545" cy="310" r="16" fill="none" stroke="#7FA8CC" stroke-width="1.5" opacity=".5"/>
+    <circle cx="615" cy="380" r="8"  fill="#2D5F8A" opacity=".65"/>
+    <circle cx="500" cy="430" r="6"  fill="none" stroke="#DCE6EF" stroke-width="1.5" opacity=".45"/>
+    <circle cx="585" cy="490" r="12" fill="#DCE6EF" opacity=".12"/>
+    <circle cx="560" cy="235" r="2.5" fill="#7FA8CC" opacity=".6"/>
+    <circle cx="575" cy="420" r="2.5" fill="#7FA8CC" opacity=".55"/>
+  </svg>
+</section>
+
+<!-- ═══ 目录 ═══ -->
+<nav class="toc col" aria-label="目录">
+  <h2>目录</h2>
+  <div class="tline"></div>
+  <ol>
+    <li><a href="#s1"><span class="no">一</span>项目概述<span class="dots"></span><span class="pn" data-sec="s1">03</span></a></li>
+    <li><a href="#s2"><span class="no">二</span>总体架构<span class="dots"></span><span class="pn" data-sec="s2">03</span></a></li>
+    <li><a href="#s3"><span class="no">三</span>算力调度<span class="dots"></span><span class="pn" data-sec="s3">04</span></a></li>
+    <li><a href="#s4"><span class="no">四</span>模型部署<span class="dots"></span><span class="pn" data-sec="s4">05</span></a></li>
+    <li><a href="#s5"><span class="no">五</span>智能体框架<span class="dots"></span><span class="pn" data-sec="s5">06</span></a></li>
+    <li><a href="#s6"><span class="no">六</span>监控与成本管理<span class="dots"></span><span class="pn" data-sec="s6">07</span></a></li>
+    <li><a href="#s7"><span class="no">七</span>工程质量<span class="dots"></span><span class="pn" data-sec="s7">08</span></a></li>
+    <li><a href="#s8"><span class="no">八</span>总结与展望<span class="dots"></span><span class="pn" data-sec="s8">08</span></a></li>
+  </ol>
+</nav>
+
+<!-- ═══ 正文 ═══ -->
+<main class="col">
+
+<section id="s1">
+  <h2><span class="no">一</span>项目概述</h2>
+  <div class="prose">
+    <p><strong>Deerfect Harness</strong> 是一个基于 Java 17 + Spring Boot 3.5 + Spring AI 1.1 构建的企业级 AI 智能体编排平台。任务发进来，自动拆解、并行执行、汇总交付：简单问题直答不浪费 token，复杂任务多 Agent 编排，全程流式可视化。</p>
+    <div class="callout"><p>项目消费智算云上的模型推理服务（通义千问 DashScope、DeepSeek 等），在其之上构建了覆盖<strong>算力调度、模型部署、智能体框架、AI 工作负载监控与成本管理</strong>的完整应用层体系。</p></div>
+    <table>
+      <thead><tr><th style="width:10.5em">征集方向</th><th>项目对应能力</th></tr></thead>
+      <tbody>
+        <tr><td>算力调度</td><td>请求级智能分流、模型分级路由、并发错峰、双闸资源保护、连接层自愈</td></tr>
+        <tr><td>模型部署</td><td>多服务商统一接入、模型配置库表化热生效、独立 MCP 服务、容器化交付</td></tr>
+        <tr><td>智能体框架</td><td>两路径编排、Lead 拆解-专家并行-聚合、RAG 混合检索、MCP 工具生态、Docker 沙箱</td></tr>
+        <tr><td>监控与成本管理</td><td>四张观测表、按轮次的 token 成本账本、四级预算护栏、观测数据保留期治理</td></tr>
+      </tbody>
+    </table>
+    <p><strong>技术基线</strong>：Java 17 / Spring Boot 3.5.14 / Spring AI 1.1.4 / spring-ai-alibaba graph-core（StateGraph 编排）与 sandbox（容器沙箱）/ MySQL 9.x（主库）+ PostgreSQL pgvector（向量库）/ MyBatis-Plus / Vue 3 Web 控制台。服务端 700 个自动化测试用例，不依赖真实 DB 与外网。</p>
+  </div>
+</section>
+
+<section id="s2">
+  <h2><span class="no">二</span>总体架构</h2>
+  <div class="prose">
+    <figure class="arch">
+      <svg viewBox="0 0 1000 400" role="img" aria-label="双路径编排主链路示意图">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0L10,5L0,10z" fill="#6E7780"/>
+          </marker>
+        </defs>
+        <path d="M200,205 H242" stroke="#6E7780" stroke-width="1.5" fill="none" marker-end="url(#ah)"/>
+        <path d="M375,205 H392" stroke="#6E7780" stroke-width="1.5" fill="none" marker-end="url(#ah)"/>
+        <path d="M470,130 V95 H597" stroke="#6E7780" stroke-width="1.5" fill="none" marker-end="url(#ah)"/>
+        <path d="M820,95 H935 V147" stroke="#6E7780" stroke-width="1.5" fill="none" marker-end="url(#ah)"/>
+        <path d="M470,280 V335 H572" stroke="#6E7780" stroke-width="1.5" fill="none" marker-end="url(#ah)"/>
+        <path d="M715,335 H727" stroke="#6E7780" stroke-width="1.5" fill="none" marker-end="url(#ah)"/>
+        <path d="M885,335 H897" stroke="#6E7780" stroke-width="1.5" fill="none" marker-end="url(#ah)"/>
+        <path d="M945,300 V263" stroke="#6E7780" stroke-width="1.5" fill="none" marker-end="url(#ah)"/>
+        <rect x="20" y="160" width="180" height="90" rx="8" fill="#EDF2F6" stroke="#2D5F8A" stroke-width="1.5"/>
+        <text x="110" y="198" text-anchor="middle" font-size="16" fill="#242A31">多端入口</text>
+        <text x="110" y="224" text-anchor="middle" font-size="12.5" fill="#6E7780">Web · REST · CLI · QQ</text>
+        <rect x="245" y="170" width="130" height="70" rx="8" fill="#fff" stroke="#2D5F8A" stroke-width="1.5"/>
+        <text x="310" y="211" text-anchor="middle" font-size="15" fill="#242A31">鉴权过滤器</text>
+        <polygon points="470,130 545,205 470,280 395,205" fill="#FFFCF0" stroke="#2D5F8A" stroke-width="1.5"/>
+        <text x="470" y="199" text-anchor="middle" font-size="14" fill="#242A31">RouteJudge</text>
+        <text x="470" y="221" text-anchor="middle" font-size="12.5" fill="#6E7780">复杂度判定</text>
+        <rect x="600" y="55" width="220" height="80" rx="8" fill="#EDF2F6" stroke="#2D5F8A" stroke-width="1.5"/>
+        <text x="710" y="89" text-anchor="middle" font-size="15" fill="#242A31">general 直答</text>
+        <text x="710" y="112" text-anchor="middle" font-size="12.5" fill="#6E7780">单 Agent · 逐 token 流式</text>
+        <rect x="575" y="300" width="140" height="70" rx="8" fill="#fff" stroke="#2D5F8A" stroke-width="1.5"/>
+        <text x="645" y="329" text-anchor="middle" font-size="15" fill="#242A31">Lead 拆解</text>
+        <text x="645" y="352" text-anchor="middle" font-size="12.5" fill="#6E7780">任务书 ≤4 条</text>
+        <rect x="730" y="300" width="155" height="70" rx="8" fill="#fff" stroke="#2D5F8A" stroke-width="1.5"/>
+        <text x="807" y="329" text-anchor="middle" font-size="15" fill="#242A31">专家并行执行</text>
+        <text x="807" y="352" text-anchor="middle" font-size="12.5" fill="#6E7780">信号量错峰 · 双闸</text>
+        <rect x="900" y="300" width="90" height="70" rx="8" fill="#fff" stroke="#2D5F8A" stroke-width="1.5"/>
+        <text x="945" y="341" text-anchor="middle" font-size="15" fill="#242A31">聚合</text>
+        <rect x="880" y="150" width="110" height="110" rx="8" fill="#2D5F8A" stroke="#2D5F8A"/>
+        <text x="935" y="196" text-anchor="middle" font-size="14.5" fill="#fff">统一出口</text>
+        <text x="935" y="219" text-anchor="middle" font-size="11.5" fill="#DCE6EF">SSE 流式</text>
+        <text x="935" y="238" text-anchor="middle" font-size="11.5" fill="#DCE6EF">断点续跑</text>
+        <text x="523" y="80" text-anchor="middle" font-size="12.5" font-weight="700" fill="#2D5F8A">SIMPLE</text>
+        <text x="518" y="318" text-anchor="middle" font-size="12.5" font-weight="700" fill="#2D5F8A">COMPLEX</text>
+        <text x="470" y="36" text-anchor="middle" font-size="12.5" fill="#6E7780">SIMPLE · 简单请求</text>
+        <text x="470" y="390" text-anchor="middle" font-size="12.5" fill="#6E7780">COMPLEX · 复杂任务</text>
+      </svg>
+      <figcaption>双路径编排主链路：简单请求经判定后由 general 直答；复杂任务经 Lead 拆解、专家并行、聚合后由统一出口流式交付</figcaption>
+    </figure>
+    <ul>
+      <li><strong>路径 A（SIMPLE）</strong>：单 Agent 直答，逐 token 真·流式输出；</li>
+      <li><strong>路径 B（COMPLEX）</strong>：Lead 将复杂目标拆解为带「目标 / 背景 / 约束 / 交付物」四要素的结构化任务书，子任务并发执行，聚合节点汇成最终回答；</li>
+      <li><strong>专属 Agent 直答</strong>：会话绑定领域专员（如 WMS 仓储专员）时跳过判定与 RAG 预取，该 Agent 直接应答，避免编排链路额外开销。</li>
+    </ul>
+  </div>
+</section>
+
+<section id="s3">
+  <h2><span class="no">三</span>算力调度：面向 LLM 推理负载的细粒度调度</h2>
+  <div class="prose">
+    <p>项目的「算力」即云端模型推理资源（token 与并发），调度体系分五层。</p>
+    <h3>3.1 请求级智能分流</h3>
+    <p><code>LlmRouteJudge</code> 以独立轻量 LLM 调用（独立连接池、10 秒读超时、无工具）判定请求复杂度：<strong>简单问题直答不进编排</strong>，避免为小任务支付 lead 拆解 + 多专家 + 聚合的成倍推理成本；判定异常兜底 SIMPLE（宁可简单，不烧 token）。判定过程本身可视化（「路由判定中…」→「判定完成：COMPLEX」）。</p>
+    <h3>3.2 模型分级路由</h3>
+    <p><code>model_provider</code> 表登记各服务商模型端点，<code>agent</code> 表为每个智能体独立指定模型——<strong>重活用强模型、轻活用快模型</strong>：</p>
+    <ul>
+      <li>路由判定 / 画像提炼等内部调用：<code>qwen3.8-27b</code>（轻量、短读超时）；</li>
+      <li>常规直答：<code>qwen3.7-flash</code>（默认）；</li>
+      <li>编排子任务与聚合：按专家分档配置 <code>qwen3.8-max</code> / <code>deepseek-v4-pro</code> 等；</li>
+      <li>嵌入服务：<code>text-embedding-v4</code>（1024 维）。</li>
+    </ul>
+    <p>改库即生效，无需重启，相当于应用层的「按负载选卡」。</p>
+    <h3>3.3 并发调度与错峰</h3>
+    <p>子任务并行扇出经<strong>信号量排队</strong>（<code>subtask-concurrency: 2</code>）错峰执行：收敛下游智算服务的并发压力，并把预算熔断后的在途超额窗口从「整批」收窄到「至多 N 个在途调用」。流式 SSE 连接数设全局上限（默认 50，超限 429），防过载。</p>
+    <h3>3.4 资源保护双闸</h3>
+    <ul>
+      <li><strong>数量闸</strong>：Lead 拆解子任务上限（默认 4，clamp [1,4]），防拆解滚雪球；</li>
+      <li><strong>时间闸</strong>：子任务墙钟超时（默认 600 秒），deadline 包装取消令牌，超时在 token 边界中止在途调用、写占位结果，聚合照常执行；</li>
+      <li><strong>失败不连坐</strong>：单个子任务失败写占位跳过，聚合 prompt 前置「失败说明」，一个专家翻车不拖垮整张图。</li>
+    </ul>
+    <h3>3.5 连接层算力利用率优化</h3>
+    <p>针对云端推理服务长连接的「空闲后首调黑洞」问题（NAT / 网关静默杀闲置连接）：</p>
+    <ul>
+      <li><code>ChatClientFactory</code> 强制 <strong>HTTP/1.1</strong>，利用 JDK 内建 30 秒空闲连接驱逐；</li>
+      <li><strong>流空闲看门狗</strong>（120 秒 <code>Flux.timeout</code>）+ <strong>首帧超时</strong>（20 秒，零帧请求快速判死）组合，闭合「完全静默挂死」与「慢速滴流」两种模式；</li>
+      <li>死连接丢池重建 + 逐通道重试（可重试口径统一：超时 / 网络类 IO / 5xx / 429 / 408；已有部分 token 下发、取消、4xx 业务错误不重试），重试以 <code>Mono.delay</code> 非阻塞退避，且按 attempt 粒度落库观测。</li>
+    </ul>
+    <div class="bars" role="img" aria-label="分层超时梯队横向条图">
+      <div class="row"><span class="lbl">路由判定读超时</span><span class="track"><span class="fill" style="width:1.7%"></span></span><span class="val">10s</span></div>
+      <div class="row"><span class="lbl">首帧超时</span><span class="track"><span class="fill" style="width:3.3%"></span></span><span class="val">20s</span></div>
+      <div class="row"><span class="lbl">流空闲看门狗</span><span class="track"><span class="fill" style="width:20%"></span></span><span class="val">120s</span></div>
+      <div class="row"><span class="lbl">读超时</span><span class="track"><span class="fill" style="width:50%"></span></span><span class="val">300s</span></div>
+      <div class="row"><span class="lbl">子任务墙钟</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="val">600s</span></div>
+      <div class="cap">分层超时梯队（秒）：判定 10s 快速兜底 → 首帧 20s 判死黑洞连接 → 空闲 120s 看门狗 → 读 300s → 墙钟 600s 封顶</div>
+    </div>
+  </div>
+</section>
+
+<section id="s4">
+  <h2><span class="no">四</span>模型部署：多模型多服务商的统一接入</h2>
+  <div class="prose">
+    <h3>4.1 OpenAI 兼容协议统一网关</h3>
+    <p>以 Spring AI OpenAI 兼容模式统一对接多家智算服务商（DashScope 兼容端点、DeepSeek 等），API Key 全部经环境变量注入不落库，端点 URL 以 <code>model_provider</code> 表为准。新增供应商通常零配置——设置对应环境变量即可。</p>
+    <h3>4.2 模型配置库表化、热生效</h3>
+    <p><code>agent</code> 表每行定义一个智能体的模型、提示词、工具包、知识库绑定、思考内容透传开关；<code>AgentConfigProvider</code> 每次调用读取最新配置。<strong>在数据库里配两行就能跑起新专家</strong>，改库即生效，无需重新部署——模型资产的运维成本降到 SQL 级。</p>
+    <h3>4.3 独立领域服务部署范例：wms-mcp-adapter</h3>
+    <p>独立 Maven 模块，把已存量运行的 WMS 仓储系统（jeecg-boot REST）包装成<strong>只读 MCP Server</strong>（Streamable HTTP <code>/mcp</code>，端口 8090）：</p>
+    <ul>
+      <li>10 个中文语义查询工具（任务查询 / 库存 / 单据等）；</li>
+      <li>适配侧加固：分页钳制 ≤20、审计字段黑名单（createBy / createTime 等出参剔除）、鉴权头可配置；</li>
+      <li>与主服务同机的进程级隔离部署，是「存量业务系统 AI 服务化改造」的最小侵入范例。</li>
+    </ul>
+    <h3>4.4 容器化交付</h3>
+    <p>Docker 三件套一键部署（主服务 / MySQL / PostgreSQL），支持镜像构建、仓库拉取与离线部署；模型生成的代码与浏览器操作全部在<strong>沙箱容器</strong>内执行（Python/Shell base 容器 + browser 容器，按组独立初始化、失败只降级本组），宿主机零暴露。</p>
+  </div>
+</section>
+
+<section id="s5">
+  <h2><span class="no">五</span>智能体框架：从编排到 RAG 应用的全链路</h2>
+  <div class="prose">
+    <h3>5.1 多 Agent 编排</h3>
+    <ul>
+      <li><strong>Lead 拆解</strong>：复杂目标拆成结构化任务书（四要素：目标 / 背景 / 约束 / 交付物），单条上限 2000 字符；</li>
+      <li><strong>专家团开箱即用</strong>：researcher / coder / analyst / writer 四类通用专家 + 领域专员（wms）；专家只能用固定模板 + Lead 指定的工具包，Lead 不能凭空创造新身份（白名单硬约束）；</li>
+      <li><strong>聚合节点</strong>：并行子任务结果汇成成稿，失败 / 超时 / 预算占位自动识别并注入降级说明；</li>
+      <li><strong>断点续跑</strong>：长编排中断后从检查点继续，已完成子任务不重跑。</li>
+    </ul>
+    <h3>5.2 RAG 知识库（混合检索）</h3>
+    <ul>
+      <li>pgvector 向量召回 + BM25 关键词召回，<strong>双路 RRF 融合重排</strong>（关键词 / 编号类查询召回显著更好）；</li>
+      <li>文档增量摄取：mtime 比对 → 段落感知切分（约 700 字符 + 重叠）→ 嵌入分批（≤8/请求）→ 确定性 chunk id 精确覆盖；</li>
+      <li>检索注入：top-k 4、相似度阈值 0.5、注入预算 3000 token，回答自动附【出处N】引用与 <code>meta.sources</code>；</li>
+      <li>多知识库隔离：一级子目录多 KB + agent 表 <code>knowledge</code> 列绑定，向量 metadata 过滤；</li>
+      <li>检索限时 10 秒，超时静默降级不阻断聊天；PostgreSQL 不可用时应用照常启动。</li>
+    </ul>
+    <figure class="arch">
+      <svg viewBox="0 0 900 118" role="img" aria-label="RAG 摄取与检索流水线示意图">
+        <rect x="8"   y="36" width="132" height="46" rx="8" fill="#EDF2F6" stroke="#2D5F8A" stroke-width="1.5"/>
+        <text x="74"  y="55" text-anchor="middle" font-size="12.5" fill="#242A31">知识文档</text>
+        <text x="74"  y="73" text-anchor="middle" font-size="11" fill="#6E7780">.md / .txt</text>
+        <rect x="158" y="36" width="132" height="46" rx="8" fill="#fff" stroke="#2D5F8A" stroke-width="1.5"/>
+        <text x="224" y="55" text-anchor="middle" font-size="12.5" fill="#242A31">段落感知切分</text>
+        <text x="224" y="73" text-anchor="middle" font-size="11" fill="#6E7780">约 700 字符 + 重叠</text>
+        <rect x="308" y="36" width="132" height="46" rx="8" fill="#fff" stroke="#2D5F8A" stroke-width="1.5"/>
+        <text x="374" y="55" text-anchor="middle" font-size="12.5" fill="#242A31">批量向量化</text>
+        <text x="374" y="73" text-anchor="middle" font-size="11" fill="#6E7780">≤8 条 / 请求</text>
+        <rect x="458" y="36" width="132" height="46" rx="8" fill="#fff" stroke="#2D5F8A" stroke-width="1.5"/>
+        <text x="524" y="55" text-anchor="middle" font-size="12.5" fill="#242A31">pgvector 入库</text>
+        <text x="524" y="73" text-anchor="middle" font-size="11" fill="#6E7780">1024 维向量</text>
+        <rect x="608" y="36" width="132" height="46" rx="8" fill="#fff" stroke="#2D5F8A" stroke-width="1.5"/>
+        <text x="674" y="55" text-anchor="middle" font-size="12.5" fill="#242A31">双路召回</text>
+        <text x="674" y="73" text-anchor="middle" font-size="11" fill="#6E7780">向量 + BM25</text>
+        <rect x="758" y="36" width="134" height="46" rx="8" fill="#2D5F8A" stroke="#2D5F8A"/>
+        <text x="825" y="55" text-anchor="middle" font-size="12.5" fill="#fff">RRF 融合注入</text>
+        <text x="825" y="73" text-anchor="middle" font-size="11" fill="#DCE6EF">≤3000 token</text>
+        <g stroke="#6E7780" stroke-width="1.2" fill="none">
+          <path d="M140,59 L155,59" marker-end="url(#ah)"/>
+          <path d="M290,59 L305,59" marker-end="url(#ah)"/>
+          <path d="M440,59 L455,59" marker-end="url(#ah)"/>
+          <path d="M590,59 L605,59" marker-end="url(#ah)"/>
+          <path d="M740,59 L755,59" marker-end="url(#ah)"/>
+        </g>
+      </svg>
+      <figcaption>检索链路：top-k 4 · 相似度阈值 0.5 · 注入预算 3000 token · 检索限时 10 秒（超时静默降级）</figcaption>
+    </figure>
+    <h3>5.3 工具生态</h3>
+    <ul>
+      <li><strong>MCP 多 Server</strong>：兼容 Claude / Cursor 的 <code>mcp-config.json</code>，stdio / HTTP 双传输，按 server 懒连接与故障隔离，连接失败不拖垮启动；</li>
+      <li><strong>Docker 沙箱工具</strong>：Python / Shell 执行、文件读写检索、浏览器操作（导航 / 快照 / 点击 / 输入）容器内执行；</li>
+      <li><strong>工具分配硬边界</strong>：未分配给专家的工具对模型不可见（服务端控制，非提示词约束）；</li>
+      <li><strong>两段式工具暴露</strong>：请求级只注入工具名称 + 用途索引，模型经 <code>expand_tool</code> 元工具按需展开完整 Schema，压缩上下文占用；Markdown 技能库同理（<code>load_skill</code> 按需加载 + mtime 热重载）。</li>
+    </ul>
+    <h3>5.4 记忆体系</h3>
+    <ul>
+      <li><strong>会话记忆</strong>：多轮上下文自动组装、按预算裁剪（MySQL 双表）；</li>
+      <li><strong>用户画像</strong>：后台定时扫描空闲会话（≥30 分钟静默），LLM 提炼跨会话偏好合并进全局画像（原子写防丢失），注入直答与 Lead 编排，越聊越懂用户。</li>
+    </ul>
+    <h3>5.5 多端接入</h3>
+    <p>Web 控制台（会话管理 / 思考折叠 / 轨迹观测）、REST API（同步 / SSE 流式）、Claude Code 风格终端 CLI、QQ 机器人（NapCat / OneBot 11，群聊 @ 触发、私聊白名单 + 限频、渐进式拟人回复）。</p>
+  </div>
+</section>
+
+<section id="s6">
+  <h2><span class="no">六</span>AI 工作负载的监控、调度与成本管理</h2>
+  <div class="prose">
+    <h3>6.1 全链路观测</h3>
+    <p>四张观测表全部落库，Web 轨迹页可查，观测查询统一经 <code>ObserveQueryService</code> 收口：</p>
+    <table>
+      <thead><tr><th style="width:10.5em">观测表</th><th>记录内容</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">llm_call_log</td><td>每次 LLM 调用的会话、角色、模型、同步/流式、成败、真实 token、耗时、错误</td></tr>
+        <tr><td class="mono">tool_call_log</td><td>工具调用参数摘要与耗时，归属发起它的子 Agent</td></tr>
+        <tr><td class="mono">kb_retrievals</td><td>RAG 检索命中与得分</td></tr>
+        <tr><td>MCP 连接事件</td><td>各 server 连接成败与降级记录</td></tr>
+      </tbody>
+    </table>
+    <div class="callout"><p><strong>按模型轮次精确拆账</strong>：Spring AI 工具循环默认把「决策轮 + 汇总轮」合并成一行日志，本项目按 usage 帧边界拆分——每轮独立记录真实 prompt / completion token、轮次序号、起止时间，成本核算到轮次粒度。</p></div>
+    <h3>6.2 四级预算护栏</h3>
+    <p>全部数值仅存于 application.yaml，代码零硬编码：</p>
+    <table>
+      <thead><tr><th style="width:6.5em">层级</th><th>机制</th><th style="width:12em">默认值</th></tr></thead>
+      <tbody>
+        <tr><td>输入侧</td><td>会话历史 / lead 拆解 / 聚合 / 工具结果注入 分段裁剪</td><td class="num">4000 / 4000 / 12000 / 5000 token</td></tr>
+        <tr><td>输出侧</td><td>按角色分档 maxTokens：lead / 最终回答 / 专家</td><td class="num">4000 / 8000 / 4000 token</td></tr>
+        <tr><td>编排全程</td><td>单次编排 token 消费熔断（内存账本，真实 usage 优先）</td><td class="num">60000 token</td></tr>
+        <tr><td>工具侧</td><td>调用次数硬上限 + 结果注入总量双钳制</td><td class="num">4 次 / 5000 token</td></tr>
+      </tbody>
+    </table>
+    <div class="bars" role="img" aria-label="输入侧四层上下文预算横向条图">
+      <div class="row"><span class="lbl">会话历史</span><span class="track"><span class="fill" style="width:33.3%"></span></span><span class="val">4000</span></div>
+      <div class="row"><span class="lbl">lead 拆解</span><span class="track"><span class="fill" style="width:33.3%"></span></span><span class="val">4000</span></div>
+      <div class="row"><span class="lbl">聚合</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="val">12000</span></div>
+      <div class="row"><span class="lbl">工具结果注入</span><span class="track"><span class="fill" style="width:41.7%"></span></span><span class="val">5000</span></div>
+      <div class="cap">输入侧四层预算（app.context.* 配置，全键统一 0 = 不限制）</div>
+    </div>
+    <p>超限断流、写占位跳过、聚合注入降级说明——<strong>长任务不炸上下文、不烧爆 token</strong>。</p>
+    <h3>6.3 观测数据治理</h3>
+    <p><code>llm_call_log</code> / <code>tool_call_log</code> 按保留期（默认 90 天）分批删除（单批 1000 行防长事务），每日凌晨 3 点低峰期自动清理。</p>
+    <h3>6.4 可视化与可解释性</h3>
+    <ul>
+      <li>真·逐 token SSE 上屏，编排各阶段实时进度行；</li>
+      <li>思考内容透传：模型思考 delta 实时折叠展示，按「思考 · general」「思考N · 专家名」「思考 · 聚合」身份归组；</li>
+      <li>工具行归属：每次工具调用挂在发起它的子 Agent 名下，多子任务交错流式不乱。</li>
+    </ul>
+  </div>
+</section>
+
+<section id="s7">
+  <h2><span class="no">七</span>工程质量</h2>
+  <div class="prose">
+    <div class="stats">
+      <div class="stat"><b>700<i>+</i></b><span>自动化测试用例（75 个测试类），不依赖真实 DB 与外网</span></div>
+      <div class="stat"><b>26</b><span>Flyway 版本化迁移迭代，存量库 baseline 无缝接入</span></div>
+      <div class="stat"><b>90</b><span>天观测数据保留期，低峰期自动分批清理</span></div>
+      <div class="stat"><b>2</b><span>条鉴权通道（HttpOnly Cookie + X-API-Token），常量时间比较 + 限流锁定</span></div>
+    </div>
+    <ul>
+      <li>全局统一异常响应结构（{code, message}），非法请求统一返回 400 错误体。</li>
+    </ul>
+  </div>
+</section>
+
+<section id="s8">
+  <h2><span class="no">八</span>总结与展望</h2>
+  <div class="prose">
+    <p>Deerfect Harness 在智算云模型服务之上，交付了一套<strong>可观测、可预算、可自愈</strong>的智能体平台：</p>
+    <figure class="arch">
+      <svg viewBox="0 0 900 200" role="img" aria-label="四大能力收敛为平台闭环示意图">
+        <rect x="15"  y="28" width="170" height="52" rx="8" fill="#fff" stroke="#2D5F8A" stroke-width="1.5"/>
+        <text x="100" y="60" text-anchor="middle" font-size="14.5" fill="#242A31">算力调度</text>
+        <rect x="238" y="28" width="170" height="52" rx="8" fill="#fff" stroke="#2D5F8A" stroke-width="1.5"/>
+        <text x="323" y="60" text-anchor="middle" font-size="14.5" fill="#242A31">模型部署</text>
+        <rect x="461" y="28" width="170" height="52" rx="8" fill="#fff" stroke="#2D5F8A" stroke-width="1.5"/>
+        <text x="546" y="60" text-anchor="middle" font-size="14.5" fill="#242A31">智能体框架</text>
+        <rect x="684" y="28" width="170" height="52" rx="8" fill="#fff" stroke="#2D5F8A" stroke-width="1.5"/>
+        <text x="769" y="60" text-anchor="middle" font-size="14.5" fill="#242A31">成本管理</text>
+        <g stroke="#6E7780" stroke-width="1.2" fill="none">
+          <path d="M100,80 L432,116" marker-end="url(#ah)"/>
+          <path d="M323,80 L444,116" marker-end="url(#ah)"/>
+          <path d="M546,80 L456,116" marker-end="url(#ah)"/>
+          <path d="M769,80 L468,116" marker-end="url(#ah)"/>
+        </g>
+        <rect x="330" y="120" width="240" height="56" rx="28" fill="#2D5F8A"/>
+        <text x="450" y="154" text-anchor="middle" font-size="15.5" fill="#fff">可观测 · 可预算 · 可自愈</text>
+      </svg>
+      <figcaption>四大能力收敛为一个平台闭环</figcaption>
+    </figure>
+    <h3>8.1 算力调度</h3>
+    <p>把「用多少推理算力」变成显式决策：简单 / 复杂分流、模型分级、并发错峰、双闸保护，层层收敛无效 token 消耗。</p>
+    <h3>8.2 模型部署</h3>
+    <p>多服务商统一接入 + 配置库表化热生效，模型资产运维成本降到 SQL 级，并给出存量系统 AI 服务化（wms-mcp-adapter）的范式。</p>
+    <h3>8.3 智能体框架</h3>
+    <p>Lead 拆解 / 专家并行 / 聚合的编排闭环，叠加混合检索 RAG、MCP 工具生态与沙箱隔离，从对话到 RAG 应用一站式覆盖。</p>
+    <h3>8.4 成本管理</h3>
+    <p>轮次级 token 账本 + 四级预算护栏 + 保留期治理，让 AI 工作负载的花费可核算、可控制、可审计。</p>
+    <p style="margin-top:20px"><strong>后续方向</strong>：MCP 失败缓存 TTL 重试、Micrometer 全链路 Tracing、Redis 热点缓存、更多模态接入。</p>
+  </div>
+</section>
+
+</main>
+
+</body>
+</html>
