@@ -551,10 +551,18 @@ public final class AgentChatCaller {
         return specFactory.build(config, sessionId, forAgent, fallbackSystem, user, assembly, trace, extraAdvisors);
     }
 
-    /** 查 agent 表配置（每次 LLM 调用仅查一次，观测记录与请求组装共用） */
+    /** 查 agent 表配置（每次 LLM 调用仅查一次，观测记录与请求组装共用）；命中在此打一条 INFO——
+     *  本方法是全部真实 LLM 调用（路径 A 直答 + 编排 lead/子任务/聚合）的唯一配置读取点，
+     *  其余旁路读取（RAG 预取 knowledge、思考透传判定）经 AgentConfigProvider 已降 debug */
     private AgentConfig configOf(String forAgent) {
-        return agentService == null ? null
+        AgentConfig config = agentService == null ? null
                 : agentService.getAgentConfig(forAgent).orElse(null);
+        if (config != null) {
+            log.info("[agent配置] agentName='{}' -> modelProviderId={}, model={}, prompt={}, knowledge={}, thinking={}",
+                    forAgent, config.modelProviderId(), config.model(), config.prompt(),
+                    config.knowledge(), config.thinking());
+        }
+        return config;
     }
 
     /** 观测名单计算（llm_call_log 装配名单列）：assembly.disableTools 时工具/子集置空、技能保留。

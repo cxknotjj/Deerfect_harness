@@ -99,7 +99,7 @@ public class AgentConfigProvider {
                         blankToNull(row.getPrompt()),
                         blankToNull(row.getKnowledge()),
                         row.getThinking() != null && row.getThinking() == 1);
-                log.info("[agent配置] agentName='{}' -> modelProviderId={}, model={}, prompt={}, knowledge={}, thinking={}",
+                log.debug("[agent配置] agentName='{}' -> modelProviderId={}, model={}, prompt={}, knowledge={}, thinking={}",
                         agentName, cfg.modelProviderId(), cfg.model(), cfg.prompt(), cfg.knowledge(), cfg.thinking());
                 return Optional.of(cfg);
             }
