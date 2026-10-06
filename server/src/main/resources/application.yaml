@@ -104,7 +104,10 @@ app:
     timeouts:
       connect-timeout-seconds: 10
       read-timeout-seconds: 300
-      stream-idle-timeout-seconds: 120
+      # 帧间空闲看门狗（秒）：相邻响应帧（含 reasoning delta）间隔超过该值判定端点挂起，
+      # 失败进重试自愈。40s：正常 TTFT 与慢速滴流都远小于此，挂死连接不再等满 120s；
+      # 0 = 关闭看门狗；未配置回退代码兜底 120
+      stream-idle-timeout-seconds: 40
       # 首帧超时（秒）：发起后首个响应帧（含 reasoning delta）的 deadline，黑洞连接的快速
       # 判定通道——零帧请求 20s 即失败进重试自愈，无需等满 stream-idle；正常 TTFT（含思考
       # 增量）远小于此值。0 = 关闭（首帧回退 stream-idle 口径）；未配置回退 20
