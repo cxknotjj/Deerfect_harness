@@ -218,7 +218,8 @@ final class OrchestrationNodes {
         String expert = state.value(MultiAgentGraphAgent.K_SUBTASK_AGENT_PREFIX + idx, String.class).orElse(null);
         // 任务书读出：旧 checkpoint 缺键 → null（执行退化为 task/desc，口径见 predictSubtask）
         String brief = state.value(MultiAgentGraphAgent.K_SUBTASK_BRIEF_PREFIX + idx, String.class).orElse(null);
-        // 工具包读出：旧 checkpoint 缺键 → orElse("") 归一化为无包（与空名单同口径，执行退化现状）
+        // 工具包读出：旧 checkpoint 缺键 → orElse("") 归一化为无包（与空名单同口径，执行退化现状）；
+        // 可分配边界：包授出的工具 ⊆ lead 自身 tools 列（列空则零授出，见 resolvePacks）
         PackResolution packs = resolvePacks(
                 state.value(MultiAgentGraphAgent.K_SUBTASK_PACKS_PREFIX + idx, String.class).orElse(""));
         String sessionId = state.value(MultiAgentGraphAgent.K_SESSION_ID, String.class).orElse(null);
@@ -528,11 +529,30 @@ final class OrchestrationNodes {
      * {@code \n\n【领域规范·包名】\n + prompt 原文}。CSV 空（无包声明/旧 checkpoint 缺键）
      * 或 provider 为 null（单测场景）→ 零解析返回空产物；包无效（无该行/is_internal=1/
      * tools 空白/查询异常）→ warn 单行跳过该包，不阻断子任务执行。
+     *
+     * <p>可分配边界（lead 行 tools 列）：lead 能授出的工具 ⊆ 其自身 tools 列声明——
+     * 包内工具逐个与该列比对，不在列内的 warn 丢弃（越权零授出）。lead 行 tools 列
+     * 为空（现状）→ 任何包都授不出工具，wms_* 等领域工具独属对应专家行，generic 专家
+     * 不会因 lead 挂包而获得越权工具面；比对按精确工具名（列内组名 token 不参与包
+     * 内精确名匹配，分发白名单请声明精确名）。包未授出任何工具时其纪律段一并跳过
+     * （纪律随工具走，无工具的纪律是空挂误导）。
+     *
+     * @param packsCsv lead 声明的包名 CSV
      */
-    private PackResolution resolvePacks(String packsCsv) {
+    PackResolution resolvePacks(String packsCsv) {
         if (packsCsv == null || packsCsv.isBlank() || agentConfigProvider == null) {
             return PackResolution.NONE;
         }
+        // lead 可分配白名单：其自身 tools 列原文的精确名 token 集合（列 NULL/行缺失/查询异常 → 空集）
+        java.util.Set<String> assignableTokens = new java.util.HashSet<>();
+        agentConfigProvider.findAgentTools(ROLE_LEAD).ifPresent(csv -> {
+            for (String raw : csv.split(",")) {
+                String token = raw.trim();
+                if (!token.isEmpty()) {
+                    assignableTokens.add(token);
+                }
+            }
+        });
         List<String> toolNames = new ArrayList<>();
         java.util.Set<String> seen = new java.util.LinkedHashSet<>();
         StringBuilder discipline = new StringBuilder();
@@ -548,12 +568,20 @@ final class OrchestrationNodes {
                         packName);
                 continue;
             }
+            // 包内工具逐个过 lead tools 列白名单：越权工具零授出
+            int granted = 0;
             for (String tool : pack.toolNames()) {
+                if (!assignableTokens.contains(tool)) {
+                    log.warn("[multi-agent][subtask] 工具包 '{}' 中工具 '{}' 不在 lead tools 列可分配白名单内，丢弃",
+                            packName, tool);
+                    continue;
+                }
                 if (seen.add(tool)) {
                     toolNames.add(tool);
                 }
+                granted++;
             }
-            if (pack.disciplinePrompt() != null && !pack.disciplinePrompt().isBlank()) {
+            if (granted > 0 && pack.disciplinePrompt() != null && !pack.disciplinePrompt().isBlank()) {
                 discipline.append("\n\n【领域规范·").append(packName).append("】\n")
                         .append(pack.disciplinePrompt());
             }
@@ -565,8 +593,9 @@ final class OrchestrationNodes {
     /**
      * 工具包解析产物：extraToolNames 为并入请求工具面的工具名单（跨包去重保序，无包为空列表），
      * disciplineText 为拼入 user 文本的纪律段文本（无包/包无 prompt 为 null）。
+     * 包可见仅供测试构造。
      */
-    private record PackResolution(List<String> extraToolNames, String disciplineText) {
+    record PackResolution(List<String> extraToolNames, String disciplineText) {
 
         static final PackResolution NONE = new PackResolution(List.of(), null);
     }

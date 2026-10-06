@@ -35,7 +35,8 @@ final class LeadOutputParser {
      * agent 可为 null = 未指派，执行时回退默认；
      * brief 为自包含任务书（目标/背景/约束/交付物），可为 null = 未提供（执行退化为 desc）；
      * packs 为声明的领域工具包名列表（可选 toolPacks 数组，缺字段/非数组 → 空名单；
-     * 逐项 trim、丢弃空白项、保持声明顺序——包有效性由执行期查表判定，解析器不校验）。
+     * 逐项 trim、丢弃空白项、保持声明顺序）——packs 只是声明，能否真正授出工具由执行期
+     * resolvePacks 按 lead 自身 tools 列白名单裁决（lead 可分配的 ⊆ 它 tools 列内声明的）。
      */
     record Subtask(String desc, String agent, String brief, List<String> packs) {
     }
@@ -91,7 +92,7 @@ final class LeadOutputParser {
 
     /**
      * 工具包名单归一化：缺字段/非数组 → 空名单；逐项 trim、丢弃空白项、保持声明顺序。
-     * 解析器不校验包有效性（包名是否为 agent 表有效包行由执行期 findToolPack 查表判定）。
+     * 解析器不裁决包能否授出（lead 可分配边界 = 其自身 tools 列，由执行期 resolvePacks 查表裁决）。
      */
     private static List<String> normalizePacks(JsonNode packs) {
         if (packs == null || !packs.isArray()) {

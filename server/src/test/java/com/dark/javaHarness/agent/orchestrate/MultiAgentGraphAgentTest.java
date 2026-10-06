@@ -41,7 +41,6 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
-import org.springframework.ai.tool.ToolCallback;
 import reactor.core.publisher.Flux;
 
 /**
@@ -461,63 +460,17 @@ class MultiAgentGraphAgentTest {
         assertEquals(List.of("查库存"), wmsUsers, "wms 子任务应落到 wms 客户端且 user 文本为 desc: " + wmsUsers);
     }
 
-    /* ---------------- 子任务工具包挂载（toolPacks：包工具并入工具面 + 包纪律段拼入 user） ---------------- */
+    /* ---------------- 子任务工具包通道（可分配边界 = lead 自身 tools 列，越权零授出） ---------------- */
 
-    /** 带 toolDefinition 名字的 mock 回调（与 ToolAssignmentsTest 同法，验证包工具并入请求工具面） */
-    private static ToolCallback namedCallback(String name) {
-        ToolCallback cb = mock(ToolCallback.class);
-        lenient().when(cb.getToolDefinition()).thenReturn(
-                org.springframework.ai.tool.definition.ToolDefinition.builder()
-                        .name(name).description("pack tool").inputSchema("{}").build());
-        return cb;
-    }
-
-    /** 全参构造便捷入口：单测只关注工具包挂载（agentConfigProvider），其余依赖沿用既有用例的最小桩（均可 null） */
+    /**
+     * 全参构造便捷入口：单测只关注工具包通道（agentConfigProvider），其余依赖沿用既有用例的最小桩（均可 null）
+     */
     private MultiAgentGraphAgent agentWithPackProvider(AgentConfigProvider provider) {
         return new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
                 null, null, null, null, null, null, null, null, null, null, provider);
     }
 
-    /**
-     * 声明 wms 包 → general 模板执行时：包工具并入请求工具面（spec.toolCallbacks 含包回调），
-     * 包纪律段以【领域规范·wms】标题拼在 brief 之后。
-     */
-    @Test
-    void execute_toolPackDeclared_packToolsMergedAndDisciplineAppendedAfterBrief() {
-        String leadJson = "{\"subtasks\":[{\"desc\":\"查库存\",\"agent\":\"general\",\"brief\":\"盘点任务书\","
-                + "\"toolPacks\":[\"wms\"]}]}";
-        stubChat(leadJson);
-        ToolCallback packTool = namedCallback("wms_stock_query");
-        when(agentConfigProvider.findToolPack("wms")).thenReturn(java.util.Optional.of(
-                new AgentConfigProvider.ToolPackDef(List.of("wms_stock_query"), "先查后写，差异必须复盘")));
-        when(toolAssignments.forNames("toolPack", "wms_stock_query"))
-                .thenReturn(new ToolAssignments.ToolSet(List.of(), List.of(packTool)));
-        when(requestSpec.toolCallbacks(org.mockito.ArgumentMatchers.any(ToolCallback[].class)))
-                .thenReturn(requestSpec);
-        agent = agentWithPackProvider(agentConfigProvider);
-
-        String reply = agent.execute(new Goal("gpk1", "查库存并核对差异"));
-
-        assertNotNull(reply);
-        assertFalse(reply.isBlank(), "挂包后编排应照常产出最终回答");
-        // 纪律段拼在 brief 之后（【领域规范·wms】标题 + 包 prompt 原文）
-        org.mockito.ArgumentCaptor<String> userCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
-        verify(requestSpec, atLeastOnce()).user(userCaptor.capture());
-        String expectedUser = "盘点任务书\n\n【领域规范·wms】\n先查后写，差异必须复盘";
-        assertTrue(userCaptor.getAllValues().contains(expectedUser),
-                "子任务 user 文本应为 brief + 纪律段: " + userCaptor.getAllValues());
-        // 包工具并入请求工具面（general 模板自身工具为空 → toolCallbacks 仅含包回调）
-        org.mockito.ArgumentCaptor<ToolCallback[]> toolsCaptor =
-                org.mockito.ArgumentCaptor.forClass(ToolCallback[].class);
-        verify(requestSpec, org.mockito.Mockito.times(1)).toolCallbacks(toolsCaptor.capture());
-        ToolCallback[] injected = toolsCaptor.getAllValues().get(0);
-        assertEquals(1, injected.length, "包工具应并入请求工具面");
-        assertEquals("wms_stock_query", injected[0].getToolDefinition().name());
-        // 包工具经 forNames（名单 CSV）解析
-        verify(toolAssignments, atLeastOnce()).forNames("toolPack", "wms_stock_query");
-    }
-
-    /** 无 toolPacks（旧格式/缺字段）→ 行为与第一阶段完全一致：包解析零触发（回归） */
+    /** 无 toolPacks（现状唯一形态：lead 无工具可分配，产物不含包）→ 包解析零触发（回归） */
     @Test
     void execute_noToolPacks_behaviourUnchangedForNamesNeverCalled() {
         stubChat(fixedContent());
@@ -531,24 +484,29 @@ class MultiAgentGraphAgentTest {
         verify(toolAssignments, never()).forNames(anyString(), anyString());
     }
 
-    /** 无效包名（无该行/is_internal=1/tools 空白）→ 静默跳过不阻断：编排正常完成、无包工具并入 */
+    /**
+     * 可分配边界回归（analyst 越权执行 wms 工具的根因场景）：lead 声明 wms 包但其自身
+     * tools 列为空（未声明任何可分配工具）→ 包工具零授出、forNames 不触发、user 文本无纪律段。
+     */
     @Test
-    void execute_invalidPackName_skippedSilently() {
-        String leadJson = "{\"subtasks\":[{\"desc\":\"查库存\",\"agent\":\"general\","
-                + "\"toolPacks\":[\"no-such-pack\"]}]}";
+    void execute_packBeyondLeadToolsColumn_grantNothing() {
+        String leadJson = "{\"subtasks\":[{\"desc\":\"查库存\",\"agent\":\"analyst\",\"brief\":\"盘点任务书\","
+                + "\"toolPacks\":[\"wms\"]}]}";
         stubChat(leadJson);
-        when(agentConfigProvider.findToolPack("no-such-pack")).thenReturn(java.util.Optional.empty());
+        when(agentConfigProvider.findAgentTools("lead")).thenReturn(java.util.Optional.empty());
+        when(agentConfigProvider.findToolPack("wms")).thenReturn(java.util.Optional.of(
+                new AgentConfigProvider.ToolPackDef(List.of("wms_search_stock"), "仓储只读纪律")));
         agent = agentWithPackProvider(agentConfigProvider);
 
         String reply = agent.execute(new Goal("gpk3", "查库存并核对差异"));
 
-        assertEquals(leadJson, reply, "无效包名应静默跳过、不阻断子任务执行");
-        // 包无效 → extraToolNames 为空 → 不触发包工具解析，user 文本无纪律段
+        assertEquals(leadJson, reply, "越权包应静默裁剪、不阻断子任务执行");
+        // 包工具零授出 → 包工具解析不触发
         verify(toolAssignments, never()).forNames(anyString(), anyString());
         org.mockito.ArgumentCaptor<String> userCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
         verify(requestSpec, atLeastOnce()).user(userCaptor.capture());
-        assertTrue(userCaptor.getAllValues().contains("查库存"),
-                "子任务 user 文本应退化为 desc（无纪律段）: " + userCaptor.getAllValues());
+        assertTrue(userCaptor.getAllValues().contains("盘点任务书"),
+                "子任务 user 文本应为 brief（无纪律段）: " + userCaptor.getAllValues());
     }
 
     /* ---------------- 静态 prompt 预算（PromptBudgetAdvisor 挂载） ---------------- */
