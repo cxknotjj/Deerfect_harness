@@ -178,13 +178,14 @@ public class McpToolProvider {
     /** 连接单个 server 并发现工具；失败返回空状态缓存（按 server 隔离，不重试不拖垮其他 server） */
     private ServerState connectAndDiscover(ServerSpec spec) {
         // 超时预算：requestTimeout 约束单次 tools/call 从发起到服务端返回的整段墙钟时间
-        // （含服务端真正干活，如浏览器自动化首次拉起 Chrome），而非通信本身（stdio/HTTP 传输都是
-        // 毫秒级）；initializationTimeout 约束 initialize 握手：8s 足够覆盖正常冷启动（npx 拉包+
-        // 框架初始化），同时把「server 秒退但握手傻等」的代价从 30s 压到 8s。预热在后台线程执行，
-        // 此超时正常不落在请求路径上。
+        // （含服务端真正干活），而非通信本身（stdio/HTTP 传输都是毫秒级）。10s 与下游对齐：
+        // wms-mcp-adapter 调 jeecg REST 读超时 15s，harness 层更快失败（模型可立刻改道或重试），
+        // 不让单次慢调用拖住编排；initializationTimeout 约束 initialize 握手：8s 足够覆盖正常
+        // 冷启动（npx 拉包+框架初始化），同时把「server 秒退但握手傻等」的代价从 30s 压到 8s。
+        // 预热在后台线程执行，此超时正常不落在请求路径上。
         try {
             McpSyncClient client = McpClient.sync(clientTransport(spec))
-                    .requestTimeout(Duration.ofSeconds(120))
+                    .requestTimeout(Duration.ofSeconds(20))
                     .initializationTimeout(Duration.ofSeconds(8))
                     .clientInfo(new McpSchema.Implementation("javaHarness", "1.0"))
                     .build();
