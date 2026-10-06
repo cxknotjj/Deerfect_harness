@@ -133,7 +133,7 @@ class LeadOutputParserTest {
 
     /* ---------------- toolPacks 工具包名单解析 ---------------- */
 
-    /** toolPacks 数组解析：逐项 trim、丢弃空白项、保持声明顺序 */
+    /** toolPacks 数组解析：逐项 trim、丢弃空白项、保持声明顺序（能否授出由执行期按 lead tools 列裁决） */
     @Test
     void parse_toolPacks_trimmedBlankDroppedOrderKept() {
         String content = "{\"subtasks\":[{\"desc\":\"查库存\",\"agent\":\"general\","
