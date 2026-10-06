@@ -1,5 +1,6 @@
 package com.dark.javaHarness.tool.budget;
 
+import com.dark.javaHarness.tool.TextSanitizer;
 import com.dark.javaHarness.tool.TokenEstimator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -108,7 +109,9 @@ public final class ToolCallBudget {
             String out = args.length == 1
                     ? delegate.call((String) args[0])
                     : delegate.call((String) args[0], (org.springframework.ai.chat.model.ToolContext) args[1]);
-            return capToBudget(out);
+            // 注入边界清洗：上游结果可能携带编码破损片段（tavily 网页快照的 U+FFFD 串/孤立代理
+            // 实证会进专家上下文并被复制进交付物，诱发聚合小模型思考循环），先剥坏字符再计预算
+            return capToBudget(TextSanitizer.stripBrokenChars(out));
         }
 
         /** 结果超出剩余预算时截断（带标记），并把实际占用计入预算 */
@@ -129,7 +132,7 @@ public final class ToolCallBudget {
             return trimmed + TRUNCATED_SUFFIX;
         }
 
-        /** 二分查找最大前缀长度，使估算 token 数 ≤ limit（估算对长度单调） */
+        /** 二分查找最大前缀长度，使估算 token 数 ≤ limit（估算对长度单调）；收尾防劈 UTF-16 代理对 */
         private static String truncateByTokens(String text, int limit) {
             int lo = 0;
             int hi = text.length();
@@ -140,6 +143,12 @@ public final class ToolCallBudget {
                 } else {
                     hi = mid - 1;
                 }
+            }
+            // 截断点恰落在高低代理之间时回退一位（孤立代理会产生坏字符，见 TextSanitizer）
+            if (lo > 0 && lo < text.length()
+                    && Character.isHighSurrogate(text.charAt(lo - 1))
+                    && Character.isLowSurrogate(text.charAt(lo))) {
+                lo--;
             }
             return text.substring(0, lo);
         }
