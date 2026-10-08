@@ -35,7 +35,7 @@ echo [2/3] Stopping stale server on port 8080 (if any)...
 for /f "tokens=5" %%p in ('netstat -aon ^| findstr ":8080" ^| findstr "LISTENING"') do taskkill /F /PID %%p >nul 2>&1
 echo.
 echo [2/3] Starting server...
-start "javaHarness-server" cmd /k "cd /d %~dp0 && mvn -s .mvn\settings.xml -pl shared -DskipTests install && mvn -s .mvn\settings.xml -pl server spring-boot:run"
+start "javaHarness-server" cmd /k "cd /d %~dp0 && mvn -s .mvn\settings.xml -pl server spring-boot:run"
 echo Server window opened.
 echo.
 

@@ -46,7 +46,6 @@ cd '$PROJ'
 if [ -f .env.local ]; then . ./.env.local; fi
 export JAVA_HOME="$JAVA_HOME"
 export PATH="$PATH"
-$MVN -DskipTests install -pl shared
 $MVN -pl server spring-boot:run
 echo
 echo '--- 服务已退出，按回车关闭窗口 ---'
@@ -126,7 +125,6 @@ case "${1:-}" in
     echo "--- CLI 已退出。服务窗口仍在运行（停止: 在该窗口 Ctrl+C 或 ./run.sh stop）---"
     ;;
   server)
-    $MVN -pl shared -DskipTests install
     $MVN -pl server spring-boot:run
     ;;
   stop)

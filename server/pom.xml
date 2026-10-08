@@ -12,13 +12,6 @@
     <description>服务端：Agent 编排框架本体（controller/service/agent/prompt/tool/channel），spring-boot fat jar 交付</description>
 
     <dependencies>
-        <!-- 模块内契约：共享 DTO 与跨端枚举 -->
-        <dependency>
-            <groupId>com.dark</groupId>
-            <artifactId>javaHarness-shared</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>

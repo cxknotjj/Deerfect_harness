@@ -9,15 +9,15 @@
     </parent>
     <artifactId>javaHarness-cli</artifactId>
     <name>javaHarness :: cli</name>
-    <description>CLI 客户端：终端交互（JLine）+ HTTP 访问服务端 REST/SSE，与服务端零耦合（仅依赖 shared 契约）</description>
+    <description>CLI 客户端：终端交互（JLine）+ HTTP 访问服务端 REST/SSE，与服务端零耦合（仅依赖 HTTP/JSON 契约）</description>
 
     <dependencies>
-        <!-- 模块内契约：请求/响应 DTO 与 SSE 协议常量；server 的内部类编译期不可见，
-             从机制上杜绝 CLI 绕过 HTTP 直连服务端内部实现 -->
+        <!-- API 契约 DTO/SseProtocol 与 server 各持一份副本（原 shared 模块已取消）：
+             CLI 是纯 HTTP 客户端，从机制上杜绝 CLI 绕过 HTTP 直连服务端内部实现 -->
+        <!-- ChatRequest 的 @NotBlank 校验注解：仅需 API 包编译（版本由 parent BOM 管理） -->
         <dependency>
-            <groupId>com.dark</groupId>
-            <artifactId>javaHarness-shared</artifactId>
-            <version>${project.version}</version>
+            <groupId>jakarta.validation</groupId>
+            <artifactId>jakarta.validation-api</artifactId>
         </dependency>
 
         <!-- JLine 3：CLI 交互输入（上下键历史 / `/` 命令补全 / 多行粘贴）。

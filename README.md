@@ -158,7 +158,7 @@ curl -s -X POST http://localhost:8080/api/chat \
 
 ## 技术架构
 
-Maven 多模块：`shared`（领域模型与 SSE 协议）+ `server`（Spring Boot 主服务）+ `cli`（终端客户端）+ `web`（Vue3 自包含前端）+ `wms-mcp-adapter`（领域 MCP 适配范例）。核心链路：`ChatController` 入口 → `RouteJudge` 判定 SIMPLE / COMPLEX → 路径 A 单 Agent 直答 或 路径 B StateGraph 编排（Lead → 专家并行 → Aggregator）→ 统一出口；QQ 渠道独立包隔离（`channel/qq`），只依赖 ChatService / SessionService 接口。
+Maven 多模块：`server`（Spring Boot 主服务，内含领域模型与 SSE 协议契约）+ `cli`（终端客户端，自持一份契约 DTO 副本，纯 HTTP 通信）+ `web`（Vue3 自包含前端）+ `wms-mcp-adapter`（领域 MCP 适配范例）。核心链路：`ChatController` 入口 → `RouteJudge` 判定 SIMPLE / COMPLEX → 路径 A 单 Agent 直答 或 路径 B StateGraph 编排（Lead → 专家并行 → Aggregator）→ 统一出口；QQ 渠道独立包隔离（`channel/qq`），只依赖 ChatService / SessionService 接口。
 
 架构图与数据流细节见 **[`docs/architecture.md`](./docs/architecture.md)** 与 **[`docs/data-flow.md`](./docs/data-flow.md)**。
 

@@ -125,8 +125,7 @@ flowchart TD
 mvn -DskipTests package
 java -jar server/target/javaHarness-server-0.0.1-SNAPSHOT.jar
 
-# Or run in dev mode (install the shared module first)
-mvn -pl shared -DskipTests install
+# Or run in dev mode (compile the server module in place)
 mvn -pl server spring-boot:run
 ```
 
@@ -299,7 +298,7 @@ The tool ecosystem is extended via MCP: the client supports stdio (local process
 
 ## 📁 Project Structure
 
-A multi-module Maven project: `shared` (domain model & SSE protocol) + `server` (Spring Boot main service) + `cli` (command-line client) + `web` (self-contained Vue3 frontend); the server follows the classic layered architecture (Controller → Service → Mapper/Entity) with domain models grouped under the `domain` parent package.
+A multi-module Maven project: `server` (Spring Boot main service, owning the domain model & SSE protocol contract) + `cli` (command-line client, holding its own copy of the contract DTOs, talking pure HTTP) + `web` (self-contained Vue3 frontend); the server follows the classic layered architecture (Controller → Service → Mapper/Entity) with domain models grouped under the `domain` parent package.
 
 > [!TIP]
 > Full server-side directory tree with per-file notes: **[`docs/project-structure_EN.md`](./docs/project-structure_EN.md)**.
