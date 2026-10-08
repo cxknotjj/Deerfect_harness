@@ -112,9 +112,8 @@ flowchart TD
 ### ⚡ One-Click Start
 
 > [!TIP]
-> Three launcher scripts — pick one (**never run two at once**, port 8080 would clash):
-> - **`run-wsl.bat`** (recommended on Windows): double-click to enter WSL automatically — compile → start the service in the background (log at `/tmp/javaHarness-server.log`) → this window becomes the CLI once ready
-> - **`run.sh`** (WSL terminal): `./run.sh` runs the full flow — compile → open a new window for the service → poll until ready in this terminal → enter the CLI; subcommands `server / stop / cli / build / test`
+> Two launcher scripts — pick one (**never run two at once**, port 8080 would clash):
+> - **`run-wsl.sh`** (WSL terminal): `./run-wsl.sh` runs the full flow — compile → kill any stale server on 8080 → open a new window for the service → poll until ready in this terminal → enter the CLI; subcommands `server / stop / cli / build / test`
 > - **`run-win.bat`** (native Windows): for a Windows-side checkout with Windows JDK/Maven
 
 ### 🔧 Manual Start
@@ -158,7 +157,7 @@ setx QWEN_API_KEY "sk-your-key"      # DashScope (Qwen)
 setx DEEPSEEK_API_KEY "sk-your-key"  # DeepSeek
 setx WSLENV "QWEN_API_KEY/u:DEEPSEEK_API_KEY/u"   # pass into WSL (needed when running Linux-side)
 
-# Option 2: repo-root .env.local (auto-sourced by run.sh / run-wsl.bat; gitignored)
+# Option 2: repo-root .env.local (auto-sourced by run-wsl.sh; gitignored)
 #   QWEN_API_KEY=sk-your-key
 #   DEEPSEEK_API_KEY=sk-your-key
 

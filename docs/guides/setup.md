@@ -13,9 +13,8 @@ CREATE DATABASE IF NOT EXISTS harness DEFAULT CHARACTER SET utf8mb4;
 ### ⚡ 一键启动
 
 > [!TIP]
-> 三套启动脚本任选其一（**勿同时运行**，8080 端口会冲突）：
-> - **`run-wsl.bat`**（Windows 推荐）：双击自动进 WSL——编译 → 后台起服务（日志在 `/tmp/javaHarness-server.log`）→ 就绪后本窗口变 CLI
-> - **`run.sh`**（WSL 终端）：`./run.sh` 全流程——编译 → 新窗口起服务 → 本终端轮询就绪 → 进入 CLI；子命令 `server / stop / cli / build / test`
+> 两套启动脚本任选其一（**勿同时运行**，8080 端口会冲突）：
+> - **`run-wsl.sh`**（WSL 终端）：`./run-wsl.sh` 全流程——编译 → 杀掉 8080 旧服务 → 新窗口起服务 → 本终端轮询就绪 → 进入 CLI；子命令 `server / stop / cli / build / test`
 > - **`run-win.bat`**（Windows 本机）：Windows 侧检出 + Windows JDK/Maven 环境时使用
 
 ### 🔧 手动启动
@@ -59,7 +58,7 @@ setx QWEN_API_KEY "sk-你的key"      # DashScope（通义千问）
 setx DEEPSEEK_API_KEY "sk-你的key"  # DeepSeek
 setx WSLENV "QWEN_API_KEY/u:DEEPSEEK_API_KEY/u"   # 透传进 WSL（Linux 侧运行时需要）
 
-# 方式二：仓库根 .env.local（run.sh / run-wsl.bat 启动时自动加载，已被 gitignore 不入库）
+# 方式二：仓库根 .env.local（run-wsl.sh 启动时自动加载，已被 gitignore 不入库）
 #   QWEN_API_KEY=sk-你的key
 #   DEEPSEEK_API_KEY=sk-你的key
 
