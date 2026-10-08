@@ -159,9 +159,10 @@ app:
   #   （harness_login，SameSite=Lax，活跃访问滑动续期）——凭据不进前端构建产物，浏览器 JS 不可读；
   #   改 password 后旧登录态留存至过期，需立即踢出则重启（登录态在内存）
   # 拦截范围仅 /api/**；/api/auth/**、/onebot/**（自有 HMAC 验签）、/error、静态资源不在拦截范围
+  # 鉴权默认不启用，公网部署按需配置。
   security:
     api-token: ""                                # 机器通道；空 = 不启用
-    password: ${APP_PASSWORD:123456}                   # 登录通道；空 = 不启用（公网部署建议配置）
+    password: ${APP_PASSWORD:}                   # 登录通道；空 = 不启用（公网部署建议配置）
     login-ttl-hours: 168                         # 登录态有效期（小时），活跃访问滑动续期
     login-max-failures: 5                        # 同 IP 连续失败锁定阈值
     login-lock-seconds: 60                       # 锁定时长（秒）
