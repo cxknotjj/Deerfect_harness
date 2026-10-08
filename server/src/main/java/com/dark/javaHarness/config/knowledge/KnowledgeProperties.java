@@ -28,6 +28,10 @@ public class KnowledgeProperties {
     /** 相似度阈值（0~1，越大越严，低于该值的命中丢弃） */
     private double minScore;
 
+    /** 混合检索融合分地板：RRF 归一化分低于该值的命中视为噪音丢弃（实测真命中 ≥0.94、
+     *  纯 BM25 单路弱匹配尾部 ~0.48）；0 = 不启用 */
+    private double fusionMinScore;
+
     /** 注入 prompt 的知识片段总预算（token，口径同 tool-result-budget）；0 = 不截断 */
     private int contextBudget;
 
@@ -88,6 +92,14 @@ public class KnowledgeProperties {
 
     public void setMinScore(double minScore) {
         this.minScore = minScore;
+    }
+
+    public double getFusionMinScore() {
+        return fusionMinScore;
+    }
+
+    public void setFusionMinScore(double fusionMinScore) {
+        this.fusionMinScore = fusionMinScore;
     }
 
     public int getContextBudget() {

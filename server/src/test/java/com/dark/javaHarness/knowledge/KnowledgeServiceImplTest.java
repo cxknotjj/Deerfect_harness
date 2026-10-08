@@ -569,4 +569,35 @@ class KnowledgeServiceImplTest {
         assertEquals("java/spring.md#0", KnowledgeServiceImpl.chunkId("java/spring.md", 0),
                 "子目录文档 name 带前缀，id 仍确定性");
     }
+
+    /* ---------------- 融合分地板（fusion-min-score） ---------------- */
+
+    /** 双路 rank1 叠加（归一化 ~1.0）与纯向量 rank2（~0.49）的构造 */
+    private List<KnowledgeService.KnowledgeHit> fuseTwoVectorOneBm25(KnowledgeProperties props) {
+        KnowledgeServiceImpl svc = new KnowledgeServiceImpl(
+                storeProvider, bm25Provider, scanner, mapper, props);
+        List<Document> vec = List.of(
+                new Document("a", "A 文本", Map.of("source", "a.md", "title", "A")),
+                new Document("b", "B 文本", Map.of("source", "b.md", "title", "B")));
+        List<KnowledgeBm25Index.Bm25Hit> bm25 = List.of(
+                new KnowledgeBm25Index.Bm25Hit("a", "a.md", "A", 5.0, "A 文本"));
+        return svc.rrfFuse(vec, bm25);
+    }
+
+    @Test
+    void rrfFuse_fusionFloor_dropsNoiseTail() {
+        // 纯向量 rank2 归一化分 ~0.49 < 地板 0.6 → 丢弃；双路叠加 a ~1.0 保留
+        KnowledgeProperties props = new KnowledgeProperties();
+        props.setFusionMinScore(0.6);
+        List<KnowledgeService.KnowledgeHit> hits = fuseTwoVectorOneBm25(props);
+        assertEquals(List.of("a.md"), hits.stream().map(KnowledgeService.KnowledgeHit::docName).toList(),
+                "低于地板的 BM25 单路弱匹配应被丢弃");
+    }
+
+    @Test
+    void rrfFuse_floorDisabled_keepsAll() {
+        // 默认 0 = 不启用，两条全保留（回归：地板关闭时行为不变）
+        List<KnowledgeService.KnowledgeHit> hits = fuseTwoVectorOneBm25(new KnowledgeProperties());
+        assertEquals(2, hits.size());
+    }
 }

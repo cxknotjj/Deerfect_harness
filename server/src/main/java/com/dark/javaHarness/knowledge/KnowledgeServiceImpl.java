@@ -255,6 +255,8 @@ public class KnowledgeServiceImpl implements KnowledgeService, ApplicationRunner
      * （两路都命中的 chunk 得分叠加置顶）；融合分除以理论最大值 2/(k+1) 归一化到
      * (0,1]（单路 rank1 = 0.5，双路 rank1 = 1.0），保持「相关度 %.2f」渲染契约。
      * 输出条数受 top-k 约束（top-k=0 不限）；同分按 docName 升序保证顺序确定。
+     * 融合分地板（fusion-min-score，0 = 不启用）：低于地板的命中视为噪音丢弃——
+     * 纯 BM25 单路弱匹配（中文 bigram 虚高）稳定落在 ~0.48，真命中实测 ≥0.94。
      */
     List<KnowledgeHit> rrfFuse(List<Document> vectorDocs, List<KnowledgeBm25Index.Bm25Hit> bm25Hits) {
         record Fused(String docName, String title, String text, double rrf) {
@@ -291,12 +293,14 @@ public class KnowledgeServiceImpl implements KnowledgeService, ApplicationRunner
         }
         // 归一化基准 = 双路 rank1 叠加的理论最大 2/(k+1)；rankWeightSum 兜底空表场景
         double maxScore = 2.0 / (RRF_K + 1);
+        double floor = props.getFusionMinScore();
         return fused.values().stream()
                 .sorted(java.util.Comparator.<Fused>comparingDouble(Fused::rrf).reversed()
                         .thenComparing(Fused::docName))
                 .limit(props.getTopK() > 0 ? props.getTopK() : Long.MAX_VALUE)
                 .map(f -> new KnowledgeHit(f.docName(), f.title(),
                         Math.min(1.0, f.rrf() / maxScore), f.text()))
+                .filter(hit -> floor <= 0 || hit.score() >= floor)
                 .toList();
     }
 
