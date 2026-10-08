@@ -6,7 +6,7 @@ REM ================================================================
 REM  javaHarness one-click launcher (Windows-native edition).
 REM  Requires a Windows-side checkout of this repo plus Windows
 REM  JDK17 + Maven on PATH (script resolves .mvn\settings.xml via %~dp0).
-REM  For the WSL-based environment use run-wsl.bat instead.
+REM  For the WSL-based environment use run-wsl.sh instead.
 REM  Run only ONE launcher at a time (port 8080 conflict).
 REM  NOTE: keep this file ASCII-only (cmd parses .bat with the console
 REM  codepage; multi-byte chars in a UTF-8 .bat break line parsing).
@@ -30,7 +30,10 @@ if errorlevel 1 (
 echo Compilation OK.
 echo.
 
-REM ---- 2. Start server in a new window ----
+REM ---- 1.5 Kill stale server on port 8080 (mirror run-wsl.sh: fresh start every run) ----
+echo [2/3] Stopping stale server on port 8080 (if any)...
+for /f "tokens=5" %%p in ('netstat -aon ^| findstr ":8080" ^| findstr "LISTENING"') do taskkill /F /PID %%p >nul 2>&1
+echo.
 echo [2/3] Starting server...
 start "javaHarness-server" cmd /k "cd /d %~dp0 && mvn -s .mvn\settings.xml -pl shared -DskipTests install && mvn -s .mvn\settings.xml -pl server spring-boot:run"
 echo Server window opened.

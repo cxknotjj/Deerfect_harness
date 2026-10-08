@@ -4,18 +4,18 @@
 #
 #  全流程（无参数）：
 #    [1/4] 编译
-#    [2/4] 开一个新窗口前台跑服务（日志直接看，Ctrl+C 即停服务）
+#    [2/4] 杀掉 8080 旧服务，再开一个新窗口前台跑服务（日志直接看，Ctrl+C 即停服务）
 #    [3/4] 当前终端轮询等就绪（最多 90s）
 #    [4/4] 当前终端变成 CLI 聊天
 #
-#  Windows 侧一键启动请用 run-wsl.bat；两套入口选其一，勿同时跑服务。
+#  Windows 侧一键启动请用 run-win.bat；两套入口选其一，勿同时跑服务。
 #
 #  子命令:
-#    ./run.sh server   当前终端前台跑服务（Ctrl+C 停止）
-#    ./run.sh stop     停止 8080 上的服务
-#    ./run.sh cli      只进 CLI（服务需已在跑）
-#    ./run.sh build    只编译
-#    ./run.sh test     全量测试
+#    ./run-wsl.sh server   当前终端前台跑服务（Ctrl+C 停止）
+#    ./run-wsl.sh stop     停止 8080 上的服务
+#    ./run-wsl.sh cli      只进 CLI（服务需已在跑）
+#    ./run-wsl.sh build    只编译
+#    ./run-wsl.sh test     全量测试
 # ================================================================
 set -e
 cd "$(dirname "$0")"
@@ -82,18 +82,40 @@ wait_ready() {
     return 1
 }
 
+# 停止 8080 上的服务（stop 子命令与全流程启动前清理共用）
+stop_server() {
+    fuser -k 8080/tcp 2>/dev/null || true
+    # pkill 无匹配时返回 1，set -e 会当场退出脚本——必须 || true
+    pkill -f 'spring-boot:ru[n]' 2>/dev/null || true
+    pkill -f 'javaHarness-server-0.0.1-SNAPSHOT[.]jar' 2>/dev/null || true
+    # SIGKILL 后内核异步释放 socket，短暂重试避免撞上释放窗口
+    for i in $(seq 1 5); do
+        sleep 1
+        port_listening || break
+    done
+    if port_listening; then
+        echo "停止失败：8080 仍在监听"
+        return 1
+    fi
+    echo "服务已停止"
+    return 0
+}
+
 case "${1:-}" in
   ""|full)
     echo "==== javaHarness 全流程启动 ===="
     echo "[1/4] 编译（多模块 install：单模块启动依赖本地仓库中的 shared）..."
     $MVN -DskipTests install
     echo "[1/4] 编译 OK"
+    # 每次全流程执行都先杀掉 8080 上的旧服务再全新启动（保证跑的是最新构建）
+    echo "[2/4] 清理 8080 旧服务..."
     if port_listening; then
-        echo "[2/4] 服务已在运行，跳过启动"
+        stop_server || { echo "旧服务停止失败，不启动新实例。"; exit 1; }
     else
-        echo "[2/4] 开服务窗口..."
-        open_server_window
+        echo "8080 无残留服务"
     fi
+    echo "[2/4] 开服务窗口..."
+    open_server_window
     echo "[3/4] 等待就绪..."
     if ! wait_ready; then
         echo "服务未就绪，CLI 不启动。"
@@ -108,19 +130,7 @@ case "${1:-}" in
     $MVN -pl server spring-boot:run
     ;;
   stop)
-    fuser -k 8080/tcp 2>/dev/null || true
-    # pkill 无匹配时返回 1，set -e 会当场退出脚本——必须 || true
-    pkill -f 'spring-boot:ru[n]' 2>/dev/null || true
-    # SIGKILL 后内核异步释放 socket，短暂重试避免撞上释放窗口
-    for i in $(seq 1 5); do
-        sleep 1
-        port_listening || break
-    done
-    if port_listening; then
-        echo "停止失败：8080 仍在监听"
-        exit 1
-    fi
-    echo "服务已停止"
+    stop_server || exit 1
     ;;
   cli)
     $MVN -pl cli -Pcli compile exec:exec
