@@ -231,6 +231,51 @@ class TerminalRendererTest {
         assertTrue(out.contains("回合结束"), "收尾小结应照常输出: " + out);
     }
 
+    // ---- 思考透传去重：同 stage 多 delta 只归档一行（对齐 web 折叠块按 stage 归组口径） ----
+
+    /** 服务端把每个 reasoning delta 编码为独立进度行（stage=思考 · agent名，detail=片段文本），
+     *  修复前每个 delta 都先归档「✓ 思考 · 0s」再重起 spinner，思考期间刷出一串零秒行 */
+    @Test
+    void thinkingRepeatedDeltas_archiveOncePerStage() {
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        TerminalRenderer renderer = new TerminalRenderer(
+                new PrintStream(buf, true, StandardCharsets.UTF_8));
+
+        renderer.beginTurn();
+        renderer.onProgress("思考 · general", "用户在打招呼，");
+        renderer.onProgress("思考 · general", "回复要简短友好");
+        renderer.onToken("你好！");
+        renderer.endTurn(true, null);
+
+        String out = buf.toString(StandardCharsets.UTF_8);
+        assertEquals(1, countOccurrences(out, "✓ 思考 · general"),
+                "同阶段思考只应归档一行摘要: " + out);
+        assertFalse(out.contains("回复要简短"), "思考 delta 片段不应上屏: " + out);
+        assertTrue(out.contains("你好！"), "回答 token 应照常输出: " + out);
+    }
+
+    /** 并行子任务思考行交错到达（思考1/思考2 交替）：按 stage 全量归组，各归档一次 */
+    @Test
+    void thinkingInterleavedSubtasks_archiveOnceEach() {
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        TerminalRenderer renderer = new TerminalRenderer(
+                new PrintStream(buf, true, StandardCharsets.UTF_8));
+
+        renderer.beginTurn();
+        renderer.onProgress("思考1 · researcher", "先查竞品");
+        renderer.onProgress("思考2 · writer", "再写初稿");
+        renderer.onProgress("思考1 · researcher", "换个关键词");
+        renderer.onProgress("思考2 · writer", "开头用疑问句");
+        renderer.onToken("汇总结果");
+        renderer.endTurn(true, null);
+
+        String out = buf.toString(StandardCharsets.UTF_8);
+        assertEquals(1, countOccurrences(out, "✓ 思考1 · researcher"),
+                "思考1 交错多条只应归档一次: " + out);
+        assertEquals(1, countOccurrences(out, "✓ 思考2 · writer"),
+                "思考2 交错多条只应归档一次: " + out);
+    }
+
     private static int countOccurrences(String s, String sub) {
         int c = 0, i = 0;
         while ((i = s.indexOf(sub, i)) >= 0) {

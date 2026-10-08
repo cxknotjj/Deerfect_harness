@@ -51,6 +51,9 @@ public final class TerminalRenderer {
     private int subtaskDone;
     private int contentChars;
 
+    // ---- 思考透传去重：回合内已起过 spinner 的思考阶段（「思考 · agent名」/「思考N · 专家名」） ----
+    private final java.util.Set<String> thinkingStages = new java.util.HashSet<>();
+
     public TerminalRenderer() {
         this(System.out);
     }
@@ -76,6 +79,7 @@ public final class TerminalRenderer {
             turnStartMs = System.currentTimeMillis();
             subtaskDone = 0;
             contentChars = 0;
+            thinkingStages.clear();
             lineBuffer.setLength(0);
             linePrinted = 0;
             inCodeBlock = false;
@@ -103,6 +107,15 @@ public final class TerminalRenderer {
                 archiveToolDone(detail);
             } else if (s.startsWith("tool")) {
                 spinner.start("⏺ " + detail, "");
+            } else if (s.startsWith("思考")) {
+                // 思考透传旁路（对齐 web 折叠块的按 stage 归组语义）：服务端把每个 reasoning
+                // delta 编码为独立进度行（stage=「思考 · 归属」，detail=delta 文本片段）。
+                // 同一 stage 全回合只起一次 spinner（子任务并行时思考行交错到达也不重复
+                // 归档），delta 片段不上屏——否则每个 delta 都先归档一行「✓ 思考 · 0s」
+                // 再重起 spinner，思考期间刷出一串零秒摘要行
+                if (thinkingStages.add(s)) {
+                    spinner.start(s, "");
+                }
             } else {
                 switch (s) {
                     case "拆解" -> {
