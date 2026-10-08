@@ -116,6 +116,14 @@ curl -s -X POST http://localhost:8080/api/chat \
 
 ![轨迹视图](./docs/images/ui-trace.png)
 
+**终端 CLI · Claude Code 风格（命令帮助着色 / 回合小结 / 流式 Markdown）**
+
+![终端 CLI](./docs/images/cli.png)
+
+**QQ 机器人 · 渐进式分段回复与表情包（NapCat 接入）**
+
+![QQ 机器人](./docs/images/qq机器人.jpg)
+
 ## 📖 文档
 
 | 文档 | 内容 |
