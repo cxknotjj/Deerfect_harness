@@ -1,0 +1,76 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            // 后端打包：mvn package 直接产出可执行 fat jar
+            "label": "后端:打包",
+            "type": "shell",
+            "command": "mvn -s .mvn/settings.xml -DskipTests package",
+            "problemMatcher": []
+        },
+        {
+            // 前端打包：类型检查 + vite build
+            "label": "前端:打包",
+            "type": "shell",
+            "command": "npm run build",
+            "options": {
+                "cwd": "${workspaceFolder}/web"
+            },
+            "problemMatcher": []
+        },
+        {
+            // 后端启动：java -jar 直跑 fat jar（.env.local 提供密钥，非交互 shell 不会自动加载）
+            "label": "后端:启动",
+            "type": "shell",
+            "command": "[ -f .env.local ] && . ./.env.local; java -jar server/target/javaHarness-server-0.0.1-SNAPSHOT.jar",
+            "isBackground": true,
+            "presentation": {
+                "panel": "newTerminal",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            // 前端启动：先等 5s（后端已在自己的新终端进入启动流程），再起 vite dev（5173，/api 代理到 8080）
+            // 等待内嵌在命令里，不依赖 VS Code 的任务编排判定（sequence + isBackground + 空
+            // problemMatcher 的组合下，独立等待任务会打断依赖链导致本任务被跳过）
+            "label": "前端:启动",
+            "type": "shell",
+            "command": "sleep 5; npm run dev",
+            "options": {
+                "cwd": "${workspaceFolder}/web"
+            },
+            "isBackground": true,
+            "presentation": {
+                "panel": "newTerminal",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            // 停止后端：按端口杀 + 按 jar 名兜底（[.] 防止 pkill 匹配到自身）
+            "label": "后端:停止",
+            "type": "shell",
+            "command": "fuser -k 8080/tcp 2>/dev/null; pkill -f 'javaHarness-server-0.0.1-SNAPSHOT[.]jar' 2>/dev/null; sleep 1; echo 后端已停止",
+            "problemMatcher": []
+        },
+        {
+            // 一键流程：打包后端 → 打包前端 → 起后端 → 起 web（web 侧自延迟 5s）
+            "label": "一键:打包并启动",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "后端:打包",
+                "前端:打包",
+                "后端:启动",
+                "前端:启动"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": []
+        }
+    ]
+}
