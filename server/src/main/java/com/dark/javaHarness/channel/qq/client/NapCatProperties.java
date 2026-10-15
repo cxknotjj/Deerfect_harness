@@ -43,6 +43,7 @@ public class NapCatProperties {
     private final RateLimit rateLimit = new RateLimit();
     private final Reply reply = new Reply();
     private final Emoji emoji = new Emoji();
+    private final Recall recall = new Recall();
 
     public boolean isEnabled() {
         return enabled;
@@ -122,6 +123,10 @@ public class NapCatProperties {
 
     public Emoji getEmoji() {
         return emoji;
+    }
+
+    public Recall getRecall() {
+        return recall;
     }
 
     /** 群聊触发方式：at=仅@机器人 | prefix=命令前缀 | all=全部响应 */
@@ -263,6 +268,21 @@ public class NapCatProperties {
 
         public void setMaxDelayMs(int maxDelayMs) {
             this.maxDelayMs = maxDelayMs;
+        }
+    }
+
+    /** 撤回行为控制 */
+    public static class Recall {
+
+        /** 发送失败自动清理：本条回复出现「已有成功分片 + 后续分片失败」时，撤回本次已发分片；默认开 */
+        private boolean autoCleanupEnabled = true;
+
+        public boolean isAutoCleanupEnabled() {
+            return autoCleanupEnabled;
+        }
+
+        public void setAutoCleanupEnabled(boolean autoCleanupEnabled) {
+            this.autoCleanupEnabled = autoCleanupEnabled;
         }
     }
 

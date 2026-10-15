@@ -687,4 +687,49 @@ class OneBotEventServiceImplTest {
         service.handle(privateMsg(83L, "问"));
         verify(apiClient, times(2)).sendPrivateMsg(eq(UID), any());
     }
+
+    // ==================== /recall 撤回 + 发送失败自动清理（napcat.recall） ====================
+
+    @Test
+    void handle_recallCommand_deletesLastSentMessage() {
+        service.sentMessageTracker.record("private:" + UID, 222L);
+        service.handle(privateMsg(800L, "/recall"));
+        verify(apiClient).deleteMsg(222L);
+        verify(chatService, never()).chat(any());
+    }
+
+    @Test
+    void handle_recallCommand_nothingToRecall() {
+        service.handle(privateMsg(801L, "/recall"));
+        verify(apiClient, never()).deleteMsg(anyLong());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MessageSegment>> captor = ArgumentCaptor.forClass(List.class);
+        verify(apiClient).sendPrivateMsg(eq(UID), captor.capture());
+        assertTrue(captor.getValue().get(0).text().contains("撤回"));
+    }
+
+    @Test
+    void handle_sendFailure_cleansUpAlreadySentChunks() {
+        props.getReply().setProgressive(false);
+        props.getReply().setMaxLength(5);          // "aaa\n\nbbb" → 两片
+        when(bindingMapper.selectOne(any())).thenReturn(binding(80L, "qq:private:" + UID, 5L));
+        stubChatSuccess("aaa\n\nbbb");
+        when(apiClient.sendPrivateMsg(eq(UID), any())).thenReturn(111L, (Long) null); // 首片成功、次片失败
+        service.handle(privateMsg(802L, "长回复"));
+        verify(apiClient, times(2)).sendPrivateMsg(eq(UID), any());
+        verify(apiClient).deleteMsg(111L);          // 撤回已发的首片
+    }
+
+    @Test
+    void handle_sendFailure_cleanupDisabled_keepsChunks() {
+        props.getReply().setProgressive(false);
+        props.getReply().setMaxLength(5);
+        props.getRecall().setAutoCleanupEnabled(false);
+        service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient, props);
+        when(bindingMapper.selectOne(any())).thenReturn(binding(81L, "qq:private:" + UID, 5L));
+        stubChatSuccess("aaa\n\nbbb");
+        when(apiClient.sendPrivateMsg(eq(UID), any())).thenReturn(111L, (Long) null);
+        service.handle(privateMsg(803L, "长回复"));
+        verify(apiClient, never()).deleteMsg(anyLong());
+    }
 }

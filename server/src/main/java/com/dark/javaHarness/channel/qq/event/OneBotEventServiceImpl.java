@@ -222,10 +222,25 @@ public class OneBotEventServiceImpl implements OneBotEventService {
                 handleAgent(event, isGroup, cmd.arg());
                 return true;
             }
+            case "recall" -> {
+                handleRecall(event, isGroup);
+                return true;
+            }
             default -> {
                 return false;
             }
         }
+    }
+
+    /** /recall：撤回本会话/本群最近一条机器人消息 */
+    private void handleRecall(OneBotEvent event, boolean isGroup) {
+        Long last = sentMessageTracker.lastId(sendTargetKey(event));
+        if (last == null) {
+            sendReply(event, isGroup, "没有可撤回的消息。");
+            return;
+        }
+        apiClient.deleteMsg(last);
+        sendReply(event, isGroup, "已撤回。");
     }
 
     /** /reset：删除会话绑定行，下条消息重新建档开启新会话，并回复确认 */
@@ -377,6 +392,7 @@ public class OneBotEventServiceImpl implements OneBotEventService {
                 ? ReplySplitter.splitProgressive(reply, replyCfg.getSplitChars(), replyCfg.getMaxChunks())
                 : ReplySplitter.splitReply(reply, replyCfg.getMaxLength());
         int sentEmojis = 0;
+        List<Long> sentIds = new ArrayList<>();
         for (int i = 0; i < chunks.size(); i++) {
             // 条间动态拟人延迟：按「即将发送的这条」的字数计算（基础 + 字数×系数 + 扰动），首条不等待
             if (i > 0 && replyCfg.isProgressive() && !pauseBeforeChunk(dynamicDelayMs(chunks.get(i).length()))) {
@@ -394,7 +410,17 @@ public class OneBotEventServiceImpl implements OneBotEventService {
                 }
             }
             segments.add(new MessageSegment("text", Map.of("text", chunks.get(i))));
-            sendSegments(event, isGroup, segments);
+            Long id = sendSegments(event, isGroup, segments);
+            if (id != null) {
+                sentIds.add(id);
+            } else if (!sentIds.isEmpty() && props.getRecall().isAutoCleanupEnabled()) {
+                // 失败清理：本次回复已有成功分片、后续分片发送失败 → 撤回已发分片后停止，避免群里留半截回答。
+                // 首片即失败（sentIds 空）按既有语义静默继续（无内容可清理）。
+                for (Long s : sentIds) {
+                    apiClient.deleteMsg(s);
+                }
+                return;
+            }
             // 表情钩子：每条 chunk 发送完成后（含最后一条）检测；顺序 chunk N → send-delay 停顿 → 表情
             // 上限/概率/文件校验都在 EmojiReplies 与下方计数内；任何表情侧异常只记日志不阻断文本
             try {
@@ -404,7 +430,10 @@ public class OneBotEventServiceImpl implements OneBotEventService {
                     if (!pauseBeforeChunk(Math.max(0, emojiCfg.getSendDelayMs()))) {
                         return; // 停顿被中断（executor 停机）：表情与后续发送一并停止，已发部分保留
                     }
-                    sendSegments(event, isGroup, List.of(emoji));
+                    Long eid = sendSegments(event, isGroup, List.of(emoji));
+                    if (eid != null) {
+                        sentIds.add(eid);
+                    }
                     sentEmojis++;
                 }
             } catch (Exception e) {
