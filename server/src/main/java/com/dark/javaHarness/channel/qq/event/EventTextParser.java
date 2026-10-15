@@ -7,14 +7,16 @@ import java.util.List;
 
 /**
  * 入站事件文本提取与触发判定（自 {@link OneBotEventServiceImpl} 拆出，超长类拆分 2026-09-25）：
- * 私聊全文提取、群聊触发判定（at/prefix/all）、@ 自判据，仅依赖 NapCatProperties。
+ * 私聊全文提取、群聊触发判定（at/prefix/all）、@ 自判据/回复自判据，仅依赖 NapCatProperties。
  */
 final class EventTextParser {
 
     private final NapCatProperties props;
+    private final SentMessageTracker sentTracker;
 
-    EventTextParser(NapCatProperties props) {
+    EventTextParser(NapCatProperties props, SentMessageTracker sentTracker) {
         this.props = props;
+        this.sentTracker = sentTracker;
     }
 
     /** 私聊全文响应；正文取 message 数组 text 段，数组缺失兜底 raw_message */
@@ -36,7 +38,9 @@ final class EventTextParser {
         String selfId = props.getSelfId();
         switch (mode == null ? "at" : mode) {
             case "at" -> {
-                if (!atSelf(event, selfId)) {
+                boolean atMe = atSelf(event, selfId);
+                boolean replyMe = props.getGroupTrigger().isReplyToBot() && replyToSelf(event);
+                if (!atMe && !replyMe) {
                     return null;
                 }
                 return joined.isBlank() ? null : joined.trim();
@@ -72,6 +76,17 @@ final class EventTextParser {
             return event.message().stream().anyMatch(s -> "at".equals(s.type()) && selfId.equals(s.qq()));
         }
         return nullToEmpty(event.rawMessage()).contains("[CQ:at,qq=" + selfId + "]");
+    }
+
+    /** 回复机器人判据：message 数组存在 reply 段且其引用的 message_id 命中我方已发记录 */
+    boolean replyToSelf(OneBotEvent event) {
+        if (event.message() == null) {
+            return false;
+        }
+        return event.message().stream()
+                .filter(s -> "reply".equals(s.type()))
+                .map(MessageSegment::replyTargetId)
+                .anyMatch(sentTracker::contains);
     }
 
     private String joinTextSegments(List<MessageSegment> segments) {

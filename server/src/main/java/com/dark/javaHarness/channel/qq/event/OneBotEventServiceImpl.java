@@ -71,6 +71,9 @@ public class OneBotEventServiceImpl implements OneBotEventService {
     /** 表情包匹配器（构造内创建，签名不变；包内可见：测试可替换注入异常桩） */
     EmojiReplies emojiReplies;
 
+    /** 已发消息记录（回复触发判定 + /recall 共用）；包内可见，测试可直接预置 */
+    SentMessageTracker sentMessageTracker = new SentMessageTracker();
+
     public OneBotEventServiceImpl(ChatService chatService,
                                   SessionService sessionService,
                                   OneBotSessionBindingMapper bindingMapper,
@@ -82,7 +85,7 @@ public class OneBotEventServiceImpl implements OneBotEventService {
         this.apiClient = apiClient;
         this.props = props;
         this.emojiReplies = new EmojiReplies(props);
-        this.textParser = new EventTextParser(props);
+        this.textParser = new EventTextParser(props, sentMessageTracker);
         this.rateLimiter = new UserRateLimiter(props.getRateLimit().getPerUserSeconds() * 1000L);
         this.privateAllowUsers = parseAllowUsers(props.getPrivateAllowUsers());
         this.chatExecutor = new ThreadPoolExecutor(8, 8, 60, TimeUnit.SECONDS,
@@ -272,13 +275,22 @@ public class OneBotEventServiceImpl implements OneBotEventService {
         }
     }
 
-    /** 按目标类型发送消息段：群聊 sendGroupMsg / 私聊 sendPrivateMsg（表情与文本同一 API） */
-    private void sendSegments(OneBotEvent event, boolean isGroup, List<MessageSegment> segments) {
-        if (isGroup) {
-            apiClient.sendGroupMsg(event.groupId(), segments);
-        } else {
-            apiClient.sendPrivateMsg(event.userId(), segments);
+    /** 按目标类型发送消息段；成功返回 message_id 并记入 tracker，失败返回 null（尽力而为） */
+    private Long sendSegments(OneBotEvent event, boolean isGroup, List<MessageSegment> segments) {
+        Long id = isGroup
+                ? apiClient.sendGroupMsg(event.groupId(), segments)
+                : apiClient.sendPrivateMsg(event.userId(), segments);
+        if (id != null) {
+            sentMessageTracker.record(sendTargetKey(event), id);
         }
+        return id;
+    }
+
+    /** 已发消息记录的目标键：私聊/群聊分桶（与 /recall 取用口径一致） */
+    private String sendTargetKey(OneBotEvent event) {
+        return "group".equals(event.messageType())
+                ? "group:" + event.groupId()
+                : "private:" + event.userId();
     }
 
     /**

@@ -38,4 +38,20 @@ public record MessageSegment(
             return null;
         }
     }
+
+    /** 入站 reply 段引用的消息 id：兼容 NapCat 的 id / message_id 两种键名（非数字回 null） */
+    public Long replyTargetId() {
+        if (data == null) {
+            return null;
+        }
+        Object id = data.get("id") != null ? data.get("id") : data.get("message_id");
+        if (id == null) {
+            return null;
+        }
+        try {
+            return Long.valueOf(String.valueOf(id));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
 }

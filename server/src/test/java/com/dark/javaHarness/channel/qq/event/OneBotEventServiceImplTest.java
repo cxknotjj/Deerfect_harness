@@ -97,6 +97,14 @@ class OneBotEventServiceImplTest {
                 segments, new OneBotEvent.Sender(UID, "tester", "群名片"));
     }
 
+    private static OneBotEvent groupReplyMsg(long messageId, long replyTarget, String text) {
+        List<MessageSegment> segments = new java.util.ArrayList<>();
+        segments.add(new MessageSegment("reply", Map.of("id", String.valueOf(replyTarget))));
+        segments.add(new MessageSegment("text", Map.of("text", text)));
+        return new OneBotEvent(1700000000L, SELF_ID, "message", "group", UID, GID, messageId, text,
+                segments, new OneBotEvent.Sender(UID, "tester", "群名片"));
+    }
+
     private static OneBotSessionBinding binding(long id, String key, long sessionId) {
         OneBotSessionBinding row = new OneBotSessionBinding();
         row.setId(id);
@@ -181,6 +189,40 @@ class OneBotEventServiceImplTest {
         service.handle(groupMsg(30L, true, "第一问"));
         service.handle(groupMsg(31L, true, "第二问"));
         verify(chatService, times(1)).chat(any());
+    }
+
+    @Test
+    void handle_groupReplyToBot_triggersWithoutAt() {
+        props.getGroupTrigger().setReplyToBot(true);
+        service.sentMessageTracker.record("group:" + GID, 500L);
+        when(bindingMapper.selectOne(any())).thenReturn(binding(40L, "qq:group:" + GID + ":" + UID, 9L));
+        stubChatSuccess("收到");
+        service.handle(groupReplyMsg(600L, 500L, "接着刚才的说"));
+        verify(chatService).chat(new ChatRequest("接着刚才的说", "9", null));
+    }
+
+    @Test
+    void handle_groupReplyToBot_disabled_ignored() {
+        // 默认 reply-to-bot=false：回复机器人消息不触发
+        service.handle(groupReplyMsg(601L, 500L, "有人吗"));
+        verifyNoInteractions(chatService, apiClient);
+    }
+
+    @Test
+    void handle_groupReplyToUnknownMessage_ignored() {
+        props.getGroupTrigger().setReplyToBot(true);
+        // 回复历史里非我方的消息（未命中 tracker）不触发
+        service.handle(groupReplyMsg(602L, 424242L, "路人回复"));
+        verifyNoInteractions(chatService, apiClient);
+    }
+
+    @Test
+    void handle_group_sentMessageIdRecorded() {
+        when(bindingMapper.selectOne(any())).thenReturn(binding(41L, "qq:group:" + GID + ":" + UID, 9L));
+        when(apiClient.sendGroupMsg(eq(GID), any())).thenReturn(777L);
+        stubChatSuccess("群答");
+        service.handle(groupMsg(21L, true, "群友提问"));
+        assertTrue(service.sentMessageTracker.contains(777L));
     }
 
     @Test

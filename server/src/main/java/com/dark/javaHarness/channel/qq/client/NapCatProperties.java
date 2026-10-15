@@ -132,6 +132,9 @@ public class NapCatProperties {
         /** prefix 模式的命令前缀 */
         private String prefix;
 
+        /** 触发方式为 at 时：回复机器人消息（入站 reply 段指向机器人已发消息）是否也触发 */
+        private boolean replyToBot;
+
         public String getMode() {
             return mode;
         }
@@ -146,6 +149,14 @@ public class NapCatProperties {
 
         public void setPrefix(String prefix) {
             this.prefix = prefix;
+        }
+
+        public boolean isReplyToBot() {
+            return replyToBot;
+        }
+
+        public void setReplyToBot(boolean replyToBot) {
+            this.replyToBot = replyToBot;
         }
     }
 
