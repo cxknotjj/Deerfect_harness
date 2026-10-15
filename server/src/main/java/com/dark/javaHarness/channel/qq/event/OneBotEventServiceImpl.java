@@ -12,6 +12,7 @@ import com.dark.javaHarness.channel.qq.persistence.OneBotSessionBinding;
 import com.dark.javaHarness.channel.qq.persistence.OneBotSessionBindingMapper;
 import com.dark.javaHarness.domain.dto.ChatRequest;
 import com.dark.javaHarness.domain.dto.ChatResponse;
+import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.ChatService;
 import com.dark.javaHarness.service.SessionService;
 import java.time.LocalDateTime;
@@ -67,6 +68,8 @@ public class OneBotEventServiceImpl implements OneBotEventService {
 
     private final ChatService chatService;
     private final SessionService sessionService;
+    /** /agent 指令用：只读使用 core 的 AgentService 接口（列表 + 名称→id），由本轮指令授权 */
+    private final AgentService agentService;
     private final OneBotSessionBindingMapper bindingMapper;
     private final NapCatApiClient apiClient;
     private final NapCatProperties props;
@@ -85,11 +88,13 @@ public class OneBotEventServiceImpl implements OneBotEventService {
 
     public OneBotEventServiceImpl(ChatService chatService,
                                   SessionService sessionService,
+                                  AgentService agentService,
                                   OneBotSessionBindingMapper bindingMapper,
                                   NapCatApiClient apiClient,
                                   NapCatProperties props) {
         this.chatService = chatService;
         this.sessionService = sessionService;
+        this.agentService = agentService;
         this.bindingMapper = bindingMapper;
         this.apiClient = apiClient;
         this.props = props;
@@ -213,6 +218,10 @@ public class OneBotEventServiceImpl implements OneBotEventService {
                 handleHistory(event, isGroup, cmd.arg());
                 return true;
             }
+            case "agent" -> {
+                handleAgent(event, isGroup, cmd.arg());
+                return true;
+            }
             default -> {
                 return false;
             }
@@ -248,6 +257,45 @@ public class OneBotEventServiceImpl implements OneBotEventService {
             sb.append('\n').append("user".equals(it.role()) ? "你： " : "我： ").append(truncate(it.content(), 60));
         }
         sendReply(event, isGroup, sb.toString());
+    }
+
+    /** /agent：无参列出 Agent；有参按名称切换（需已有会话绑定） */
+    private void handleAgent(OneBotEvent event, boolean isGroup, String arg) {
+        List<com.dark.javaHarness.domain.dto.AgentItemView> agents = agentService.agentItems();
+        if (arg == null || arg.isBlank()) {
+            sendReply(event, isGroup, "可用 Agent：\n" + formatAgentList(agents));
+            return;
+        }
+        Long targetId = agents.stream()
+                .filter(a -> a.name() != null && a.name().equalsIgnoreCase(arg.trim()))
+                .map(com.dark.javaHarness.domain.dto.AgentItemView::id)
+                .findFirst().orElse(null);
+        if (targetId == null) {
+            sendReply(event, isGroup, "没找到这个 Agent，可用：\n" + formatAgentList(agents));
+            return;
+        }
+        Long sid = boundSessionId(event);
+        if (sid == null) {
+            sendReply(event, isGroup, "先和我说句话建立会话，再切换 Agent 吧。");
+            return;
+        }
+        try {
+            sessionService.switchAgent(String.valueOf(sid), targetId);
+            sendReply(event, isGroup, "已切换到 Agent：" + arg.trim());
+        } catch (IllegalArgumentException e) {
+            sendReply(event, isGroup, "切换失败：" + e.getMessage());
+        }
+    }
+
+    private static String formatAgentList(List<com.dark.javaHarness.domain.dto.AgentItemView> agents) {
+        StringBuilder sb = new StringBuilder();
+        for (var a : agents) {
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append("· ").append(a.name());
+        }
+        return sb.length() == 0 ? "（暂无）" : sb.toString();
     }
 
     /** 会话绑定查询：未建档返回 null */

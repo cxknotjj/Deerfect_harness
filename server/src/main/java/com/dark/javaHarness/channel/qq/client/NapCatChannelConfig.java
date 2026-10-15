@@ -5,6 +5,7 @@ import com.dark.javaHarness.channel.qq.event.OneBotEventService;
 import com.dark.javaHarness.channel.qq.event.OneBotEventServiceImpl;
 import com.dark.javaHarness.channel.qq.persistence.OneBotSessionBindingCleaner;
 import com.dark.javaHarness.channel.qq.persistence.OneBotSessionBindingMapper;
+import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.ChatService;
 import com.dark.javaHarness.service.SessionBindingCleaner;
 import com.dark.javaHarness.service.SessionService;
@@ -55,13 +56,15 @@ public class NapCatChannelConfig {
         return new NapCatApiClientImpl(props, objectMapper);
     }
 
+    /** /agent 指令经 AgentService 只读列举/映射 Agent（core 接口仅使用不修改，由本轮指令授权） */
     @Bean
     public OneBotEventService oneBotEventService(ChatService chatService,
                                                  SessionService sessionService,
+                                                 AgentService agentService,
                                                  OneBotSessionBindingMapper bindingMapper,
                                                  NapCatApiClient apiClient,
                                                  NapCatProperties props) {
-        return new OneBotEventServiceImpl(chatService, sessionService, bindingMapper, apiClient, props);
+        return new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient, props);
     }
 
     /** core 删会话时的绑定清理端口实现（SessionServiceImpl 经 ObjectProvider 可选注入） */

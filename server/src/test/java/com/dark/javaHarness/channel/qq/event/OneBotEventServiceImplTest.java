@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -21,6 +22,7 @@ import com.dark.javaHarness.domain.dto.ChatRequest;
 import com.dark.javaHarness.domain.dto.ChatResponse;
 import com.dark.javaHarness.channel.qq.persistence.OneBotSessionBinding;
 import com.dark.javaHarness.channel.qq.persistence.OneBotSessionBindingMapper;
+import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.ChatService;
 import com.dark.javaHarness.service.SessionService;
 import java.io.IOException;
@@ -55,6 +57,8 @@ class OneBotEventServiceImplTest {
     @Mock
     private SessionService sessionService;
     @Mock
+    private AgentService agentService;
+    @Mock
     private OneBotSessionBindingMapper bindingMapper;
     @Mock
     private NapCatApiClient apiClient;
@@ -74,7 +78,7 @@ class OneBotEventServiceImplTest {
         props.getGroupTrigger().setPrefix("/ai");
         props.getRateLimit().setPerUserSeconds(0);
         props.getReply().setMaxLength(3000);
-        service = new OneBotEventServiceImpl(chatService, sessionService, bindingMapper, apiClient, props);
+        service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient, props);
     }
 
     private static OneBotEvent privateMsg(long messageId, String text) {
@@ -183,7 +187,7 @@ class OneBotEventServiceImplTest {
     void handle_groupChat_rateLimitedSecondMessageDropped() {
         // 限频间隔在服务构造时快照：必须先设间隔再重建 service（setUp 默认 0 = 不限频）
         props.getRateLimit().setPerUserSeconds(10);
-        service = new OneBotEventServiceImpl(chatService, sessionService, bindingMapper, apiClient, props);
+        service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient, props);
         when(bindingMapper.selectOne(any())).thenReturn(binding(3L, "qq:group:" + GID + ":" + UID, 5L));
         stubChatSuccess("回");
         service.handle(groupMsg(30L, true, "第一问"));
@@ -229,7 +233,7 @@ class OneBotEventServiceImplTest {
     void handle_privateChat_rateLimitedSecondMessageDropped() {
         // 私聊同样限频（防陌生人刷 LLM token），与群聊同一间隔口径
         props.getRateLimit().setPerUserSeconds(10);
-        service = new OneBotEventServiceImpl(chatService, sessionService, bindingMapper, apiClient, props);
+        service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient, props);
         when(bindingMapper.selectOne(any())).thenReturn(binding(31L, "qq:private:" + UID, 5L));
         stubChatSuccess("回");
         service.handle(privateMsg(300L, "第一问"));
@@ -241,7 +245,7 @@ class OneBotEventServiceImplTest {
     void handle_privateChat_allowlistBlocksStranger() {
         // 白名单非空时名单外私聊直接丢弃（名单内用户不受影响）
         props.setPrivateAllowUsers("999");
-        service = new OneBotEventServiceImpl(chatService, sessionService, bindingMapper, apiClient, props);
+        service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient, props);
         when(bindingMapper.selectOne(any())).thenReturn(binding(32L, "qq:private:999", 5L));
         stubChatSuccess("主人好");
         service.handle(privateMsg(UID, 310L, "陌生人私聊"));
@@ -306,6 +310,41 @@ class OneBotEventServiceImplTest {
         ArgumentCaptor<List<MessageSegment>> captor = ArgumentCaptor.forClass(List.class);
         verify(apiClient).sendPrivateMsg(eq(UID), captor.capture());
         assertTrue(captor.getValue().get(0).text().contains("聊天记录"));
+    }
+
+    @Test
+    void handle_agentCommand_listsAgents() {
+        when(agentService.agentItems()).thenReturn(List.of(
+                new com.dark.javaHarness.domain.dto.AgentItemView(1L, "general"),
+                new com.dark.javaHarness.domain.dto.AgentItemView(2L, "writer")));
+        service.handle(privateMsg(600L, "/agent"));
+        verify(chatService, never()).chat(any());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MessageSegment>> captor = ArgumentCaptor.forClass(List.class);
+        verify(apiClient).sendPrivateMsg(eq(UID), captor.capture());
+        String text = captor.getValue().get(0).text();
+        assertTrue(text.contains("general") && text.contains("writer"), text);
+    }
+
+    @Test
+    void handle_agentCommand_switchesByName() {
+        when(bindingMapper.selectOne(any())).thenReturn(binding(60L, "qq:private:" + UID, 5L));
+        when(agentService.agentItems()).thenReturn(List.of(
+                new com.dark.javaHarness.domain.dto.AgentItemView(1L, "general"),
+                new com.dark.javaHarness.domain.dto.AgentItemView(2L, "writer")));
+        service.handle(privateMsg(601L, "/agent writer"));
+        verify(sessionService).switchAgent("5", 2L);
+        verify(chatService, never()).chat(any());
+    }
+
+    @Test
+    void handle_agentCommand_unknownNameDoesNotSwitch() {
+        // 绑定查询在此分支不会被触发（未知名称先于绑定解析返回），用 lenient 保留「已有绑定也不切换」的场景
+        lenient().when(bindingMapper.selectOne(any())).thenReturn(binding(61L, "qq:private:" + UID, 5L));
+        when(agentService.agentItems()).thenReturn(List.of(
+                new com.dark.javaHarness.domain.dto.AgentItemView(1L, "general")));
+        service.handle(privateMsg(602L, "/agent 不存在"));
+        verify(sessionService, never()).switchAgent(any(), anyLong());
     }
 
     @Test
@@ -512,7 +551,7 @@ class OneBotEventServiceImplTest {
         props.getEmoji().setProbability(probability);
         props.getEmoji().setSendDelayMs(800);
         props.getEmoji().setCheerEmoji("happy_01");
-        service = new OneBotEventServiceImpl(chatService, sessionService, bindingMapper, apiClient, props);
+        service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient, props);
     }
 
     /** 渐进条间零等待（聚焦表情断言，动态延迟另有 4 用例覆盖） */
