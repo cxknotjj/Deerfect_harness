@@ -209,6 +209,10 @@ public class OneBotEventServiceImpl implements OneBotEventService {
                 sendReply(event, isGroup, HELP_TEXT);
                 return true;
             }
+            case "history" -> {
+                handleHistory(event, isGroup, cmd.arg());
+                return true;
+            }
             default -> {
                 return false;
             }
@@ -221,6 +225,58 @@ public class OneBotEventServiceImpl implements OneBotEventService {
         int deleted = bindingMapper.delete(new QueryWrapper<OneBotSessionBinding>().eq("session_key", key));
         log.info("[napcat] 会话重置 key={}（删除 {} 行绑定）", key, deleted);
         sendReply(event, "group".equals(event.messageType()), "已开启新对话，之前的记忆已清空。");
+    }
+
+    /** /history [n]：回显当前会话最近 n 条（默认 5），不消耗 LLM */
+    private void handleHistory(OneBotEvent event, boolean isGroup, String arg) {
+        Long sid = boundSessionId(event);
+        if (sid == null) {
+            sendReply(event, isGroup, "我们还没有聊天记录哦。");
+            return;
+        }
+        List<com.dark.javaHarness.domain.dto.SessionMessagesView.Item> msgs =
+                sessionService.listMessages(String.valueOf(sid));
+        if (msgs == null || msgs.isEmpty()) {
+            sendReply(event, isGroup, "我们还没有聊天记录哦。");
+            return;
+        }
+        int n = parsePositiveInt(arg, 5);
+        List<com.dark.javaHarness.domain.dto.SessionMessagesView.Item> tail =
+                msgs.subList(Math.max(0, msgs.size() - n), msgs.size());
+        StringBuilder sb = new StringBuilder("最近 " + tail.size() + " 条：");
+        for (var it : tail) {
+            sb.append('\n').append("user".equals(it.role()) ? "你： " : "我： ").append(truncate(it.content(), 60));
+        }
+        sendReply(event, isGroup, sb.toString());
+    }
+
+    /** 会话绑定查询：未建档返回 null */
+    private Long boundSessionId(OneBotEvent event) {
+        OneBotSessionBinding row = bindingMapper.selectOne(
+                new QueryWrapper<OneBotSessionBinding>().eq("session_key", sessionKey(event)));
+        return row == null ? null : row.getSessionId();
+    }
+
+    /** 解析正整数参数（非法/空回默认值） */
+    private static int parsePositiveInt(String arg, int fallback) {
+        if (arg == null || arg.isBlank()) {
+            return fallback;
+        }
+        try {
+            int v = Integer.parseInt(arg.trim());
+            return v > 0 ? v : fallback;
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    /** 单行截断（保留可读性） */
+    private static String truncate(String s, int max) {
+        if (s == null) {
+            return "";
+        }
+        String flat = s.replaceAll("\\s+", " ").trim();
+        return flat.length() <= max ? flat : flat.substring(0, max) + "…";
     }
 
     /** 解析私聊白名单 CSV → Set&lt;Long&gt;（空串/空白 = 不限制；非法项记 warn 跳过） */

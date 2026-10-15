@@ -283,6 +283,32 @@ class OneBotEventServiceImplTest {
     }
 
     @Test
+    void handle_historyCommand_repliesWithRecentMessages() {
+        when(bindingMapper.selectOne(any())).thenReturn(binding(50L, "qq:private:" + UID, 5L));
+        when(sessionService.listMessages("5")).thenReturn(List.of(
+                new com.dark.javaHarness.domain.dto.SessionMessagesView.Item("user", "你好", 1L),
+                new com.dark.javaHarness.domain.dto.SessionMessagesView.Item("assistant", "你好呀", 2L)));
+        service.handle(privateMsg(500L, "/history"));
+        verify(chatService, never()).chat(any());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MessageSegment>> captor = ArgumentCaptor.forClass(List.class);
+        verify(apiClient).sendPrivateMsg(eq(UID), captor.capture());
+        String text = captor.getValue().get(0).text();
+        assertTrue(text.contains("你：") && text.contains("我："), text);
+    }
+
+    @Test
+    void handle_historyCommand_noSessionRepliesHint() {
+        when(bindingMapper.selectOne(any())).thenReturn(null);
+        service.handle(privateMsg(501L, "/history"));
+        verify(chatService, never()).chat(any());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MessageSegment>> captor = ArgumentCaptor.forClass(List.class);
+        verify(apiClient).sendPrivateMsg(eq(UID), captor.capture());
+        assertTrue(captor.getValue().get(0).text().contains("聊天记录"));
+    }
+
+    @Test
     void handle_unknownSlashCommand_fallsThroughToChat() {
         // 未识别指令不拦截：仍走正常聊天
         when(bindingMapper.selectOne(any())).thenReturn(binding(42L, "qq:private:" + UID, 5L));
