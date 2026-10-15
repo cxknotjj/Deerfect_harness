@@ -4,6 +4,7 @@
 
 ## 功能缺口
 
+- [x] **指令化 + 社交增强**：已完成（2026-10-13）。群聊「回复机器人消息」也触发（`napcat.group-trigger.reply-to-bot`，默认 false）+ 指令 `/new` `/reset` `/help` `/history [n]` `/agent [名]` `/recall`（`CommandParser` + `OneBotEventServiceImpl.handleCommand`，`/agent` 只读依赖 core `AgentService`，未改 core）+ 群聊回复首条可 `@提问者`（`napcat.reply.at-asker`，默认 false）+ `/recall` 撤回 + 发送失败自动清理（`napcat.recall.auto-cleanup-enabled`，默认 true）+ 已发消息 id 记录（`SentMessageTracker`，TTL 30min）。数据流见 `channel/data-flow.md` 第四/五节。注：上述新键默认值写在 `NapCatProperties` 内，`application.yaml` 键待补录
 - [ ] **群聊群号白名单**：私聊有 `private-allow-users`，群聊无任何准入控制——任何群 @ 均触发 LLM（现靠 @ 触发 + 10s 限频防刷）。建议加 `group-allow-groups`（CSV，空 = 不限制），与私聊白名单语义对齐；恶意拉群场景兜底
 - [ ] **多媒体消息降级提示**：接收侧只提取 message 数组的 text 段（`OneBotEventServiceImpl.joinTextSegments`），图片/语音/表情包等非文本消息**静默忽略**——群友发图 @ 机器人无任何反馈。至少对 @ 触发但提取不到文本的场景回一句「暂不支持图片/语音消息」
 - [ ] **好友/加群请求处理**：notice/request 类事件现全部静默 ACK（`OneBotEventController`），好友申请需在 QQ 手动同意后才能私聊；可评估自动同意 + 白名单联动
@@ -26,7 +27,7 @@
 ## 安全与治理
 
 - [ ] **上报验签默认启用**：`napcat.event-secret` 默认空 = 跳过 `X-Signature`（HMAC-SHA1）校验，任何人可伪造上报刷 LLM——生产部署必须配置，且与 NapCat httpClients.secret 一致；开发环境维持空可接受
-- [ ] **onebot\_session\_binding 过期清理**：绑定行只增不删（仅 `/reset` 时删除对应行），长期运行无限增长；加定时清理（如 30 天未活跃），harness 侧会话清理策略对齐
+- [ ] **onebot\_session\_binding 过期清理**：绑定行只增不删（仅 `/reset`、`/new` 时删除对应行），长期运行无限增长；加定时清理（如 30 天未活跃），harness 侧会话清理策略对齐
 - [ ] **隧道调试配置固化**：跨机调试的正反向 SSH 隧道命令（API 3000 / WebUI 6099 / 反向上报 8080 三合一）已验证可用，建议固化进 README「QQ 通道」小节备查
 
 ## 体验
