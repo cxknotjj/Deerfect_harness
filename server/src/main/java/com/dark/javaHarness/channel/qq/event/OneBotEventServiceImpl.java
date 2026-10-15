@@ -56,6 +56,15 @@ public class OneBotEventServiceImpl implements OneBotEventService {
     /** 聊天执行池队列上限：满即拒绝（背压丢弃单条消息，与限频丢弃同语义），防无界堆积 */
     private static final int CHAT_QUEUE_CAPACITY = 100;
 
+    /** /help 文案（无 LLM 消耗） */
+    private static final String HELP_TEXT = """
+            可用指令：
+            /new 开启新对话（清空当前会话记忆）
+            /reset 同 /new
+            /history [n] 查看最近 n 条对话（默认 5）
+            /agent 查看可用 Agent
+            /agent <名> 切换当前会话使用的 Agent""";
+
     private final ChatService chatService;
     private final SessionService sessionService;
     private final OneBotSessionBindingMapper bindingMapper;
@@ -133,9 +142,9 @@ public class OneBotEventServiceImpl implements OneBotEventService {
             log.debug("[napcat] 限频丢弃 uid={} gid={}", event.userId(), event.groupId());
             return;
         }
-        // /reset 指令：删除会话绑定（下条消息开启新会话），不消耗 LLM
-        if ("/reset".equalsIgnoreCase(text)) {
-            resetSession(event);
+        // 指令路由：识别 "/xxx"（/reset /new /help /history /agent /recall）；未识别返回 false 交由正常聊天
+        CommandParser.Parsed cmd = CommandParser.parse(text);
+        if (cmd != null && handleCommand(event, isGroup, cmd)) {
             return;
         }
         Long sessionId = bindSession(event, text);
@@ -184,6 +193,25 @@ public class OneBotEventServiceImpl implements OneBotEventService {
         } catch (ExecutionException e) {
             log.warn("[napcat] 聊天执行异常（messageId={}）", event.messageId(), e.getCause());
             return null;
+        }
+    }
+
+    /**
+     * 指令分发：命中并已回复返回 true（调用方据此跳过聊天）；未识别返回 false（交由正常聊天）。
+     */
+    private boolean handleCommand(OneBotEvent event, boolean isGroup, CommandParser.Parsed cmd) {
+        switch (cmd.name()) {
+            case "reset", "new" -> {
+                resetSession(event);
+                return true;
+            }
+            case "help" -> {
+                sendReply(event, isGroup, HELP_TEXT);
+                return true;
+            }
+            default -> {
+                return false;
+            }
         }
     }
 

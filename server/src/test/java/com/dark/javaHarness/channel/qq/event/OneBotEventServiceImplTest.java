@@ -264,6 +264,34 @@ class OneBotEventServiceImplTest {
     }
 
     @Test
+    void handle_helpCommand_listsCommandsWithoutChat() {
+        service.handle(privateMsg(400L, "/help"));
+        verify(chatService, never()).chat(any());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MessageSegment>> captor = ArgumentCaptor.forClass(List.class);
+        verify(apiClient).sendPrivateMsg(eq(UID), captor.capture());
+        assertTrue(captor.getValue().get(0).text().contains("/history"));
+    }
+
+    @Test
+    void handle_newCommand_clearsBindingLikeReset() {
+        service.handle(privateMsg(401L, "/new"));
+        org.mockito.ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<OneBotSessionBinding>> wc =
+                org.mockito.ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.query.QueryWrapper.class);
+        verify(bindingMapper).delete(wc.capture());
+        verify(chatService, never()).chat(any());
+    }
+
+    @Test
+    void handle_unknownSlashCommand_fallsThroughToChat() {
+        // 未识别指令不拦截：仍走正常聊天
+        when(bindingMapper.selectOne(any())).thenReturn(binding(42L, "qq:private:" + UID, 5L));
+        stubChatSuccess("嗯");
+        service.handle(privateMsg(402L, "/foo bar"));
+        verify(chatService).chat(new ChatRequest("/foo bar", "5", null));
+    }
+
+    @Test
     void handle_chatTimeout_givesUpSilently() {
         // 超时放弃回复且静默：防 LLM 卡死占满处理线程池
         props.setChatTimeoutSeconds(1);
