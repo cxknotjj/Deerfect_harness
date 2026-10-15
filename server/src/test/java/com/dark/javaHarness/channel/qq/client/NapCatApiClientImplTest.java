@@ -148,4 +148,32 @@ class NapCatApiClientImplTest {
         client.getLoginInfo();
         assertEquals("http://napcat.local/get_login_info", recorded.get(0)[0]);
     }
+
+    @Test
+    void sendPrivateMsg_returnsMessageId() {
+        String body = "{\"status\":\"ok\",\"retcode\":0,\"data\":{\"message_id\":12345}}";
+        client = newClient(body, 200);
+        Long id = client.sendPrivateMsg(10001L,
+                List.of(new MessageSegment("text", java.util.Map.of("text", "hi"))));
+        assertEquals(12345L, id);
+    }
+
+    @Test
+    void sendPrivateMsg_returnsNullOnBusinessFailure() {
+        String fail = "{\"status\":\"failed\",\"retcode\":1,\"data\":null}";
+        client = newClient(fail, 200);
+        Long id = client.sendPrivateMsg(10001L,
+                List.of(new MessageSegment("text", java.util.Map.of("text", "hi"))));
+        org.junit.jupiter.api.Assertions.assertNull(id);
+    }
+
+    @Test
+    void deleteMsg_buildsDeleteMsgPost() {
+        client = newClient(OK_BODY, 200);
+        client.deleteMsg(555L);
+        String[] req = recorded.get(0);
+        assertEquals("http://napcat.local/delete_msg", req[0]);
+        assertEquals("POST", req[1]);
+        org.junit.jupiter.api.Assertions.assertTrue(req[3].contains("\"message_id\":555"), req[3]);
+    }
 }

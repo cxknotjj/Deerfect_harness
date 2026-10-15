@@ -14,9 +14,12 @@ public interface NapCatApiClient {
     /** 登录信息（启动自检用） */
     ApiResult getLoginInfo();
 
-    /** 私聊发送（segments 通常为单个 text 段） */
-    void sendPrivateMsg(long userId, List<MessageSegment> segments);
+    /** 私聊发送（segments 通常为单个 text 段）；成功返回 message_id，失败返回 null（尽力而为不抛异常） */
+    Long sendPrivateMsg(long userId, List<MessageSegment> segments);
 
-    /** 群聊发送（首段可带 reply 段引用原消息） */
-    void sendGroupMsg(long groupId, List<MessageSegment> segments);
+    /** 群聊发送（首段可带 reply 段引用原消息）；成功返回 message_id，失败返回 null */
+    Long sendGroupMsg(long groupId, List<MessageSegment> segments);
+
+    /** 撤回消息（OneBot delete_msg）：失败只记日志不抛异常 */
+    void deleteMsg(long messageId);
 }

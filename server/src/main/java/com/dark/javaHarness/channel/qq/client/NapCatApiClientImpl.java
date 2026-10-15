@@ -61,20 +61,30 @@ public class NapCatApiClientImpl implements NapCatApiClient, ApplicationRunner {
     }
 
     @Override
-    public void sendPrivateMsg(long userId, List<MessageSegment> segments) {
+    public Long sendPrivateMsg(long userId, List<MessageSegment> segments) {
         ApiResult result = call("send_private_msg", new SendMsgRequest(userId, null, segments));
-        if (result.retcode() == 0) {
-            log.info("[napcat] 已发送私聊消息 user={} text={}（messageId={}）",
-                    userId, preview(segments), sentMessageId(result));
+        Long id = result.retcode() == 0 ? sentMessageId(result) : null;
+        if (id != null) {
+            log.info("[napcat] 已发送私聊消息 user={} text={}（messageId={}）", userId, preview(segments), id);
         }
+        return id;
     }
 
     @Override
-    public void sendGroupMsg(long groupId, List<MessageSegment> segments) {
+    public Long sendGroupMsg(long groupId, List<MessageSegment> segments) {
         ApiResult result = call("send_group_msg", new SendMsgRequest(null, groupId, segments));
+        Long id = result.retcode() == 0 ? sentMessageId(result) : null;
+        if (id != null) {
+            log.info("[napcat] 已发送群聊消息 group={} text={}（messageId={}）", groupId, preview(segments), id);
+        }
+        return id;
+    }
+
+    @Override
+    public void deleteMsg(long messageId) {
+        ApiResult result = call("delete_msg", java.util.Map.of("message_id", messageId));
         if (result.retcode() == 0) {
-            log.info("[napcat] 已发送群聊消息 group={} text={}（messageId={}）",
-                    groupId, preview(segments), sentMessageId(result));
+            log.info("[napcat] 已撤回消息 messageId={}", messageId);
         }
     }
 
@@ -150,10 +160,16 @@ public class NapCatApiClientImpl implements NapCatApiClient, ApplicationRunner {
         return flat.isEmpty() ? "-" : flat.length() <= 80 ? flat : flat.substring(0, 80) + "…";
     }
 
-    /** 发送成功响应里的 message_id（data 为 {message_id: ...} 结构；取不到回 "-"） */
-    private static Object sentMessageId(ApiResult result) {
-        return result.data() instanceof java.util.Map<?, ?> data && data.get("message_id") != null
-                ? data.get("message_id") : "-";
+    /** 发送成功响应里的 message_id（data 为 {message_id: ...}；取不到/非数字回 null） */
+    private static Long sentMessageId(ApiResult result) {
+        if (result.data() instanceof java.util.Map<?, ?> data && data.get("message_id") != null) {
+            try {
+                return Long.valueOf(String.valueOf(data.get("message_id")));
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private static String trimTail(String url) {
