@@ -64,7 +64,8 @@ public class OneBotEventServiceImpl implements OneBotEventService {
             /reset 同 /new
             /history [n] 查看最近 n 条对话（默认 5）
             /agent 查看可用 Agent
-            /agent <名> 切换当前会话使用的 Agent""";
+            /agent <名> 切换当前会话使用的 Agent
+            /recall 撤回机器人上一条消息""";
 
     private final ChatService chatService;
     private final SessionService sessionService;
@@ -152,10 +153,13 @@ public class OneBotEventServiceImpl implements OneBotEventService {
         if (cmd != null && handleCommand(event, isGroup, cmd)) {
             return;
         }
-        Long sessionId = bindSession(event, text);
+        BoundSession session = bindSession(event, text);
         ChatResponse resp;
         try {
-            resp = chatWithTimeout(event, text, sessionId);
+            // 仅本会话「首次建档」那条下发配置 Agent（触发 core 绑定到 session.agent_id）；
+            // 复用旧绑定的后续消息传 null，避免覆盖 /agent 切换的会话 Agent（core 在 agentId!=null 时会重绑）
+            resp = chatWithTimeout(event, text, session.sessionId(),
+                    session.created() ? props.getAgentId() : null);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return;
@@ -172,9 +176,9 @@ public class OneBotEventServiceImpl implements OneBotEventService {
     }
 
     /** 聊天调用（带超时）：超时放弃回复且静默，后台任务跑完仅落会话记忆；超时秒数 0 = 不限制 */
-    private ChatResponse chatWithTimeout(OneBotEvent event, String text, long sessionId)
+    private ChatResponse chatWithTimeout(OneBotEvent event, String text, long sessionId, Long agentIdOverride)
             throws InterruptedException {
-        ChatRequest request = new ChatRequest(text, String.valueOf(sessionId), props.getAgentId());
+        ChatRequest request = new ChatRequest(text, String.valueOf(sessionId), agentIdOverride);
         int timeoutSeconds = props.getChatTimeoutSeconds();
         if (timeoutSeconds <= 0) {
             return chatService.chat(request);
@@ -240,6 +244,7 @@ public class OneBotEventServiceImpl implements OneBotEventService {
             return;
         }
         apiClient.deleteMsg(last);
+        sentMessageTracker.forget(last);
         sendReply(event, isGroup, "已撤回。");
     }
 
@@ -362,13 +367,17 @@ public class OneBotEventServiceImpl implements OneBotEventService {
         return ids;
     }
 
-    /** binding 命中复用，未命中建 harness 会话并落库 */
-    private Long bindSession(OneBotEvent event, String text) {
+    /** 会话绑定结果：sessionId + 是否本次新建（created=true 表示首次建档落库） */
+    private record BoundSession(long sessionId, boolean created) {
+    }
+
+    /** binding 命中复用（created=false），未命中建 harness 会话并落库（created=true） */
+    private BoundSession bindSession(OneBotEvent event, String text) {
         String key = sessionKey(event);
         OneBotSessionBinding row = bindingMapper.selectOne(
                 new QueryWrapper<OneBotSessionBinding>().eq("session_key", key));
         if (row != null) {
-            return row.getSessionId();
+            return new BoundSession(row.getSessionId(), false);
         }
         long sessionId = Long.parseLong(sessionService.createSession("qq:" + event.userId(), text));
         LocalDateTime now = LocalDateTime.now();
@@ -381,7 +390,7 @@ public class OneBotEventServiceImpl implements OneBotEventService {
         entity.setUpdateTime(now);
         bindingMapper.insert(entity);
         log.info("[napcat] 新建会话绑定 key={} -> session={}", key, sessionId);
-        return sessionId;
+        return new BoundSession(sessionId, true);
     }
 
     /** 回复发送：超长按段落边界分段；群聊首条带 reply 段引用原消息；每条 chunk 后接表情钩子 */

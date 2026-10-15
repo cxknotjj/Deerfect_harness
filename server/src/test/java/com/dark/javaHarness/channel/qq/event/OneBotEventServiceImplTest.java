@@ -1,6 +1,7 @@
 package com.dark.javaHarness.channel.qq.event;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -162,6 +163,48 @@ class OneBotEventServiceImplTest {
     }
 
     @Test
+    void handle_privateChat_firstTimeBindsConfiguredAgent() {
+        // 首次建档那条下发配置 Agent（core 据此把 agent_id 绑到新会话）
+        props.setAgentId(10L);
+        when(bindingMapper.selectOne(any())).thenReturn(null);
+        when(sessionService.createSession("qq:" + UID, "你好")).thenReturn("7");
+        stubChatSuccess("你好呀");
+        service.handle(privateMsg(12L, "你好"));
+        ArgumentCaptor<ChatRequest> captor = ArgumentCaptor.forClass(ChatRequest.class);
+        verify(chatService).chat(captor.capture());
+        assertEquals(10L, captor.getValue().agentId(), "首次建档应下发配置 Agent");
+    }
+
+    @Test
+    void handle_privateChat_reusedBindingDoesNotResendAgent() {
+        // 复用旧绑定：不下发 agentId，尊重会话已绑定的 Agent（否则 core 会覆盖回配置值，/agent 切换失效）
+        props.setAgentId(10L);
+        when(bindingMapper.selectOne(any())).thenReturn(binding(13L, "qq:private:" + UID, 5L));
+        stubChatSuccess("嗯");
+        service.handle(privateMsg(13L, "再说一句"));
+        ArgumentCaptor<ChatRequest> captor = ArgumentCaptor.forClass(ChatRequest.class);
+        verify(chatService).chat(captor.capture());
+        assertNull(captor.getValue().agentId(), "复用绑定时不应下发 Agent");
+    }
+
+    @Test
+    void handle_afterAgentSwitch_nextMessageKeepsSessionBinding() {
+        // /agent 切换后再来消息仍不下发 agentId：使切换持久生效（不被配置值静默回退）
+        props.setAgentId(10L);
+        when(bindingMapper.selectOne(any())).thenReturn(binding(14L, "qq:private:" + UID, 5L));
+        when(agentService.agentItems()).thenReturn(List.of(
+                new com.dark.javaHarness.domain.dto.AgentItemView(1L, "general"),
+                new com.dark.javaHarness.domain.dto.AgentItemView(2L, "writer")));
+        stubChatSuccess("嗯");
+        service.handle(privateMsg(14L, "/agent writer"));
+        service.handle(privateMsg(15L, "切换后继续聊"));
+        verify(sessionService).switchAgent("5", 2L);
+        ArgumentCaptor<ChatRequest> captor = ArgumentCaptor.forClass(ChatRequest.class);
+        verify(chatService).chat(captor.capture());
+        assertNull(captor.getValue().agentId(), "切换后的下一轮消息不应回退到配置 Agent");
+    }
+
+    @Test
     void handle_groupChat_requiresAtSegment() {
         service.handle(groupMsg(20L, false, "没人理我"));
         verifyNoInteractions(chatService, apiClient);
@@ -304,6 +347,7 @@ class OneBotEventServiceImplTest {
         ArgumentCaptor<List<MessageSegment>> captor = ArgumentCaptor.forClass(List.class);
         verify(apiClient).sendPrivateMsg(eq(UID), captor.capture());
         assertTrue(captor.getValue().get(0).text().contains("/history"));
+        assertTrue(captor.getValue().get(0).text().contains("/recall"), "帮助文案应列出 /recall");
     }
 
     @Test
@@ -706,6 +750,22 @@ class OneBotEventServiceImplTest {
         ArgumentCaptor<List<MessageSegment>> captor = ArgumentCaptor.forClass(List.class);
         verify(apiClient).sendPrivateMsg(eq(UID), captor.capture());
         assertTrue(captor.getValue().get(0).text().contains("撤回"));
+    }
+
+    @Test
+    void handle_recallCommand_secondRecallHasNothingLeft() {
+        // 撤回成功后应从 tracker 移除该 id：连续第二次不再对同一 id delete，改回「没有可撤回的消息。」
+        // （回复发送桩为 null：避免「已撤回。」这条确认消息自身被记为新 id 而污染场景）
+        when(apiClient.sendPrivateMsg(eq(UID), any())).thenReturn((Long) null);
+        service.sentMessageTracker.record("private:" + UID, 223L);
+        service.handle(privateMsg(810L, "/recall"));
+        service.handle(privateMsg(811L, "/recall"));
+        verify(apiClient, times(1)).deleteMsg(223L);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MessageSegment>> captor = ArgumentCaptor.forClass(List.class);
+        verify(apiClient, times(2)).sendPrivateMsg(eq(UID), captor.capture());
+        assertTrue(captor.getAllValues().get(0).get(0).text().contains("已撤回"));
+        assertTrue(captor.getAllValues().get(1).get(0).text().contains("没有可撤回"));
     }
 
     @Test

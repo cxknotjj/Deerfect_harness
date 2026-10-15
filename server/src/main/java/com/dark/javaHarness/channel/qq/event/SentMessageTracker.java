@@ -48,4 +48,11 @@ public class SentMessageTracker {
         Long id = lastByTarget.get(targetKey);
         return id != null && contains(id) ? id : null;
     }
+
+    /** /recall 撤回后移除该 id（lastId 用 contains 兜底，移除后不再命中同一 id，避免重复 delete） */
+    public void forget(Long messageId) {
+        if (messageId != null) {
+            sent.remove(messageId);
+        }
+    }
 }
