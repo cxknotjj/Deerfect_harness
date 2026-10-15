@@ -127,9 +127,9 @@ sequenceDiagram
 
 ### 配置默认值落点
 
-新增键的默认值写在 `NapCatProperties` 内（见下表）；**`application.yaml` 键的真实补录超出本轮改动范围**（本轮限定仅改 `channel/**`），待后续在 `application.yaml` 的 `napcat` 块增补。
+QQ 渠道配置（`napcat.*`）位于 **`application-qq.yaml`**（自 `application.yaml` 经 `spring.config.import: classpath:application-qq.yaml` 引入，不依赖 profile 激活）；三个新键已在其中显式声明，`NapCatProperties` 侧零默认值。
 
-| 键 | 类型 | 默认值（`NapCatProperties` 内） | 说明 |
+| 键 | 类型 | `application-qq.yaml` 显式值 | 说明 |
 |---|---|---|---|
 | `napcat.group-trigger.reply-to-bot` | boolean | `false` | at 模式下，回复机器人消息是否也触发 |
 | `napcat.reply.at-asker` | boolean | `false` | 群聊回复首条是否 @ 提问者 |

@@ -7,7 +7,8 @@ import java.util.List;
 /**
  * QQ 渠道（NapCat / OneBot 11）配置（napcat.*）。
  *
- * <p>数值唯一来源是 application.yaml（napcat 块）——本类只做绑定载体，零默认值；
+ * <p>数值唯一来源是 application-qq.yaml（napcat 块，自 application.yaml 经
+ * spring.config.import 引入）——本类只做绑定载体，零默认值；
  * token/secret 走 {@code ${ENV_VAR:}} 环境变量不落 git。{@code enabled=false} 时
  * NapCatChannelConfig 整链不装配（无端点、无线程池、无出站客户端）。
  */
@@ -185,7 +186,7 @@ public class NapCatProperties {
         private int maxLength;
         private int splitChars;
         private boolean progressive;
-        /** 群聊回复首条是否 @ 提问者（防刷屏，默认关；详见 application.yaml） */
+        /** 群聊回复首条是否 @ 提问者（防刷屏，默认关；详见 application-qq.yaml） */
         private boolean atAsker;
         /** 动态条间延迟基础值（毫秒）：实际延迟 = 基础值 + 字数 × delay-factor + 随机扰动 */
         private int interChunkDelayMs;
@@ -274,8 +275,8 @@ public class NapCatProperties {
     /** 撤回行为控制 */
     public static class Recall {
 
-        /** 发送失败自动清理：本条回复出现「已有成功分片 + 后续分片失败」时，撤回本次已发分片；默认开 */
-        private boolean autoCleanupEnabled = true;
+        /** 发送失败自动清理：本条回复出现「已有成功分片 + 后续分片失败」时，撤回本次已发分片；数值唯一来源 application-qq.yaml（默认开） */
+        private boolean autoCleanupEnabled;
 
         public boolean isAutoCleanupEnabled() {
             return autoCleanupEnabled;
@@ -287,7 +288,7 @@ public class NapCatProperties {
     }
 
     /**
-     * 表情包发送（napcat.emoji.*）：行为开关与路径配置（数值唯一来源仍是 application.yaml，
+     * 表情包发送（napcat.emoji.*）：行为开关与路径配置（数值唯一来源仍是 application-qq.yaml，
      * 零默认值）；情绪-表情映射表本身不放 yaml，独立为 index-file 指向的 JSON 文件。
      * {@code enabled=false} 时整个模块零行为（不读映射文件/目录、不检测、不发送）。
      */

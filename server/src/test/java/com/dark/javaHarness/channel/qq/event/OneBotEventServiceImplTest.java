@@ -772,6 +772,7 @@ class OneBotEventServiceImplTest {
     void handle_sendFailure_cleansUpAlreadySentChunks() {
         props.getReply().setProgressive(false);
         props.getReply().setMaxLength(5);          // "aaa\n\nbbb" → 两片
+        props.getRecall().setAutoCleanupEnabled(true); // 生产默认开（application-qq.yaml）；测试显式设置
         when(bindingMapper.selectOne(any())).thenReturn(binding(80L, "qq:private:" + UID, 5L));
         stubChatSuccess("aaa\n\nbbb");
         when(apiClient.sendPrivateMsg(eq(UID), any())).thenReturn(111L, (Long) null); // 首片成功、次片失败

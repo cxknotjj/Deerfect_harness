@@ -135,7 +135,7 @@ public class NapCatApiClientImpl implements NapCatApiClient, ApplicationRunner {
                 log.info("[napcat] 启动自检通过：NapCat 可达（{}）", props.getApiBaseUrl());
             } else {
                 log.warn("[napcat] 启动自检失败：retcode={}（QQ 发送将不可用，检查 NapCat/token；"
-                        + "不接入 QQ 渠道时可在 application.yaml 设 napcat.enabled=false 关闭本告警）",
+                        + "不接入 QQ 渠道时可在 application-qq.yaml 设 napcat.enabled=false 关闭本告警）",
                         result.retcode());
             }
         } catch (Exception e) {
