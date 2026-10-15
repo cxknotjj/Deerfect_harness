@@ -383,9 +383,15 @@ public class OneBotEventServiceImpl implements OneBotEventService {
                 return; // 等待被中断（executor 停机）：停止后续发送，已发部分保留
             }
             List<MessageSegment> segments = new ArrayList<>();
-            if (isGroup && i == 0 && event.messageId() != null) {
-                segments.add(new MessageSegment("reply",
-                        Map.of("message_id", event.messageId())));
+            if (isGroup && i == 0) {
+                if (event.messageId() != null) {
+                    segments.add(new MessageSegment("reply",
+                            Map.of("message_id", event.messageId())));
+                }
+                if (props.getReply().isAtAsker()) {
+                    segments.add(new MessageSegment("at",
+                            Map.of("qq", String.valueOf(event.userId()))));
+                }
             }
             segments.add(new MessageSegment("text", Map.of("text", chunks.get(i))));
             sendSegments(event, isGroup, segments);

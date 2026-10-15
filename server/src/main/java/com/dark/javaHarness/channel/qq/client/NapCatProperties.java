@@ -180,6 +180,8 @@ public class NapCatProperties {
         private int maxLength;
         private int splitChars;
         private boolean progressive;
+        /** 群聊回复首条是否 @ 提问者（防刷屏，默认关；详见 application.yaml） */
+        private boolean atAsker;
         /** 动态条间延迟基础值（毫秒）：实际延迟 = 基础值 + 字数 × delay-factor + 随机扰动 */
         private int interChunkDelayMs;
         private int maxChunks;
@@ -210,6 +212,14 @@ public class NapCatProperties {
 
         public void setProgressive(boolean progressive) {
             this.progressive = progressive;
+        }
+
+        public boolean isAtAsker() {
+            return atAsker;
+        }
+
+        public void setAtAsker(boolean atAsker) {
+            this.atAsker = atAsker;
         }
 
         public int getInterChunkDelayMs() {

@@ -184,6 +184,35 @@ class OneBotEventServiceImplTest {
     }
 
     @Test
+    void handle_groupReply_atAskerSegmentPrepended() {
+        props.getReply().setAtAsker(true);
+        props.getReply().setProgressive(false);
+        when(bindingMapper.selectOne(any())).thenReturn(binding(70L, "qq:group:" + GID + ":" + UID, 9L));
+        stubChatSuccess("群答");
+        service.handle(groupMsg(700L, true, "群问"));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MessageSegment>> captor = ArgumentCaptor.forClass(List.class);
+        verify(apiClient).sendGroupMsg(eq(GID), captor.capture());
+        List<MessageSegment> segs = captor.getValue();
+        assertEquals("reply", segs.get(0).type());
+        assertEquals("at", segs.get(1).type(), "reply 段之后、text 段之前插入 at");
+        assertEquals(String.valueOf(UID), segs.get(1).qq());
+        assertEquals("text", segs.get(2).type());
+    }
+
+    @Test
+    void handle_groupReply_atAskerOff_noAtSegment() {
+        props.getReply().setProgressive(false);
+        when(bindingMapper.selectOne(any())).thenReturn(binding(71L, "qq:group:" + GID + ":" + UID, 9L));
+        stubChatSuccess("群答");
+        service.handle(groupMsg(701L, true, "群问"));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MessageSegment>> captor = ArgumentCaptor.forClass(List.class);
+        verify(apiClient).sendGroupMsg(eq(GID), captor.capture());
+        assertTrue(captor.getValue().stream().noneMatch(s -> "at".equals(s.type())));
+    }
+
+    @Test
     void handle_groupChat_rateLimitedSecondMessageDropped() {
         // 限频间隔在服务构造时快照：必须先设间隔再重建 service（setUp 默认 0 = 不限频）
         props.getRateLimit().setPerUserSeconds(10);
