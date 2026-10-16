@@ -18,7 +18,6 @@ import com.dark.javaHarness.channel.qq.client.NapCatProperties;
 import com.dark.javaHarness.channel.qq.dto.MessageSegment;
 import com.dark.javaHarness.channel.qq.dto.OneBotEvent;
 import com.dark.javaHarness.channel.qq.reply.EmojiReplies;
-import com.dark.javaHarness.channel.qq.reply.ReplySplitter;
 import com.dark.javaHarness.domain.dto.ChatRequest;
 import com.dark.javaHarness.domain.dto.ChatResponse;
 import com.dark.javaHarness.channel.qq.persistence.OneBotSessionBinding;
@@ -30,7 +29,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -44,7 +42,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
  * OneBotEventServiceImpl 单测：自消息过滤、群聊 @ 触发（message 数组为准）、
- * 限频丢弃、会话绑定复用/新建、FAILED 静默、超长分段。
+ * 限频丢弃、会话绑定复用/新建、FAILED 静默、超长截断（整段单条发送）。
  */
 @ExtendWith(MockitoExtension.class)
 class OneBotEventServiceImplTest {
@@ -229,7 +227,6 @@ class OneBotEventServiceImplTest {
     @Test
     void handle_groupReply_atAskerSegmentPrepended() {
         props.getReply().setAtAsker(true);
-        props.getReply().setProgressive(false);
         when(bindingMapper.selectOne(any())).thenReturn(binding(70L, "qq:group:" + GID + ":" + UID, 9L));
         stubChatSuccess("群答");
         service.handle(groupMsg(700L, true, "群问"));
@@ -245,7 +242,6 @@ class OneBotEventServiceImplTest {
 
     @Test
     void handle_groupReply_atAskerOff_noAtSegment() {
-        props.getReply().setProgressive(false);
         when(bindingMapper.selectOne(any())).thenReturn(binding(71L, "qq:group:" + GID + ":" + UID, 9L));
         stubChatSuccess("群答");
         service.handle(groupMsg(701L, true, "群问"));
@@ -454,58 +450,18 @@ class OneBotEventServiceImplTest {
     }
 
     @Test
-    void handle_longReplySplitByParagraphBoundary() {
+    void handle_overlongReplyTruncatedSingleMessage() {
+        // 超长回复：整段单条发送且被截断（trim 后取前 max 字 + …），不再分段
         props.getReply().setMaxLength(5);
         when(bindingMapper.selectOne(any())).thenReturn(binding(5L, "qq:private:" + UID, 5L));
         stubChatSuccess("aaa\n\nbbb");
         service.handle(privateMsg(50L, "长回复"));
-        verify(apiClient, times(2)).sendPrivateMsg(eq(UID), any());
-    }
-
-    @Test
-    void splitReply_unsplittableParagraphSentWhole() {
-        // 无换行无标点：层级切不动 → 原样单条发送（不再字符硬切）
-        assertEquals(List.of("12345678"), ReplySplitter.splitReply("12345678", 5));
-    }
-
-    @Test
-    void splitOversizedBlock_descendsLineThenSentence() {
-        // 换行层：整块超长 → 按行拆
-        assertEquals(List.of("aaa", "bbb"), ReplySplitter.splitOversizedBlock("aaa\nbbb", 5));
-        // 句子层：无换行但有句末标点 → 按句拆，标点保留在句尾
-        assertEquals(List.of("你好。", "世界！"), ReplySplitter.splitOversizedBlock("你好。世界！", 5));
-        // 切不动：无换行无标点 → 原样（不硬切）
-        assertEquals(List.of("12345678"), ReplySplitter.splitOversizedBlock("12345678", 5));
-        // 未超长原样
-        assertEquals(List.of("abc"), ReplySplitter.splitOversizedBlock("abc", 5));
-    }
-
-    @Test
-    void splitProgressive_oversizedParagraphDescendsWithoutHardCut() {
-        // 单段超长：句末标点断句，标点留在句尾；两句各自成条（即使单句仍超 max 也不硬切）
-        assertEquals(List.of("今天天气真好。", "明天会更好！"),
-                ReplySplitter.splitProgressive("今天天气真好。明天会更好！", 5, 0));
-        // 无标点切不动 → 整块单条
-        assertEquals(List.of("12345678"), ReplySplitter.splitProgressive("12345678", 5, 0));
-    }
-
-    @Test
-    void splitProgressive_fineGranularity_descendsAllBoundaries() {
-        // 40 字粒度（贴近生产配置）：无空行的多行多句回答也按 \n / 。！？逐条
-        String reply = "今天天气真不错呀，适合出门玩耍。\n下午我们要一起去公园吗？\n晚上记得早点回来吃饭！";
-        assertEquals(List.of("今天天气真不错呀，适合出门玩耍。", "下午我们要一起去公园吗？", "晚上记得早点回来吃饭！"),
-                ReplySplitter.splitProgressive(reply, 20, 0));
-        // 单句 15 字 ≤ 粒度阈值 → 原样单条
-        assertEquals(List.of("这是一句没有换行的短话。"), ReplySplitter.splitProgressive("这是一句没有换行的短话。", 20, 0));
-        // 无空行无换行但超阈值 → 按句末标点切
-        assertEquals(List.of("先说第一句话。", "然后是第二句话，带个逗号但不影响。"),
-                ReplySplitter.splitProgressive("先说第一句话。然后是第二句话，带个逗号但不影响。", 10, 0));
-    }
-
-    @Test
-    void splitReply_noLimitWhenZero() {
-        assertEquals(List.of("一整段不切"), ReplySplitter.splitReply("一整段不切", 0));
-        assertTrue(ReplySplitter.splitReply(null, 100).get(0).isEmpty());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MessageSegment>> captor = ArgumentCaptor.forClass(List.class);
+        verify(apiClient, times(1)).sendPrivateMsg(eq(UID), captor.capture());
+        String text = captor.getValue().get(0).text();
+        assertEquals("aaa\n\n…", text);
+        assertTrue(text.endsWith("…"), text);
     }
 
     @Test
@@ -515,96 +471,13 @@ class OneBotEventServiceImplTest {
         verify(chatService, never()).chat(any());
     }
 
-    @Test
-    void splitProgressive_multiParagraph_alwaysSplitsByParagraph() {
-        // 渐进拆分不设总长门槛：正常长度的多段回答也按段逐条（区别于 splitReply 的超长门槛）
-        assertEquals(List.of("第一段", "第二段", "第三段"),
-                ReplySplitter.splitProgressive("第一段\n\n第二段\n\n第三段", 3000, 4));
-        // 单段回答 = 单条（与关闭渐进一致）
-        assertEquals(List.of("只有一段"), ReplySplitter.splitProgressive("只有一段", 3000, 4));
-        // 超过 maxChunks：尾部段落合并为最后一条
-        assertEquals(List.of("一", "二", "三\n\n四\n\n五"),
-                ReplySplitter.splitProgressive("一\n\n二\n\n三\n\n四\n\n五", 3000, 3));
-        // maxChunks = 0 不限制
-        assertEquals(List.of("一", "二", "三"),
-                ReplySplitter.splitProgressive("一\n\n二\n\n三", 3000, 0));
-    }
-
-    @Test
-    void handle_progressiveMultiParagraph_sendsChunksWithDelayBetween() {
-        props.getReply().setProgressive(true);
-        props.getReply().setInterChunkDelayMs(500); // 动态延迟基础值
-        props.getReply().setDelayFactor(0.1);       // 0.1 秒/字
-        props.getReply().setJitterRangeMs(0);
-        props.getReply().setMaxChunks(4);
-        List<Long> pauses = new ArrayList<>();
-        service.chunkPause = pauses::add; // 注入记录器避免真 sleep
-        when(bindingMapper.selectOne(any())).thenReturn(binding(5L, "qq:private:" + UID, 5L));
-        stubChatSuccess("第一段。\n\n第二段。\n\n第三段。");
-        service.handle(privateMsg(70L, "问"));
-        verify(apiClient, times(3)).sendPrivateMsg(eq(UID), any());
-        // 首条不等待；条间动态延迟 = 基础 500ms + 字数×0.1s（每条 4 字 → 900ms，无扰动）
-        assertEquals(List.of(900L, 900L), pauses);
-    }
-
-    @Test
-    void handle_progressiveDisabled_singleMessageNoDelay() {
-        // 关闭渐进 = 原行为：多段短回答整包一条发送，零等待（动态延迟只在渐进路径生效）
-        props.getReply().setProgressive(false);
-        props.getReply().setInterChunkDelayMs(1200);
-        props.getReply().setDelayFactor(0.1);
-        props.getReply().setJitterRangeMs(300);
-        List<Long> pauses = new ArrayList<>();
-        service.chunkPause = pauses::add;
-        when(bindingMapper.selectOne(any())).thenReturn(binding(5L, "qq:private:" + UID, 5L));
-        stubChatSuccess("第一段。\n\n第二段。");
-        service.handle(privateMsg(71L, "问"));
-        verify(apiClient, times(1)).sendPrivateMsg(eq(UID), any());
-        assertTrue(pauses.isEmpty());
-    }
-
-    @Test
-    void handle_progressive_dynamicDelayJitterStaysInFormulaRange() {
-        // 扰动 ±300ms：4 字条延迟 = 500 + 400 ± 300 → 每次等待都应落在 [600, 1200]
-        props.getReply().setProgressive(true);
-        props.getReply().setInterChunkDelayMs(500);
-        props.getReply().setDelayFactor(0.1);
-        props.getReply().setJitterRangeMs(300);
-        List<Long> pauses = new ArrayList<>();
-        service.chunkPause = pauses::add;
-        when(bindingMapper.selectOne(any())).thenReturn(binding(5L, "qq:private:" + UID, 5L));
-        stubChatSuccess("第一段。\n\n第二段。\n\n第三段。");
-        service.handle(privateMsg(72L, "问"));
-        assertEquals(2, pauses.size());
-        for (long p : pauses) {
-            assertTrue(p >= 600 && p <= 1200, "延迟应落在公式区间内: " + p);
-        }
-    }
-
-    @Test
-    void handle_progressive_dynamicDelayCappedByMaxDelayMs() {
-        // 超长无标点块（层级切不动原样成片，2000 字）：字数延迟巨大 → 被 max-delay-ms 截断，防分钟级停顿
-        props.getReply().setProgressive(true);
-        props.getReply().setInterChunkDelayMs(500);
-        props.getReply().setDelayFactor(0.1);
-        props.getReply().setJitterRangeMs(0);
-        props.getReply().setMaxDelayMs(1000);
-        List<Long> pauses = new ArrayList<>();
-        service.chunkPause = pauses::add;
-        when(bindingMapper.selectOne(any())).thenReturn(binding(5L, "qq:private:" + UID, 5L));
-        stubChatSuccess("短。\n\n" + "长".repeat(2000));
-        service.handle(privateMsg(73L, "问"));
-        verify(apiClient, times(2)).sendPrivateMsg(eq(UID), any());
-        assertEquals(List.of(1000L), pauses);
-    }
-
     // ==================== 表情包发送钩子（napcat.emoji） ====================
 
     /**
      * 开启表情模块：写真实图片与映射 JSON、配置 napcat.emoji 后重建 service
-     * （EmojiReplies 在构造时加载映射，必须先配置再建 service）。
+     * （EmojiReplies 在构造时加载映射，必须先配置再建 service）；send-delay-ms=0 免停顿。
      */
-    private void enableEmoji(int maxPerReply, double probability) throws IOException {
+    private void enableEmoji(double probability) throws IOException {
         Path emojis = Files.createDirectories(tempDir.resolve("emojis"));
         Files.writeString(emojis.resolve("开心转圈.gif"), "gif");
         Files.writeString(emojis.resolve("流泪猫猫头.png"), "png");
@@ -620,75 +493,35 @@ class OneBotEventServiceImplTest {
         props.getEmoji().setEnabled(true);
         props.getEmoji().setDir(emojis.toString());
         props.getEmoji().setIndexFile(index.toString());
-        props.getEmoji().setMaxPerReply(maxPerReply);
         props.getEmoji().setProbability(probability);
-        props.getEmoji().setSendDelayMs(800);
+        props.getEmoji().setSendDelayMs(0);
         props.getEmoji().setCheerEmoji("happy_01");
         service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient, props);
     }
 
-    /** 渐进条间零等待（聚焦表情断言，动态延迟另有 4 用例覆盖） */
-    private void disableHumanDelays() {
-        props.getReply().setProgressive(true);
-        props.getReply().setInterChunkDelayMs(0);
-        props.getReply().setDelayFactor(0);
-        props.getReply().setJitterRangeMs(0);
-        service.chunkPause = millis -> true;
-    }
-
     @Test
-    void handle_progressive_emojiSentAfterHittingChunkInOrder() throws IOException {
-        // 动态延迟保留公式值，用于断言「表情前停顿 = send-delay-ms」被记录在正确位置
-        props.getReply().setProgressive(true);
-        props.getReply().setInterChunkDelayMs(500);
-        props.getReply().setDelayFactor(0.1);
-        props.getReply().setJitterRangeMs(0);
-        enableEmoji(0, 1.0);
-        List<Long> pauses = new ArrayList<>();
-        service.chunkPause = pauses::add; // 必须在重建 service 之后注入（构造会重置为真 sleep 实现）
+    void handle_emojiSentAfterTextInOrder() throws IOException {
+        enableEmoji(1.0);
+        service.pauseHook = millis -> true; // 注入免真 sleep（send-delay-ms=0，仍会调用钩子）
         when(bindingMapper.selectOne(any())).thenReturn(binding(5L, "qq:private:" + UID, 5L));
-        stubChatSuccess("第一段。\n\n太激动了！\n\n第三段。");
+        stubChatSuccess("太激动了！");
         service.handle(privateMsg(80L, "问"));
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<MessageSegment>> captor = ArgumentCaptor.forClass(List.class);
-        verify(apiClient, times(4)).sendPrivateMsg(eq(UID), captor.capture());
+        verify(apiClient, times(2)).sendPrivateMsg(eq(UID), captor.capture());
         List<List<MessageSegment>> calls = captor.getAllValues();
-        // 发送顺序：chunk1 → chunk2 → 表情 → chunk3（第 2 条含 tag「激动」）
+        // 发送顺序：整段 text → image（命中 tag「激动」）
         assertEquals("text", calls.get(0).get(0).type());
-        assertEquals("第一段。", calls.get(0).get(0).text());
-        assertEquals("text", calls.get(1).get(0).type());
-        assertEquals("太激动了！", calls.get(1).get(0).text());
-        assertEquals("image", calls.get(2).get(0).type());
-        String file = String.valueOf(calls.get(2).get(0).data().get("file"));
+        assertEquals("太激动了！", calls.get(0).get(0).text());
+        assertEquals("image", calls.get(1).get(0).type());
+        String file = String.valueOf(calls.get(1).get(0).data().get("file"));
         assertEquals("base64://" + Base64.getEncoder().encodeToString("gif".getBytes(StandardCharsets.UTF_8)),
                 file);
-        assertEquals("text", calls.get(3).get(0).type());
-        assertEquals("第三段。", calls.get(3).get(0).text());
-        // 停顿顺序：chunk2 前动态延迟（5 字 → 1000）→ 表情前 send-delay（800）→ chunk3 前动态延迟（4 字 → 900）
-        assertEquals(List.of(1000L, 800L, 900L), pauses);
-    }
-
-    @Test
-    void handle_progressive_emojiLimitedByMaxPerReply() throws IOException {
-        disableHumanDelays();
-        enableEmoji(1, 1.0);
-        when(bindingMapper.selectOne(any())).thenReturn(binding(6L, "qq:private:" + UID, 5L));
-        // 3 条 chunk 全部命中 tag，但 max-per-reply=1 → 仅第 1 个命中的 chunk 后发一张
-        stubChatSuccess("好开心呀。\n\n好难过呀。\n\n在吗在吗。");
-        service.handle(privateMsg(81L, "问"));
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<MessageSegment>> captor = ArgumentCaptor.forClass(List.class);
-        verify(apiClient, times(4)).sendPrivateMsg(eq(UID), captor.capture());
-        List<List<MessageSegment>> calls = captor.getAllValues();
-        // 顺序：chunk1 → 表情（限流内第 1 张）→ chunk2 → chunk3（后两个命中被限流跳过）
-        assertEquals(List.of("text", "image", "text", "text"),
-                calls.stream().map(l -> l.get(0).type()).toList());
     }
 
     @Test
     void handle_emojiProbabilityZero_neverSent() throws IOException {
-        disableHumanDelays();
-        enableEmoji(0, 0.0);
+        enableEmoji(0.0);
         when(bindingMapper.selectOne(any())).thenReturn(binding(7L, "qq:private:" + UID, 5L));
         stubChatSuccess("好开心呀。");
         service.handle(privateMsg(82L, "问"));
@@ -700,8 +533,8 @@ class OneBotEventServiceImplTest {
 
     @Test
     void handle_groupChat_emojiSentViaGroupApi() throws IOException {
-        disableHumanDelays();
-        enableEmoji(0, 1.0);
+        enableEmoji(1.0);
+        service.pauseHook = millis -> true;
         when(bindingMapper.selectOne(any())).thenReturn(binding(9L, "qq:group:" + GID + ":" + UID, 5L));
         stubChatSuccess("好开心呀。");
         service.handle(groupMsg(90L, true, "群问"));
@@ -717,9 +550,8 @@ class OneBotEventServiceImplTest {
 
     @Test
     void handle_emojiHookFailure_doesNotAffectTextSending() throws IOException {
-        disableHumanDelays();
-        enableEmoji(0, 1.0);
-        // 表情模块整体异常：钩子吞掉，文本 chunk 照常全部发出
+        enableEmoji(1.0);
+        // 表情模块整体异常：钩子吞掉，文本照常发出（整段单条）
         service.emojiReplies = new EmojiReplies(props) {
             @Override
             public MessageSegment pickFor(String chunkText) {
@@ -727,12 +559,12 @@ class OneBotEventServiceImplTest {
             }
         };
         when(bindingMapper.selectOne(any())).thenReturn(binding(8L, "qq:private:" + UID, 5L));
-        stubChatSuccess("第一段。\n\n第二段。");
+        stubChatSuccess("第一段。");
         service.handle(privateMsg(83L, "问"));
-        verify(apiClient, times(2)).sendPrivateMsg(eq(UID), any());
+        verify(apiClient, times(1)).sendPrivateMsg(eq(UID), any());
     }
 
-    // ==================== /recall 撤回 + 发送失败自动清理（napcat.recall） ====================
+    // ==================== /recall 撤回（napcat.recall 配置已随分段移除） ====================
 
     @Test
     void handle_recallCommand_deletesLastSentMessage() {
@@ -766,31 +598,5 @@ class OneBotEventServiceImplTest {
         verify(apiClient, times(2)).sendPrivateMsg(eq(UID), captor.capture());
         assertTrue(captor.getAllValues().get(0).get(0).text().contains("已撤回"));
         assertTrue(captor.getAllValues().get(1).get(0).text().contains("没有可撤回"));
-    }
-
-    @Test
-    void handle_sendFailure_cleansUpAlreadySentChunks() {
-        props.getReply().setProgressive(false);
-        props.getReply().setMaxLength(5);          // "aaa\n\nbbb" → 两片
-        props.getRecall().setAutoCleanupEnabled(true); // 生产默认开（application-qq.yaml）；测试显式设置
-        when(bindingMapper.selectOne(any())).thenReturn(binding(80L, "qq:private:" + UID, 5L));
-        stubChatSuccess("aaa\n\nbbb");
-        when(apiClient.sendPrivateMsg(eq(UID), any())).thenReturn(111L, (Long) null); // 首片成功、次片失败
-        service.handle(privateMsg(802L, "长回复"));
-        verify(apiClient, times(2)).sendPrivateMsg(eq(UID), any());
-        verify(apiClient).deleteMsg(111L);          // 撤回已发的首片
-    }
-
-    @Test
-    void handle_sendFailure_cleanupDisabled_keepsChunks() {
-        props.getReply().setProgressive(false);
-        props.getReply().setMaxLength(5);
-        props.getRecall().setAutoCleanupEnabled(false);
-        service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient, props);
-        when(bindingMapper.selectOne(any())).thenReturn(binding(81L, "qq:private:" + UID, 5L));
-        stubChatSuccess("aaa\n\nbbb");
-        when(apiClient.sendPrivateMsg(eq(UID), any())).thenReturn(111L, (Long) null);
-        service.handle(privateMsg(803L, "长回复"));
-        verify(apiClient, never()).deleteMsg(anyLong());
     }
 }

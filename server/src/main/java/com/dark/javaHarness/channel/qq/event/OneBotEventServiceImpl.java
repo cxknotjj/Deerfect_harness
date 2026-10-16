@@ -6,7 +6,6 @@ import com.dark.javaHarness.channel.qq.client.NapCatProperties;
 import com.dark.javaHarness.channel.qq.dto.MessageSegment;
 import com.dark.javaHarness.channel.qq.dto.OneBotEvent;
 import com.dark.javaHarness.channel.qq.reply.EmojiReplies;
-import com.dark.javaHarness.channel.qq.reply.ReplySplitter;
 import com.dark.javaHarness.channel.qq.reply.UserRateLimiter;
 import com.dark.javaHarness.channel.qq.persistence.OneBotSessionBinding;
 import com.dark.javaHarness.channel.qq.persistence.OneBotSessionBindingMapper;
@@ -26,7 +25,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -36,7 +34,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * 上报事件处理实现：过滤 → 白名单/触发/限频 → 会话绑定 → 直调 ChatService → 分段回复。
+ * 上报事件处理实现：过滤 → 白名单/触发/限频 → 会话绑定 → 直调 ChatService → 整段回复。
  *
  * <p>会话键：私聊 {@code qq:private:<uid>}，群聊 {@code qq:group:<gid>:<uid>}
  * （群内按用户独立上下文）；binding 命中复用 harness 会话（多轮记忆跨消息延续），
@@ -393,62 +391,47 @@ public class OneBotEventServiceImpl implements OneBotEventService {
         return new BoundSession(sessionId, true);
     }
 
-    /** 回复发送：超长按段落边界分段；群聊首条带 reply 段引用原消息；每条 chunk 后接表情钩子 */
+    /** 回复发送：整段单条发送（超长按 max-length 截断）；群聊可带 reply 段与 @提问者段；发送后表情钩子 */
     private void sendReply(OneBotEvent event, boolean isGroup, String reply) {
         NapCatProperties.Reply replyCfg = props.getReply();
         NapCatProperties.Emoji emojiCfg = props.getEmoji();
-        List<String> chunks = replyCfg.isProgressive()
-                ? ReplySplitter.splitProgressive(reply, replyCfg.getSplitChars(), replyCfg.getMaxChunks())
-                : ReplySplitter.splitReply(reply, replyCfg.getMaxLength());
-        int sentEmojis = 0;
-        List<Long> sentIds = new ArrayList<>();
-        for (int i = 0; i < chunks.size(); i++) {
-            // 条间动态拟人延迟：按「即将发送的这条」的字数计算（基础 + 字数×系数 + 扰动），首条不等待
-            if (i > 0 && replyCfg.isProgressive() && !pauseBeforeChunk(dynamicDelayMs(chunks.get(i).length()))) {
-                return; // 等待被中断（executor 停机）：停止后续发送，已发部分保留
+        String text = capLength(reply == null ? "" : reply.trim(), replyCfg.getMaxLength());
+        List<MessageSegment> segments = new ArrayList<>();
+        if (isGroup) {
+            if (event.messageId() != null) {
+                segments.add(new MessageSegment("reply", Map.of("message_id", event.messageId())));
             }
-            List<MessageSegment> segments = new ArrayList<>();
-            if (isGroup && i == 0) {
-                if (event.messageId() != null) {
-                    segments.add(new MessageSegment("reply",
-                            Map.of("message_id", event.messageId())));
-                }
-                if (props.getReply().isAtAsker()) {
-                    segments.add(new MessageSegment("at",
-                            Map.of("qq", String.valueOf(event.userId()))));
-                }
-            }
-            segments.add(new MessageSegment("text", Map.of("text", chunks.get(i))));
-            Long id = sendSegments(event, isGroup, segments);
-            if (id != null) {
-                sentIds.add(id);
-            } else if (!sentIds.isEmpty() && props.getRecall().isAutoCleanupEnabled()) {
-                // 失败清理：本次回复已有成功分片、后续分片发送失败 → 撤回已发分片后停止，避免群里留半截回答。
-                // 首片即失败（sentIds 空）按既有语义静默继续（无内容可清理）。
-                for (Long s : sentIds) {
-                    apiClient.deleteMsg(s);
-                }
-                return;
-            }
-            // 表情钩子：每条 chunk 发送完成后（含最后一条）检测；顺序 chunk N → send-delay 停顿 → 表情
-            // 上限/概率/文件校验都在 EmojiReplies 与下方计数内；任何表情侧异常只记日志不阻断文本
-            try {
-                MessageSegment emoji = emojiReplies.pickFor(chunks.get(i));
-                if (emoji != null
-                        && (emojiCfg.getMaxPerReply() <= 0 || sentEmojis < emojiCfg.getMaxPerReply())) {
-                    if (!pauseBeforeChunk(Math.max(0, emojiCfg.getSendDelayMs()))) {
-                        return; // 停顿被中断（executor 停机）：表情与后续发送一并停止，已发部分保留
-                    }
-                    Long eid = sendSegments(event, isGroup, List.of(emoji));
-                    if (eid != null) {
-                        sentIds.add(eid);
-                    }
-                    sentEmojis++;
-                }
-            } catch (Exception e) {
-                log.warn("[napcat] 表情发送钩子异常，跳过本次表情（文本回复不受影响）", e);
+            if (replyCfg.isAtAsker()) {
+                segments.add(new MessageSegment("at", Map.of("qq", String.valueOf(event.userId()))));
             }
         }
+        segments.add(new MessageSegment("text", Map.of("text", text)));
+        Long id = sendSegments(event, isGroup, segments);
+        if (id == null) {
+            log.warn("[napcat] 回复发送失败（{}）",
+                    isGroup ? "group=" + event.groupId() : "user=" + event.userId());
+            return;
+        }
+        // 表情钩子：文本发送成功后检测；停顿（模拟「找图」）可注入；任何异常只记日志不阻断文本
+        try {
+            MessageSegment emoji = emojiReplies.pickFor(text);
+            if (emoji != null) {
+                if (!pauseHook.pause(Math.max(0, emojiCfg.getSendDelayMs()))) {
+                    return; // 停顿被中断（executor 停机）：不再发表情
+                }
+                sendSegments(event, isGroup, List.of(emoji));
+            }
+        } catch (Exception e) {
+            log.warn("[napcat] 表情发送钩子异常，跳过本次表情（文本回复不受影响）", e);
+        }
+    }
+
+    /** 超长截断（保留原文换行与空白；max <= 0 = 不限制） */
+    private static String capLength(String s, int max) {
+        if (max <= 0 || s.length() <= max) {
+            return s;
+        }
+        return s.substring(0, max) + "…";
     }
 
     /** 按目标类型发送消息段；成功返回 message_id 并记入 tracker，失败返回 null（尽力而为） */
@@ -469,16 +452,13 @@ public class OneBotEventServiceImpl implements OneBotEventService {
                 : "private:" + event.userId();
     }
 
-    /**
-     * 渐进条间等待（包内可注入：测试替换为记录器避免真 sleep）。
-     * 返回 false = 等待被中断（executor 停机），调用方应停止发送后续分段。
-     */
-    interface ChunkPause {
+    /** 发送前停顿钩子（包内可注入：测试替换为记录器避免真 sleep）；返回 false = 被中断 */
+    interface Pause {
         boolean pause(long millis);
     }
 
-    /** 生产实现：Thread.sleep，中断时恢复中断标志并返回 false（包内可注入，测试替换为记录器） */
-    ChunkPause chunkPause = millis -> {
+    /** 生产实现：Thread.sleep，中断时恢复中断标志并返回 false */
+    Pause pauseHook = millis -> {
         try {
             Thread.sleep(millis);
             return true;
@@ -487,26 +467,6 @@ public class OneBotEventServiceImpl implements OneBotEventService {
             return false;
         }
     };
-
-    /** 渐进条间等待：delay &lt;= 0 不等待；等待被中断返回 false */
-    private boolean pauseBeforeChunk(long delayMs) {
-        return delayMs <= 0 || chunkPause.pause(delayMs);
-    }
-
-    /**
-     * 动态拟人延迟（毫秒）：基础延迟（inter-chunk-delay-ms）+ 字数 × 系数（秒/字）× 1000
-     * + 随机扰动（±jitter-range-ms），再被 max-delay-ms 截断（0 = 不设上限）。
-     * 字数取「即将发送的这条」的长度——模拟真人把这条打完再发出；延迟下限 0。
-     */
-    private long dynamicDelayMs(int nextChunkChars) {
-        NapCatProperties.Reply cfg = props.getReply();
-        long base = Math.max(0, cfg.getInterChunkDelayMs());
-        long typed = Math.round(Math.max(0, cfg.getDelayFactor()) * nextChunkChars * 1000.0);
-        int jitter = Math.max(0, cfg.getJitterRangeMs());
-        long wobble = jitter <= 0 ? 0 : ThreadLocalRandom.current().nextLong(-jitter, jitter + 1L);
-        long delay = Math.max(0, base + typed + wobble);
-        return cfg.getMaxDelayMs() > 0 ? Math.min(delay, cfg.getMaxDelayMs()) : delay;
-    }
 
     private String sessionKey(OneBotEvent event) {
         return "group".equals(event.messageType())

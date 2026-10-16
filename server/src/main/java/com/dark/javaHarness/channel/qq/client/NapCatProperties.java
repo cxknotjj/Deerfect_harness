@@ -44,7 +44,6 @@ public class NapCatProperties {
     private final RateLimit rateLimit = new RateLimit();
     private final Reply reply = new Reply();
     private final Emoji emoji = new Emoji();
-    private final Recall recall = new Recall();
 
     public boolean isEnabled() {
         return enabled;
@@ -126,10 +125,6 @@ public class NapCatProperties {
         return emoji;
     }
 
-    public Recall getRecall() {
-        return recall;
-    }
-
     /** 群聊触发方式：at=仅@机器人 | prefix=命令前缀 | all=全部响应 */
     public static class GroupTrigger {
 
@@ -180,20 +175,13 @@ public class NapCatProperties {
         }
     }
 
-    /** 回复输出控制：超长按段落边界分段发送（兼作单条输出上限）；渐进模式下多段回答逐条弹出 */
+    /** 回复输出控制：整段单条发送，超长按 maxLength 截断 */
     public static class Reply {
 
+        /** 回复长度上限（字）：超出部分截断；0 = 不限制 */
         private int maxLength;
-        private int splitChars;
-        private boolean progressive;
         /** 群聊回复首条是否 @ 提问者（防刷屏，默认关；详见 application-qq.yaml） */
         private boolean atAsker;
-        /** 动态条间延迟基础值（毫秒）：实际延迟 = 基础值 + 字数 × delay-factor + 随机扰动 */
-        private int interChunkDelayMs;
-        private int maxChunks;
-        private double delayFactor;
-        private int jitterRangeMs;
-        private int maxDelayMs;
 
         public int getMaxLength() {
             return maxLength;
@@ -203,87 +191,12 @@ public class NapCatProperties {
             this.maxLength = maxLength;
         }
 
-        /** 渐进切分粒度阈值（字）：块超过此字数就按下一层边界（\n → 。！？）继续切 */
-        public int getSplitChars() {
-            return splitChars;
-        }
-
-        public void setSplitChars(int splitChars) {
-            this.splitChars = splitChars;
-        }
-
-        public boolean isProgressive() {
-            return progressive;
-        }
-
-        public void setProgressive(boolean progressive) {
-            this.progressive = progressive;
-        }
-
         public boolean isAtAsker() {
             return atAsker;
         }
 
         public void setAtAsker(boolean atAsker) {
             this.atAsker = atAsker;
-        }
-
-        public int getInterChunkDelayMs() {
-            return interChunkDelayMs;
-        }
-
-        public void setInterChunkDelayMs(int interChunkDelayMs) {
-            this.interChunkDelayMs = interChunkDelayMs;
-        }
-
-        public int getMaxChunks() {
-            return maxChunks;
-        }
-
-        public void setMaxChunks(int maxChunks) {
-            this.maxChunks = maxChunks;
-        }
-
-        /** 动态延迟字数系数（秒/字）：0.1 = 每字停 100ms，模拟打字节奏；0 = 只用基础延迟 */
-        public double getDelayFactor() {
-            return delayFactor;
-        }
-
-        public void setDelayFactor(double delayFactor) {
-            this.delayFactor = delayFactor;
-        }
-
-        /** 动态延迟随机扰动幅度（±毫秒）：叠加在基础值+字数延迟上，避免机械等间隔 */
-        public int getJitterRangeMs() {
-            return jitterRangeMs;
-        }
-
-        public void setJitterRangeMs(int jitterRangeMs) {
-            this.jitterRangeMs = jitterRangeMs;
-        }
-
-        /** 动态延迟上限（毫秒）：防超长块（无标点长文/合并尾条）算出分钟级停顿；0 = 不设上限 */
-        public int getMaxDelayMs() {
-            return maxDelayMs;
-        }
-
-        public void setMaxDelayMs(int maxDelayMs) {
-            this.maxDelayMs = maxDelayMs;
-        }
-    }
-
-    /** 撤回行为控制 */
-    public static class Recall {
-
-        /** 发送失败自动清理：本条回复出现「已有成功分片 + 后续分片失败」时，撤回本次已发分片；数值唯一来源 application-qq.yaml（默认开） */
-        private boolean autoCleanupEnabled;
-
-        public boolean isAutoCleanupEnabled() {
-            return autoCleanupEnabled;
-        }
-
-        public void setAutoCleanupEnabled(boolean autoCleanupEnabled) {
-            this.autoCleanupEnabled = autoCleanupEnabled;
         }
     }
 

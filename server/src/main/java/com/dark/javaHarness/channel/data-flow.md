@@ -2,7 +2,7 @@
 
 > QQ（NapCat / OneBot 11 纯 HTTP）通道专属数据流文档。主链路（API → ChatService → Agent → LLM）见 `docs/data-flow.md`，本文档只画 channel 侧：从 NapCat 上报到回复落地的完整时序、全部静默丢弃点、线程模型与发送细节。
 
-> **2026-10 增强要点**（分支 `feat/qq-channel-enhancements`）：① 群聊「回复机器人消息」也触发；② 指令化 `/new` `/reset` `/help` `/history` `/agent` `/recall`；③ 群聊回复首条可 `@提问者`；④ `/recall` 撤回 + 发送失败自动清理；⑤ 已发消息 id 记录（`SentMessageTracker`）。触发判据与指令明细见第四节，撤回与消息记录见第五节。
+> **2026-10 增强要点**（分支 `feat/qq-channel-enhancements`）：① 群聊「回复机器人消息」也触发；② 指令化 `/new` `/reset` `/help` `/history` `/agent` `/recall`；③ 群聊回复首条可 `@提问者`；④ `/recall` 撤回；⑤ 已发消息 id 记录（`SentMessageTracker`）；⑥ 回复整段单条发送（超长按上限截断，不再分段）。触发判据与指令明细见第四节，撤回与消息记录见第五节。
 
 ## 一、线程模型（三条线程链）
 
@@ -46,18 +46,15 @@ sequenceDiagram
         S->>S: bindSession（binding 命中复用，未命中建 harness 会话并落库）
         S->>CH: chatWithTimeout → chatExecutor.submit(chat)
         CH-->>S: ChatResponse（status=FAILED/SUCCEEDED）
-        S->>S: splitProgressive 拆 chunk（段落→换行→。！？→整块）
-        loop 每条 chunk
-            S->>A: sendGroupMsg/sendPrivateMsg（text chunk）
-            A->>N: POST /send_group_msg（IO/5xx 重试 1 次）
-            A-->>S: ApiResult；retcode=0 → INFO「已发送…（messageId）」
-            S->>S: 成功返回 id → SentMessageTracker.record(目标键, id)
-            S->>E: pickFor(chunk)
-            alt 表情命中（tag 优先 → 句尾 ~/！/! 兜底）
-                S->>S: chunkPause(send-delay-ms)
-                S->>A: 发送 image 段（base64:// 内联图片）
-            end
-            S->>S: 条间动态延迟 = inter-chunk-delay-ms + 字数×0.1s ± jitter（chunkPause 可中断）
+        S->>S: capLength 超长截断（加 …）；群聊段序 reply→at(可选)→text
+        S->>A: sendGroupMsg/sendPrivateMsg（整段单条 text）
+        A->>N: POST /send_group_msg（IO/5xx 重试 1 次）
+        A-->>S: ApiResult；retcode=0 → INFO「已发送…（messageId）」
+        S->>S: 成功返回 id → SentMessageTracker.record(目标键, id)
+        S->>E: pickFor(text)
+        alt 表情命中（tag 优先 → 句尾 ~/！/! 兜底）
+            S->>S: pauseHook.pause(send-delay-ms)
+            S->>A: 发送 image 段（base64:// 内联图片）
         end
     end
 ```
@@ -120,40 +117,36 @@ sequenceDiagram
 - 消费两处：① 群聊回复触发判定（入站 reply 段命中 = 回复机器人）；② `/recall` 取本目标最近一条 id。
 - 容量软上限 10000，达阈值按 TTL 清扫一次；无后台线程、零外部依赖。
 
-### 撤回与发送失败自动清理
+### 撤回（`/recall`）
 
 - `/recall`：取 `lastId(目标键)`，命中则 `NapCatApiClient.deleteMsg(id)`（OneBot `delete_msg`）并回「已撤回。」；无则回「没有可撤回的消息。」。
-- **发送失败自动清理**：`napcat.recall.auto-cleanup-enabled=true`（默认 `true`）时，本次回复若**已有成功分片、后续分片发送失败**，则撤回本次已发分片并停止后续发送（避免群里留半截回答）；首片即失败（无已发分片）按既有语义静默继续。
+- 回复整体单条发送，不存在「部分已发」场景，故无发送失败自动清理逻辑（`napcat.recall.*` 已随分段一并移除）。
 
 ### 配置默认值落点
 
-QQ 渠道配置（`napcat.*`）位于 **`application-qq.yaml`**（自 `application.yaml` 经 `spring.config.import: classpath:application-qq.yaml` 引入，不依赖 profile 激活）；三个新键已在其中显式声明，`NapCatProperties` 侧零默认值。
+QQ 渠道配置（`napcat.*`）位于 **`application-qq.yaml`**（自 `application.yaml` 经 `spring.config.import: classpath:application-qq.yaml` 引入，不依赖 profile 激活）；相关键已在其中显式声明，`NapCatProperties` 侧零默认值。
 
 | 键 | 类型 | `application-qq.yaml` 显式值 | 说明 |
 |---|---|---|---|
 | `napcat.group-trigger.reply-to-bot` | boolean | `false` | at 模式下，回复机器人消息是否也触发 |
+| `napcat.reply.max-length` | int | `3000` | 回复长度上限（字）：超出部分截断 |
 | `napcat.reply.at-asker` | boolean | `false` | 群聊回复首条是否 @ 提问者 |
-| `napcat.recall.auto-cleanup-enabled` | boolean | `true` | 发送失败是否撤回本次已发分片 |
 
 ## 六、发送侧细节
 
-### 群聊首条段落（reply / @提问者 / text）
+### 整段单条发送 + 超长截断
 
-群聊回复**首条**段序：`reply`（`event.messageId` 非空即引用原消息）→ `at`（`napcat.reply.at-asker=true` 时 @ 提问者）→ `text`；私聊无 `reply`/`at` 段。@提问者默认关（防刷屏）。
+回复**整段单条发送**，不再分段/渐进弹出：`capLength` 里 `reply.trim()` 后超过 `napcat.reply.max-length` 即截断为前 max 字 + `…`（max ≤ 0 = 不限制）；保留原文换行与空白。
 
-### 拆分（progressive=true 时 splitProgressive，否则 splitReply 单条超长切）
+### 群聊段序（reply / @提问者 / text）
 
-层级切片，标点保留句尾，无字符硬切兜底：段落（\n\n）→ 换行（\n）→ 句读（。！？!?；;）→ 整块；`split-chars` 超限下沉下一层；`max-chunks` 防刷屏（超出部分合并进最后一条）。
+同一条消息内段序：`reply`（`event.messageId` 非空即引用原消息）→ `at`（`napcat.reply.at-asker=true` 时 @ 提问者）→ `text`；私聊无 `reply`/`at` 段。@提问者默认关（防刷屏）。
 
-### 条间动态拟人延迟
-
-`延迟 = inter-chunk-delay-ms + chunk 字数 × delay-factor(0.1s/字) + ±jitter-range-ms 扰动`，再被 `max-delay-ms` 截断（0 = 不设上限）。首条不等待；按「即将发送的这条」取字数（模拟打完再发）。
-
-### 表情钩子（每条 chunk 发送后，含最后一条）
+### 表情钩子（文本发送成功后一次）
 
 1. `enabled=false` → 零行为
 2. tag contains 优先（多命中随机取一）→ 无命中且句尾 `~`/`！`/`!` → cheer-emoji
-3. probability 摇号（1.0 必发）→ sentEmojis < max-per-reply（0=不限）→ chunkPause(send-delay-ms) → 发 image 段
+3. probability 摇号（1.0 必发）→ `pauseHook.pause(send-delay-ms)`（包内可注入、可被中断）→ 发 image 段（整段回复最多一张）
 
 映射表：`channel/emoji-index.json`（表情名 → {path, tags}，启动加载一次，缺失/损坏空映射降级）；图片放 `channel/emojis/`（不进 git）。
 
@@ -181,10 +174,9 @@ channel/qq/
 ├── client/
 │   ├── NapCatApiClient(Impl)     出站客户端：发送（回传 message_id）+ delete_msg + 启动自检 + 成功/失败日志
 │   ├── NapCatChannelConfig       装配：napcat.enabled 条件装配 + onebotExecutor/chatExecutor
-│   └── NapCatProperties          yaml 绑定（reply/emoji/rate-limit/group-trigger/recall 等）
+│   └── NapCatProperties          yaml 绑定（reply/emoji/rate-limit/group-trigger 等）
 ├── reply/
 │   ├── EmojiReplies              表情匹配器：JSON 映射加载 + tag/句尾判定 + image 段生成
-│   ├── ReplySplitter             分段发送：progressive 层级切片 + 超长切分
 │   └── UserRateLimiter           同 uid 内存滑动窗限频
 └── dto/                          OneBotEvent / MessageSegment / SendMsgRequest / ApiResult
 ```
