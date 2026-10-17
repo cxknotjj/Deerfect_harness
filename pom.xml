@@ -29,6 +29,7 @@
     </scm>
 
     <modules>
+        <module>harness-api</module>
         <module>server</module>
         <module>cli</module>
         <module>wms-mcp-adapter</module>
