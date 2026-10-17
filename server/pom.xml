@@ -18,6 +18,14 @@
             <version>${project.version}</version>
         </dependency>
 
+        <!-- 运行期装配 QQ 渠道（编译期不可见 → core 无法 import channel） -->
+        <dependency>
+            <groupId>com.dark</groupId>
+            <artifactId>javaHarness-channel-qq</artifactId>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
@@ -137,6 +145,29 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>ban-core-on-channel</id>
+                        <goals><goal>enforce</goal></goals>
+                        <configuration>
+                            <rules>
+                                <bannedDependencies>
+                                    <!-- core(server) 不得 compile 依赖渠道模块 -->
+                                    <excludes>
+                                        <exclude>com.dark:javaHarness-channel-qq:*:*:compile</exclude>
+                                    </excludes>
+                                    <searchTransitive>false</searchTransitive>
+                                </bannedDependencies>
+                            </rules>
+                            <fail>true</fail>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
