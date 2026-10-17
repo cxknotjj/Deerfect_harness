@@ -444,7 +444,8 @@ class OneBotEventServiceImplTest {
     void handle_chatFailed_staysSilent() {
         when(bindingMapper.selectOne(any())).thenReturn(binding(4L, "qq:private:" + UID, 5L));
         when(chatService.chat(any()))
-                .thenReturn(new ChatResponse("5", false, null, "FAILED", null, "boom", null, null));
+                .thenReturn(new ChatResponse("5", false, null, "FAILED", null, "boom", null, null,
+                        java.util.Set.of()));
         service.handle(privateMsg(40L, "触发失败"));
         verifyNoInteractions(apiClient);
     }

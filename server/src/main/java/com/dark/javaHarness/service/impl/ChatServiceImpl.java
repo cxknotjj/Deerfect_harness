@@ -15,6 +15,7 @@ import com.dark.javaHarness.exception.ResumeConflictException;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.ChatService;
 import com.dark.javaHarness.service.GoalService;
+import com.dark.javaHarness.service.ReplyPostProcessor;
 import com.dark.javaHarness.service.RouteJudge;
 import com.dark.javaHarness.service.SessionService;
 import com.dark.javaHarness.service.impl.route.RagPrefetcher;
@@ -57,16 +58,20 @@ public class ChatServiceImpl implements ChatService {
     /** RAG 入口预取器（进程级共享池 bean，KnowledgeConfig 随 knowledgeRetriever 同条件装配）；知识库禁用时缺位 null */
     private final RagPrefetcher ragPrefetcher;
 
+    /** 回复后处理器扩展点（渠道无关的通用 SPI，按注册顺序依次调用）；无实现时缺位，行为与改造前一致 */
+    private final org.springframework.beans.factory.ObjectProvider<ReplyPostProcessor> replyPostProcessors;
+
     public ChatServiceImpl(AgentService agentService, SessionService sessionService,
                            RouteJudge routeJudge, GoalService goalService) {
         this(agentService, sessionService, routeJudge, goalService, null, null,
-                new com.dark.javaHarness.config.StreamConnectionLimiter(0), true);
+                new com.dark.javaHarness.config.StreamConnectionLimiter(0), true, null);
     }
 
     /**
      * Spring 装配入口（多构造需显式标注）：knowledgeRetriever 仅知识库启用时非 null；
      * ragPrefetcher 为进程级共享池 bean（KnowledgeConfig 同条件装配），经 ObjectProvider
-     * null 安全解析——bean 缺位（知识库禁用）即为 null，消费点零行为。
+     * null 安全解析——bean 缺位（知识库禁用）即为 null，消费点零行为；
+     * replyPostProcessors 收集所有 ReplyPostProcessor 实现（无实现时缺位，后处理零行为）。
      */
     @org.springframework.beans.factory.annotation.Autowired
     public ChatServiceImpl(AgentService agentService, SessionService sessionService,
@@ -75,7 +80,8 @@ public class ChatServiceImpl implements ChatService {
                            org.springframework.beans.factory.ObjectProvider<RagPrefetcher> ragPrefetcherProvider,
                            com.dark.javaHarness.config.StreamConnectionLimiter streamConnectionLimiter,
                            @org.springframework.beans.factory.annotation.Value("${app.chat.complex-fallback.enabled:true}")
-                           boolean complexFallbackEnabled) {
+                           boolean complexFallbackEnabled,
+                           org.springframework.beans.factory.ObjectProvider<ReplyPostProcessor> replyPostProcessors) {
         this.agentService = agentService;
         this.sessionService = sessionService;
         this.routeJudge = routeJudge;
@@ -85,6 +91,7 @@ public class ChatServiceImpl implements ChatService {
         this.complexFallbackEnabled = complexFallbackEnabled;
         // 预取器不再随本类构造（会话 agent 名解析留守宿主），改为注入共享池 bean（缺位 null）
         this.ragPrefetcher = ragPrefetcherProvider == null ? null : ragPrefetcherProvider.getIfAvailable();
+        this.replyPostProcessors = replyPostProcessors;
     }
 
     private static final Logger log = LoggerFactory.getLogger(ChatServiceImpl.class);
@@ -124,13 +131,15 @@ public class ChatServiceImpl implements ChatService {
                 && AgentConstants.MULTI_AGENT.equals(resolvedAgent)) {
             return chatWithComplexFallback(goal, request, sessionId, newSession, userSentAt, turnId);
         }
-        writeBackContext(sessionId, request.message(), goal, userSentAt);
+        ReplyProcessing pr = applyReplyPostProcessors(goal.summary());
+        writeBackContext(sessionId, request.message(), goal, pr.text(), userSentAt);
 
         if (goal.status() == GoalStatus.FAILED) {
+            // 失败文案不做后处理（保持原始错误信息），flags 走 failure 的空集
             return ChatResponse.failure(sessionId, newSession, goal.id(), goal.summary(), resolvedAgent);
         }
-        return ChatResponse.success(sessionId, newSession, goal.id(), goal.summary(),
-                recentKnowledgeSources(sessionId), resolvedAgent);
+        return ChatResponse.success(sessionId, newSession, goal.id(), pr.text(),
+                recentKnowledgeSources(sessionId), resolvedAgent, pr.flags());
     }
 
     /**
@@ -146,13 +155,15 @@ public class ChatServiceImpl implements ChatService {
         // 降级重答仍属同一轮同一执行链：turnId 沿用本轮值，traceId 复用编排 Goal 的（轨迹同树）
         Goal retry = agentService.executeSync(fallbackAgent, request.message(), sessionId, turnId,
                 orchestration.traceId());
-        writeBackContext(sessionId, request.message(), retry, userSentAt);
+        ReplyProcessing pr = applyReplyPostProcessors(retry.summary());
+        writeBackContext(sessionId, request.message(), retry, pr.text(), userSentAt);
         if (retry.status() == GoalStatus.FAILED) {
+            // 失败文案不做后处理（保持原始双段错误信息）
             return ChatResponse.failure(sessionId, newSession, retry.id(),
                     "编排失败: " + orchestration.summary() + "；重答失败: " + retry.summary(), fallbackAgent);
         }
-        return ChatResponse.success(sessionId, newSession, retry.id(), retry.summary(),
-                recentKnowledgeSources(sessionId), fallbackAgent);
+        return ChatResponse.success(sessionId, newSession, retry.id(), pr.text(),
+                recentKnowledgeSources(sessionId), fallbackAgent, pr.flags());
     }
 
     /**
@@ -168,11 +179,43 @@ public class ChatServiceImpl implements ChatService {
         }
     }
 
-    /** 同步路径写回（user 消息记录真实发送时刻，历史回显时间不失真）：仅成功轮写（FAILED/取消不落上下文） */
-    private void writeBackContext(String sessionId, String message, Goal goal, long userSentAt) {
+    /**
+     * 同步路径写回（user 消息记录真实发送时刻，历史回显时间不失真）：仅成功轮写（FAILED/取消不落上下文）；
+     * assistant 文本为回复后处理清洗后的文本（无处理器时与 goal.summary() 一致）。
+     */
+    private void writeBackContext(String sessionId, String message, Goal goal, String assistantReply, long userSentAt) {
         if (sessionId != null && !sessionId.isBlank() && goal.status() == GoalStatus.SUCCEEDED) {
-            writeBackBoth(sessionId, message, goal.summary(), userSentAt);
+            writeBackBoth(sessionId, message, assistantReply, userSentAt);
         }
+    }
+
+    /** 应用所有回复后处理器（无实现时原样返回、flags 为空，行为与改造前一致） */
+    private ReplyProcessing applyReplyPostProcessors(String raw) {
+        String text = raw == null ? "" : raw;
+        java.util.Set<String> flags = new java.util.LinkedHashSet<>();
+        if (replyPostProcessors != null) {
+            java.util.stream.Stream<ReplyPostProcessor> stream = replyPostProcessors.orderedStream();
+            if (stream != null) {
+                for (ReplyPostProcessor p : stream.toList()) {
+                    try {
+                        ReplyPostProcessor.Processed r = p.process(text);
+                        if (r != null) {
+                            text = r.text() == null ? "" : r.text();
+                            if (r.flags() != null) {
+                                flags.addAll(r.flags());
+                            }
+                        }
+                    } catch (Exception e) {
+                        log.warn("[chat] 回复后处理器异常，跳过：{}", e.getMessage());
+                    }
+                }
+            }
+        }
+        return new ReplyProcessing(text, java.util.Set.copyOf(flags));
+    }
+
+    /** 后处理结果载体 */
+    private record ReplyProcessing(String text, java.util.Set<String> flags) {
     }
 
     /** 写回公共体（sync/stream 两份重复块收编）：user+assistant 双消息落快照 + touch 会话 */

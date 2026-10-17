@@ -29,11 +29,13 @@ import com.dark.javaHarness.exception.ResumeConflictException;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.GoalService;
+import com.dark.javaHarness.service.ReplyPostProcessor;
 import com.dark.javaHarness.service.RouteJudge;
 import com.dark.javaHarness.service.SessionService;
 import com.dark.javaHarness.service.impl.route.RagPrefetcher;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -67,6 +69,8 @@ class ChatServiceImplTest {
     private KnowledgeRetriever knowledgeRetriever;
     @Mock
     private ObjectProvider<RagPrefetcher> ragPrefetcherProvider;
+    @Mock
+    private ObjectProvider<ReplyPostProcessor> replyPostProcessors;
 
     private ChatServiceImpl chatService;
 
@@ -75,9 +79,10 @@ class ChatServiceImplTest {
         // 手动构造（@Autowired 构造加入后 @InjectMocks 无法实例化）：null 知识检索器（知识库禁用
         // 语义）、ObjectProvider 未打桩（getIfAvailable 返回 null → 预取器 bean 缺位，零行为）、
         // 限流器 0=不限制（计数语义由 StreamConnectionLimiterTest 覆盖）、降级开关开启（降级用例依赖；
-        // 既有用例无「COMPLEX + 失败」组合，不受影响）
+        // 既有用例无「COMPLEX + 失败」组合，不受影响）；回复后处理器 provider 未打桩（无实现语义：
+        // 文本原样、flags 空集）
         chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
-                null, ragPrefetcherProvider, new StreamConnectionLimiter(0), true);
+                null, ragPrefetcherProvider, new StreamConnectionLimiter(0), true, replyPostProcessors);
     }
 
     private Goal succeededGoal(String sessionId, String summary) {
@@ -141,6 +146,36 @@ class ChatServiceImplTest {
 
         assertEquals(GoalStatus.FAILED.name(), resp.status());
         verify(sessionService, never()).saveContext(anyString(), any(), any());
+    }
+
+    /** 注入回复后处理器：出参应为清洗后文本，并透出处理器声明的通用 flag */
+    @Test
+    void chat_replyPostProcessor_cleansTextAndExposesFlags() {
+        ChatRequest req = new ChatRequest("你好", "50", null);
+        when(routeJudge.judge(eq("你好"), any(), any())).thenReturn(RouteDecision.SIMPLE);
+        when(agentService.executeSync(anyString(), eq("你好"), eq("50"), any()))
+                .thenReturn(succeededGoal("50", "RAW-[[x]]你好"));
+        ReplyPostProcessor processor = raw ->
+                new ReplyPostProcessor.Processed(raw.replace("[[x]]", ""), Set.of("stub"));
+        when(replyPostProcessors.orderedStream()).thenReturn(java.util.stream.Stream.of(processor));
+
+        ChatResponse resp = chatService.chat(req);
+
+        assertEquals("RAW-你好", resp.reply(), "出参应为清洗后文本");
+        assertTrue(resp.flags().contains("stub"), "应透出处理器声明的 flag: " + resp.flags());
+    }
+
+    /** 无回复后处理器（缺省缺位）时文本原样、flags 空集：行为与改造前一致 */
+    @Test
+    void chat_withoutReplyPostProcessor_keepsRawTextAndEmptyFlags() {
+        ChatRequest req = new ChatRequest("继续说", "42", null);
+        when(agentService.executeSync(anyString(), anyString(), anyString(), any()))
+                .thenReturn(succeededGoal("42", "RAW-[[x]]你好"));
+
+        ChatResponse resp = chatService.chat(req);
+
+        assertEquals("RAW-[[x]]你好", resp.reply(), "无处理器时文本应原样透出");
+        assertTrue(resp.flags().isEmpty(), "无处理器时 flags 应为空集: " + resp.flags());
     }
 
     @Test
@@ -319,7 +354,7 @@ class ChatServiceImplTest {
     @Test
     void streamReactive_limiterFull_secondRequestRejected_thenReleasedAfterTermination() {
         chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
-                null, ragPrefetcherProvider, new StreamConnectionLimiter(1), true);
+                null, ragPrefetcherProvider, new StreamConnectionLimiter(1), true, replyPostProcessors);
         ChatRequest req = new ChatRequest("hi", "50", null);
         when(agentService.executeStreamReactive(eq("general"), eq("hi"), eq("50"), any(), any()))
                 .thenReturn(Flux.just("a"));  // 冷流：未订阅不发射，名额保持占用
@@ -655,7 +690,8 @@ class ChatServiceImplTest {
     void chat_withKnowledgeBinding_shouldPrefetchBeforeJudge() {
         stubRealPrefetcher();
         chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
-                knowledgeRetriever, ragPrefetcherProvider, new StreamConnectionLimiter(0), true);
+                knowledgeRetriever, ragPrefetcherProvider, new StreamConnectionLimiter(0), true,
+                replyPostProcessors);
         SessionEntity session = new SessionEntity();
         session.setAgentId(1);
         when(sessionService.getSession("42")).thenReturn(session);
@@ -677,7 +713,8 @@ class ChatServiceImplTest {
     void streamReactive_withKnowledgeBinding_shouldPrefetchBeforeJudge() {
         stubRealPrefetcher();
         chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
-                knowledgeRetriever, ragPrefetcherProvider, new StreamConnectionLimiter(0), true);
+                knowledgeRetriever, ragPrefetcherProvider, new StreamConnectionLimiter(0), true,
+                replyPostProcessors);
         SessionEntity session = new SessionEntity();
         session.setAgentId(1);
         when(sessionService.getSession("50")).thenReturn(session);
@@ -697,7 +734,8 @@ class ChatServiceImplTest {
     void chat_prefetchFails_shouldNotBreakChat() {
         stubRealPrefetcher();
         chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
-                knowledgeRetriever, ragPrefetcherProvider, new StreamConnectionLimiter(0), true);
+                knowledgeRetriever, ragPrefetcherProvider, new StreamConnectionLimiter(0), true,
+                replyPostProcessors);
         SessionEntity session = new SessionEntity();
         session.setAgentId(1);
         when(sessionService.getSession("42")).thenReturn(session);
@@ -719,7 +757,8 @@ class ChatServiceImplTest {
     void chat_judgeThrows_shouldFallbackToSessionAgentAndKeepPrefetch() {
         stubRealPrefetcher();
         chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
-                knowledgeRetriever, ragPrefetcherProvider, new StreamConnectionLimiter(0), true);
+                knowledgeRetriever, ragPrefetcherProvider, new StreamConnectionLimiter(0), true,
+                replyPostProcessors);
         SessionEntity session = new SessionEntity();
         session.setAgentId(1);
         when(sessionService.getSession("42")).thenReturn(session);
