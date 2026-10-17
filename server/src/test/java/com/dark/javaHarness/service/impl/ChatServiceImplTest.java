@@ -163,6 +163,37 @@ class ChatServiceImplTest {
 
         assertEquals("RAW-你好", resp.reply(), "出参应为清洗后文本");
         assertTrue(resp.flags().contains("stub"), "应透出处理器声明的 flag: " + resp.flags());
+        // 核心不变量：清洗后文本既出参、又写回会话记忆，两处必须一致
+        ArgumentCaptor<AssistantMessage> assistantCapture = ArgumentCaptor.forClass(AssistantMessage.class);
+        verify(sessionService).saveContext(eq("50"), assistantCapture.capture(), anyLong());
+        assertEquals("RAW-你好", assistantCapture.getValue().getText(),
+                "写回会话记忆的 assistant 文本应为清洗后文本");
+    }
+
+    /** 同步降级路径：编排 FAILED + 会话 Agent 重答成功时，出参与写回均应使用清洗后文本并透出 flag */
+    @Test
+    void chat_complexFallback_shouldPostProcessRetryReplyAndWriteBackCleanedText() {
+        ChatRequest req = new ChatRequest("调研竞品", "50", null);
+        when(routeJudge.judge(eq("调研竞品"), any(), any())).thenReturn(RouteDecision.COMPLEX);
+        Goal orchestration = new Goal("g-orch", "调研竞品", "50");
+        orchestration.fail("子任务 LLM 调用超时");
+        Goal retry = new Goal("g-retry", "调研竞品", "50");
+        retry.succeed("RAW-[[x]]重答结果");
+        when(agentService.executeSync(eq("multi-agent"), eq("调研竞品"), eq("50"), any())).thenReturn(orchestration);
+        when(agentService.executeSync(eq("general"), eq("调研竞品"), eq("50"), any(), any())).thenReturn(retry);
+        ReplyPostProcessor processor = raw ->
+                new ReplyPostProcessor.Processed(raw.replace("[[x]]", ""), Set.of("stub"));
+        when(replyPostProcessors.orderedStream()).thenReturn(java.util.stream.Stream.of(processor));
+
+        ChatResponse resp = chatService.chat(req);
+
+        assertEquals("RAW-重答结果", resp.reply(), "降级重答出参应为清洗后文本");
+        assertTrue(resp.flags().contains("stub"), "应透出处理器声明的 flag: " + resp.flags());
+        // 降级重答成功后的写回同样要落清洗后文本（出参/写回两处一致）
+        ArgumentCaptor<AssistantMessage> assistantCapture = ArgumentCaptor.forClass(AssistantMessage.class);
+        verify(sessionService).saveContext(eq("50"), assistantCapture.capture(), anyLong());
+        assertEquals("RAW-重答结果", assistantCapture.getValue().getText(),
+                "降级重答写回会话记忆的 assistant 文本应为清洗后文本");
     }
 
     /** 无回复后处理器（缺省缺位）时文本原样、flags 空集：行为与改造前一致 */
