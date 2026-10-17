@@ -9,7 +9,7 @@
     </parent>
     <artifactId>javaHarness-server</artifactId>
     <name>javaHarness :: server</name>
-    <description>服务端：Agent 编排框架本体（controller/service/agent/prompt/tool/channel），spring-boot fat jar 交付</description>
+    <description>服务端：Agent 编排框架本体（controller/service/agent/prompt/tool），spring-boot fat jar 交付</description>
 
     <dependencies>
         <dependency>
@@ -86,12 +86,6 @@
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
-        </dependency>
-
-        <!-- OkHttp：QQ 渠道 NapCat HTTP API 调用（channel/qq 包）。版本由根 pom dependencyManagement 锁定 -->
-        <dependency>
-            <groupId>com.squareup.okhttp3</groupId>
-            <artifactId>okhttp</artifactId>
         </dependency>
 
         <!-- jsoup：WebTools 网页抓取与 HTML5 解析（编码自动嗅探，GBK 站不再乱码；DOM 级去噪）。

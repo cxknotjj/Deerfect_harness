@@ -110,4 +110,3 @@ core 不认识 `[[voice]]`，只把 `flags` 透出到 `ChatResponse`，由渠道
 - **`wms-mcp-adapter`** 独立于本次拆分，未受影响。
 
 > 结论：本重构只动 `harness-api` / `channel-qq` / `server` 三个模块，`cli` 与 `wms-mcp-adapter` 零改动。
-</content>
