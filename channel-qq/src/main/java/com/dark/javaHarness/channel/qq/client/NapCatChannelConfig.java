@@ -32,6 +32,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
  */
 @Configuration
 @ConditionalOnProperty(prefix = "napcat", name = "enabled", havingValue = "true")
+@org.mybatis.spring.annotation.MapperScan("com.dark.javaHarness.channel.qq.persistence")
 public class NapCatChannelConfig {
 
     /** QQ 个人频道并发：LLM 调用为主耗时，4 线程足够，过大撞下游模型限流 */

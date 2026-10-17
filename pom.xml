@@ -30,6 +30,7 @@
 
     <modules>
         <module>harness-api</module>
+        <module>channel-qq</module>
         <module>server</module>
         <module>cli</module>
         <module>wms-mcp-adapter</module>
