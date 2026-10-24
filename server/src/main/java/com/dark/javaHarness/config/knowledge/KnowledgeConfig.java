@@ -154,8 +154,10 @@ public class KnowledgeConfig {
                                              ObjectProvider<com.dark.javaHarness.knowledge.KnowledgeBm25Index> bm25Index,
                                              com.dark.javaHarness.knowledge.KnowledgeDocumentScanner scanner,
                                              com.dark.javaHarness.mapper.KbDocumentMapper kbDocumentMapper,
-                                             KnowledgeProperties props) {
-        return new KnowledgeServiceImpl(vectorStore, bm25Index, scanner, kbDocumentMapper, props);
+                                             KnowledgeProperties props,
+                                             org.apache.ibatis.session.SqlSessionFactory sqlSessionFactory) {
+        return new KnowledgeServiceImpl(vectorStore, bm25Index, scanner, kbDocumentMapper, props,
+                sqlSessionFactory);
     }
 
     /**

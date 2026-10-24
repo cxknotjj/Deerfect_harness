@@ -165,4 +165,27 @@ class ProviderAdminServiceImplTest {
         assertEquals(1, rows.size());
         assertEquals("deepseek-chat", rows.get(0).getModel());
     }
+
+    /** 批量路径：SqlSessionFactory 存在时经 BATCH 会话写入并 commit，不再逐条打主 mapper */
+    @Test
+    void add_withSqlSessionFactory_writesThroughBatchSession() {
+        ModelProviderMapper batchMapper = org.mockito.Mockito.mock(ModelProviderMapper.class);
+        org.apache.ibatis.session.SqlSession session =
+                org.mockito.Mockito.mock(org.apache.ibatis.session.SqlSession.class);
+        org.apache.ibatis.session.SqlSessionFactory factory =
+                org.mockito.Mockito.mock(org.apache.ibatis.session.SqlSessionFactory.class);
+        when(factory.openSession(org.apache.ibatis.session.ExecutorType.BATCH)).thenReturn(session);
+        when(session.getMapper(ModelProviderMapper.class)).thenReturn(batchMapper);
+        when(mapper.selectList(any())).thenReturn(List.of());
+        ProviderAdminServiceImpl batched = new ProviderAdminServiceImpl(mapper, registry, factory);
+
+        batched.add(request("moonshot", "https://api.moonshot.cn/v1", List.of("kimi-k2", "kimi-latest")));
+
+        verify(batchMapper, org.mockito.Mockito.times(2)).insert(any(ModelProviderEntity.class));
+        verify(session).flushStatements();
+        verify(session).commit();
+        verify(session).close();
+        verify(mapper, never()).insert(any(ModelProviderEntity.class));
+        verify(registry).reload();
+    }
 }

@@ -231,7 +231,8 @@ class KnowledgeServiceImplTest {
         service.sync();
 
         verify(store).delete(List.of("ghost.md#0", "ghost.md#1"));
-        verify(mapper).deleteById(1L);
+        // 台账行批量删除（原先逐条 deleteById）
+        verify(mapper).deleteByIds(List.of(1L));
     }
 
     @Test

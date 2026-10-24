@@ -7,12 +7,16 @@ import com.dark.javaHarness.domain.dto.ProviderAddResult;
 import com.dark.javaHarness.domain.entity.ModelProviderEntity;
 import com.dark.javaHarness.mapper.ModelProviderMapper;
 import com.dark.javaHarness.service.ProviderAdminService;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.apache.ibatis.session.ExecutorType;
+import org.apache.ibatis.session.SqlSession;
+import org.apache.ibatis.session.SqlSessionFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -31,10 +35,20 @@ public class ProviderAdminServiceImpl implements ProviderAdminService {
 
     private final ModelProviderMapper mapper;
     private final ChatClientRegistry registry;
+    /** 批量写库会话工厂；null = 单测场景，退回逐条写 */
+    private final SqlSessionFactory sqlSessionFactory;
 
+    /** 单测/无需批量场景的构造入口 */
     public ProviderAdminServiceImpl(ModelProviderMapper mapper, ChatClientRegistry registry) {
+        this(mapper, registry, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ProviderAdminServiceImpl(ModelProviderMapper mapper, ChatClientRegistry registry,
+                                    SqlSessionFactory sqlSessionFactory) {
         this.mapper = mapper;
         this.registry = registry;
+        this.sqlSessionFactory = sqlSessionFactory;
     }
 
     @Override
@@ -61,6 +75,7 @@ public class ProviderAdminServiceImpl implements ProviderAdminService {
 
         int added = 0;
         int updated = 0;
+        List<ModelProviderEntity> rows = new ArrayList<>(models.size());
         for (String model : models) {
             String normalized = model.trim();
             ModelProviderEntity row = existing.get(key(request.provider(), normalized));
@@ -70,21 +85,53 @@ public class ProviderAdminServiceImpl implements ProviderAdminService {
                 row.setProvider(request.provider());
                 row.setApiUrl(request.apiUrl());
                 row.setStatus(status);
-                mapper.insert(row);
                 added++;
             } else {
                 row.setProvider(request.provider());
                 row.setApiUrl(request.apiUrl());
                 row.setStatus(status);
-                mapper.updateById(row);
                 updated++;
             }
+            rows.add(row);
         }
+        writeRows(rows);
 
         log.info("[provider] {} 供应商映射已落库（新增 {} / 更新 {}），热刷新注册表",
                 request.provider(), added, updated);
         registry.reload();
         return new ProviderAddResult(added, updated);
+    }
+
+    /**
+     * 批量落库：SqlSession BATCH 模式下逐条登记、一次 flush/commit，减少往返；
+     * 无 SqlSessionFactory（单测）时退回逐条写，行为不变。
+     */
+    private void writeRows(List<ModelProviderEntity> rows) {
+        if (rows.isEmpty()) {
+            return;
+        }
+        if (sqlSessionFactory == null) {
+            for (ModelProviderEntity row : rows) {
+                if (row.getId() == null) {
+                    mapper.insert(row);
+                } else {
+                    mapper.updateById(row);
+                }
+            }
+            return;
+        }
+        try (SqlSession session = sqlSessionFactory.openSession(ExecutorType.BATCH)) {
+            ModelProviderMapper batchMapper = session.getMapper(ModelProviderMapper.class);
+            for (ModelProviderEntity row : rows) {
+                if (row.getId() == null) {
+                    batchMapper.insert(row);
+                } else {
+                    batchMapper.updateById(row);
+                }
+            }
+            session.flushStatements();
+            session.commit();
+        }
     }
 
     /** 端点判定键：provider + model 统一小写（MySQL ci collation 语义对齐） */

@@ -13,6 +13,9 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
+import org.apache.ibatis.session.ExecutorType;
+import org.apache.ibatis.session.SqlSession;
+import org.apache.ibatis.session.SqlSessionFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.document.Document;
@@ -65,6 +68,8 @@ public class KnowledgeServiceImpl implements KnowledgeService, ApplicationRunner
     private final KnowledgeDocumentScanner scanner;
     private final KbDocumentMapper mapper;
     private final KnowledgeProperties props;
+    /** 批量写库会话工厂；null = 单测场景，退回逐条写 */
+    private final SqlSessionFactory sqlSessionFactory;
 
     /**
      * sync 并发防护锁：手动 sync 与（后续）目录监听触发的自动 sync 可能并发到达，
@@ -79,11 +84,22 @@ public class KnowledgeServiceImpl implements KnowledgeService, ApplicationRunner
                                 KnowledgeDocumentScanner scanner,
                                 KbDocumentMapper mapper,
                                 KnowledgeProperties props) {
+        this(storeProvider, bm25Provider, scanner, mapper, props, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public KnowledgeServiceImpl(ObjectProvider<VectorStore> storeProvider,
+                                ObjectProvider<KnowledgeBm25Index> bm25Provider,
+                                KnowledgeDocumentScanner scanner,
+                                KbDocumentMapper mapper,
+                                KnowledgeProperties props,
+                                SqlSessionFactory sqlSessionFactory) {
         this.storeProvider = storeProvider;
         this.bm25Provider = bm25Provider;
         this.scanner = scanner;
         this.mapper = mapper;
         this.props = props;
+        this.sqlSessionFactory = sqlSessionFactory;
     }
 
     @Override
@@ -98,45 +114,57 @@ public class KnowledgeServiceImpl implements KnowledgeService, ApplicationRunner
             int updated = 0;
             int skipped = 0;
             int chunks = 0;
-            for (KnowledgeDocumentScanner.KbFile file : files) {
-                KbDocumentEntity row = rowOf(file.name());
-                if (row != null && row.getStatus() != null && row.getStatus() == 1
-                        && Objects.equals(row.getMtime(), file.mtime())
-                        && Objects.equals(row.getKb(), file.kb())) {
-                    skipped++;
-                    continue;
+            List<KbDocumentEntity> pendingRows = new ArrayList<>();
+            try {
+                for (KnowledgeDocumentScanner.KbFile file : files) {
+                    KbDocumentEntity row = rowOf(file.name());
+                    if (row != null && row.getStatus() != null && row.getStatus() == 1
+                            && Objects.equals(row.getMtime(), file.mtime())
+                            && Objects.equals(row.getKb(), file.kb())) {
+                        skipped++;
+                        continue;
+                    }
+                    int oldChunkCount = row == null || row.getChunkCount() == null ? 0 : row.getChunkCount();
+                    List<String> pieces = MarkdownChunker.chunk(file.text(), CHUNK_CHARS, OVERLAP_CHARS);
+                    // 先删旧向量再写入（同 id 覆盖语义由删除保证；chunk 数减少时不留孤儿行）
+                    deleteChunks(store, file.name(), oldChunkCount);
+                    try {
+                        List<Document> docs = new ArrayList<>(pieces.size());
+                        for (int i = 0; i < pieces.size(); i++) {
+                            docs.add(new Document(chunkId(file.name(), i), pieces.get(i), Map.of(
+                                    "source", file.name(),
+                                    "title", file.title(),
+                                    "chunkIndex", i,
+                                    "kb", file.kb())));
+                        }
+                        if (!docs.isEmpty()) {
+                            addInBatches(store, docs);
+                        }
+                    } catch (Exception e) {
+                        // 写入失败兜底：旧 chunk 已删、新 chunk 未写全——台账行置 0（失败待重试），
+                        // 下次 sync 不再被「status=1 + mtime 未变」增量判据跳过，强制重摄取补齐向量；
+                        // 新文件（无台账行）天然重扫，无需置位
+                        if (row != null) {
+                            row.setStatus(0);
+                            mapper.updateById(row);
+                        }
+                        throw new IllegalStateException("向量库写入失败（" + file.name() + "）: " + rootMessage(e), e);
+                    }
+                    pendingRows.add(upsertRow(row, file, pieces.size()));
+                    updated++;
+                    chunks += pieces.size();
+                    log.info("[knowledge] 已摄取 '{}'：{} chunk（旧 {} chunk 已删）", file.name(), pieces.size(), oldChunkCount);
                 }
-                int oldChunkCount = row == null || row.getChunkCount() == null ? 0 : row.getChunkCount();
-                List<String> pieces = MarkdownChunker.chunk(file.text(), CHUNK_CHARS, OVERLAP_CHARS);
-                // 先删旧向量再写入（同 id 覆盖语义由删除保证；chunk 数减少时不留孤儿行）
-                deleteChunks(store, file.name(), oldChunkCount);
+            } catch (RuntimeException e) {
+                // 失败前已摄取成功的文件仍需落台账（尽力而为），避免下一轮把已完成文档重复嵌入
                 try {
-                    List<Document> docs = new ArrayList<>(pieces.size());
-                    for (int i = 0; i < pieces.size(); i++) {
-                        docs.add(new Document(chunkId(file.name(), i), pieces.get(i), Map.of(
-                                "source", file.name(),
-                                "title", file.title(),
-                                "chunkIndex", i,
-                                "kb", file.kb())));
-                    }
-                    if (!docs.isEmpty()) {
-                        addInBatches(store, docs);
-                    }
-                } catch (Exception e) {
-                    // 写入失败兜底：旧 chunk 已删、新 chunk 未写全——台账行置 0（失败待重试），
-                    // 下次 sync 不再被「status=1 + mtime 未变」增量判据跳过，强制重摄取补齐向量；
-                    // 新文件（无台账行）天然重扫，无需置位
-                    if (row != null) {
-                        row.setStatus(0);
-                        mapper.updateById(row);
-                    }
-                    throw new IllegalStateException("向量库写入失败（" + file.name() + "）: " + rootMessage(e), e);
+                    flushRows(pendingRows);
+                } catch (RuntimeException flushError) {
+                    e.addSuppressed(flushError);
                 }
-                upsertRow(row, file, pieces.size());
-                updated++;
-                chunks += pieces.size();
-                log.info("[knowledge] 已摄取 '{}'：{} chunk（旧 {} chunk 已删）", file.name(), pieces.size(), oldChunkCount);
+                throw e;
             }
+            flushRows(pendingRows);
             cleanupOrphans(store, files);
             return new KnowledgeSyncView(files.size(), updated, skipped, chunks);
         } finally {
@@ -163,14 +191,19 @@ public class KnowledgeServiceImpl implements KnowledgeService, ApplicationRunner
                 .collect(Collectors.toSet());
         List<KbDocumentEntity> rows = mapper.selectList(new QueryWrapper<KbDocumentEntity>()
                 .select("id", "doc_name", "chunk_count"));
+        List<Long> orphanIds = new ArrayList<>();
         for (KbDocumentEntity row : rows) {
             if (scannedNames.contains(row.getDocName())) {
                 continue;
             }
             deleteChunks(store, row.getDocName(), row.getChunkCount() == null ? 0 : row.getChunkCount());
-            mapper.deleteById(row.getId());
+            orphanIds.add(row.getId());
             log.info("[knowledge] 已清理孤儿文档 '{}'（磁盘已删除，台账 {} chunk）",
                     row.getDocName(), row.getChunkCount());
+        }
+        if (!orphanIds.isEmpty()) {
+            // 批量删台账行（原先逐条 deleteById）
+            mapper.deleteByIds(orphanIds);
         }
     }
 
@@ -434,7 +467,7 @@ public class KnowledgeServiceImpl implements KnowledgeService, ApplicationRunner
         return mapper.selectOne(new QueryWrapper<KbDocumentEntity>().eq("doc_name", docName));
     }
 
-    private void upsertRow(KbDocumentEntity existing, KnowledgeDocumentScanner.KbFile file, int chunkCount) {
+    private KbDocumentEntity upsertRow(KbDocumentEntity existing, KnowledgeDocumentScanner.KbFile file, int chunkCount) {
         KbDocumentEntity row = existing != null ? existing : new KbDocumentEntity();
         row.setDocName(file.name());
         row.setKb(file.kb());
@@ -442,10 +475,38 @@ public class KnowledgeServiceImpl implements KnowledgeService, ApplicationRunner
         row.setMtime(file.mtime());
         row.setChunkCount(chunkCount);
         row.setStatus(1);
-        if (existing == null) {
-            mapper.insert(row);
-        } else {
-            mapper.updateById(row);
+        return row;
+    }
+
+    /**
+     * 批量落库台账行：SqlSession BATCH 模式下逐条登记、一次 flush/commit，减少往返；
+     * 无 SqlSessionFactory（单测）时退回逐条写，行为不变。
+     */
+    private void flushRows(List<KbDocumentEntity> rows) {
+        if (rows.isEmpty()) {
+            return;
+        }
+        if (sqlSessionFactory == null) {
+            for (KbDocumentEntity row : rows) {
+                if (row.getId() == null) {
+                    mapper.insert(row);
+                } else {
+                    mapper.updateById(row);
+                }
+            }
+            return;
+        }
+        try (SqlSession session = sqlSessionFactory.openSession(ExecutorType.BATCH)) {
+            KbDocumentMapper batchMapper = session.getMapper(KbDocumentMapper.class);
+            for (KbDocumentEntity row : rows) {
+                if (row.getId() == null) {
+                    batchMapper.insert(row);
+                } else {
+                    batchMapper.updateById(row);
+                }
+            }
+            session.flushStatements();
+            session.commit();
         }
     }
 
