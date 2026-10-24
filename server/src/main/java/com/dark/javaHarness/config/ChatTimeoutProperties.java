@@ -6,7 +6,7 @@ import org.springframework.stereotype.Component;
 /**
  * LLM 超时配置（app.chat.timeouts.*）：三处 LLM 通道超时的集中绑定载体。
  *
- * <p>数值唯一来源是 application.yaml（app.chat.timeouts 块）——本类只做绑定载体，
+ * <p>数值唯一来源是 application-chat.yaml（app.chat.timeouts 块）——本类只做绑定载体，
  * 字段保持 Integer 且无初始化值：未配置即为 null，由消费方按各自默认秒数兜底
  * （connect/read 经 {@link com.dark.javaHarness.config.agent.ChatClientFactory#resolve}，
  * stream-idle 兜底在 AgentChatCaller），未配置时行为与历史硬编码值完全一致

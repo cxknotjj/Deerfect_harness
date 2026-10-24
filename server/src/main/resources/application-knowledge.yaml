@@ -1,0 +1,62 @@
+# ============================================================
+# RAG 知识库（pgvector + DashScope 嵌入）与文档上传限制
+# 由 application.yaml 的 spring.config.import 引入，不依赖 profile 激活。
+# ============================================================
+
+spring:
+  servlet:
+    multipart:
+      # 知识文档上传上限（POST /api/knowledge/upload，仅 .md/.txt）；单请求=单文件所以两项一致
+      max-file-size: 1MB
+      max-request-size: 1MB
+
+app:
+  # knowledge/ 目录的 .md/.txt 文档经 POST /api/knowledge/sync 增量摄取
+  # （切分→嵌入→入向量库），路径 A/B 每次调用前按当前 user 文本检索、注入 system
+  # 知识段，回答带【出处N】引用 + meta.sources。
+  # PostgreSQL 不可用时检索静默降级为空（应用照常启动，对齐沙箱降级先例）
+  knowledge:
+    enabled: true
+    dir: knowledge
+    # 检索条数与相似度阈值（0~1，越大越严）
+    top-k: 4
+    min-score: 0.5
+    # 注入 prompt 的知识片段总预算（token，口径同 tool-result-budget）
+    context-budget: 3000
+    # 触发检索的最短 user 文本长度（过短问题检索意义小，直接跳过）
+    min-query-chars: 8
+    # 检索限时（秒）：嵌入+向量查询限时执行，超时中断降级（不注入知识块不阻断聊天）；0 = 关闭包裹
+    search-timeout-seconds: 10
+    # 启动时自动增量摄取（默认关：摄取要调嵌入 API，离线启动不应报错）
+    auto-sync-on-startup: false
+    # 目录监听自动摄取（WatchService 监听知识目录变更，静默期后自动 sync；
+    # 防止「加了文档忘了 sync」导致检索命中旧库——增量判据按 mtime，无变更零成本）
+    watch-enabled: true
+    # 文件事件静默期（秒）：事件停止后等待该时长再触发 sync，批量拷贝/原子写合并为一次
+    watch-debounce-seconds: 3
+    # BM25 混合检索（向量 + BM25 双路 RRF 融合重排，关键词/编号类查询召回更好；默认关 = 纯向量）
+    hybrid-enabled: true
+    # BM25 内存索引规模护栏：chunk 总数超过则不建索引、退化为纯向量；0 = 不限
+    bm25-max-chunks: 20000
+    # 融合分地板（hybrid 融合后过滤）：RRF 归一化分低于该值的命中视为噪音丢弃——
+    # 纯 BM25 单路弱匹配（中文 bigram 虚高）实测稳定 ~0.48，真命中 ≥0.94；0 = 不启用
+    fusion-min-score: 0.6
+    # 单次嵌入请求 chunk 数上限（DashScope 兼容模式单请求硬上限 10 条文本，8 留余量；
+    # 0 = 不分批一次性提交——大文档切出大量 chunk 时会撞批次上限 400）
+    embed-batch-size: 8
+    embedding:
+      # OpenAI 兼容嵌入端点；key 解析同 ChatClientFactory（下方 api-key 优先，
+      # 空则回退环境变量 QWEN_API_KEY）
+      base-url: ${DASHSCOPE_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode}
+      model: text-embedding-v4
+      # 建库维度：PgVectorStore 按此建 vector 列；更换嵌入模型/维度需删除向量表重建
+      dimensions: 1024
+    pgvector:
+      # 知识库专用 PostgreSQL（与业务主库 MySQL 相互独立）；库需预先创建并启用 vector 扩展
+      # （超级用户执行 CREATE EXTENSION vector；initializeSchema 只建表不建扩展）
+      url: jdbc:postgresql://localhost:5432/postgres
+      username: postgres
+      # 本地默认与 Docker postgres 镜像默认一致;生产部署经 PGVECTOR_PASSWORD 注入
+      password: ${PGVECTOR_PASSWORD:postgresql}
+      # 向量表名（initializeSchema 按此自建；与库内其他项目的向量表隔离）
+      table-name: vector_store_harness

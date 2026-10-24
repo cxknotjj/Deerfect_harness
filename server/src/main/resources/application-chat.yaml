@@ -1,0 +1,66 @@
+# ============================================================
+# 聊天运行时：会话快照 / 上下文预算 / 流式并发与超时
+# 由 application.yaml 的 spring.config.import 引入，不依赖 profile 激活。
+# ============================================================
+
+app:
+  # 会话上下文快照保留条数上限（超出从最旧丢弃；0 = 不限制）。
+  # 快照存 session_messages.content（MEDIUMTEXT），无界增长会让每轮写回的全量 JSON 读改写越来越慢
+  session:
+    snapshot-max-messages: 200
+  # 上下文预算（token，全项目统一口径 TokenEstimator）：输入侧四层预算 + 消费侧预算
+  # （输出 maxTokens 分档 / 编排全程消费上限），详见 docs/guides/context-optimization.md。
+  # 本块是全部预算数值的唯一来源（代码零默认，只做绑定载体）；全键统一 0 = 不限制
+  # （该层预算关闭，行为等同无预算），暂时不需要某项限制时置 0 即可
+  context:
+    history-budget: 4000      # 路径 A 会话历史裁剪（ContextAssemblingAdvisor）
+    lead-budget: 4000         # 编排 lead 拆解 prompt（超出对目标文本尾截）
+    aggregate-budget: 12000   # 编排聚合 prompt（超出按子任务等份额截断）
+    tool-result-budget: 5000  # 单次调用工具结果注入上下文的总预算
+    tool-call-limit: 4       # 单次调用工具执行次数硬上限
+    # —— 消费侧：输出封顶（生成侧防失控，设 maxTokens，0 = 不限制）——
+    max-tokens-lead: 4000     # lead 拆解单次输出上限（brief 四要素后输出变长：单条任务书可达 2000 字符，
+                              # 2000 token 会截断 JSON 丢失 agent 字段——e2e 实测后自 2000 上调）
+    max-tokens-final: 8000    # 聚合与路径 A 直出单次输出上限（直出用户的最终回答）
+    max-tokens-expert: 4000   # 编排子任务专家单次输出上限
+    # —— 消费侧：编排全程消费上限（0 = 不限制）——
+    orchestration-budget: 60000 # 单次编排全程 token 消费上限：内存账本同步累计（真实 usage 优先），
+                                # 每轮 LLM 调用（含单次 call 内部工具循环）前经 caller 熔断检查，超限断流，
+                                # 剩余子任务写「预算超限跳过」占位，聚合照常执行并在 prompt 注入降级说明
+    # —— 消费侧：编排子任务并行限并发（0 = 不限并发，全部并行）——
+    subtask-concurrency: 2    # 子任务并行扇出经信号量排队错峰执行：收敛下游 LLM 并发压力，
+                              # 并把熔断后的在途超额窗口从「整批」收窄到「至多 N 个在途调用」
+    subtask-brief-max-chars: 2000
+                              # 子任务任务书（brief）字符上限：lead 出口写入状态前截断（超限 warn 单行）；
+                              # 0 = 不限制
+    subtask-max-count: 4      # lead 拆解子任务数量上限：可下调 1~4（生效值 clamp 到 [1,4] 区间），
+                              # 0/超界回退内置兜底 4——拆解数量无「不限制」安全语义（防 lead 滚雪球）
+    subtask-wall-clock-seconds: 600
+                              # 编排子任务单执行墙钟上限（秒）：deadline 包装取消令牌，超时在 token
+                              # 边界中止在途调用、写占位结果，聚合 prompt 注入超时说明；0 = 不限制
+  # 聊天并发与超时（过载保护）：
+  chat:
+    # 流式连接数上限：/api/chat/stream 与 /api/chat/resume 的活跃 SSE 流计数（超限 429）；
+    # 0 = 不限制（与预算口径一致）
+    max-stream-connections: 50
+    # LLM 调用超时（秒）：connect/read 作用于阻塞通道（call，防端点无响应永久挂起）；
+    # stream-idle 作用于流式通道（AgentChatCaller 的 Flux.timeout 兜底，JDK 连接器无响应级超时）。
+    # 未配置键回退代码兜底默认（10/300/120），行为与历史硬编码一致
+    timeouts:
+      connect-timeout-seconds: 10
+      read-timeout-seconds: 300
+      # 帧间空闲看门狗（秒）：相邻响应帧（含 reasoning delta）间隔超过该值判定端点挂起，
+      # 失败进重试自愈。40s：正常 TTFT 与慢速滴流都远小于此，挂死连接不再等满 120s；
+      # 0 = 关闭看门狗；未配置回退代码兜底 120
+      stream-idle-timeout-seconds: 40
+      # 首帧超时（秒）：发起后首个响应帧（含 reasoning delta）的 deadline，黑洞连接的快速
+      # 判定通道——零帧请求 20s 即失败进重试自愈，无需等满 stream-idle；正常 TTFT（含思考
+      # 增量）远小于此值。0 = 关闭（首帧回退 stream-idle 口径）；未配置回退 20
+      first-frame-timeout-seconds: 20
+      # 路由判定读超时（秒）：route-judge 是只发 system+user 的轻量内部调用，
+      # 失败即兜底 SIMPLE，不共用 300s 长回答读超时；未配置回退 10
+      judge-read-timeout-seconds: 10
+    # COMPLEX 编排失败降级：编排自身失败（非客户端断开）时降级为会话绑定 Agent 单模型重答一次
+    # （一层兜底不递归；重答失败保留「编排失败 + 重答失败」两段错误信息）
+    complex-fallback:
+      enabled: true

@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
  * prompt、聚合 prompt、工具结果与工具次数）与消费侧预算（输出 maxTokens 分档、编排全程
  * 消费上限，见 docs/guides/context-optimization.md）。
  *
- * <p>数值唯一来源是 application.yaml（app.context 块）——本类只做绑定载体，不含任何
+ * <p>数值唯一来源是 application-chat.yaml（app.context 块）——本类只做绑定载体，不含任何
  * 预算数字；字段保持 int 缺省 0。全键统一 0 = 不限制：该层预算关闭，组件行为等同
  * 无预算（存量行为）；暂时不需要某项限制时在 yaml 置 0 即可，无需改代码。
  */

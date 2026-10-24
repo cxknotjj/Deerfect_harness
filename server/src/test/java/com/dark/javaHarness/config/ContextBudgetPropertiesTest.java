@@ -15,19 +15,19 @@ import org.springframework.core.io.ClassPathResource;
 
 /**
  * ContextBudgetProperties 配置绑定单测：
- * - 配置类零默认（int 缺省 0 = 该层预算关闭），数值唯一来源是 application.yaml——
+ * - 配置类零默认（int 缺省 0 = 该层预算关闭），数值唯一来源是 application-chat.yaml——
  *   直接绑定 classpath 真实 yaml 断言生产值，yaml 被误改/漂移时由本用例报警
  * - kebab-case yaml 键（max-tokens-lead 等）正确绑定并覆盖（用非 yaml 值证明覆盖优先级）
  */
 class ContextBudgetPropertiesTest {
 
-    /** 绑定 classpath 真实 application.yaml：生产数值只在这一处，误改即测试失败 */
+    /** 绑定 classpath 真实 application-chat.yaml（拆分后预算归属文件）：生产数值只在这一处，误改即测试失败 */
     @Test
     void bindsApplicationYaml_productionValues() {
         YamlPropertiesFactoryBean yaml = new YamlPropertiesFactoryBean();
-        yaml.setResources(new ClassPathResource("application.yaml"));
+        yaml.setResources(new ClassPathResource("application-chat.yaml"));
         Properties props = yaml.getObject();
-        assertNotNull(props, "application.yaml 必须存在且可解析");
+        assertNotNull(props, "application-chat.yaml 必须存在且可解析");
 
         Map<String, String> source = new HashMap<>();
         props.forEach((k, v) -> source.put(String.valueOf(k), String.valueOf(v)));

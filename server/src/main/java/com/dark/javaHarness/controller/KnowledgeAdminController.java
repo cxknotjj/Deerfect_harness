@@ -158,7 +158,7 @@ public class KnowledgeAdminController {
             org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE)
     static class KnowledgeDisabledException extends RuntimeException {
         KnowledgeDisabledException() {
-            super("知识库未启用：application.yaml 设置 app.knowledge.enabled=true 并配置 pgvector/嵌入端点后重启");
+            super("知识库未启用：application-knowledge.yaml 设置 app.knowledge.enabled=true 并配置 pgvector/嵌入端点后重启");
         }
     }
 }

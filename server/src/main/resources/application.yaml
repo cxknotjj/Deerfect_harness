@@ -1,234 +1,32 @@
+# ============================================================
+# 应用配置入口：只保留启动骨架与各域配置的 import 清单。
+# 分域文件（键区间互不重叠，改动请保持单一归属）：
+#   application-ai.yaml          spring.ai.* / app.providers.*
+#   application-datasource.yaml  spring.datasource / spring.flyway
+#   application-chat.yaml        app.session / app.context / app.chat
+#   application-agent.yaml       app.sandbox / app.prompt / app.memory / app.observability
+#   application-security.yaml    app.security
+#   application-knowledge.yaml   spring.servlet.multipart / app.knowledge
+#   application-qq.yaml          napcat.*（QQ 渠道）
+# ============================================================
+
 spring:
   application:
     name: javaHarness
-  # QQ 渠道（napcat.*）配置自 application-qq.yaml 引入（拆分独立维护，不依赖 profile 激活）
+  # 按域导入，不依赖 profile 激活。注意：导入文件中的键优先级高于本文件，
+  # 因此各域文件必须保持键区间互不重叠（唯一归属）。
   config:
-    import: classpath:application-qq.yaml
-  ai:
-    openai:
-      # 通义千问 DashScope 的 OpenAI 兼容模式
-      # （Spring AI 会自动在此 base-url 后拼接 /v1/chat/completions）
-      base-url: ${DASHSCOPE_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode}
-      # 占位 key：保证无真实 key 也能启动；真实调用需配置环境变量 QWEN_API_KEY
-      api-key: ${QWEN_API_KEY:dummy-key-for-startup}
-      chat:
-        options:
-          # 可选 qwen3.7-flash / qwen-turbo / qwen-plus / qwen-max
-          model: qwen3.7-flash
-          temperature: 0.7
-    mcp:
-      # 自建 MCP Server（Streamable-HTTP，WebMVC 传输）：protocol 必须显式置为 STREAMABLE
-      # 才会注册 /mcp 端点（默认是 SSE，端点不在 /mcp）。暴露 McpServerTools 的 3 个演示工具。
-      server:
-        enabled: true
-        protocol: STREAMABLE
-        streamable-http:
-          mcp-endpoint: /mcp
-      # 客户端：默认关闭 autoconfig 的 MCP client 自动装配，避免启动时强连外部 MCP Server
-      # （连接失败会拖垮整个应用启动）。MCP client 由 McpToolProvider 懒连接 + 失败降级，
-      # 首次被 agent 取用工具时才连接（server 与 client 同进程，启动完成后 /mcp 端点即可达）。
-      client:
-        enabled: false
-        # 传输方式：http=Streamable-HTTP 连 server-url；stdio=spawn 外部 MCP 进程（见 stdio-command）
-        transport: stdio
-        # 懒连接时的 server 地址（http 模式），由 McpToolProvider 读取
-        server-url: http://localhost:${server.port:8080}/mcp
-        # 多 server 配置（McpToolProvider）：优先读项目根 mcp-config.json（mcpServers JSON 结构，
-        # 同 Claude/Cursor）的全量条目——command(±args)=stdio、url=http、enabled:false 跳过，
-        # 每 server 独立懒连接、失败按 server 隔离；文件缺失/无有效条目回退本节 legacy 单 server：
-        # stdio 走 mcp-config.json 第一条目 → 此内联命令（回退），http 走上方 server-url。
-        # 示例：stdio-command: "npx -y @browsermcp/mcp@latest"
-        stdio-command: ""
-  datasource:
-    url: jdbc:mysql://localhost:3306/harness?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
-    username: root
-    # 本地默认空密码;生产/公网部署务必经 MYSQL_PASSWORD 环境变量注入强密码
-    password: ${MYSQL_PASSWORD:}
-    driver-class-name: com.mysql.cj.jdbc.Driver
-  flyway:
-    enabled: true
-    locations: classpath:db/migration
-    # 显式声明 UTF-8：迁移文件统一按 UTF-8 解析，防止系统默认编码（Windows GBK）介入导致中文注释乱码
-    encoding: UTF-8
-    # 存量库（表已存在但无 flyway_schema_history）首次接入时先打基线：
-    # baseline 版本=1，V1 跳过，从 V2 起执行增量；全新空库则 V1 起完整执行
-    baseline-on-migrate: true
-  servlet:
-    multipart:
-      # 知识文档上传上限（POST /api/knowledge/upload，仅 .md/.txt）；单请求=单文件所以两项一致
-      max-file-size: 1MB
-      max-request-size: 1MB
+    import:
+      - classpath:application-ai.yaml
+      - classpath:application-datasource.yaml
+      - classpath:application-chat.yaml
+      - classpath:application-agent.yaml
+      - classpath:application-security.yaml
+      - classpath:application-knowledge.yaml
+      - classpath:application-qq.yaml
 
 server:
   port: 8080
-
-# 多服务商 API Key 配置（敏感信息不落库；端点 url 以 model_provider 表为准，此处只管 key）。
-# 解析规则：app.providers.<provider>.api-key 优先，未配置时回退环境变量 <PROVIDER大写>_API_KEY。
-# 因此新增供应商通常零配置——设置 MOONSHOT_API_KEY 之类的环境变量即可。
-app:
-  # 会话上下文快照保留条数上限（超出从最旧丢弃；0 = 不限制）。
-  # 快照存 session_messages.content（MEDIUMTEXT），无界增长会让每轮写回的全量 JSON 读改写越来越慢
-  session:
-    snapshot-max-messages: 200
-  # 上下文预算（token，全项目统一口径 TokenEstimator）：输入侧四层预算 + 消费侧预算
-  # （输出 maxTokens 分档 / 编排全程消费上限），详见 docs/guides/context-optimization.md。
-  # 本块是全部预算数值的唯一来源（代码零默认，只做绑定载体）；全键统一 0 = 不限制
-  # （该层预算关闭，行为等同无预算），暂时不需要某项限制时置 0 即可
-  context:
-    history-budget: 4000      # 路径 A 会话历史裁剪（ContextAssemblingAdvisor）
-    lead-budget: 4000         # 编排 lead 拆解 prompt（超出对目标文本尾截）
-    aggregate-budget: 12000   # 编排聚合 prompt（超出按子任务等份额截断）
-    tool-result-budget: 5000  # 单次调用工具结果注入上下文的总预算
-    tool-call-limit: 4       # 单次调用工具执行次数硬上限
-    # —— 消费侧：输出封顶（生成侧防失控，设 maxTokens，0 = 不限制）——
-    max-tokens-lead: 4000     # lead 拆解单次输出上限（brief 四要素后输出变长：单条任务书可达 2000 字符，
-                              # 2000 token 会截断 JSON 丢失 agent 字段——e2e 实测后自 2000 上调）
-    max-tokens-final: 8000    # 聚合与路径 A 直出单次输出上限（直出用户的最终回答）
-    max-tokens-expert: 4000   # 编排子任务专家单次输出上限
-    # —— 消费侧：编排全程消费上限（0 = 不限制）——
-    orchestration-budget: 60000 # 单次编排全程 token 消费上限：内存账本同步累计（真实 usage 优先），
-                                # 每轮 LLM 调用（含单次 call 内部工具循环）前经 caller 熔断检查，超限断流，
-                                # 剩余子任务写「预算超限跳过」占位，聚合照常执行并在 prompt 注入降级说明
-    # —— 消费侧：编排子任务并行限并发（0 = 不限并发，全部并行）——
-    subtask-concurrency: 2    # 子任务并行扇出经信号量排队错峰执行：收敛下游 LLM 并发压力，
-                              # 并把熔断后的在途超额窗口从「整批」收窄到「至多 N 个在途调用」
-    subtask-brief-max-chars: 2000
-                              # 子任务任务书（brief）字符上限：lead 出口写入状态前截断（超限 warn 单行）；
-                              # 0 = 不限制
-    subtask-max-count: 4      # lead 拆解子任务数量上限：可下调 1~4（生效值 clamp 到 [1,4] 区间），
-                              # 0/超界回退内置兜底 4——拆解数量无「不限制」安全语义（防 lead 滚雪球）
-    subtask-wall-clock-seconds: 600
-                              # 编排子任务单执行墙钟上限（秒）：deadline 包装取消令牌，超时在 token
-                              # 边界中止在途调用、写占位结果，聚合 prompt 注入超时说明；0 = 不限制
-  # 聊天并发与超时（过载保护）：
-  chat:
-    # 流式连接数上限：/api/chat/stream 与 /api/chat/resume 的活跃 SSE 流计数（超限 429）；
-    # 0 = 不限制（与预算口径一致）
-    max-stream-connections: 50
-    # LLM 调用超时（秒）：connect/read 作用于阻塞通道（call，防端点无响应永久挂起）；
-    # stream-idle 作用于流式通道（AgentChatCaller 的 Flux.timeout 兜底，JDK 连接器无响应级超时）。
-    # 未配置键回退代码兜底默认（10/300/120），行为与历史硬编码一致
-    timeouts:
-      connect-timeout-seconds: 10
-      read-timeout-seconds: 300
-      # 帧间空闲看门狗（秒）：相邻响应帧（含 reasoning delta）间隔超过该值判定端点挂起，
-      # 失败进重试自愈。40s：正常 TTFT 与慢速滴流都远小于此，挂死连接不再等满 120s；
-      # 0 = 关闭看门狗；未配置回退代码兜底 120
-      stream-idle-timeout-seconds: 40
-      # 首帧超时（秒）：发起后首个响应帧（含 reasoning delta）的 deadline，黑洞连接的快速
-      # 判定通道——零帧请求 20s 即失败进重试自愈，无需等满 stream-idle；正常 TTFT（含思考
-      # 增量）远小于此值。0 = 关闭（首帧回退 stream-idle 口径）；未配置回退 20
-      first-frame-timeout-seconds: 20
-      # 路由判定读超时（秒）：route-judge 是只发 system+user 的轻量内部调用，
-      # 失败即兜底 SIMPLE，不共用 300s 长回答读超时；未配置回退 10
-      judge-read-timeout-seconds: 10
-    # COMPLEX 编排失败降级：编排自身失败（非客户端断开）时降级为会话绑定 Agent 单模型重答一次
-    # （一层兜底不递归；重答失败保留「编排失败 + 重答失败」两段错误信息）
-    complex-fallback:
-      enabled: true
-  # 容器沙箱 Docker daemon 地址（host:port 或 tcp://host:port）：
-  # SDK 默认发现只认 DOCKER_HOST 环境变量与 unix socket（/var/run/docker.sock）；
-  # WSL/远程 daemon 等无 socket 场景用此项直连 TCP（如 Windows 宿主机 Docker Desktop
-  # 暴露的 2375；镜像网络下用 127.0.0.1，勿用 localhost——IPv6 解析会超时）。
-  # 留空 = 走 SDK 默认发现；环境变量 DOCKER_HOST 优先级更高（docker-java 标准链）。
-  sandbox:
-    docker-host: "127.0.0.1:2375"
-  # 工具 Schema 延迟加载（两段式工具暴露）：开启后请求级工具面轻量注入（名称+用途，schema 置空），
-  # system 附工具索引段，模型经 expand_tool 元工具按需展开获取完整参数说明；
-  # 关闭后回退全量注入现状（expand_tool 不注册）
-  prompt:
-    lazy-tools:
-      enabled: true
-    # skill 动态装配（Markdown 技能库）：扫描 dir 目录的 .md 技能文件（front-matter 声明
-    # name/description/agents），system 注入「名称+描述」索引段，模型经 load_skill 元工具
-    # 按需取完整正文；文件按 mtime 热重载（放入/修改下一请求生效，免重启）；
-    # 关闭后 skill 段为空、load_skill 不注册
-    skills:
-      enabled: true
-      dir: skills
-  # 用户偏好画像（跨对话长期记忆）：后台定时扫描空闲会话，LLM 提炼偏好并合并进
-  # 全局画像文件（Markdown 条目，全文注入 general/lead 的 system prompt 画像段）；
-  # 关闭后画像服务与注入点均不装配，prompt 无画像段
-  memory:
-    profile-enabled: false                        # 总开关（UserProfileService / 注入点同开关装配）
-    profile-file: user-profile/user-profile.md   # 画像文件（相对工作区顶层目录，容器整目录挂载避单文件 inode 陷阱）
-    profile-scan-interval-ms: 900000           # 空闲会话扫描周期（5 分钟，fixedDelay 上一轮完成后间隔再跑，不堆叠）
-    profile-idle-minutes: 30                     # 会话静默多久后视为可提炼（防活跃会话反复提取；存量会话不回溯）
-    profile-max-chars: 4000                      # 画像合并后字符上限（超出尾截，控制常驻注入预算）
-  # 观测表保留期清理（ObservabilityLogCleaner）：llm_call_log / tool_call_log 按 created_at
-  # 分批删除过期行（V24 索引支撑，单批 1000 防长事务）。0 = 禁用清理（不删任何行）
-  observability:
-    retention-days: 90                           # 观测数据保留天数
-    clean-cron: "0 0 3 * * ?"                    # 清理时刻（每日凌晨 3 点低峰期）
-  # API 鉴权（ApiTokenFilter 双通道）：默认全空 = 不启用（本地单机零影响），公网部署按需配置。
-  # - 机器通道 api-token：非空启用，curl/脚本直连须携带 X-API-Token 头（常量时间比较防时序探测）
-  # - 登录通道 password：非空启用，web 端 POST /api/auth/login 以口令换 HttpOnly Cookie
-  #   （harness_login，SameSite=Lax，活跃访问滑动续期）——凭据不进前端构建产物，浏览器 JS 不可读；
-  #   改 password 后旧登录态留存至过期，需立即踢出则重启（登录态在内存）
-  # 拦截范围仅 /api/**；/api/auth/**、/onebot/**（自有 HMAC 验签）、/error、静态资源不在拦截范围
-  # 鉴权默认不启用，公网部署按需配置。
-  security:
-    api-token: ""                                # 机器通道；空 = 不启用
-    password: ${APP_PASSWORD:}                   # 登录通道；空 = 不启用（公网部署建议配置）
-    login-ttl-hours: 168                         # 登录态有效期（小时），活跃访问滑动续期
-    login-max-failures: 5                        # 同 IP 连续失败锁定阈值
-    login-lock-seconds: 60                       # 锁定时长（秒）
-  providers:
-    dashscope:
-      api-key: ${QWEN_API_KEY:dummy-key-for-startup}
-    deepseek:
-      api-key: ${DEEPSEEK_API_KEY:dummy-deepseek-key}
-  # RAG 知识库（pgvector + DashScope 嵌入）：knowledge/ 目录的 .md/.txt 文档经
-  # POST /api/knowledge/sync 增量摄取（切分→嵌入→入向量库），路径 A/B 每次调用前
-  # 按当前 user 文本检索、注入 system 知识段，回答带【出处N】引用 + meta.sources。
-  # PostgreSQL 不可用时检索静默降级为空（应用照常启动，对齐沙箱降级先例）
-  knowledge:
-    enabled: true
-    dir: knowledge
-    # 检索条数与相似度阈值（0~1，越大越严）
-    top-k: 4
-    min-score: 0.5
-    # 注入 prompt 的知识片段总预算（token，口径同 tool-result-budget）
-    context-budget: 3000
-    # 触发检索的最短 user 文本长度（过短问题检索意义小，直接跳过）
-    min-query-chars: 8
-    # 检索限时（秒）：嵌入+向量查询限时执行，超时中断降级（不注入知识块不阻断聊天）；0 = 关闭包裹
-    search-timeout-seconds: 10
-    # 启动时自动增量摄取（默认关：摄取要调嵌入 API，离线启动不应报错）
-    auto-sync-on-startup: false
-    # 目录监听自动摄取（WatchService 监听知识目录变更，静默期后自动 sync；
-    # 防止「加了文档忘了 sync」导致检索命中旧库——增量判据按 mtime，无变更零成本）
-    watch-enabled: true
-    # 文件事件静默期（秒）：事件停止后等待该时长再触发 sync，批量拷贝/原子写合并为一次
-    watch-debounce-seconds: 3
-    # BM25 混合检索（向量 + BM25 双路 RRF 融合重排，关键词/编号类查询召回更好；默认关 = 纯向量）
-    hybrid-enabled: true
-    # BM25 内存索引规模护栏：chunk 总数超过则不建索引、退化为纯向量；0 = 不限
-    bm25-max-chunks: 20000
-    # 融合分地板（hybrid 融合后过滤）：RRF 归一化分低于该值的命中视为噪音丢弃——
-    # 纯 BM25 单路弱匹配（中文 bigram 虚高）实测稳定 ~0.48，真命中 ≥0.94；0 = 不启用
-    fusion-min-score: 0.6
-    # 单次嵌入请求 chunk 数上限（DashScope 兼容模式单请求硬上限 10 条文本，8 留余量；
-    # 0 = 不分批一次性提交——大文档切出大量 chunk 时会撞批次上限 400）
-    embed-batch-size: 8
-    embedding:
-      # OpenAI 兼容嵌入端点；key 解析同 ChatClientFactory（下方 api-key 优先，
-      # 空则回退环境变量 QWEN_API_KEY）
-      base-url: ${DASHSCOPE_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode}
-      model: text-embedding-v4
-      # 建库维度：PgVectorStore 按此建 vector 列；更换嵌入模型/维度需删除向量表重建
-      dimensions: 1024
-    pgvector:
-      # 知识库专用 PostgreSQL（与业务主库 MySQL 相互独立）；库需预先创建并启用 vector 扩展
-      # （超级用户执行 CREATE EXTENSION vector；initializeSchema 只建表不建扩展）
-      url: jdbc:postgresql://localhost:5432/postgres
-      username: postgres
-      # 本地默认与 Docker postgres 镜像默认一致;生产部署经 PGVECTOR_PASSWORD 注入
-      password: ${PGVECTOR_PASSWORD:postgresql}
-      # 向量表名（initializeSchema 按此自建；与库内其他项目的向量表隔离）
-      table-name: vector_store_harness
-
-# QQ 渠道（napcat.*）配置已拆分至 application-qq.yaml（本文件顶部 spring.config.import 引入）
 
 logging:
   level:

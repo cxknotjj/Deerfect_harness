@@ -65,7 +65,7 @@ public class SandboxToolProvider {
     private volatile Future<?> initTask;
 
     /**
-     * Docker daemon 地址（application.yaml app.sandbox.docker-host）：形如 host:port 或
+     * Docker daemon 地址（application-agent.yaml app.sandbox.docker-host）：形如 host:port 或
      * tcp://host:port；非空时注入 SDK starter（探测与 SandboxService 同源），直连 TCP——
      * 供 WSL/远程 daemon 等无 unix socket 场景使用；空 = SDK 默认发现
      * （DOCKER_HOST 环境变量 / unix socket，环境变量优先级更高）。

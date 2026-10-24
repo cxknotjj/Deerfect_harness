@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
  * RAG 知识库配置（app.knowledge.*）：knowledge/ 目录文档的增量摄取参数、
  * 检索注入参数、嵌入端点与向量库连接。
  *
- * <p>数值唯一来源是 application.yaml（app.knowledge 块）——本类只做绑定载体；
+ * <p>数值唯一来源是 application-knowledge.yaml（app.knowledge 块）——本类只做绑定载体；
  * 数值键遵循全项目「0 = 不限制」口径（top-k 0 / context-budget 0 / min-query-chars 0
  * 均表示关闭该项约束）。向量库与嵌入仅在 {@code enabled=true} 且首次实际使用时才连接
  * （KnowledgeConfig 全链 @Lazy + ObjectProvider 惰性解析），PG 不可用不影响应用启动。
