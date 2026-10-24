@@ -259,7 +259,7 @@ A third entry point besides CLI / REST: connects to QQ group & private chats via
 | 🎯 Pinned Agent | Bound sessions still go through unified routing; failed orchestrations fall back to that Agent |
 
 > [!TIP]
-> Setup steps (NapCat dual-channel config), progressive sending / emoji / humanized delays and all parameters: **[`docs/guides/qq-channel.md`](./docs/guides/qq-channel.md)** (Chinese); disable via `napcat.enabled: false` in `application.yaml`.
+> Setup steps (NapCat dual-channel config), progressive sending / emoji / humanized delays and all parameters: **[`docs/guides/qq-channel.md`](./docs/guides/qq-channel.md)** (Chinese); disable via `napcat.enabled: false` in `application-qq.yaml`.
 
 ## 🔌 Multi-Model & Multi-Provider
 
@@ -281,7 +281,7 @@ flowchart LR
 > 2. Add a row to `model_provider`: `INSERT INTO model_provider(model, provider, api_url, status) VALUES('kimi-k2','moonshot','https://api.moonshot.cn/v1',1);`
 > 3. Restart to take effect
 >
-> Alternatively, map keys explicitly in `application.yaml` under `app.providers.<provider>.api-key` (takes priority over the environment-variable convention; existing variable names stay compatible).
+> Alternatively, map keys explicitly in `application-ai.yaml` under `app.providers.<provider>.api-key` (takes priority over the environment-variable convention; existing variable names stay compatible).
 
 > [!WARNING]
 > For security, API keys are never stored in the database. Resolution rules (convention over configuration):

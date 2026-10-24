@@ -22,7 +22,7 @@ flowchart LR
 > 2. `model_provider` 表加行：`INSERT INTO model_provider(model, provider, api_url, status) VALUES('kimi-k2','moonshot','https://api.moonshot.cn/v1',1);`
 > 3. 重启生效
 >
-> 也可在 `application.yaml` 的 `app.providers.<provider>.api-key` 显式映射（优先级高于环境变量约定），现有环境变量名保持兼容。
+> 也可在 `application-ai.yaml` 的 `app.providers.<provider>.api-key` 显式映射（优先级高于环境变量约定），现有环境变量名保持兼容。
 
 > [!WARNING]
 > API Key 出于安全不落库，解析规则（约定优于配置）：

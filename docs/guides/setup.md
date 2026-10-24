@@ -4,7 +4,7 @@
 
 ---
 
-MySQL 只需建库一次（表结构由 Flyway 启动时自动创建，无需手动执行脚本）。连接信息在 `src/main/resources/application.yaml` 的 `spring.datasource`（默认 `localhost:3306/harness`、账号 `root`、空密码，按需修改）：
+MySQL 只需建库一次（表结构由 Flyway 启动时自动创建，无需手动执行脚本）。连接信息在 `src/main/resources/application-datasource.yaml` 的 `spring.datasource`（默认 `localhost:3306/harness`、账号 `root`、空密码，按需修改）：
 
 ```sql
 CREATE DATABASE IF NOT EXISTS harness DEFAULT CHARACTER SET utf8mb4;
@@ -81,7 +81,7 @@ $env:QWEN_API_KEY = "sk-你的key"    # Windows PowerShell；WSL 用 export QWEN
 > ```
 
 > [!NOTE]
-> 不接入 QQ 渠道？在 `application.yaml` 设 `napcat.enabled: false`（QQ 渠道为可选组件，但当前默认开启——关闭后不再有 NapCat 连接告警，其余功能不受影响）。接入与能力清单见 [`docs/guides/qq-channel.md`](./qq-channel.md)。
+> 不接入 QQ 渠道？在 `application-qq.yaml` 设 `napcat.enabled: false`（QQ 渠道为可选组件，但当前默认开启——关闭后不再有 NapCat 连接告警，其余功能不受影响）。接入与能力清单见 [`docs/guides/qq-channel.md`](./qq-channel.md)。
 
 
 ---

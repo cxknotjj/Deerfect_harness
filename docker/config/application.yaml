@@ -1,7 +1,7 @@
 # ============================================================
 # Docker 外置配置覆盖（免重打镜像）
 #
-# 用法：只写要改的键，其余自动沿用 jar 内 application.yaml 默认值。
+# 用法：只写要改的键，其余自动沿用 jar 内分域 application-*.yaml（入口 application.yaml）的默认值。
 # Spring Boot 启动时扫描工作目录 ./config/application.yaml（即容器内
 # /workspace/config/application.yaml），按键叠加覆盖。
 #

@@ -74,7 +74,7 @@
 - **看到的反馈**：自检 WARN 三连「get_login_info 调用异常（第 1/2 次）…启动自检失败：retcode=-1（QQ 发送将不可用，检查 NapCat/token）」。
 - **认可点**：不阻断启动、文案有一定可读性。
 - **卡点**：不用 QQ 渠道的新用户不知道这是可关闭的可选组件（无「设 napcat.enabled=false 可消除」的出口提示）。
-- **最小修改**：README 快速开始加一行「不接入 QQ 渠道时在 application.yaml 设 napcat.enabled=false」；自检失败 WARN 尾部追加同一提示。
+- **最小修改**：README 快速开始加一行「不接入 QQ 渠道时在 `application-qq.yaml` 设 napcat.enabled=false」；自检失败 WARN 尾部追加同一提示。
 - **验收**：无 NapCat 全新启动后，用户能从告警或 README 一眼找到关闭方式。
 
 ### 问题 6 【推断·低】非法 agentId 静默回退默认 agent

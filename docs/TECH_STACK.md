@@ -59,7 +59,7 @@ controller（REST + SSE 流式 + 全局异常处理 + 观测查询三接口，�
         ├─ domain（server 自身领域模型：RouteDecision 分流决策 / LlmCallLog 等观测记录；契约 DTO/实体在 harness-api）
         ├─ mapper（Agent / Goal / Session / SessionMessage / ModelProvider / 各观测日志 Mapper；OneBot 绑定 Mapper 在 channel-qq）
         ├─ enums（server 侧 AgentConstants；GoalStatus/SseProtocol 在 harness-api）
-        └─ 配置（application.yaml + config/agent：ChatAgentConfig、ChatClientFactory、ChatClientRegistry）
+        └─ 配置（application.yaml 入口 + application-*.yaml 分域 + config/agent：ChatAgentConfig、ChatClientFactory、ChatClientRegistry）
 ```
 
 ### 关键设计

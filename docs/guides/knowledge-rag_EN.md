@@ -12,7 +12,7 @@ curl -X POST http://localhost:8080/api/knowledge/sync          # incremental ing
 curl 'http://localhost:8080/api/knowledge/search?q=deploy'     # debug retrieval hit view
 ```
 
-Answers carry `【Source N】` inline citations, the CLI prints a "Sources:" footer, and `meta.sources` / `ChatResponse.sources` expose structured provenance (doc name / title / score). Configuration (top-k / min score / injection budget) lives under `app.knowledge.*` in `application.yaml`.
+Answers carry `【Source N】` inline citations, the CLI prints a "Sources:" footer, and `meta.sources` / `ChatResponse.sources` expose structured provenance (doc name / title / score). Configuration (top-k / min score / injection budget) lives under `app.knowledge.*` in `application-knowledge.yaml`.
 
 #### 🗂️ Multiple Knowledge Bases & Agent Binding
 
@@ -73,7 +73,7 @@ sequenceDiagram
     L-->>U: Answer with inline citations + meta.sources
 ```
 
-Trigger conditions (fully config-driven, tune via `application.yaml`):
+Trigger conditions (fully config-driven, tune via `application-knowledge.yaml`):
 
 | Trigger condition | Config key | Current value | When unmet |
 |---|---|---|---|

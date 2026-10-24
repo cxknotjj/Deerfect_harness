@@ -5,7 +5,7 @@
 ---
 
 
-把文档放进 `knowledge/` 目录（`.md` / `.txt`，支持 front-matter `title:`），摄取后路径 A/B 回答自动检索注入。触发是**每次组装 prompt 前的旁路检查**：总开关、角色名单、查询长度、相关度、注入预算五层条件全部满足才注入，任一不满足静默降级、主链路零感知——全部配置驱动（`application.yaml` 的 `app.knowledge.*`），决策流程与时序图见 [`data-flow.md` 5i 节](data-flow.md#5i-rag-知识检索注入数据流prompt-组装前旁路)。
+把文档放进 `knowledge/` 目录（`.md` / `.txt`，支持 front-matter `title:`），摄取后路径 A/B 回答自动检索注入。触发是**每次组装 prompt 前的旁路检查**：总开关、角色名单、查询长度、相关度、注入预算五层条件全部满足才注入，任一不满足静默降级、主链路零感知——全部配置驱动（`application-knowledge.yaml` 的 `app.knowledge.*`），决策流程与时序图见 [`data-flow.md` 5i 节](data-flow.md#5i-rag-知识检索注入数据流prompt-组装前旁路)。
 
 ```bash
 mkdir -p knowledge && cp 你的文档.md knowledge/

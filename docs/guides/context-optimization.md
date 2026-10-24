@@ -94,7 +94,7 @@ public final class PromptBudgetAdvisor implements CallAdvisor {
 ### 2.2 口径统一与配置化（P1）
 
 1. `ContextAssemblingAdvisor` 的估算改用 `TokenEstimator`（约 3 处替换）。
-2. 预算全部挪进 `application.yaml`，集中管理：
+2. 预算全部挪进 `application-chat.yaml`，集中管理：
 
 ```yaml
 app:
@@ -139,7 +139,7 @@ app:
 1. 编排链路每个进入模型的 prompt 都有明确 token 上界：lead ≤ 4k、子任务 ≤ 5k（工具结果）+ persona 常量、聚合 ≤ 12k、路径 A ≤ 4k（历史）+ 当轮消息。
 2. `LlmCallRecorder` 观测到的 prompt token 与预算组件估算同口径、可比对。
 3. 聚合超预算时每个子任务的结果在 prompt 中至少保留等额份额，截断有标记可追溯（log.warn）。
-4. 全部预算参数可在 `application.yaml` 调整，无需改代码。
+4. 全部预算参数可在 `application-chat.yaml` 调整，无需改代码。
 
 ---
 
@@ -171,7 +171,7 @@ lead prompt = persona（拆解约束）
 
 ## 五、消费侧预算（输出封顶 + 编排消费上限熔断，2026-09-08 已实现）
 
-输入侧防线（前四节）只管「喂给模型多少」，不管「模型吐出多少、一次编排总共烧多少」。本节补齐消费侧两道防线。全部预算数值的唯一来源是 `application.yaml` 的 `app.context` 块（代码零默认，`ContextBudgetProperties` 只做绑定载体）；全键统一 **0 = 不限制**——该层预算关闭，行为等同无预算，暂时不需要某项限制时在 yaml 置 0 即可，无需改代码。
+输入侧防线（前四节）只管「喂给模型多少」，不管「模型吐出多少、一次编排总共烧多少」。本节补齐消费侧两道防线。全部预算数值的唯一来源是 `application-chat.yaml` 的 `app.context` 块（代码零默认，`ContextBudgetProperties` 只做绑定载体）；全键统一 **0 = 不限制**——该层预算关闭，行为等同无预算，暂时不需要某项限制时在 yaml 置 0 即可，无需改代码。
 
 ### 5.1 输出封顶：maxTokens 按角色分档（生成侧防失控）
 
