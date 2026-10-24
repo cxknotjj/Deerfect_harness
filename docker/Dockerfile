@@ -3,7 +3,7 @@
 # 构建（context 必须是项目根——COPY 依赖 pom.xml/src/skills/knowledge/channel）：
 #   docker build -f docker/Dockerfile -t java-harness .
 #   或直接：docker compose -f docker/docker-compose.yml up -d --build
-# 说明：沿用项目 .mvn/settings.xml（阿里云镜像 + 工作区内 .mvn-repo 本地仓库），
+# 说明：沿用项目 .mvn/settings.xml（阿里云镜像）；本地仓库路径 .mvn-repo 在镜像内新建，
 #       依赖下载落在可缓存的独立层——pom 不变时重建秒级完成
 # ============================================================
 
@@ -18,19 +18,24 @@ ARG RUN_BASE=eclipse-temurin:17-jre
 FROM ${BUILD_BASE} AS build
 WORKDIR /build
 
-# 先拷贝 pom 与 Maven 配置：依赖层与源码层分离，改代码不重下依赖
+# 先拷贝全部模块 pom 与 Maven 配置：依赖层与源码层分离，改代码不重下依赖。
+# 根 pom 的 <modules> 声明了 5 个模块，即使 -pl 只构建 server，Maven 读取反应堆时
+# 也要求每个模块目录存在——因此所有 pom 必须在此拷贝（cli/wms 只建目录、不参与构建）。
 COPY pom.xml ./
-COPY shared/pom.xml ./shared/pom.xml
+COPY harness-api/pom.xml ./harness-api/pom.xml
+COPY channel-qq/pom.xml ./channel-qq/pom.xml
 COPY server/pom.xml ./server/pom.xml
 COPY cli/pom.xml ./cli/pom.xml
+COPY wms-mcp-adapter/pom.xml ./wms-mcp-adapter/pom.xml
 COPY .mvn/settings.xml .mvn/settings.xml
 # dependency:go-offline 尽力预拉全部依赖与插件（个别插件依赖拉不全是已知行为，
 # 失败不阻断——下一步 package 会继续补齐）
 RUN mvn -s .mvn/settings.xml -B -q dependency:go-offline || true
 
-COPY shared/src ./shared/src
+COPY harness-api/src ./harness-api/src
+COPY channel-qq/src ./channel-qq/src
 COPY server/src ./server/src
-# 仅构建 server（-am 连带 shared；cli 客户端不进服务端镜像）
+# 仅构建 server（-am 连带 harness-api 与 runtime 依赖 channel-qq；cli/wms 不进服务端镜像）
 # 测试需真实数据库环境，镜像构建跳过（本地全量回归单独跑）
 RUN mvn -s .mvn/settings.xml -B -q -DskipTests -pl server -am package
 
