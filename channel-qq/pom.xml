@@ -18,6 +18,12 @@
             <artifactId>javaHarness-api</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- harness-api 的框架类型依赖为 optional（不向下游传递）：渠道通过 SessionService
+             间接依赖 ChatMemory/Message，需自行声明（版本由 spring-ai-bom 管理） -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-client-chat</artifactId>
+        </dependency>
         <!-- 渠道自带 REST 端点(/onebot/event) 与 @Configuration/@ConfigurationProperties -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

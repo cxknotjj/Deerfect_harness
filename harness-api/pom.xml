@@ -13,32 +13,31 @@
     <description>渠道与 core 共用的契约与 DTO（端口接口/请求响应模型）；不含任何渠道实现</description>
 
     <dependencies>
-        <!-- 契约引用的框架类型：Spring AI ChatMemory/Message、Reactor Flux、MyBatis-Plus Page -->
+        <!-- 契约自身编译所需的框架类型。全部 optional=true：不向下游传递，
+             需要这些类型的模块（server / channel-qq）自行声明，避免契约模块污染 CLI 的 classpath。
+             - spring-ai-client-chat：SessionService extends ChatMemory、Message
+             - reactor-core：ChatService/AgentService 返回 Flux
+             - mybatis-plus-extension：SessionService 分页返回 Page、SessionEntity 注解 -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-client-chat</artifactId>
+            <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>io.projectreactor</groupId>
             <artifactId>reactor-core</artifactId>
+            <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>com.baomidou</groupId>
-            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+            <artifactId>mybatis-plus-extension</artifactId>
+            <optional>true</optional>
         </dependency>
-        <!-- ChatRequest 的 @NotBlank、Jackson 注解 -->
+        <!-- ChatRequest 的 @NotBlank -->
         <dependency>
             <groupId>jakarta.validation</groupId>
             <artifactId>jakarta.validation-api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <scope>test</scope>
+            <optional>true</optional>
         </dependency>
     </dependencies>
 </project>

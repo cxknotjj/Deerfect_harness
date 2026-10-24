@@ -12,12 +12,12 @@
     <description>CLI 客户端：终端交互（JLine）+ HTTP 访问服务端 REST/SSE，与服务端零耦合（仅依赖 HTTP/JSON 契约）</description>
 
     <dependencies>
-        <!-- API 契约 DTO/SseProtocol 与 server 各持一份副本（原 shared 模块已取消）：
-             CLI 是纯 HTTP 客户端，从机制上杜绝 CLI 绕过 HTTP 直连服务端内部实现 -->
-        <!-- ChatRequest 的 @NotBlank 校验注解：仅需 API 包编译（版本由 parent BOM 管理） -->
+        <!-- API 契约：DTO/SseProtocol 单一来源（harness-api 的框架类型依赖为 optional，
+             不会把 spring-ai / mybatis 传递进 CLI 的 classpath） -->
         <dependency>
-            <groupId>jakarta.validation</groupId>
-            <artifactId>jakarta.validation-api</artifactId>
+            <groupId>com.dark</groupId>
+            <artifactId>javaHarness-api</artifactId>
+            <version>${project.version}</version>
         </dependency>
 
         <!-- JLine 3：CLI 交互输入（上下键历史 / `/` 命令补全 / 多行粘贴）。

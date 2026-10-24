@@ -13,7 +13,7 @@
     <version>0.0.1-SNAPSHOT</version>
     <packaging>pom</packaging>
     <name>javaHarness</name>
-    <description>基于 Spring AI 的 Agent 编排框架 Demo（parent：server + cli + wms-mcp-adapter）</description>
+    <description>基于 Spring AI 的 Agent 编排框架 Demo（parent：harness-api + channel-qq + server + cli + wms-mcp-adapter）</description>
     <url/>
     <licenses>
         <license/>
@@ -69,6 +69,12 @@
             <dependency>
                 <groupId>com.baomidou</groupId>
                 <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+                <version>${mybatis-plus.version}</version>
+            </dependency>
+            <!-- 契约模块只需分页 Page 与实体注解，用 extension（不含 Spring Boot 自动配置） -->
+            <dependency>
+                <groupId>com.baomidou</groupId>
+                <artifactId>mybatis-plus-extension</artifactId>
                 <version>${mybatis-plus.version}</version>
             </dependency>
             <!-- MCP SDK 版本对齐：spring-ai-alibaba-graph-core 传递依赖把 io.modelcontextprotocol.sdk:mcp 锁到 0.14.0，
