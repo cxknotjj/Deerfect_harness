@@ -1,18 +1,31 @@
 # 📁 项目结构
 
-> README「项目结构」一节的完整版：服务端完整目录树与逐文件说明。
+> README「项目结构」一节的完整版：多模块布局与 server 完整目录树、逐文件说明。
 
 ---
 
+## Maven 模块
 
-采用经典分层架构（Controller → Service → Mapper/Entity），领域模型统一收纳在 `domain` 父包下：
+| 模块 | 职责 | 依赖 |
+|---|---|---|
+| `harness-api` | 渠道与 core 共用的契约层：端口接口、DTO、共享枚举、`ReplyPostProcessor` SPI | 无同反应堆依赖 |
+| `server` | Spring Boot 主服务、core 实现与 fat jar 宿主 | compile → `harness-api`；runtime → `channel-qq` |
+| `channel-qq` | QQ 渠道（NapCat/OneBot 11）：客户端/事件/回复/持久化 | compile → `harness-api` |
+| `cli` | 终端客户端，纯 HTTP + SSE | compile → `harness-api` |
+| `wms-mcp-adapter` | 领域 MCP 适配范例 | 独立 |
+
+> 规则：core（server）编译期不得引用 `channel.qq`（enforcer 守护 `com.dark:javaHarness-channel-qq:*:*:compile`）；渠道新增输出控制走 `ReplyPostProcessor`，不改 core。详见 [`docs/design/channel-core-module-split.md`](./design/channel-core-module-split.md)。
+
+---
+
+采用经典分层架构（Controller → Service → Mapper/Entity），领域模型统一收纳在 `domain` 父包下。以下目录树为 **`server` 模块**（`server/src/main/java/com/dark/javaHarness/`）：
 
 <details>
 <summary><b>📂 点击展开完整目录树</b></summary>
 
 ```text
-src/main/java/com/dark/javaHarness/
-├── JavaHarnessApplication.java   # Spring Boot 启动类（@MapperScan 扫 mapper + channel.qq.persistence 两包）
+server/src/main/java/com/dark/javaHarness/
+├── JavaHarnessApplication.java   # Spring Boot 启动类（@MapperScan("com.dark.javaHarness.mapper") 仅扫 core；渠道 mapper 由 channel-qq 自身扫描）
 ├── controller/                   # 表现层：REST 接口 + SSE 流式
 │   ├── ChatController.java       # 聊天接口（/api/chat、/stream、/resume、/goal-status）
 │   ├── HarnessController.java    # 管理接口（agents / submit / goals / sessions / 会话绑定 Agent）
@@ -22,13 +35,12 @@ src/main/java/com/dark/javaHarness/
 │   ├── ToolCallController.java   # 工具调用观测查询（/api/tool-calls）
 │   └── KbRetrievalController.java # RAG 检索观测查询（/api/kb-retrievals）
 ├── service/                      # 业务层（接口 + impl/ 实现）
-│   ├── AgentService / GoalService / SessionService / ChatService  # 编排、目标、会话记忆、聊天用例
+│   ├── GoalService.java          # 目标台账（AgentService/SessionService/ChatService/SessionBindingCleaner 端口已迁 harness-api）
 │   ├── RouteJudge.java           # 主 Agent 路由判断（SIMPLE / COMPLEX 分流）
 │   ├── AgentConfigProvider.java  # 从 agent 表读取运行配置（路由映射）
 │   ├── ProviderAdminService.java # model_provider 映射管理（新增即热刷新注册表）
 │   ├── ObserveQueryService.java  # 观测日志查询收口（llm/tool/kb-retrieval 三表读取口径，controller 不直连 mapper）
-│   ├── SessionBindingCleaner.java # 渠道会话绑定清理端口（core 删会话 → 渠道清绑定；实现随 napcat.enabled 条件装配）
-│   └── impl/                     # AgentServiceImpl / ChatServiceImpl / SseEncoder（SSE 编码）等
+│   └── impl/                     # AgentServiceImpl / ChatServiceImpl / SessionServiceImpl / ProviderAdminServiceImpl / SseEncoder 等
 │       ├── observe/              # LlmCallRecorder / McpServerRecorder（LLM/MCP 调用观测落库）+ ObserveQueryServiceImpl（观测查询）+ ObservabilityLogCleaner（观测表保留期清理）
 │       └── route/                # LlmRouteJudge（主 Agent 路由判定）/ RagPrefetcher（RAG 入口预取）
 ├── advisor/                      # Spring AI Advisor 拦截器（Agent 流程横切管理）
@@ -57,15 +69,13 @@ src/main/java/com/dark/javaHarness/
 ├── mapper/                       # 数据访问层：MyBatis-Plus Mapper
 │   └── AgentMapper / GoalMapper / SessionMapper / SessionMessageMapper / ModelProviderMapper
 │       / LlmCallLogMapper / ToolCallLogMapper / KbRetrievalLogMapper / McpServerLogMapper / KbDocumentMapper
-│       （OneBot 会话绑定 Mapper 已随渠道收编至 channel/qq/persistence）
+│       （OneBot 会话绑定 Mapper 在 channel-qq 模块）
 ├── domain/                       # 领域模型（父包）
-│   ├── Goal.java                 # 目标 + 状态（PENDING/RUNNING/SUCCEEDED/FAILED）
-│   ├── AgentConfig.java          # Agent 运行配置（model + prompt），来自 agent 表
 │   ├── RouteDecision.java        # 路由决策枚举（SIMPLE / COMPLEX）
 │   ├── LlmCallLog.java           # 一次 LLM 调用的观测记录（耗时/token/成败）
-│   ├── dto/                      # 传输对象（ChatRequest/ChatResponse/SseMeta/分页等）
-│   └── entity/                   # 数据库实体（agent / goal / session / model_provider / 各观测日志表等）
-├── enums/                        # 枚举与共享常量：GoalStatus、AgentConstants、SseProtocol
+│   ├── KbRetrievalLog / McpServerLog / ToolCallLog  # 其余观测记录
+│   └── entity/                   # 数据库实体（agent / goal / session_message / model_provider / 各观测日志表）
+├── enums/                        # 共享常量：AgentConstants（GoalStatus / SseProtocol 已迁 harness-api）
 ├── exception/                    # 全局异常处理（@RestControllerAdvice，统一 {code, message}）
 ├── agent/                        # Agent 抽象、编排与 LLM 调用
 │   ├── Agent.java / AgentRegistry.java    # Agent 接口与注册表
@@ -89,24 +99,11 @@ src/main/java/com/dark/javaHarness/
 │   ├── MarkdownChunker.java      # 段落感知切分（~700 字符 + 重叠，纯函数）
 │   ├── KnowledgeService(Impl).java  # 增量摄取（mtime 比对删旧写新）/ 删除 / 分页 / 检索
 │   └── KnowledgeRetriever.java   # 检索注入器：user 文本→top-k 命中→【出处N】知识段（预算截断）
-├── channel/qq/                   # QQ 渠道垂直包（NapCat/OneBot 11，napcat.enabled 条件装配，单向依赖 core 端口）
-│   ├── client/                   # NapCat HTTP 客户端与整链装配（NapCatChannelConfig @Bean）
-│   ├── event/                    # 上报端点与事件处理（过滤/白名单/限频/会话绑定/直调 ChatService）
-│   ├── reply/                    # 回复输出（渐进分段/限频器/表情包匹配）
-│   ├── dto/                      # OneBot 协议 DTO
-│   └── persistence/              # 渠道私有持久化（OneBotSessionBinding + Mapper + SessionBindingCleaner 实现）
+├── channel/qq/                   # 已整体迁出为独立模块 `channel-qq`（NapCat/OneBot 11，napcat.enabled 条件装配，单向依赖 core 端口）
 ├── memory/                       # 用户画像（跨会话长期记忆）
 │   ├── UserProfileService.java   # 离线批量提炼空闲会话偏好 → 全局画像 Markdown（原子写）
 │   └── UserProfileSectionProviderImpl.java  # 画像段注入 general/lead 的 system prompt
-├── cli/                          # 命令行客户端（独立进程，纯 HTTP 连 8080）
-│   ├── ChatCli.java              # 门面：main / chatLoop / 命令分发 / 回合执行
-│   ├── ResumeStateStore.java     # /resume 续跑目标持久化（状态文件读写 + 宽容解析）
-│   ├── input/TerminalInput.java  # 终端输入层：JLine 历史/补全/粘贴；无 TTY 降级行式读取
-│   ├── api/ChatApiClient.java    # OkHttp 封装聊天/流式/续跑/供应商/会话接口（SSE 解析）
-│   └── render/                   # Claude Code 风格渲染
-│       ├── TerminalRenderer.java # 门面：流式增量直出 + spinner 折叠协作 + 工具调用行
-│       ├── MarkdownAnsiRenderer.java / Ansi.java  # Markdown 行级 ANSI 着色
-│       └── Spinner.java          # 阶段进度 spinner（原位刷新）
+├── cli/                          # 已独立为 `cli` 模块（`cli/src/main/java/com/dark/javaHarness/cli`，纯 HTTP 连 8080）
 └── tool/                         # 工具层
     ├── WebTools.java             # 网页抓取门面（fetchUrl：抓取 + 30min 内容缓存 + 相关段落裁剪）
     ├── HtmlToMarkdown.java / ContentRelevance.java  # 噪声剔除/主内容 Markdown 化 / 按查询意图裁剪

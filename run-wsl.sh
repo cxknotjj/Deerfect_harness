@@ -103,7 +103,7 @@ stop_server() {
 case "${1:-}" in
   ""|full)
     echo "==== javaHarness 全流程启动 ===="
-    echo "[1/4] 编译（多模块 install：单模块启动依赖本地仓库中的 shared）..."
+    echo "[1/4] 编译（多模块 install：server 运行期依赖本地仓库中的 harness-api / channel-qq）..."
     $MVN -DskipTests install
     echo "[1/4] 编译 OK"
     # 每次全流程执行都先杀掉 8080 上的旧服务再全新启动（保证跑的是最新构建）

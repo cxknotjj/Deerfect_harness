@@ -1,17 +1,31 @@
 # 📁 Project Structure
 
-> Full version of the README "Project Structure" section: complete server-side directory tree with per-file notes.
+> Full version of the README "Project Structure" section: multi-module layout plus the complete `server` module directory tree with per-file notes.
 
 ---
 
-Classic layered architecture (Controller → Service → Mapper/Entity), with the domain model grouped under the `domain` parent package:
+## Maven Modules
+
+| Module | Responsibility | Depends on |
+|---|---|---|
+| `harness-api` | Shared contracts for channels and core: port interfaces, DTOs, shared enums, `ReplyPostProcessor` SPI | no reactor-internal deps |
+| `server` | Spring Boot main service, core implementation, fat-jar host | compile → `harness-api`; runtime → `channel-qq` |
+| `channel-qq` | QQ channel (NapCat/OneBot 11): client / events / replies / persistence | compile → `harness-api` |
+| `cli` | Terminal client, pure HTTP + SSE | compile → `harness-api` |
+| `wms-mcp-adapter` | Domain MCP adapter example | independent |
+
+> Rule: core (`server`) must not reference `channel.qq` at compile time (enforced by `com.dark:javaHarness-channel-qq:*:*:compile`); new channel output controls go through `ReplyPostProcessor` without touching core.
+
+---
+
+Classic layered architecture (Controller → Service → Mapper/Entity), with the domain model grouped under the `domain` parent package. The tree below is the **`server` module** (`server/src/main/java/com/dark/javaHarness/`):
 
 <details>
 <summary><b>📂 Click to expand the full directory tree</b></summary>
 
 ```text
-src/main/java/com/dark/javaHarness/
-├── JavaHarnessApplication.java   # Spring Boot entry (@MapperScan scans mapper + channel.qq.persistence)
+server/src/main/java/com/dark/javaHarness/
+├── JavaHarnessApplication.java   # Spring Boot entry (@MapperScan("com.dark.javaHarness.mapper") scans core only; channel mappers are scanned by channel-qq itself)
 ├── controller/                   # Presentation layer: REST endpoints + SSE streaming
 │   ├── ChatController.java       # Chat endpoints (/api/chat, /stream, /resume, /goal-status)
 │   ├── HarnessController.java    # Management endpoints (agents / submit / goals / sessions / session-bound agent)
@@ -21,13 +35,12 @@ src/main/java/com/dark/javaHarness/
 │   ├── ToolCallController.java   # Tool-call observability queries (/api/tool-calls)
 │   └── KbRetrievalController.java # RAG retrieval observability queries (/api/kb-retrievals)
 ├── service/                      # Business layer (interfaces + impl/)
-│   ├── AgentService / GoalService / SessionService / ChatService  # Orchestration, goals, session memory, chat use cases
+│   ├── GoalService.java          # Goal ledger (AgentService/SessionService/ChatService/SessionBindingCleaner ports live in harness-api)
 │   ├── RouteJudge.java           # Main-agent routing decision (SIMPLE / COMPLEX)
 │   ├── AgentConfigProvider.java  # Runtime config from the agent table (routing map)
 │   ├── ProviderAdminService.java # model_provider mapping management (hot refresh on add)
 │   ├── ObserveQueryService.java  # Unified observability-log queries (llm / tool / kb-retrieval; controllers never touch mappers directly)
-│   ├── SessionBindingCleaner.java # Channel session-binding cleanup port (core session delete → channel cleanup; impl wired conditionally on napcat.enabled)
-│   └── impl/                     # Implementations (AgentServiceImpl / ChatServiceImpl / SseEncoder (SSE encoding) etc.)
+│   └── impl/                     # Implementations (AgentServiceImpl / ChatServiceImpl / SessionServiceImpl / ProviderAdminServiceImpl / SseEncoder etc.)
 │       ├── observe/              # LlmCallRecorder / McpServerRecorder (LLM/MCP call observation persistence) + ObserveQueryServiceImpl (observability queries) + ObservabilityLogCleaner (observation-table retention cleanup)
 │       └── route/                # LlmRouteJudge (main-agent routing decision) / RagPrefetcher (RAG entry prefetch)
 ├── advisor/                      # Spring AI Advisor interceptors (cross-cutting agent-flow management)
@@ -56,15 +69,13 @@ src/main/java/com/dark/javaHarness/
 ├── mapper/                       # Data access: MyBatis-Plus mappers
 │   └── AgentMapper / GoalMapper / SessionMapper / SessionMessageMapper / ModelProviderMapper
 │       / LlmCallLogMapper / ToolCallLogMapper / KbRetrievalLogMapper / McpServerLogMapper / KbDocumentMapper
-│       (the OneBot session-binding mapper now lives with the channel in channel/qq/persistence)
+│       (the OneBot session-binding mapper lives in the channel-qq module)
 ├── domain/                       # Domain model (parent package)
-│   ├── Goal.java                 # Goal + status (PENDING/RUNNING/SUCCEEDED/FAILED)
-│   ├── AgentConfig.java          # Agent runtime config (model + prompt), from the agent table
 │   ├── RouteDecision.java        # Routing decision enum (SIMPLE / COMPLEX)
 │   ├── LlmCallLog.java           # Observability record of one LLM call (latency/tokens/outcome)
-│   ├── dto/                      # Transfer objects (ChatRequest/ChatResponse/SseMeta/pagination etc.)
-│   └── entity/                   # DB entities (agent / goal / session / model_provider / observability log tables etc.)
-├── enums/                        # Enums & shared constants: GoalStatus, AgentConstants, SseProtocol
+│   ├── KbRetrievalLog / McpServerLog / ToolCallLog  # Remaining observability records
+│   └── entity/                   # DB entities (agent / goal / session_message / model_provider / observability log tables)
+├── enums/                        # Shared constants: AgentConstants (GoalStatus / SseProtocol moved to harness-api)
 ├── exception/                    # Global exception handling (@RestControllerAdvice, uniform {code, message})
 ├── agent/                        # Agent abstractions, orchestration & LLM calls
 │   ├── Agent.java / AgentRegistry.java    # Agent interface and registry
@@ -88,24 +99,11 @@ src/main/java/com/dark/javaHarness/
 │   ├── MarkdownChunker.java      # Paragraph-aware splitting (~700 chars + overlap, pure function)
 │   ├── KnowledgeService(Impl).java  # Incremental ingestion (mtime compare, delete-then-write) / delete / paging / search
 │   └── KnowledgeRetriever.java   # Retrieval injector: user text → top-k hits → 【出处N】knowledge section (budget-truncated)
-├── channel/qq/                   # QQ channel vertical package (NapCat/OneBot 11, conditional on napcat.enabled, one-way dependency on core ports)
-│   ├── client/                   # NapCat HTTP client & whole-chain assembly (NapCatChannelConfig @Bean)
-│   ├── event/                    # Report endpoint & event handling (filter / whitelist / rate limit / session binding / direct ChatService calls)
-│   ├── reply/                    # Reply output (progressive splitting / rate limiter / emoji matching)
-│   ├── dto/                      # OneBot protocol DTOs
-│   └── persistence/              # Channel-private persistence (OneBotSessionBinding + mapper + SessionBindingCleaner impl)
+├── channel/qq/                   # Moved out to the standalone `channel-qq` module (NapCat/OneBot 11, conditional on napcat.enabled)
 ├── memory/                       # User profile (cross-session long-term memory)
 │   ├── UserProfileService.java   # Offline batch preference extraction from idle sessions → global profile Markdown (atomic write)
 │   └── UserProfileSectionProviderImpl.java  # Profile section injected into general/lead system prompts
-├── cli/                          # CLI client (standalone process, pure HTTP to 8080)
-│   ├── ChatCli.java              # Facade: main / chatLoop / command dispatch / turn execution
-│   ├── ResumeStateStore.java     # /resume target persistence (state-file IO + tolerant parsing)
-│   ├── input/TerminalInput.java  # Terminal input layer: JLine history/completion/paste; falls back to line reads without a TTY
-│   ├── api/ChatApiClient.java    # OkHttp wrapper for chat / streaming / resume / provider / session endpoints (SSE parsing)
-│   └── render/                   # Claude Code-style rendering
-│       ├── TerminalRenderer.java # Facade: incremental streaming output + spinner collapse + tool-call lines
-│       ├── MarkdownAnsiRenderer.java / Ansi.java  # Markdown line-level ANSI coloring
-│       └── Spinner.java          # Stage progress spinner (in-place refresh)
+├── cli/                          # Moved out to the standalone `cli` module (`cli/src/main/java/com/dark/javaHarness/cli`, pure HTTP to 8080)
 └── tool/                         # Tools
     ├── WebTools.java             # Web fetch facade (fetchUrl: fetch + 30-min content cache + query-relevant clipping)
     ├── HtmlToMarkdown.java / ContentRelevance.java  # Noise removal / main-content Markdown extraction / query-intent clipping

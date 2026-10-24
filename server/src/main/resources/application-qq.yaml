@@ -1,4 +1,4 @@
-# QQ 渠道接入配置（NapCat / OneBot 11，channel/qq 垂直包）
+# QQ 渠道接入配置（NapCat / OneBot 11，独立模块 channel-qq）
 #
 # 本文件自 application.yaml 拆出（napcat 块独立维护），由 application.yaml 顶部的
 # spring.config.import 显式引入——不依赖 profile 激活，随主配置一并加载。

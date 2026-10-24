@@ -298,7 +298,7 @@ The tool ecosystem is extended via MCP: the client supports stdio (local process
 
 ## 📁 Project Structure
 
-A multi-module Maven project: `server` (Spring Boot main service, owning the domain model & SSE protocol contract) + `cli` (command-line client, holding its own copy of the contract DTOs, talking pure HTTP) + `web` (self-contained Vue3 frontend); the server follows the classic layered architecture (Controller → Service → Mapper/Entity) with domain models grouped under the `domain` parent package.
+A multi-module Maven project: `harness-api` (shared contracts: port interfaces / DTOs / shared enums / `ReplyPostProcessor` SPI) + `server` (Spring Boot main service and fat-jar host) + `channel-qq` (QQ channel, depends only on `harness-api`) + `cli` (command-line client, pure HTTP + SSE, reusing `harness-api` contracts) + `web` (self-contained Vue3 frontend) + `wms-mcp-adapter` (domain MCP adapter example). `server` wires `channel-qq` with **runtime** scope, so core cannot see channel code at compile time (guarded by `maven-enforcer-plugin`); channel output controls go through the generic `ReplyPostProcessor` SPI. The server follows the classic layered architecture (Controller → Service → Mapper/Entity) with domain models grouped under the `domain` parent package.
 
 > [!TIP]
 > Full server-side directory tree with per-file notes: **[`docs/project-structure_EN.md`](./docs/project-structure_EN.md)**.

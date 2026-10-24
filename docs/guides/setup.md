@@ -26,8 +26,8 @@ CREATE DATABASE IF NOT EXISTS harness DEFAULT CHARACTER SET utf8mb4;
 mvn -DskipTests package
 java -jar server/target/javaHarness-server-0.0.1-SNAPSHOT.jar
 
-# 或开发模式直接运行（需先安装 shared 模块）
-mvn -pl shared -DskipTests install
+# 或开发模式直接运行（需先把契约/渠道模块装进本地仓库）
+mvn -pl harness-api,channel-qq -DskipTests install
 mvn -pl server spring-boot:run
 ```
 

@@ -112,9 +112,13 @@
   - 验收：`mvn test` 在容器化 DB 上全绿
 - [ ] **API 文档**：springdoc-openapi 自动生成 Swagger UI
   - 验收：`/swagger-ui.html` 可浏览所有接口
-- [ ] **多模块 Maven 拆分（shared + server + cli）**（2026-09-18 立项）：单模块下 CLI 源码与 jline/okhttp 依赖全打进服务端 fat jar——拆为 parent（packaging=pom，dependencyManagement 统一管版本）+ **shared**（API 契约层：`domain.dto` 整包 17 类 + `enums.SseProtocol`，包名不变全项目 import 零改动）+ **server**（现 src 全套减 cli 包，依赖 shared）+ **cli**（`com.dark.javaHarness.cli` 包，依赖 shared + jline + okhttp，classpath \~5MB 不再传递 spring-ai 全家桶，编译期看不到 server 内部类防绕过 HTTP 直调）。**channel/qq 评估后决定不拆**：其对 server 存在双向依赖（编译期要用 mapper/entity/接口，server fat jar 又要装它的类），且 QQ 渠道本质是服务端可选组件（`napcat.enabled` 条件装配），拆分需下沉 contract 底层模块或部署期外挂 jar，收益不抵复杂度；未来加第二个渠道时再引入契约层。shared 契约层为未来 web 端、app 端铺路（DTO 单一来源）
-  - 关键点：cli 依赖 shared 而非 server（server 只出 fat jar 无需双产物 classifier）；jline 移至 cli（okhttp 因 QQ 渠道 NapCat HTTP 调用 server 侧同样需要而双保留，版本由根 pom dependencyManagement 统一锁定）；exec-maven-plugin / `mvn -Pcli` 启动命令挪至 cli 模块并以 `-pl cli` 限定；docker/Dockerfile 构建路径适配多模块（-pl server -am package，产物 server/target）；.mvn/settings.xml 的 localRepository 由 `${user.dir}` 修为 `${maven.multiModuleProjectDirectory}`（子目录执行 mvn 时仓库不再漂移裂库）；单模块启动依赖本地仓库中的 shared，故 run.sh/README 的编译步由 compile 改 install
-  - 验收：`mvn clean package` 全模块编译 + 全部测试通过；server fat jar 不含 cli 包 class 与 jline（okhttp 因 QQ 渠道合法保留）；cli 依赖树仅 shared + jline/okhttp/jackson；cli 启动正常、`docker compose build` 构建镜像正常
+- [x] **Maven 多模块拆分**（2026-09-18 立项，2026-10-24 完成最终形态）：根 pom `packaging=pom` + `harness-api` / `channel-qq` / `server` / `cli` / `wms-mcp-adapter` 五个模块。
+  - **`harness-api`**：渠道与 core 共用的契约层（`ChatService`/`SessionService`/`AgentService`/`SessionBindingCleaner` 端口、DTO、`SessionEntity`、`GoalStatus`、`SseProtocol`、`ReplyPostProcessor`），包名不变、全项目 import 零改动；框架类型依赖声明为 optional，不向下游传递。
+  - **`server`**：Spring Boot 主服务与 fat jar 宿主（产物路径不变 `server/target/javaHarness-server-*.jar`），编译期依赖 `harness-api`，以 **runtime** scope 装配 `channel-qq`（core 编译期看不到渠道，`maven-enforcer-plugin` 守护不允许改成 compile）。
+  - **`channel-qq`**：QQ 渠道（NapCat/OneBot 11）整体独立成模块，仅依赖 `harness-api`；mapper 扫描由渠道自身 `NapCatChannelConfig` 承担；渠道输出控制走 core 的通用 `ReplyPostProcessor` SPI（新增处理器 + flag，不改 core）。
+  - **`cli`**：纯 HTTP 客户端，依赖 `harness-api` 获取 DTO/SseProtocol（不再自持副本），运行期 classpath 不引入 spring-ai/mybatis。
+  - **`wms-mcp-adapter`**：领域 MCP 适配范例，独立于本次拆分。
+  - 验收：`mvn test` 除预存 V28 迁移漂移外全绿；`mvn -DskipTests package` 后 `server/target/*.jar` 可直接启动；`server` 主源码树零 `channel.qq` 引用；`docker compose build` 待在具备 Docker 的环境验证。
 - [x] **容器化交付**：Dockerfile + docker-compose（app + MySQL + pgvector）一键启动
   - 验收：`docker compose up` 后完整可访问
 - [ ] **CI/CD**：GitHub Actions / Gitee Go 自动流水线（2026-09-18 充实，检查项取自多模块拆分验收清单）

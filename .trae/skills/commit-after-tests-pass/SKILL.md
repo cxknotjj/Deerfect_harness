@@ -11,7 +11,7 @@ description: 修改代码通过测试后按项目 git 规范提交 commit——�
 
 按改动范围选择测试命令，声称提交前必须实际运行并确认输出：
 
-- **Java（server / shared）**：`mvn -pl server -am test`（全量；快速回归可用 `-Dtest='XxxTest'` 针对性跑受影响的测试类）
+- **Java（server / harness-api / channel-qq）**：`mvn -pl server -am test`（全量；快速回归可用 `-Dtest='XxxTest'` 针对性跑受影响的测试类）
   - 通过标准：`Tests run` 汇总 0 Failures 0 Errors，BUILD SUCCESS
 - **前端（web）**：`cd web && npm run build`（含类型检查与构建）
   - 通过标准：构建成功无报错

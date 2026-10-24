@@ -158,7 +158,7 @@ curl -s -X POST http://localhost:8080/api/chat \
 
 ## 技术架构
 
-Maven 多模块：`server`（Spring Boot 主服务，内含领域模型与 SSE 协议契约）+ `cli`（终端客户端，自持一份契约 DTO 副本，纯 HTTP 通信）+ `web`（Vue3 自包含前端）+ `wms-mcp-adapter`（领域 MCP 适配范例）。核心链路：`ChatController` 入口 → `RouteJudge` 判定 SIMPLE / COMPLEX → 路径 A 单 Agent 直答 或 路径 B StateGraph 编排（Lead → 专家并行 → Aggregator）→ 统一出口；QQ 渠道独立包隔离（`channel/qq`），只依赖 ChatService / SessionService 接口。
+Maven 多模块：`harness-api`（渠道与 core 共用的契约层：端口接口 / DTO / 共享枚举 / `ReplyPostProcessor` SPI）+ `server`（Spring Boot 主服务与 fat jar 宿主）+ `channel-qq`（QQ 渠道，仅依赖 `harness-api`）+ `cli`（终端客户端，纯 HTTP + SSE，复用 `harness-api` 契约）+ `web`（Vue3 自包含前端）+ `wms-mcp-adapter`（领域 MCP 适配范例）。`server` 以 **runtime** scope 装配 `channel-qq`，core 编译期看不到渠道代码（`maven-enforcer-plugin` 守护）；渠道输出控制走通用 `ReplyPostProcessor` SPI。核心链路：`ChatController` 入口 → `RouteJudge` 判定 SIMPLE / COMPLEX → 路径 A 单 Agent 直答 或 路径 B StateGraph 编排（Lead → 专家并行 → Aggregator）→ 统一出口。
 
 架构图与数据流细节见 **[`docs/architecture.md`](./docs/architecture.md)** 与 **[`docs/data-flow.md`](./docs/data-flow.md)**。
 
