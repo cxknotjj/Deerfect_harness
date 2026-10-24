@@ -62,7 +62,7 @@ class SessionServiceImplTest {
     void setUp() {
         lenient().when(bindingCleanerProvider.getIfAvailable()).thenReturn(bindingCleaner);
         sessionService = new SessionServiceImpl(sessionMapper, messageMapper,
-                new ObjectMapper(), agentConfigProvider, bindingCleanerProvider);
+                new ObjectMapper(), agentConfigProvider, bindingCleanerProvider, 200);
     }
 
     private SessionEntity session(long id, int agentId) {
@@ -234,7 +234,7 @@ class SessionServiceImplTest {
     void saveContext_serializeFailure_retriesOnce() throws Exception {
         ObjectMapper mapper = org.mockito.Mockito.mock(ObjectMapper.class);
         SessionServiceImpl svc = new SessionServiceImpl(sessionMapper, messageMapper,
-                mapper, agentConfigProvider, bindingCleanerProvider);
+                mapper, agentConfigProvider, bindingCleanerProvider, 200);
         when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
         when(messageMapper.selectOne(any())).thenReturn(null);
         when(mapper.writeValueAsString(any()))
@@ -252,7 +252,7 @@ class SessionServiceImplTest {
     void saveContext_serializeTwiceFails_skipsWriteQuietly() throws Exception {
         ObjectMapper mapper = org.mockito.Mockito.mock(ObjectMapper.class);
         SessionServiceImpl svc = new SessionServiceImpl(sessionMapper, messageMapper,
-                mapper, agentConfigProvider, bindingCleanerProvider);
+                mapper, agentConfigProvider, bindingCleanerProvider, 200);
         when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
         when(messageMapper.selectOne(any())).thenReturn(null);
         when(mapper.writeValueAsString(any()))
@@ -358,5 +358,35 @@ class SessionServiceImplTest {
         sessionService.saveContext("9", new UserMessage("你好"));
 
         verify(messageMapper).insert(any(SessionMessageEntity.class));
+    }
+
+    /** saveContext 快照裁剪：超过保留条数时丢弃最旧消息，只保留最近 N 条（长会话防撑爆列） */
+    @Test
+    @SuppressWarnings("unchecked")
+    void saveContext_exceedsSnapshotLimit_dropsOldest() throws Exception {
+        SessionMessageEntity existing = new SessionMessageEntity();
+        existing.setId(1L);
+        existing.setSessionId("9");
+        existing.setContent("""
+                [{"role":"user","content":"old1"},{"role":"assistant","content":"old2"}]""");
+        SessionServiceImpl svc = new SessionServiceImpl(sessionMapper, messageMapper,
+                new ObjectMapper(), agentConfigProvider, bindingCleanerProvider, 2);
+        when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
+        when(messageMapper.selectOne(any())).thenReturn(existing);
+
+        svc.saveContext("9", new UserMessage("new"));
+
+        ArgumentCaptor<Wrapper<SessionMessageEntity>> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(messageMapper).update(any(), captor.capture());
+        String json = ((UpdateWrapper<?>) captor.getValue()).getParamNameValuePairs().values().stream()
+                .filter(v -> v instanceof String s && s.startsWith("["))
+                .map(String.class::cast)
+                .findFirst().orElseThrow(() -> new AssertionError("应写入快照 JSON"));
+        List<java.util.Map<String, String>> items = new ObjectMapper().readValue(json,
+                new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, String>>>() {
+                });
+        assertEquals(1, items.size(), "裁剪后应保留最近消息，且不以 assistant 开头（丢弃半个问答对）");
+        assertEquals("new", items.get(0).get("content"));
+        assertEquals("user", items.get(0).get("role"));
     }
 }

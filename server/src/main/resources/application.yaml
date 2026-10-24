@@ -66,6 +66,10 @@ server:
 # 解析规则：app.providers.<provider>.api-key 优先，未配置时回退环境变量 <PROVIDER大写>_API_KEY。
 # 因此新增供应商通常零配置——设置 MOONSHOT_API_KEY 之类的环境变量即可。
 app:
+  # 会话上下文快照保留条数上限（超出从最旧丢弃；0 = 不限制）。
+  # 快照存 session_messages.content（MEDIUMTEXT），无界增长会让每轮写回的全量 JSON 读改写越来越慢
+  session:
+    snapshot-max-messages: 200
   # 上下文预算（token，全项目统一口径 TokenEstimator）：输入侧四层预算 + 消费侧预算
   # （输出 maxTokens 分档 / 编排全程消费上限），详见 docs/guides/context-optimization.md。
   # 本块是全部预算数值的唯一来源（代码零默认，只做绑定载体）；全键统一 0 = 不限制

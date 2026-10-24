@@ -57,6 +57,8 @@ public class SessionServiceImpl implements SessionService {
     private static final int SESSION_NAME_MAX = 100;
     /** 建档占位名（显式建档默认名）：写回时若名字仍为此值，以首条成功提问自动命名 */
     private static final String PLACEHOLDER_NAME = "新会话";
+    /** 快照正文总字符上限（MEDIUMTEXT 16MB，按最坏 UTF-8 4 字节/码点预留余量；0 不限制） */
+    private static final int SNAPSHOT_MAX_CHARS = 4_000_000;
 
     private final SessionMapper sessionMapper;
     private final SessionMessageMapper messageMapper;
@@ -65,17 +67,22 @@ public class SessionServiceImpl implements SessionService {
     private final AgentConfigProvider agentConfigProvider;
     /** 渠道会话绑定清理端口：删除会话时清理渠道侧绑定行（如 QQ），渠道未启用时无实现 */
     private final ObjectProvider<SessionBindingCleaner> bindingCleaner;
+    /** 快照保留消息条数上限（超出丢弃最旧；0 = 不限制） */
+    private final int snapshotMaxMessages;
 
     public SessionServiceImpl(SessionMapper sessionMapper,
                               SessionMessageMapper messageMapper,
                               ObjectMapper objectMapper,
                               AgentConfigProvider agentConfigProvider,
-                              ObjectProvider<SessionBindingCleaner> bindingCleaner) {
+                              ObjectProvider<SessionBindingCleaner> bindingCleaner,
+                              @org.springframework.beans.factory.annotation.Value("${app.session.snapshot-max-messages:200}")
+                              int snapshotMaxMessages) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
         this.objectMapper = objectMapper;
         this.agentConfigProvider = agentConfigProvider;
         this.bindingCleaner = bindingCleaner;
+        this.snapshotMaxMessages = snapshotMaxMessages;
     }
 
     /** 创建新会话（会话名取首条提问截断），返回自增主键的字符串形式 */
@@ -197,6 +204,7 @@ public class SessionServiceImpl implements SessionService {
             item.put("ts", String.valueOf(ts));
         }
         items.add(item);
+        trimSnapshot(items);
 
         String json = serializeWithRetry(sessionId, items);
         if (json == null) {
@@ -224,6 +232,45 @@ public class SessionServiceImpl implements SessionService {
         QueryWrapper<SessionEntity> lw = new QueryWrapper<>();
         lw.select("session_id").eq("session_id", sid).last("FOR UPDATE");
         sessionMapper.selectOne(lw);
+    }
+
+    /**
+     * 快照裁剪：超过保留条数时丢弃最旧的消息；总字符超上限时同样从最旧丢弃，
+     * 单条仍超限则按码点截断正文。保证写入始终在列容量内（MEDIUMTEXT），
+     * 避免长会话把上下文撑爆后整轮写回失败、静默丢历史。
+     */
+    private void trimSnapshot(List<Map<String, String>> items) {
+        if (snapshotMaxMessages > 0 && items.size() > snapshotMaxMessages) {
+            items.subList(0, items.size() - snapshotMaxMessages).clear();
+        }
+        long chars = 0;
+        for (Map<String, String> it : items) {
+            String content = it.get("content");
+            chars += content == null ? 0 : content.length();
+        }
+        while (items.size() > 1 && chars > SNAPSHOT_MAX_CHARS) {
+            Map<String, String> removed = items.remove(0);
+            String content = removed.get("content");
+            chars -= content == null ? 0 : content.length();
+        }
+        if (chars > SNAPSHOT_MAX_CHARS && !items.isEmpty()) {
+            Map<String, String> only = items.get(0);
+            String content = only.get("content");
+            if (content != null) {
+                // 按码点截断，避免从代理对中间切开产生非法字符；
+                // 先比较码点数——offsetByCodePoints 的偏移不能超过实际码点数
+                int codePoints = content.codePointCount(0, content.length());
+                if (codePoints > SNAPSHOT_MAX_CHARS) {
+                    int end = content.offsetByCodePoints(0, SNAPSHOT_MAX_CHARS);
+                    only.put("content", content.substring(0, end));
+                }
+            }
+        }
+        // 配对保护：上下文尽量不以 assistant 开头（严格交替校验的模型会 400，且保留半个问答对无意义）；
+        // 保留至少一条，避免极端情况下把快照清空
+        while (items.size() > 1 && "assistant".equals(items.get(0).get("role"))) {
+            items.remove(0);
+        }
     }
 
     /** 序列化重试一次： transient 失败自愈，连续失败返回 null（调用方跳过写回并已记日志） */
