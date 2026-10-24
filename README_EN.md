@@ -121,11 +121,12 @@ flowchart TD
 **1️⃣ Start the main service**
 
 ```bash
-# Build then run (recommended): package from the project root, fat jar lands in server/target/
-mvn -DskipTests package
+# Build then run (recommended): install from the project root, fat jar lands in server/target/
+mvn -DskipTests install
 java -jar server/target/javaHarness-server-0.0.1-SNAPSHOT.jar
 
-# Or run in dev mode (compile the server module in place)
+# Or run in dev mode (the server needs harness-api/channel-qq in the local repo)
+mvn -pl harness-api,channel-qq -DskipTests install
 mvn -pl server spring-boot:run
 ```
 

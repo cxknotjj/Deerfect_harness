@@ -74,10 +74,10 @@
 CREATE DATABASE IF NOT EXISTS harness DEFAULT CHARACTER SET utf8mb4;
 ```
 
-**2️⃣ 打包并启动主服务**：
+**2️⃣ 构建并启动主服务**：
 
 ```bash
-mvn -DskipTests package
+mvn -DskipTests install
 java -jar server/target/javaHarness-server-0.0.1-SNAPSHOT.jar
 ```
 

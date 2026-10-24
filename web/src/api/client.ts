@@ -20,7 +20,7 @@ import type {
   ToolCallItem,
 } from './types'
 
-/** SSE 事件名与结束标记(与 shared 模块 SseProtocol 常量字面量一致) */
+/** SSE 事件名与结束标记(与 harness-api 的 SseProtocol 常量字面量一致) */
 const EVENT_META = 'meta'
 const EVENT_ERROR = 'error'
 const EVENT_PROGRESS = 'progress'

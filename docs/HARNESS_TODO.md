@@ -118,11 +118,11 @@
   - **`channel-qq`**：QQ 渠道（NapCat/OneBot 11）整体独立成模块，仅依赖 `harness-api`；mapper 扫描由渠道自身 `NapCatChannelConfig` 承担；渠道输出控制走 core 的通用 `ReplyPostProcessor` SPI（新增处理器 + flag，不改 core）。
   - **`cli`**：纯 HTTP 客户端，依赖 `harness-api` 获取 DTO/SseProtocol（不再自持副本），运行期 classpath 不引入 spring-ai/mybatis。
   - **`wms-mcp-adapter`**：领域 MCP 适配范例，独立于本次拆分。
-  - 验收：`mvn test` 除预存 V28 迁移漂移外全绿；`mvn -DskipTests package` 后 `server/target/*.jar` 可直接启动；`server` 主源码树零 `channel.qq` 引用；`docker compose build` 待在具备 Docker 的环境验证。
+  - 验收：`mvn test` 全绿；`mvn -DskipTests package` 后 `server/target/*.jar` 可直接启动；`server` 主源码树零 `channel.qq` 引用；`docker compose build` 待在具备 Docker 的环境验证。
 - [x] **容器化交付**：Dockerfile + docker-compose（app + MySQL + pgvector）一键启动
   - 验收：`docker compose up` 后完整可访问
 - [ ] **CI/CD**：GitHub Actions / Gitee Go 自动流水线（2026-09-18 充实，检查项取自多模块拆分验收清单）
-  - CI（push/PR 触发）：`mvn -s .mvn/settings.xml clean package` 全模块编译 + 测试（当前 server 545 + cli 25 例）→ 断言 server fat jar 无 `com/dark/javaHarness/cli/` 目录与 jline → 断言 cli `dependency:tree` 无 spring/spring-ai 传递依赖 → `docker build -f docker/Dockerfile .` 验证镜像可构建（基础镜像走 BUILD\_BASE/RUN\_BASE ARG，CI 侧按网络环境注入加速通道）
+  - CI（push/PR 触发）：`mvn -s .mvn/settings.xml clean package` 全模块编译 + 测试（当前 server 670 / channel-qq 72 / cli 28 / wms 43 例）→ 断言 server fat jar 无 `com/dark/javaHarness/cli/` 目录与 jline → 断言 cli 运行时 classpath 无 spring-ai/mybatis/reactor 传递依赖（harness-api 框架依赖为 optional）→ `docker build -f docker/Dockerfile .` 验证镜像可构建（基础镜像走 BUILD\_BASE/RUN\_BASE ARG，CI 侧按网络环境注入加速通道）
   - 缓存：`actions/setup-java` 内置 maven 缓存对齐 `.mvn-repo`（localRepository 由 `maven.multiModuleProjectDirectory` 定位项目根，CI 工作区即仓库）
   - CD（可选后置）：分支镜像打 tag 推送镜像仓库，服务器 `docker compose pull && up -d` 拉起；上线前是否人工确认决定 Delivery/Deployment 形态
   - 验收：PR 红灯可见（测试失败 / fat jar 混入 cli class / 镜像构建失败均可拦截）；全绿后产物可直接部署

@@ -125,12 +125,16 @@ case "${1:-}" in
     echo "--- CLI 已退出。服务窗口仍在运行（停止: 在该窗口 Ctrl+C 或 ./run.sh stop）---"
     ;;
   server)
+    # 单模块启动前确保契约/渠道已装入本地仓库（全新 clone 场景）
+    $MVN -pl harness-api,channel-qq -DskipTests install -q
     $MVN -pl server spring-boot:run
     ;;
   stop)
     stop_server || exit 1
     ;;
   cli)
+    # CLI 依赖 harness-api：先安装契约，再启动 CLI（避免全新 clone 解析失败）
+    $MVN -pl harness-api -DskipTests install -q
     $MVN -pl cli -Pcli compile exec:exec
     ;;
   build)
