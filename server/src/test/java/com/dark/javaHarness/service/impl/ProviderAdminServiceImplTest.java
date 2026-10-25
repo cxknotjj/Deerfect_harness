@@ -13,6 +13,9 @@ import com.dark.javaHarness.domain.dto.ProviderAddResult;
 import com.dark.javaHarness.domain.entity.ModelProviderEntity;
 import com.dark.javaHarness.mapper.ModelProviderMapper;
 import java.util.List;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.apache.ibatis.session.Configuration;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -38,6 +41,13 @@ class ProviderAdminServiceImplTest {
 
     @InjectMocks
     private ProviderAdminServiceImpl service;
+
+    /** MyBatis-Plus 3.5.17 的 Lambda 列缓存需先注册实体 TableInfo（单测无 MyBatis 启动流程） */
+    @BeforeEach
+    void initTableInfo() {
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new Configuration(), ""), ModelProviderEntity.class);
+    }
 
     private ProviderAddRequest request(String provider, String apiUrl, List<String> models) {
         return new ProviderAddRequest(provider, apiUrl, models, null);

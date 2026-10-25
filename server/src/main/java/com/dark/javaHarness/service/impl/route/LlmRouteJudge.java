@@ -8,8 +8,8 @@ import com.dark.javaHarness.domain.RouteDecision;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.RouteJudge;
 import com.dark.javaHarness.service.impl.observe.LlmCallRecorder;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -130,7 +130,7 @@ public class LlmRouteJudge implements RouteJudge {
                 .system(settings.prompt())
                 .user(message)
                 .options(org.springframework.ai.openai.OpenAiChatOptions.builder()
-                        .model(settings.model()).build())
+                        .model(settings.model()))
                 // 发起前观测：与 agent 链路同款日志（此前 route-judge 在发起瞬间无任何痕迹）
                 .advisors(new LlmRequestLogAdvisor(ROUTE_AGENT, null))
                 .call()

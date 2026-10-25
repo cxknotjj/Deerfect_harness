@@ -2,7 +2,7 @@ package com.dark.javaHarness.agent;
 
 import com.dark.javaHarness.exception.ModelAuthException;
 import com.dark.javaHarness.exception.ModelQuotaException;
-import org.springframework.ai.retry.NonTransientAiException;
+import com.openai.errors.OpenAIServiceException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 /**
@@ -49,9 +49,8 @@ final class LlmErrorClassifier {
      * 丢池重建无助益且波及同池在途请求（管道 doOnError 丢池决策用）。
      *
      * <p>匹配两种载体形态（沿 cause 链）：WebClient 层的 {@link WebClientResponseException}
-     * （流式链路直接上抛）与 Spring AI 包装的 {@link NonTransientAiException}
-     * （message 以 "4xx " 开头）。408 请求超时例外：常为池内陈旧连接的表征，按连接问题
-     * 对待（丢池）。
+     * 与 OpenAI SDK 的 {@link OpenAIServiceException}（按 statusCode 判定）。
+     * 408 请求超时例外：常为池内陈旧连接的表征，按连接问题对待（丢池）。
      */
     static boolean isClientRequestError(Throwable e) {
         for (Throwable t = e; t != null; t = t.getCause()) {
@@ -61,9 +60,9 @@ final class LlmErrorClassifier {
                     return true;
                 }
             }
-            if (t instanceof NonTransientAiException nt) {
-                Integer status = leadingStatus(nt.getMessage());
-                if (status != null && status >= 400 && status < 500 && status != 408) {
+            if (t instanceof OpenAIServiceException svc) {
+                int status = svc.statusCode();
+                if (status >= 400 && status < 500 && status != 408) {
                     return true;
                 }
             }
@@ -74,15 +73,4 @@ final class LlmErrorClassifier {
         return false;
     }
 
-    /** 解析 "4xx ..." 形态 message 的前导状态码（非该形态返回 null） */
-    private static Integer leadingStatus(String msg) {
-        if (msg == null || msg.length() < 4 || msg.charAt(3) != ' ') {
-            return null;
-        }
-        try {
-            return Integer.parseInt(msg.substring(0, 3));
-        } catch (NumberFormatException ex) {
-            return null;
-        }
-    }
 }

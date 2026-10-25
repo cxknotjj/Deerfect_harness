@@ -1,10 +1,10 @@
 package com.dark.wms.client;
 
 import com.dark.wms.config.WmsProperties;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -213,7 +213,7 @@ public class WmsRestClient {
         JsonNode root;
         try {
             root = mapper.readTree(body);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new WmsApiException("WMS 返回了非预期格式（非 JSON）", e);
         }
         int code = root.path("code").asInt(-1);

@@ -23,7 +23,7 @@ import com.dark.javaHarness.mapper.SessionMapper;
 import com.dark.javaHarness.mapper.SessionMessageMapper;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.SessionBindingCleaner;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -238,7 +238,7 @@ class SessionServiceImplTest {
         when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
         when(messageMapper.selectOne(any())).thenReturn(null);
         when(mapper.writeValueAsString(any()))
-                .thenThrow(new com.fasterxml.jackson.core.JsonProcessingException("boom") {})
+                .thenThrow(new tools.jackson.core.JacksonException("boom") {})
                 .thenReturn("[]");
 
         svc.saveContext("9", new UserMessage("你好"));
@@ -256,7 +256,7 @@ class SessionServiceImplTest {
         when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
         when(messageMapper.selectOne(any())).thenReturn(null);
         when(mapper.writeValueAsString(any()))
-                .thenThrow(new com.fasterxml.jackson.core.JsonProcessingException("boom") {});
+                .thenThrow(new tools.jackson.core.JacksonException("boom") {});
 
         svc.saveContext("9", new UserMessage("你好"));
 
@@ -383,7 +383,7 @@ class SessionServiceImplTest {
                 .map(String.class::cast)
                 .findFirst().orElseThrow(() -> new AssertionError("应写入快照 JSON"));
         List<java.util.Map<String, String>> items = new ObjectMapper().readValue(json,
-                new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, String>>>() {
+                new tools.jackson.core.type.TypeReference<List<java.util.Map<String, String>>>() {
                 });
         assertEquals(1, items.size(), "裁剪后应保留最近消息，且不以 assistant 开头（丢弃半个问答对）");
         assertEquals("new", items.get(0).get("content"));

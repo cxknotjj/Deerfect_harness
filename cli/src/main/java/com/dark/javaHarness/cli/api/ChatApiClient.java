@@ -7,8 +7,8 @@ import com.dark.javaHarness.domain.dto.ProviderAddResult;
 import com.dark.javaHarness.domain.dto.ProviderRowView;
 import com.dark.javaHarness.domain.dto.SessionPageView;
 import com.dark.javaHarness.enums.SseProtocol;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -49,8 +49,9 @@ public class ChatApiClient {
 
     private final OkHttpClient http;
     // 服务端可能先于 CLI 迭代（DTO 新增字段）：未知字段宽容，保证前后版本错开也能解析
-    private final ObjectMapper mapper = new ObjectMapper()
-            .disable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+    private final ObjectMapper mapper = tools.jackson.databind.json.JsonMapper.builder()
+            .disable(tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+            .build();
     private final String baseUrl;
 
     public ChatApiClient(String baseUrl) {

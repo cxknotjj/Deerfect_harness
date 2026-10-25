@@ -2,6 +2,7 @@ package com.dark.javaHarness.config.knowledge;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import com.dark.javaHarness.config.OpenAiClients;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.knowledge.KnowledgeService;
 import com.dark.javaHarness.knowledge.KnowledgeServiceImpl;
@@ -14,7 +15,6 @@ import org.springframework.ai.document.MetadataMode;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.openai.OpenAiEmbeddingModel;
 import org.springframework.ai.openai.OpenAiEmbeddingOptions;
-import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.pgvector.PgVectorStore;
 import org.springframework.beans.factory.ObjectProvider;
@@ -24,7 +24,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.env.Environment;
-import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -104,32 +103,20 @@ public class KnowledgeConfig {
             throw new IllegalStateException(
                     "知识库嵌入未配置 api-key（app.knowledge.embedding.api-key 或环境变量 QWEN_API_KEY）");
         }
-        // 强制 HTTP/1.1 + 显式超时（对齐 ChatClientFactory 2026-10-03 修法）：默认 JDK
-        // HttpClient 的 HTTP/2 连接进池后无空闲驱逐（jdk.httpclient.keepalive.timeout.h2
-        // 属性不存在），网络路径会静默丢弃闲置几十秒~几分钟的连接——死连接躺在池里，
-        // 空闲后首调必黑洞（kb_retrieval_log 实证：失败簇全部精确卡满 10s 检索限时，
-        // 簇起点紧跟 4.5~11 分钟空闲）。http1 连接有 30s 空闲主动清理，死连接不再滞留。
-        // 嵌入为阻塞调用（OpenAiEmbeddingModel 走 RestClient，无流式），读超时兜底防
-        // 端点无响应时永久挂起；检索路径整体仍由 app.knowledge.search-timeout-seconds 外层限时。
-        java.net.http.HttpClient jdkClient = java.net.http.HttpClient.newBuilder()
-                .version(java.net.http.HttpClient.Version.HTTP_1_1)
-                .connectTimeout(java.time.Duration.ofSeconds(EMBED_CONNECT_TIMEOUT_SECONDS))
+        // 传输层与聊天通道同源（Spring AI OkHttp 客户端）：显式连接/读超时防端点无响应
+        // 时永久挂起；嵌入为阻塞调用（无流式），读超时即整请求兜底
+        java.time.Duration connect = java.time.Duration.ofSeconds(EMBED_CONNECT_TIMEOUT_SECONDS);
+        java.time.Duration read = java.time.Duration.ofSeconds(EMBED_READ_TIMEOUT_SECONDS);
+        OpenAiEmbeddingOptions options = OpenAiEmbeddingOptions.builder()
+                .model(props.getEmbedding().getModel())
+                .dimensions(props.getEmbedding().getDimensions())
                 .build();
-        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(jdkClient);
-        requestFactory.setReadTimeout(java.time.Duration.ofSeconds(EMBED_READ_TIMEOUT_SECONDS));
-        OpenAiApi api = OpenAiApi.builder()
-                .baseUrl(props.getEmbedding().getBaseUrl())
-                .apiKey(apiKey)
-                .restClientBuilder(org.springframework.web.client.RestClient.builder().requestFactory(requestFactory))
-                .build();
+        com.openai.client.OpenAIClient client = OpenAiClients.build(
+                props.getEmbedding().getBaseUrl(), apiKey, connect, read);
         log.info("[knowledge] 嵌入模型就绪: {} @ {}（{} 维）",
                 props.getEmbedding().getModel(), props.getEmbedding().getBaseUrl(),
                 props.getEmbedding().getDimensions());
-        return new OpenAiEmbeddingModel(api, MetadataMode.EMBED,
-                OpenAiEmbeddingOptions.builder()
-                        .model(props.getEmbedding().getModel())
-                        .dimensions(props.getEmbedding().getDimensions())
-                        .build());
+        return new OpenAiEmbeddingModel(client, MetadataMode.EMBED, options);
     }
 
     /**

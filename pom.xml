@@ -5,7 +5,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.14</version>
+        <version>4.1.2</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
     <groupId>com.dark</groupId>
@@ -37,10 +37,10 @@
     </modules>
 
     <properties>
-        <java.version>17</java.version>
-        <spring-ai.version>1.1.4</spring-ai.version>
-        <spring-ai-alibaba.version>1.1.2.2</spring-ai-alibaba.version>
-        <mybatis-plus.version>3.5.7</mybatis-plus.version>
+        <java.version>25</java.version>
+        <spring-ai.version>2.0.2</spring-ai.version>
+        <agentscope.version>1.0.2</agentscope.version>
+        <mybatis-plus.version>3.5.17</mybatis-plus.version>
         <!-- 显式固定编译编码：源码含大量中文字符串，不声明则跟随平台默认
              （Windows=GBK / WSL=UTF-8），两套工具链编出的 class 字符串常量会不一致 -->
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -49,7 +49,7 @@
 
     <dependencyManagement>
         <dependencies>
-            <!-- 注意：spring-ai-bom 必须位于 spring-ai-alibaba-bom 之前，确保 Spring AI 3.5.14/1.1.4 版本不被覆盖 -->
+            <!-- 注意：Spring AI 版本统一由 spring-ai-bom 管理 -->
             <dependency>
                 <groupId>org.springframework.ai</groupId>
                 <artifactId>spring-ai-bom</artifactId>
@@ -57,18 +57,16 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
-            <!-- spring ai alibaba 版本管理：Graph 状态编排等子模块 -->
-            <dependency>
-                <groupId>com.alibaba.cloud.ai</groupId>
-                <artifactId>spring-ai-alibaba-bom</artifactId>
-                <version>${spring-ai-alibaba.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
             <!-- mybatis plus 管理 -->
             <dependency>
                 <groupId>com.baomidou</groupId>
-                <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+                <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
+                <version>${mybatis-plus.version}</version>
+            </dependency>
+            <!-- 分页插件依赖的 SQL 解析器（MyBatis-Plus 3.5.9+ 从 extension 拆出） -->
+            <dependency>
+                <groupId>com.baomidou</groupId>
+                <artifactId>mybatis-plus-jsqlparser</artifactId>
                 <version>${mybatis-plus.version}</version>
             </dependency>
             <!-- 契约模块只需分页 Page 与实体注解，用 extension（不含 Spring Boot 自动配置） -->
@@ -77,39 +75,21 @@
                 <artifactId>mybatis-plus-extension</artifactId>
                 <version>${mybatis-plus.version}</version>
             </dependency>
-            <!-- MCP SDK 版本对齐：spring-ai-alibaba-graph-core 传递依赖把 io.modelcontextprotocol.sdk:mcp 锁到 0.14.0，
-                 而 spring-ai-mcp 1.1.4 需要 0.17.0（版本错配会导致 McpSyncClient.initialize 运行期失败）。
-                 这里显式锁定到 0.17.0，与 mcp-json/mcp-json-jackson2 的 0.17.0 对齐。 -->
-            <dependency>
-                <groupId>io.modelcontextprotocol.sdk</groupId>
-                <artifactId>mcp</artifactId>
-                <version>0.17.0</version>
-            </dependency>
-            <dependency>
-                <groupId>io.modelcontextprotocol.sdk</groupId>
-                <artifactId>mcp-core</artifactId>
-                <version>0.17.0</version>
-            </dependency>
-            <dependency>
-                <groupId>io.modelcontextprotocol.sdk</groupId>
-                <artifactId>mcp-json</artifactId>
-                <version>0.17.0</version>
-            </dependency>
             <!-- CLI/渠道共用客户端库：版本统一在此锁定，server 与 cli 各自声明免版本 -->
             <dependency>
                 <groupId>org.jline</groupId>
                 <artifactId>jline</artifactId>
-                <version>3.27.1</version>
+                <version>3.30.17</version>
             </dependency>
             <dependency>
                 <groupId>com.squareup.okhttp3</groupId>
-                <artifactId>okhttp</artifactId>
-                <version>4.12.0</version>
+                <artifactId>okhttp-jvm</artifactId>
+                <version>5.5.0</version>
             </dependency>
             <dependency>
                 <groupId>org.jsoup</groupId>
                 <artifactId>jsoup</artifactId>
-                <version>1.21.1</version>
+                <version>1.22.1</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

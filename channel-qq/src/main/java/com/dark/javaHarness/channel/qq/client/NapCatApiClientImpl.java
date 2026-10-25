@@ -3,7 +3,7 @@ package com.dark.javaHarness.channel.qq.client;
 import com.dark.javaHarness.channel.qq.dto.ApiResult;
 import com.dark.javaHarness.channel.qq.dto.MessageSegment;
 import com.dark.javaHarness.channel.qq.dto.SendMsgRequest;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.TimeUnit;

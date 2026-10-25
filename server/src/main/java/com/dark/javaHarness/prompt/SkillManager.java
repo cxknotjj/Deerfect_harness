@@ -1,8 +1,8 @@
 package com.dark.javaHarness.prompt;
 
 import com.dark.javaHarness.tool.TokenEstimator;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;

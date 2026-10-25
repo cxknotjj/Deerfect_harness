@@ -9,6 +9,7 @@ import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.client.transport.ServerParameters;
 import io.modelcontextprotocol.client.transport.StdioClientTransport;
+import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.spec.McpClientTransport;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -270,7 +271,9 @@ public class McpToolProvider {
         ServerParameters params = ServerParameters.builder(cmd)
                 .args(target.args())
                 .build();
-        return new StdioClientTransport(params, McpJsonMapper.getDefault());
+        McpJsonMapper jsonMapper = new JacksonMcpJsonMapper(
+                tools.jackson.databind.json.JsonMapper.builder().build());
+        return new StdioClientTransport(params, jsonMapper);
     }
 
     /** 配置解析委托 {@link McpConfigParser}；静态入口原位保留（既有测试直连） */

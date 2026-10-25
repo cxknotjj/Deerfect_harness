@@ -2,7 +2,7 @@ package com.dark.javaHarness.channel.qq.event;
 
 import com.dark.javaHarness.channel.qq.client.NapCatProperties;
 import com.dark.javaHarness.channel.qq.dto.OneBotEvent;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.concurrent.Executor;

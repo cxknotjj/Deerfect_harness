@@ -60,7 +60,7 @@ class LlmRouteJudgeTest {
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
         when(requestSpec.user(anyString())).thenReturn(requestSpec);
-        when(requestSpec.options(any(OpenAiChatOptions.class))).thenReturn(requestSpec);
+        when(requestSpec.options(any(OpenAiChatOptions.Builder.class))).thenReturn(requestSpec);
         when(requestSpec.advisors(any(Advisor[].class))).thenReturn(requestSpec);
         when(requestSpec.call()).thenReturn(responseSpec);
         when(responseSpec.chatResponse()).thenReturn(new ChatResponse(
@@ -99,7 +99,7 @@ class LlmRouteJudgeTest {
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
         when(requestSpec.user(anyString())).thenReturn(requestSpec);
-        when(requestSpec.options(any(OpenAiChatOptions.class))).thenReturn(requestSpec);
+        when(requestSpec.options(any(OpenAiChatOptions.Builder.class))).thenReturn(requestSpec);
         when(requestSpec.advisors(any(Advisor[].class))).thenReturn(requestSpec);
         when(requestSpec.call()).thenThrow(new IllegalStateException("llm down"));
         judge = new LlmRouteJudge(clientRegistry, null, null, agentConfigProvider);
@@ -137,7 +137,7 @@ class LlmRouteJudgeTest {
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
         when(requestSpec.user(anyString())).thenReturn(requestSpec);
-        when(requestSpec.options(any(OpenAiChatOptions.class))).thenReturn(requestSpec);
+        when(requestSpec.options(any(OpenAiChatOptions.Builder.class))).thenReturn(requestSpec);
         when(requestSpec.advisors(any(Advisor[].class))).thenReturn(requestSpec);
         when(requestSpec.call()).thenReturn(responseSpec);
         when(responseSpec.chatResponse()).thenReturn(new ChatResponse(

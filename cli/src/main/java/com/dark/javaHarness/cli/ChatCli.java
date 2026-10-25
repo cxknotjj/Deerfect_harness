@@ -7,7 +7,7 @@ import com.dark.javaHarness.domain.dto.ChatResponse;
 import com.dark.javaHarness.domain.dto.KnowledgeSource;
 import com.dark.javaHarness.domain.dto.ProviderAddResult;
 import com.dark.javaHarness.domain.dto.ProviderRowView;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -75,8 +75,9 @@ public class ChatCli {
     private Long agentId = null;
 
     // 未知字段宽容：与服务端版本错开时（DTO 新增字段）仍可解析
-    private static final ObjectMapper MAPPER = new ObjectMapper()
-            .disable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+    private static final ObjectMapper MAPPER = tools.jackson.databind.json.JsonMapper.builder()
+            .disable(tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+            .build();
 
     /** 编排类进度 stage 集合：回合内出现任一即视为复杂编排回合（供 /resume 无参续跑判定）。
      *  goal = 编排流首下发的 goalId 事件（编排路径专属，出现即记录续跑目标） */
@@ -341,7 +342,7 @@ public class ChatCli {
                             var node = MAPPER.readTree(data);
                             stage = node.path("stage").asText("");
                             detail = node.path("detail").asText("");
-                        } catch (IOException ignored) {
+                        } catch (tools.jackson.core.JacksonException ignored) {
                             // 解析失败则 detail 原样展示，不中断
                         }
                         if ("goal".equals(stage) && !detail.isBlank()) {

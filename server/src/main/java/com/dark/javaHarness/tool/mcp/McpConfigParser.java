@@ -1,7 +1,7 @@
 package com.dark.javaHarness.tool.mcp;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -40,7 +40,7 @@ final class McpConfigParser {
                 return List.of();
             }
             List<McpToolProvider.ServerSpec> specs = new ArrayList<>();
-            var it = servers.fields();
+            var it = servers.properties().iterator();
             while (it.hasNext()) {
                 var e = it.next();
                 String name = e.getKey();
@@ -85,7 +85,7 @@ final class McpConfigParser {
             try {
                 JsonNode servers = MAPPER.readTree(configFile.toFile()).get("mcpServers");
                 if (servers != null && servers.isObject()) {
-                    var it = servers.fields();
+                    var it = servers.properties().iterator();
                     while (it.hasNext()) {
                         var e = it.next();
                         JsonNode cmd = e.getValue().get("command");

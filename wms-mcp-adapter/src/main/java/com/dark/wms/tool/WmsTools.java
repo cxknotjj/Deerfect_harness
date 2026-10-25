@@ -4,9 +4,9 @@ import com.dark.wms.client.WmsEndpoints;
 import com.dark.wms.client.WmsPage;
 import com.dark.wms.client.WmsRestClient;
 import com.dark.wms.client.WmsApiException;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.tool.annotation.Tool;
@@ -432,7 +432,7 @@ public class WmsTools {
     private String toJson(Object value) {
         try {
             return mapper.writeValueAsString(value);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             return "{\"error\":true,\"message\":\"工具结果序列化失败\"}";
         }
     }

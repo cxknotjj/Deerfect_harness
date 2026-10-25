@@ -123,7 +123,7 @@ class AgentChatCallerTest {
         when(client.prompt()).thenReturn(spec);
         when(spec.system(anyString())).thenReturn(spec);
         when(spec.user(anyString())).thenReturn(spec);
-        when(spec.options(any(OpenAiChatOptions.class))).thenReturn(spec);
+        when(spec.options(any(OpenAiChatOptions.Builder.class))).thenReturn(spec);
         // call() 底层统一走流式通道收集完整内容（阻塞调用不可中断，流式是唯一可中止通道）
         when(spec.stream()).thenReturn(streamSpec);
     }
@@ -255,10 +255,11 @@ class AgentChatCallerTest {
         tiered.call("s1", "aggregator", "兜底", "任务", null);
         tiered.call("s1", "researcher", "兜底", "任务", null);
 
-        ArgumentCaptor<OpenAiChatOptions> captor = ArgumentCaptor.forClass(OpenAiChatOptions.class);
+        ArgumentCaptor<OpenAiChatOptions.Builder> captor =
+                ArgumentCaptor.forClass(OpenAiChatOptions.Builder.class);
         verify(spec, times(3)).options(captor.capture());
         assertEquals(List.of(1000, 3000, 2000),
-                captor.getAllValues().stream().map(OpenAiChatOptions::getMaxTokens).toList(),
+                captor.getAllValues().stream().map(b -> b.build().getMaxTokens()).toList(),
                 "lead/aggregator/专家 应分别落 lead/final/expert 三档");
     }
 
@@ -269,9 +270,10 @@ class AgentChatCallerTest {
 
         caller.call("s1", "researcher", "兜底", "任务", null);
 
-        ArgumentCaptor<OpenAiChatOptions> captor = ArgumentCaptor.forClass(OpenAiChatOptions.class);
+        ArgumentCaptor<OpenAiChatOptions.Builder> captor =
+                ArgumentCaptor.forClass(OpenAiChatOptions.Builder.class);
         verify(spec, times(1)).options(captor.capture());
-        assertNull(captor.getValue().getMaxTokens(), "档位 0 时不得设置 maxTokens");
+        assertNull(captor.getValue().build().getMaxTokens(), "档位 0 时不得设置 maxTokens");
     }
 
     /* ---------------- 预算账本（BudgetLedger 门控 + 按 roundtrip 增量记账） ---------------- */

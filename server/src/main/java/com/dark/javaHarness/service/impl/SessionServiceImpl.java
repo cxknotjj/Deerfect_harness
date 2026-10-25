@@ -11,9 +11,9 @@ import com.dark.javaHarness.mapper.SessionMessageMapper;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.SessionBindingCleaner;
 import com.dark.javaHarness.service.SessionService;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -149,7 +149,7 @@ public class SessionServiceImpl implements SessionService {
         try {
             return objectMapper.readValue(
                     row.getContent(), new TypeReference<List<Map<String, String>>>() {});
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.warn("解析会话上下文快照失败 sessionId={}，按空上下文处理", row.getSessionId(), e);
             return List.of();
         }
@@ -278,7 +278,7 @@ public class SessionServiceImpl implements SessionService {
         for (int attempt = 1; attempt <= 2; attempt++) {
             try {
                 return objectMapper.writeValueAsString(items);
-            } catch (JsonProcessingException e) {
+            } catch (JacksonException e) {
                 if (attempt == 1) {
                     log.warn("序列化会话上下文失败（重试一次）sessionId={}: {}", sessionId, e.getMessage());
                 } else {

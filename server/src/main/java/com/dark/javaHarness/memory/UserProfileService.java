@@ -205,7 +205,7 @@ public class UserProfileService {
                 .system(SYSTEM_PROMPT)
                 .user(userPrompt)
                 .options(org.springframework.ai.openai.OpenAiChatOptions.builder()
-                        .model(PROFILE_MODEL).build())
+                        .model(PROFILE_MODEL))
                 .call()
                 .chatResponse()
                 .getResult()

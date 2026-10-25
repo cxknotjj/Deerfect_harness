@@ -90,7 +90,7 @@ class UserProfileServiceTest {
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
         when(requestSpec.user(anyString())).thenReturn(requestSpec);
-        when(requestSpec.options(any(org.springframework.ai.openai.OpenAiChatOptions.class)))
+        when(requestSpec.options(any(org.springframework.ai.openai.OpenAiChatOptions.Builder.class)))
                 .thenReturn(requestSpec);
         when(requestSpec.call()).thenReturn(responseSpec);
         when(responseSpec.chatResponse()).thenReturn(new ChatResponse(
@@ -151,7 +151,7 @@ class UserProfileServiceTest {
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
         when(requestSpec.user(anyString())).thenReturn(requestSpec);
-        when(requestSpec.options(any(org.springframework.ai.openai.OpenAiChatOptions.class)))
+        when(requestSpec.options(any(org.springframework.ai.openai.OpenAiChatOptions.Builder.class)))
                 .thenReturn(requestSpec);
         when(requestSpec.call()).thenThrow(new RuntimeException("boom"));
 
@@ -235,7 +235,7 @@ class UserProfileServiceTest {
         when(clientRegistry.getByModel(anyString())).thenReturn(chatClient);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
         when(requestSpec.user(anyString())).thenReturn(requestSpec);
-        when(requestSpec.options(any(org.springframework.ai.openai.OpenAiChatOptions.class)))
+        when(requestSpec.options(any(org.springframework.ai.openai.OpenAiChatOptions.Builder.class)))
                 .thenReturn(requestSpec);
         when(requestSpec.call()).thenReturn(responseSpec);
         when(responseSpec.chatResponse()).thenReturn(new ChatResponse(

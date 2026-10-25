@@ -2,7 +2,7 @@ package com.dark.wms.tool;
 
 import com.dark.wms.client.WmsEndpoints;
 import com.dark.wms.client.WmsRestClient;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;

@@ -32,7 +32,12 @@
         <!-- OkHttp：CLI 网络请求（SSE 长连接 readTimeout/callTimeout 拉满防断连）。版本由根 pom 锁定 -->
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>
-            <artifactId>okhttp</artifactId>
+            <artifactId>okhttp-jvm</artifactId>
+        </dependency>
+        <!-- JSON 解析（Jackson 3）：版本由 Spring Boot 4 BOM 管理 -->
+        <dependency>
+            <groupId>tools.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
         </dependency>
 
         <!-- Jackson：SSE 事件帧与 REST 响应的 JSON 解析（ObjectMapper/TypeReference）。

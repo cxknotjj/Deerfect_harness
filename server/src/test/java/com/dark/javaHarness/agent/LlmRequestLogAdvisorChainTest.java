@@ -22,6 +22,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.openai.OpenAiChatOptions;
 import reactor.core.publisher.Flux;
 
 /**
@@ -37,6 +38,7 @@ class LlmRequestLogAdvisorChainTest {
     @Test
     void stream_invokesRequestLogAdvisor() {
         ChatModel model = mock(ChatModel.class);
+        lenient().when(model.getOptions()).thenReturn(OpenAiChatOptions.builder().build());
         lenient().when(model.stream(any(Prompt.class))).thenReturn(fluxOf("ok"));
         lenient().when(model.call(any(Prompt.class)))
                 .thenReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("ok")))));

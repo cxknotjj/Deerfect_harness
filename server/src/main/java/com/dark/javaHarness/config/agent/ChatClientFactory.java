@@ -1,8 +1,9 @@
 package com.dark.javaHarness.config.agent;
 
 import com.dark.javaHarness.config.ChatTimeoutProperties;
+import com.dark.javaHarness.config.OpenAiClients;
 import com.dark.javaHarness.tool.builtin.DemoTools;
-import java.net.http.HttpClient;
+import com.openai.client.OpenAIClient;
 import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,13 +11,8 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
-import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.core.env.Environment;
-import org.springframework.http.client.JdkClientHttpRequestFactory;
-import org.springframework.http.client.reactive.JdkClientHttpConnector;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
-import org.springframework.web.reactive.function.client.WebClient;
 
 /**
  * ChatClient 工厂：负责按服务商标识 + 端点 url 构建 OpenAI 兼容的 ChatClient。
@@ -39,7 +35,7 @@ public class ChatClientFactory {
     private static final int DEFAULT_LIGHT_READ_TIMEOUT_SECONDS = 10;
 
     /** HTTP 读超时兜底默认（秒）：app.chat.timeouts.read-timeout-seconds 未配置时生效。
-     * 默认 JdkClientHttpRequestFactory 无读超时，端点不响应会永久挂起
+     * OkHttp 读超时按包间等待判定（非整请求上限），端点不响应会挂起
      * （实测：编排卡死在 CompletableFuture.get()），必须显式设置 */
     private static final int DEFAULT_READ_TIMEOUT_SECONDS = 300;
 
@@ -120,43 +116,16 @@ public class ChatClientFactory {
             return null;
         }
         try {
-            // 阻塞调用通道（call）：连接/读超时防端点无响应时永久挂起。
-            // 强制 HTTP/1.1：JDK 17 的 HTTP/2 连接进池后没有空闲驱逐（
-            // jdk.httpclient.keepalive.timeout.h2 属性不存在），而网络路径会静默丢弃
-            // 闲置几十秒~几分钟的连接——死连接躺在池里，空闲后第一发请求必黑洞
-            // （10s 读超时 / 120s 看门狗，llm_call_log 反复实证）。http1 连接有
-            // 30s 空闲主动清理（jdk.httpclient.keepalive.timeout 可调）：池内热连接
-            // 照常复用（编排一轮十几连发全在窗口内），超窗后 JDK 主动关掉，死连接
-            // 不复存在。代价是放弃 h2 多路复用——本应用低并发场景无收益。
-            java.net.http.HttpClient jdkClient = HttpClient.newBuilder()
-                    .version(java.net.http.HttpClient.Version.HTTP_1_1)
-                    .connectTimeout(resolve(timeouts.getConnectTimeoutSeconds(), DEFAULT_CONNECT_TIMEOUT_SECONDS))
-                    .build();
-            JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(jdkClient);
-            // 未显式指定（null）时沿用全局读超时配置（agent 通道口径）
-            requestFactory.setReadTimeout(resolve(
-                    readTimeoutSeconds != null ? readTimeoutSeconds : timeouts.getReadTimeoutSeconds(),
-                    DEFAULT_READ_TIMEOUT_SECONDS));
-            RestClient.Builder restBuilder = RestClient.builder().requestFactory(requestFactory);
-            WebClient.Builder webBuilder = WebClient.builder()
-                    .clientConnector(new JdkClientHttpConnector(jdkClient));
-            OpenAiApi api = OpenAiApi.builder()
-                    .baseUrl(apiUrl)
-                    .apiKey(apiKey)
-                    .restClientBuilder(restBuilder)
-                    // 流式调用通道（stream）：连接超时同口径；读/空闲超时由 AgentChatCaller 的
-                    // Flux.timeout 兜底（JDK 连接器无响应级超时，且项目未引入 reactor-netty），
-                    // 兜底秒数可经 app.chat.timeouts.* 配置（未配置同 DEFAULT_*_SECONDS 口径）
-                    .webClientBuilder(webBuilder)
-                    .build();
+            // 传输层：Spring AI 的 OkHttp 客户端（连接/读超时防端点无响应时永久挂起；
+            // 整请求不设上限，流式长回答按 token 间隔判定读超时）
+            OpenAIClient client = OpenAiClients.build(apiUrl, apiKey,
+                    resolve(timeouts.getConnectTimeoutSeconds(), DEFAULT_CONNECT_TIMEOUT_SECONDS),
+                    resolve(readTimeoutSeconds != null ? readTimeoutSeconds : timeouts.getReadTimeoutSeconds(),
+                            DEFAULT_READ_TIMEOUT_SECONDS));
             OpenAiChatModel model = OpenAiChatModel.builder()
-                    .openAiApi(api)
-                    .defaultOptions(OpenAiChatOptions.builder().build())
-                    // 关闭 Spring AI 内部隐式重试：重试统一收敛到 LlmRetry（每次尝试都有
-                    // 观测记录）。内部重试层对 llm_call_log 完全不可见，且其退避（最长 3s 递增）
-                    // 曾把单次 300s 读超时放大成 832s 的请求阻塞（llm_call_log #198）
-                    .retryTemplate(org.springframework.retry.support.RetryTemplate.builder()
-                            .maxAttempts(1).build())
+                    .openAiClient(client)
+                    .openAiClientAsync(client.async())
+                    .options(OpenAiChatOptions.builder().build())
                     .build();
             // 思考端点：模型层包装器按请求注入 enable_thinking:false（defaultOptions.extraBody
             // 在带运行时选项的调用模式下不生效，见 ThinkingSwitchChatModel 类注释）

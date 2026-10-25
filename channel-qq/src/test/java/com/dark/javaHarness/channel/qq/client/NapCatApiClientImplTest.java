@@ -9,7 +9,7 @@ import static org.mockito.Mockito.verify;
 
 import com.dark.javaHarness.channel.qq.dto.ApiResult;
 import com.dark.javaHarness.channel.qq.dto.MessageSegment;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;

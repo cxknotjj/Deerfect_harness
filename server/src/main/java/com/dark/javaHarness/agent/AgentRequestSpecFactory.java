@@ -207,22 +207,21 @@ final class AgentRequestSpecFactory {
         // 专家类型/模型/上下文条数与字符量——llm_call_log 只在结束时落行，在途请求
         // 此前无任何痕迹可查
         spec.advisors(new LlmRequestLogAdvisor(forAgent, sessionId));
-        // 请求级选项：streamUsage(true) 流式末帧回传真实 usage（OpenAI stream_options.include_usage，
-        // DashScope 兼容模式与 DeepSeek 均支持）——llm_call_log 据此记真实 token。
-        // model 非空时必须请求级显式指定（Registry 构建的客户端 defaultOptions 为空，否则厂商端 400），
-        // 频率惩罚仅编排路径启用（model 空时不覆盖客户端默认，与存量行为一致）；
-        // 输出封顶按调用方档位（0 = 不限制，不写入保持模型默认）
-        OpenAiChatOptions.Builder options = OpenAiChatOptions.builder().streamUsage(true);
+        // 请求级选项：model 非空时必须请求级显式指定（Registry 构建的客户端 defaultOptions
+        // 不含模型名，否则厂商端 400）；频率惩罚仅编排路径启用；输出封顶按调用方档位
+        // （0 = 不限制，不写入保持模型默认）。
+        // 模型为空时不下发 options：Spring AI 2.0 的 OpenAiChatOptions 恒带默认模型
+        // （gpt-5-mini），下发会覆盖客户端默认（streamUsage 在 2.0 已默认 include_usage=true）
         if (model != null && !model.isBlank()) {
-            options.model(model);
+            OpenAiChatOptions.Builder options = OpenAiChatOptions.builder().model(model);
             if (assembly.frequencyPenalty()) {
                 options.frequencyPenalty(0.5);
             }
+            if (assembly.maxTokens() > 0) {
+                options.maxTokens(assembly.maxTokens());
+            }
+            spec.options(options);
         }
-        if (assembly.maxTokens() > 0) {
-            options.maxTokens(assembly.maxTokens());
-        }
-        spec.options(options.build());
         // 工具侧轨迹关联（Task 4）：parentSpan 键取本调用的 spanId（工具行的 parent_span
         // 指向触发它的 LLM 调用 span），turnId/traceId 与该调用一致；全空不塞（Map 留空）
         if (trace != null

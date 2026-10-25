@@ -38,18 +38,13 @@
             <artifactId>spring-ai-starter-model-openai</artifactId>
         </dependency>
 
-        <!-- Spring AI Alibaba：Graph 状态编排（节点 + 边 + 状态机，支持条件/并行边、持久化检查点） -->
+        <!-- 容器级沙箱运行时（agentscope-runtime，Docker 后端）：直接依赖其 core 模块，
+             不经 Spring AI Alibaba 封装。排除传递引入的 commons-logging：与 Spring 自带
+             spring-jcl 冲突，启动时报 "Standard Commons Logging discovery in action" 警告 -->
         <dependency>
-            <groupId>com.alibaba.cloud.ai</groupId>
-            <artifactId>spring-ai-alibaba-graph-core</artifactId>
-        </dependency>
-
-        <!-- Spring AI Alibaba：Sandbox 容器级沙箱（agentscope-runtime，Docker 后端；版本由 BOM 管理）。
-             排除其传递引入的 commons-logging：与 Spring 自带 spring-jcl 冲突，
-             启动时报 "Standard Commons Logging discovery in action" 警告 -->
-        <dependency>
-            <groupId>com.alibaba.cloud.ai</groupId>
-            <artifactId>spring-ai-alibaba-sandbox</artifactId>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-runtime-sandbox-core</artifactId>
+            <version>${agentscope.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>commons-logging</groupId>
@@ -106,7 +101,13 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Flyway：schema 版本化迁移（替代 spring.sql.init），MySQL 8.4 需 flyway-mysql 方言模块 -->
+        <!-- Flyway：schema 版本化迁移（替代 spring.sql.init），MySQL 8.4 需 flyway-mysql 方言模块。
+             Boot 4 起 Flyway 自动配置拆到独立模块 spring-boot-flyway，经 starter 引入
+             （仅 flyway-core 时自动配置不生效、迁移不会执行） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
@@ -119,7 +120,11 @@
         <!-- MyBatis-Plus（Spring Boot 3 专用 starter） -->
         <dependency>
             <groupId>com.baomidou</groupId>
-            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+            <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-jsqlparser</artifactId>
         </dependency>
 
         <!-- 参数校验（jakarta validation） -->

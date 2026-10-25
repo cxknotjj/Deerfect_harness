@@ -56,8 +56,7 @@ public final class ThinkingSwitchChatModel implements ChatModel {
             return prompt;
         }
         extraBody.put("enable_thinking", false);
-        OpenAiChatOptions injected = runtime.copy();
-        injected.setExtraBody(extraBody);
+        OpenAiChatOptions injected = runtime.mutate().extraBody(extraBody).build();
         return new Prompt(prompt.getInstructions(), injected);
     }
 }

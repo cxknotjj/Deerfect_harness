@@ -4,7 +4,7 @@ import com.dark.javaHarness.agent.ProgressLine;
 import com.dark.javaHarness.domain.dto.KnowledgeSource;
 import com.dark.javaHarness.domain.dto.SseMeta;
 import com.dark.javaHarness.enums.SseProtocol;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import java.util.List;
 import reactor.core.publisher.Flux;
 
