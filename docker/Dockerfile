@@ -1,5 +1,5 @@
 # ============================================================
-# 多阶段构建：Maven + JDK 17 编译 → JRE 17 运行
+# 多阶段构建：Maven + JDK 25 编译 → JRE 25 运行
 # 构建（context 必须是项目根——COPY 依赖 pom.xml/src/skills/knowledge/channel）：
 #   docker build -f docker/Dockerfile -t java-harness .
 #   或直接：docker compose -f docker/docker-compose.yml up -d --build
@@ -9,12 +9,12 @@
 
 # ---------- 构建阶段 ----------
 # 基础镜像参数化：默认官方名；Docker Hub 不可达的网络（国内常见）经 --build-arg
-# 覆盖为加速通道地址（如 docker.m.daocloud.io/library/maven:3.9-eclipse-temurin-17），
+# 覆盖为加速通道地址（如 docker.m.daocloud.io/library/maven:3.9-eclipse-temurin-25），
 # compose 侧同样支持 BUILD_BASE/RUN_BASE 环境变量覆盖。
 # 注意：ARG 必须都声明在首个 FROM 之前（全局作用域）——首个 FROM 之后的 ARG 归属
 # 上一阶段，后续 FROM 引用会报 "base name should not be blank"
-ARG BUILD_BASE=maven:3.9-eclipse-temurin-17
-ARG RUN_BASE=eclipse-temurin:17-jre
+ARG BUILD_BASE=maven:3.9-eclipse-temurin-25
+ARG RUN_BASE=eclipse-temurin:25-jre
 FROM ${BUILD_BASE} AS build
 WORKDIR /build
 

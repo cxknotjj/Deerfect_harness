@@ -22,7 +22,7 @@
 ③ 主 Agent 前置判断（路由分流）
      RouteJudge.judge(message) → LlmRouteJudge（一次 LLM 分类，失败兜底 SIMPLE）
         ├─ SIMPLE  → 路径 A：单次 LLM 调用（GeneralAssistantAgent）
-        └─ COMPLEX → 路径 B：多 Agent 编排（MultiAgentGraphAgent + StateGraph）
+        └─ COMPLEX → 路径 B：多 Agent 编排（MultiAgentGraphAgent + 自研并行引擎）
         │
 ③' Agent 路由（表驱动动态注册）
      AgentServiceImpl.requireAgent(name) → AgentRegistry.require(name)
@@ -62,7 +62,7 @@ ChatService.chat(request)
        │       + MessageChatMemoryAdvisor 注入历史 + ContextAssemblingAdvisor 裁剪
        │       + 流式信道收集完整回复（唯一可中止通道）
        └─ multi-agent（B）→ MultiAgentGraphAgent.execute(goal)
-             → StateGraph：lead 拆解 → 并行子任务 → 聚合 → 最终回答
+             → 自研引擎：lead 拆解 → 并行子任务 → 聚合 → 最终回答
   4. writeBackContext(sessionId, message, goal)
   5. 返回 ChatResponse {sessionId, newSession, goalId, status, summary}
 ```
@@ -165,11 +165,11 @@ AgentChatCaller.callWithAssembly / streamWithAssembly（执行层单一来源，
 
 ## 5b. 路径 B 多 Agent 编排数据流（`MultiAgentGraphAgent`）
 
-> `StateGraph`：「lead 拆解 → 并行子任务 → 聚合」，复杂请求（COMPLEX）执行体。流入 `{objective}`，流出 `final`。
+> 自研 `ParallelOrchestrationEngine`：「lead 拆解 → 并行子任务 → 聚合」，复杂请求（COMPLEX）执行体。流入 `{objective}`，流出 `final`。
 
 ```
 MultiAgentGraphAgent.execute(goal)
-│  构建 StateGraph（构造 compile，结构固定）
+│  引擎按阶段执行（lead → 并行子任务 → 聚合）
 │    node：lead → subtask-0..3 → aggregate
 │    边：START→lead →(fan-out)→ subtasks →(each)→ aggregate → END
 │
@@ -197,7 +197,7 @@ MultiAgentGraphAgent.execute(goal)
 
 **流式执行（`executeStreamReactive`：「主干帧 + 三条旁路」多通道）**：
 
-> 动机：graph-core 的 `stream()` 按 superstep 吐帧，会把并行分支合并掉，「每个子任务何时完成」在主干里拿不到。
+> 动机：并行子任务的「完成」事件需与聚合 token 同流下发，由引擎在取到每个结果后逐条播报。
 > 于是一路走主干帧覆盖能看到的节点，另一路挂 `GraphLifecycleListener` 补齐分支事件，最后 merge 成一条流。
 
 ```
@@ -277,7 +277,7 @@ CLI 解析到 `event: progress` 按阶段分派渲染：`编排/聚合` 转 spin
 ② 工具面来源（SandboxToolProvider，懒初始化仅一次）
    首次取用 → 双检锁 → SandboxService.start() + BaseSandbox
    → Docker 拉起容器（镜像 runtime-sandbox-base，容器 :80 → 宿主随机端口）
-   → ToolkitInit 把容器能力包装为 12 个 ToolCallback，按安全类别三组：
+   → SandboxToolkit 把容器能力包装为 18 个 ToolCallback，按安全类别三组：
        执行类×2（RunPythonCode / RunShellCommand）
        只读文件类×6（Read / ReadMultiple / ListDir / DirectoryTree / Search / FileInfo）
        写入类×4（Write / Edit / CreateDir / Move）
@@ -642,7 +642,7 @@ sequenceDiagram
 | Prompt 组装  | `PromptAssembler`（五段式）+ `MemoryPolicy`（角色记忆矩阵）+ `SkillSectionProvider`（扩展点） |
 | 思考开关       | `ThinkingSwitchChatModel`（按 `model_provider.disable_thinking` 注入 `enable_thinking`） |
 | 路径 A（简单）   | `GeneralAssistantAgent`（薄适配：装配差异声明 + 响应式流终结钩子，执行委托 `AgentChatCaller`） |
-| 路径 B（复杂）   | `MultiAgentGraphAgent`（StateGraph：lead→并行→aggregate） |
+| 路径 B（复杂）   | `MultiAgentGraphAgent`（自研引擎：lead→并行→aggregate） |
 | 统一调用出口     | `AgentChatCaller`（路径 A/B 执行层单一来源：流式背书 + 取消令牌 + 重试/配额映射 + 工具装饰链）     |
 | 统一出口       | `ChatController` 同步 + SSE                            |
 | 兜底         | `AgentService` → general                             |

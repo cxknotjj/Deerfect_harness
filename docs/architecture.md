@@ -9,7 +9,7 @@ flowchart TD
     A[🖥️ CLI / REST 请求] --> B[ChatController<br/>Harness 外壳入口]
     B --> C{🧭 RouteJudge<br/>LLM 判定 SIMPLE / COMPLEX}
     C -->|SIMPLE 简单问题| D[⚡ GeneralAssistantAgent<br/>单次调用 · 逐 token 流式]
-    C -->|COMPLEX 复杂任务| E[🕸️ MultiAgentGraphAgent<br/>StateGraph 编排]
+    C -->|COMPLEX 复杂任务| E[🕸️ MultiAgentGraphAgent<br/>自研并行引擎编排]
     E --> F[🧩 Lead 拆解<br/>至多 4 条 · 禁凑数]
     F --> G1[🔍 researcher]
     F --> G2[💻 coder]

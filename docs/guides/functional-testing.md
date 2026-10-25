@@ -171,12 +171,12 @@ mock `ChatClientRegistry` / `ChatClient` 固定 content（lead 固定返回两�
 
 | 用例 | 验证点 |
 | --- | --- |
-| `execute_shouldBuildGraphAndReturnFinalAnswer` | 同步路径：StateGraph 构建 + invoke 出最终回答非空 |
+| `execute_shouldBuildGraphAndReturnFinalAnswer` | 同步路径：引擎执行返回最终回答非空 |
 | `execute_returnsNonEmptyForAggregate` | 聚合节点把子任务结果汇总为最终回答并原样返回 |
 | `executeStreamReactive_emitsProgressRowsAndContent` | 流式路径：进度行（`MARK` 前缀）与内容行混合发射，两类都有 |
 | `executeStreamReactive_streamsStageEventsInOrder` | **阶段时序断言**：首行=「编排」→ 存在「拆解」→ ≥2 条「子任务完成」（钩子补齐并行分支，且都在最终回答之前）→ 内容行前紧邻「聚合」，流以最终回答收尾 |
 
-**难点覆盖**：graph-core 的 `stream()` 会合并并行分支帧，「子任务完成」事件靠 `BranchProgressListener`（before/after 钩子配对过滤短路槽位）经 Sink 旁路补齐；时序用例专门防回归。
+**难点覆盖**：「子任务完成」事件靠 `BranchProgressListener` 在引擎取到结果后逐条播报；时序用例专门防回归。
 
 ### 3. `ProgressLineTest` —— 进度行线协议
 

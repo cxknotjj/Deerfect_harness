@@ -65,11 +65,11 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
       # Docker Hub 不可达时设环境变量切加速通道，如：
-      #   BUILD_BASE=docker.m.daocloud.io/library/maven:3.9-eclipse-temurin-17
-      #   RUN_BASE=docker.m.daocloud.io/library/eclipse-temurin:17-jre
+      #   BUILD_BASE=docker.m.daocloud.io/library/maven:3.9-eclipse-temurin-25
+      #   RUN_BASE=docker.m.daocloud.io/library/eclipse-temurin:25-jre
       args:
-        BUILD_BASE: ${BUILD_BASE:-maven:3.9-eclipse-temurin-17}
-        RUN_BASE: ${RUN_BASE:-eclipse-temurin:17-jre}
+        BUILD_BASE: ${BUILD_BASE:-maven:3.9-eclipse-temurin-25}
+        RUN_BASE: ${RUN_BASE:-eclipse-temurin:25-jre}
     # 复用手工 docker build 的同名镜像（否则 compose 默认找 java-harness-app 会强制重建）
     image: java-harness
     container_name: java-harness

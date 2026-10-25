@@ -13,8 +13,8 @@
 **让多个 AI 专家替你干活：任务发进来，自动拆解、并行执行、汇总交付。**
 
 [![Java](https://img.shields.io/badge/Java-17-007396?logo=openjdk&logoColor=white)](https://openjdk.org/projects/jdk/17/)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.x-6DB33F?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
-[![Spring AI](https://img.shields.io/badge/Spring%20AI-1.1.x-6DB33F?logo=spring&logoColor=white)](https://spring.io/projects/spring-ai)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.x-6DB33F?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
+[![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.x-6DB33F?logo=spring&logoColor=white)](https://spring.io/projects/spring-ai)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![Tests](https://img.shields.io/badge/tests-700%20passing-brightgreen?logo=junit5&logoColor=white)](#-运行测试)
 
@@ -68,7 +68,7 @@
 
 ## 快速开始
 
-**1️⃣ 准备**：JDK 17+、Maven 3.8+、MySQL 8.x，建一次库（表结构启动时自动创建）：
+**1️⃣ 准备**：JDK 25+、Maven 3.8+、MySQL 8.x，建一次库（表结构启动时自动创建）：
 
 ```sql
 CREATE DATABASE IF NOT EXISTS harness DEFAULT CHARACTER SET utf8mb4;
@@ -158,7 +158,7 @@ curl -s -X POST http://localhost:8080/api/chat \
 
 ## 技术架构
 
-Maven 多模块：`harness-api`（渠道与 core 共用的契约层：端口接口 / DTO / 共享枚举 / `ReplyPostProcessor` SPI）+ `server`（Spring Boot 主服务与 fat jar 宿主）+ `channel-qq`（QQ 渠道，仅依赖 `harness-api`）+ `cli`（终端客户端，纯 HTTP + SSE，复用 `harness-api` 契约）+ `web`（Vue3 自包含前端）+ `wms-mcp-adapter`（领域 MCP 适配范例）。`server` 以 **runtime** scope 装配 `channel-qq`，core 编译期看不到渠道代码（`maven-enforcer-plugin` 守护）；渠道输出控制走通用 `ReplyPostProcessor` SPI。核心链路：`ChatController` 入口 → `RouteJudge` 判定 SIMPLE / COMPLEX → 路径 A 单 Agent 直答 或 路径 B StateGraph 编排（Lead → 专家并行 → Aggregator）→ 统一出口。
+Maven 多模块：`harness-api`（渠道与 core 共用的契约层：端口接口 / DTO / 共享枚举 / `ReplyPostProcessor` SPI）+ `server`（Spring Boot 主服务与 fat jar 宿主）+ `channel-qq`（QQ 渠道，仅依赖 `harness-api`）+ `cli`（终端客户端，纯 HTTP + SSE，复用 `harness-api` 契约）+ `web`（Vue3 自包含前端）+ `wms-mcp-adapter`（领域 MCP 适配范例）。`server` 以 **runtime** scope 装配 `channel-qq`，core 编译期看不到渠道代码（`maven-enforcer-plugin` 守护）；渠道输出控制走通用 `ReplyPostProcessor` SPI。核心链路：`ChatController` 入口 → `RouteJudge` 判定 SIMPLE / COMPLEX → 路径 A 单 Agent 直答 或 路径 B 自研并行引擎编排（Lead → 专家并行 → Aggregator）→ 统一出口。
 
 架构图与数据流细节见 **[`docs/architecture.md`](./docs/architecture.md)** 与 **[`docs/data-flow.md`](./docs/data-flow.md)**。
 

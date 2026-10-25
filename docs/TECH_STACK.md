@@ -6,7 +6,7 @@
 
 ## 一、项目现状
 
-- **定位**：两路径 AI Agent 编排框架 —— 主 Agent（`RouteJudge` LLM 决策）按复杂度分流：简单请求走单次调用（路径 A），复杂请求走 StateGraph 多 Agent 编排（路径 B）；执行目标（Goal）全生命周期（PENDING → RUNNING → SUCCEEDED/FAILED）落库可追溯。
+- **定位**：两路径 AI Agent 编排框架 —— 主 Agent（`RouteJudge` LLM 决策）按复杂度分流：简单请求走单次调用（路径 A），复杂请求走自研并行引擎多 Agent 编排（路径 B）；执行目标（Goal）全生命周期（PENDING → RUNNING → SUCCEEDED/FAILED）落库可追溯。
 - **入口**：REST API（`/api/chat`、`/api/chat/stream`、`/api/harness/*`、`/api/llm-calls`）+ CLI 聊天客户端（`mvn exec:java`）。
 - **会话记忆**：MySQL 两张表（`session` + `session_messages`，一对一），`session_messages.content` 以 JSON 快照存储完整上下文。
 - **目标存储**：`Goal` 持久化到 MySQL `goal` 表，重启不丢，可追溯历史。
@@ -19,23 +19,23 @@
 
 | 分类       | 技术                         | 版本     | 用途 / 说明                                                                        |
 | -------- | -------------------------- | ------ | ------------------------------------------------------------------------------ |
-| 语言       | Java                       | 17     | JDK 版本（`pom.xml` release 17）                                                   |
+| 语言       | Java                       | 25     | JDK 版本（`pom.xml` release 25；JDK 存放见 `run-wsl.sh` 的 `JAVA_HOME`）                 |
 | 构建       | Maven                      | -      | 依赖与构建管理，本地仓库重定向 `.mvn-repo`                                                    |
-| 核心框架     | Spring Boot                | 3.5.14 | Web 应用框架（**硬约束：与 Spring AI 1.1.4 兼容**）                                         |
-| AI 框架    | Spring AI                  | 1.1.4  | `spring-ai-starter-model-openai`，以 OpenAI 兼容协议统一对接多供应商（DashScope qwen3.7-flash / DeepSeek deepseek-v4-flash），按 `model_provider` 表路由 |
-| Graph 编排  | spring-ai-alibaba-graph-core | BOM 1.1.2.2 | StateGraph 多 Agent 编排（lead→并行子任务→聚合）+ `GraphLifecycleListener` 进度旁路（路径 B） |
-| 沙箱工具  | spring-ai-alibaba-sandbox | BOM 1.1.2.2 | 容器级工具隔离（传递 `agentscope-runtime-sandbox-core:1.0.2`）：base 容器（Python/Shell/文件读写检索）+ browser 容器（导航/快照/点击/输入），Docker 硬依赖 |
+| 核心框架     | Spring Boot                | 4.1.2  | Web 应用框架（与 Spring AI 2.0.2 对齐）                                               |
+| AI 框架    | Spring AI                  | 2.0.2  | `spring-ai-starter-model-openai`，以 OpenAI 兼容协议统一对接多供应商（DashScope qwen3.7-flash / DeepSeek deepseek-v4-flash），按 `model_provider` 表路由 |
+| 编排引擎    | 自研 `ParallelOrchestrationEngine` | -      | lead→并行子任务→聚合；阶段检查点落 `orchestration_checkpoint`（LEAD_DONE/SUBTASKS_DONE/DONE），替代 StateGraph |
+| 沙箱工具  | agentscope-runtime-sandbox-core | 1.0.2  | 容器级工具隔离（`SandboxToolkit` 本地薄封装）：base 容器（Python/Shell/文件读写检索）+ browser 容器（导航/快照/点击/输入），Docker 硬依赖 |
 | Web      | Spring MVC                 | 随 Boot | REST + 响应式 SSE（Controller 返回 `Flux<String>`，`text/event-stream`）+ 全局异常处理 |
-| ORM      | MyBatis-Plus               | 3.5.7  | `mybatis-plus-spring-boot3-starter`，goal / session / session\_messages / agent 表的 CRUD |
+| ORM      | MyBatis-Plus               | 3.5.17 | `mybatis-plus-spring-boot4-starter` + `mybatis-plus-jsqlparser`，goal / session / session\_messages / agent 表的 CRUD |
 | 数据库      | MySQL                      | 9.2.0  | `mysql-connector-j`（runtime），连接池 HikariCP                                      |
 | 向量库      | PostgreSQL + pgvector      | 可选     | `spring-ai-pgvector-store`（BOM 管理）+ `org.postgresql:postgresql`（runtime），RAG 知识库专用数据源（与 MySQL 主库独立，懒连接，PG 未就绪不影响启动） |
 | 嵌入模型     | DashScope text-embedding-v4 | 1024 维 | `OpenAiEmbeddingModel`（OpenAI 兼容协议手动装配），知识库切分文档向量化（app.knowledge.embedding.*） |
 | Schema 迁移 | Flyway                     | 随 Boot | `flyway-core` + `flyway-mysql`，版本化迁移（`db/migration/V*__*.sql`），存量库经 baseline 接入；替代 `spring.sql.init` |
 | 参数校验     | Jakarta Validation         | 随 Boot | `spring-boot-starter-validation` + `@Valid` 注解校验                               |
-| HTTP 客户端 | OkHttp                     | 4.12.0 | CLI 端调用主服务 REST/SSE（`cli/api/ChatApiClient`）                                   |
-| 序列化      | Jackson                    | 随 Boot | DTO 序列化 / SSE meta 解析                                                          |
+| HTTP 客户端 | OkHttp                     | 5.5.0  | CLI 端调用主服务 REST/SSE（`cli/api/ChatApiClient`）；模型调用经 Spring AI 内置 OkHttp 传输 |
+| 序列化      | Jackson                    | 3.x（随 Boot） | DTO 序列化 / SSE meta 解析 / 工具入参（`tools.jackson` 包）                          |
 | 代码生成     | Lombok                     | -      | 实体类简化                                                                          |
-| 测试       | JUnit 5 / Mockito          | 随 Boot | 服务端 75 个测试类 / 700 用例（另有 cli 3 类、wms-mcp-adapter 4 类），不依赖真实 DB/网络，见 docs/guides/functional-testing.md（2026-10-04 核对）           |
+| 测试       | JUnit 5 / Mockito          | 随 Boot | 服务端 678 用例（另有 channel-qq 72 / cli 28 / wms-mcp-adapter 43），其余用例不依赖真实 DB/网络；`JavaHarnessApplicationTests` 需本机 MySQL，见 docs/guides/functional-testing.md（2026-10-25 核对） |
 | 日志       | SLF4J + Logback            | 随 Boot | Agent 执行状态日志                                                                   |
 | 初始化 SQL  | ~~schema.sql~~ 已移除         | -      | 由 Flyway 迁移脚本接管（见上）                                                            |
 
@@ -66,7 +66,7 @@ controller（REST + SSE 流式 + 全局异常处理 + 观测查询三接口，�
 
 - **两路径分流**：`LlmRouteJudge` LLM 决策 SIMPLE/COMPLEX（异常兜底 SIMPLE 宁可简单）；`ChatServiceImpl.resolveAgent()` 据此路由 `general` 或 `multi-agent`。
 - **流式聊天**：`/api/chat/stream` 返回 `Flux<String>`（SSE）；每个事件单元素成对输出——内容 token 为普通 `data:` 行，进度为 `event: progress` + `{stage, detail}` JSON，结束发 `[DONE]` + `meta`（sessionId/goalId/status/error）。
-- **逐 token 推送**：路径 A `GeneralAssistantAgent.executeStreamReactive` 走 `.stream().content()` 真流式边收边发；路径 B 子任务完成事件由 graph-core 生命周期钩子旁路捕获后并入主流（before/after 过滤短路槽位、串行发射防丢事件）。
+- **逐 token 推送**：路径 A `GeneralAssistantAgent.executeStreamReactive` 走 `.stream().content()` 真流式边收边发；路径 B 子任务完成事件由 `BranchProgressListener` 在引擎取到结果后逐条播报（串行发射防丢事件）。
 - **Agent 路由**：请求显式携带 `agentId` 时优先按 agent 表映射路由（CLI `/agent <id>` 手动指定），否则按分流结果选择执行体；未命中回退 `general`。
 - **动态配置**：每次调用经 `AgentService.getAgentConfig(agent_name)` 读 agent 表的 `model / prompt`，改库即时生效，无需重启。
 - **会话写回统一**：同步 / 流式路径都在 `ChatServiceImpl` 统一写回会话记忆（进度行不计入摘要）。
@@ -142,7 +142,7 @@ controller（REST + SSE 流式 + 全局异常处理 + 观测查询三接口，�
 
 ## 四、注意事项
 
-- **版本约束**：Spring Boot 必须为 3.5.14（与 Spring AI 1.1.4 兼容），升级需整体评估 Spring AI 兼容性。
+- **版本约束**：Java 25 / Spring Boot 4.1.2 / Spring AI 2.0.2（Jackson 3、OpenAI Java SDK）为当前基线，升级需整体回归模型调用与工具链。
 - **模型路由**：模型按 `model_provider` 表路由到各服务商（DashScope / DeepSeek，OpenAI 兼容协议）。API Key 解析规则：`app.providers.<provider>.api-key`（yaml）→ `<PROVIDER大写>_API_KEY`（环境变量，如 `DEEPSEEK_API_KEY`）。`general`/`researcher` 走 deepseek-v4-flash，`lead`/`aggregator`/`coder`/`analyst` 等质量敏感环节走 qwen3.7-flash。
 - **DB 迁移**：schema 由 Flyway 管理（`db/migration/V1~V11`）。存量库首次接入自动 baseline（V1 跳过、增量执行）；全新库从 V1 全量建表。新增表结构变更只需追加 `V12__xxx.sql`，启动自动应用。
 - **RAG 可选依赖**：知识库需要自备 PostgreSQL（启用 vector 扩展）并在 `app.knowledge.*` 配置连接与嵌入端点；`knowledge/` 目录不存在或 PG 未就绪不影响启动与其它功能（检索静默降级为空，管理端点报清晰错误）。

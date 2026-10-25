@@ -13,8 +13,8 @@
 **An AI Agent orchestration framework built on Spring AI — a goal-driven, multi-agent execution harness**
 
 [![Java](https://img.shields.io/badge/Java-17-007396?logo=openjdk&logoColor=white)](https://openjdk.org/projects/jdk/17/)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.x-6DB33F?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
-[![Spring AI](https://img.shields.io/badge/Spring%20AI-1.1.x-6DB33F?logo=spring&logoColor=white)](https://spring.io/projects/spring-ai)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.x-6DB33F?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
+[![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.x-6DB33F?logo=spring&logoColor=white)](https://spring.io/projects/spring-ai)
 [![Graph](https://img.shields.io/badge/graph--core-1.1.2.2-orange)](https://github.com/alibaba/spring-ai-alibaba)
 [![MySQL](https://img.shields.io/badge/MySQL-Flyway%20Managed-4479A1?logo=mysql&logoColor=white)](https://www.mysql.com/)
 [![Tests](https://img.shields.io/badge/tests-262%20passing-brightgreen?logo=junit5&logoColor=white)](#-running-tests)
@@ -55,7 +55,7 @@
 | 🧵 | **Thread-Pool Governance** | Background goals run in a managed bounded pool (capacity cap + fast-fail to FAILED when full); streaming dispatch uses a separate pool so the two never starve each other |
 | 🛡️ | **Sandbox Isolation** | Model-generated code/commands run inside Docker containers with zero host exposure; tools are assigned per expert under least privilege |
 | 💾 | **Session Memory** | Multi-turn context assembled automatically: filtering / token-budget truncation / role normalization |
-| 🔁 | **Resume from Checkpoint** | graph-core checkpoints persisted to MySQL; after an interruption, `/resume` continues from the breakpoint without re-running completed nodes |
+| 🔁 | **Resume from Checkpoint** | orchestration checkpoints (`orchestration_checkpoint`) persisted to MySQL; after an interruption, `/resume` continues by stage without re-running completed phases |
 | 🧮 | **Call Observability** | Every LLM call is logged: latency / tokens / outcome, queryable per session |
 | 🖥️ | **Claude Code-style CLI** | In-place spinner refresh, tool-call lines, turn summaries — a terminal experience modeled after Claude Code |
 
@@ -85,13 +85,13 @@ flowchart TD
 
 | Layer | Technology | Description |
 |---|---|---|
-| 🏛️ Framework | Spring Boot 3.5.14 | Application skeleton, DI, REST, auto-configuration |
-| 🤖 AI Access | Spring AI 1.1.4 + `spring-ai-starter-model-openai` | OpenAI-compatible access to multiple providers (DashScope / DeepSeek); `Registry` pattern routes by model |
-| 🕸️ Graph Orchestration | `spring-ai-alibaba-graph-core` 1.1.2.2 | StateGraph multi-agent orchestration + lifecycle-hook progress events + checkpoint-based resumption |
-| 📦 Sandbox | `spring-ai-alibaba-sandbox` 1.1.2.2 | Container-level tool execution isolation (agentscope-runtime): Python/Shell/file + browser; requires local Docker |
-| 🔌 MCP | `spring-ai-starter-mcp-client` + `server-webmvc` (SDK pinned to 0.17.0) | Client connects to external tools across multiple servers (lazy + failure isolation); server exposes the `/mcp` endpoint over Streamable-HTTP |
+| 🏛️ Framework | Spring Boot 4.1.2 | Application skeleton, DI, REST, auto-configuration |
+| 🤖 AI Access | Spring AI 2.0.2 + `spring-ai-starter-model-openai` | OpenAI-compatible access to multiple providers (DashScope / DeepSeek); `Registry` pattern routes by model |
+| 🕸️ Orchestration Engine | Built-in `ParallelOrchestrationEngine` | lead → parallel subtasks → aggregate, stage-based checkpoints (`orchestration_checkpoint`) for resumption |
+| 📦 Sandbox | `agentscope-runtime-sandbox-core` 1.0.2 | Container-level tool execution isolation: Python/Shell/file + browser; requires local Docker |
+| 🔌 MCP | `spring-ai-starter-mcp-client` + `server-webmvc` (MCP SDK 2.1.0 managed by Spring AI) | Client connects to external tools across multiple servers (lazy + failure isolation); server exposes the `/mcp` endpoint over Streamable-HTTP |
 | 📚 RAG | `spring-ai-pgvector-store` + PostgreSQL (pgvector) + DashScope text-embedding-v4 | Knowledge-base vector search: incremental ingestion + retrieval enhancement on both paths (optional dependency; an unavailable PostgreSQL never blocks startup) |
-| 🗄️ ORM | MyBatis-Plus 3.5.7 | CRUD for `goal` / `session` / `session_messages` / `agent` / `model_provider` |
+| 🗄️ ORM | MyBatis-Plus 3.5.17 | CRUD for `goal` / `session` / `session_messages` / `agent` / `model_provider` |
 | 🛫 Schema | Flyway | Migrations run automatically at startup — no manual table creation |
 | 🖥️ CLI | In-house `ChatCli` + OkHttp 4.12 | Standalone pure HTTP client process; SSE parsing + terminal rendering |
 | ✅ Validation / JSON | Jakarta Validation / Jackson | Parameter validation, DTO serialization, SSE meta parsing |
@@ -103,7 +103,7 @@ flowchart TD
 
 | Dependency | Required | Notes |
 |---|---|---|
-| ☕ JDK | ✅ | 17+ |
+| ☕ JDK | ✅ | 25+ |
 | 🛠️ Maven | ✅ | 3.8+ (in-project settings; no global configuration needed) |
 | 🗄️ MySQL | ✅ | `harness` database; Flyway creates all tables at startup |
 | 🐳 Docker Desktop | ⚠️ For sandbox | Container isolation for Python/Shell/browser tools; without Docker only sandbox-class tools are unavailable, everything else works (pre-pull images, see `docs/TECH_STACK.md`) |
@@ -228,7 +228,7 @@ Streaming responses use an SSE-style line protocol (one element per line, `event
 
 ## 🔁 Resume from Checkpoint
 
-Complex orchestration (the COMPLEX path) is built on the graph-core checkpoint system (`MysqlSaver` creates and persists tables automatically, `threadId=goalId`):
+Complex orchestration (the COMPLEX path) records stage checkpoints in `orchestration_checkpoint` (goal-scoped):
 
 | Interruption Point | Resume Behavior |
 |---|---|

@@ -56,7 +56,7 @@ server/src/main/java/com/dark/javaHarness/
 │   │   ├── PrimaryDataSourceConfig.java  # 主库（MySQL）显式声明（@Primary，多数据源下 Flyway/MyBatis 归属）
 │   │   └── MybatisPlusConfig.java    # MyBatis-Plus 分页等配置
 │   └── agent/                    # Agent 配置与装配
-│       ├── ChatAgentConfig.java  # 注册各 Agent bean + graph-core 检查点存储器（MysqlSaver）
+│       ├── ChatAgentConfig.java  # 注册各 Agent bean + 编排检查点存储（OrchestrationCheckpointStore）
 │       ├── ChatClientFactory.java    # 按服务商构建 OpenAI 兼容 ChatClient（Registry 模式）
 │       ├── ChatClientRegistry.java   # 模型名 → ChatClient 注册表（支持热刷新）
 │       └── ThinkingSwitchChatModel.java  # 按 model_provider.disable_thinking 注入思考开关
@@ -88,12 +88,12 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── LlmRetry.java               # LLM 调用重试策略
 │   ├── ProgressLine.java           # 进度行线协议（MARK+stage+SEP+detail）编解码
 │   └── orchestrate/               # 路径 B 多 Agent 编排（复杂请求）
-│       ├── MultiAgentGraphAgent.java   # 路径 B：StateGraph 编排门面（图装配 + 执行/续跑入口；节点实现见 OrchestrationNodes）
+│       ├── MultiAgentGraphAgent.java   # 路径 B：编排门面（执行/流式/续跑入口；引擎见 engine/ParallelOrchestrationEngine）
 │       ├── OrchestrationNodes.java     # 编排三节点实现（lead/subtask/aggregate + predict* 桥接 + 流式聚合护栏）
 │       ├── LeadOutputParser.java       # lead 拆解 JSON 解析（子任务数 + 专家指派白名单）
 │       ├── OrchestrationBudget.java    # 编排预算账本（AtomicLong 共享记账 + 降级说明）
 │       ├── MultiAgentStreamPipeline.java  # 编排流式管道（进度行 → SSE 事件装配、续跑检查点选择）
-│       └── BranchProgressListener.java # graph-core 生命周期钩子旁路（并行分支完成事件串行发射）
+│       └── BranchProgressListener.java # 子任务结局播报（并行完成事件串行发射）
 ├── knowledge/                    # RAG 知识库
 │   ├── KnowledgeDocumentScanner.java  # 知识目录扫描（.md/.txt、front-matter 标题、坏文件跳过）
 │   ├── MarkdownChunker.java      # 段落感知切分（~700 字符 + 重叠，纯函数）

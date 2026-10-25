@@ -21,7 +21,7 @@ set -e
 cd "$(dirname "$0")"
 
 # 显式注入 JDK/Maven 路径：与非交互场景（cron/CI）兼容，交互 shell 重复注入无副作用
-export JAVA_HOME="$HOME/jdk-17.0.20.1+1"
+export JAVA_HOME="/mnt/d/env/jdk-25"
 export PATH="$JAVA_HOME/bin:$HOME/apache-maven-3.9.9/bin:$PATH"
 
 # 本地密钥（QWEN_API_KEY/DEEPSEEK_API_KEY）：Ubuntu 非交互 bash 不执行 .bashrc 的

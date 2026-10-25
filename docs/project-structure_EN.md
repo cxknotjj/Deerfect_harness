@@ -56,7 +56,7 @@ server/src/main/java/com/dark/javaHarness/
 │   │   ├── PrimaryDataSourceConfig.java  # Explicit primary (MySQL) datasource declaration (@Primary; Flyway/MyBatis ownership with multiple datasources)
 │   │   └── MybatisPlusConfig.java    # MyBatis-Plus configuration (pagination etc.)
 │   └── agent/                    # Agent configuration & assembly
-│       ├── ChatAgentConfig.java      # Registers agent beans + graph-core checkpoint store (MysqlSaver)
+│       ├── ChatAgentConfig.java      # Registers agent beans + orchestration checkpoint store
 │       ├── ChatClientFactory.java    # Builds OpenAI-compatible ChatClients per provider (Registry pattern)
 │       ├── ChatClientRegistry.java   # Model-name → ChatClient registry (hot-refreshable)
 │       └── ThinkingSwitchChatModel.java  # Injects thinking switch per model_provider.disable_thinking
@@ -88,12 +88,12 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── LlmRetry.java               # LLM call retry policy
 │   ├── ProgressLine.java           # Progress line wire protocol (MARK+stage+SEP+detail) codec
 │   └── orchestrate/               # Path B multi-agent orchestration (complex requests)
-│       ├── MultiAgentGraphAgent.java   # Path B: StateGraph orchestration facade (graph assembly + execute/resume entries; node impls in OrchestrationNodes)
+│       ├── MultiAgentGraphAgent.java   # Path B: orchestration facade (execute/stream/resume entries; engine in engine/ParallelOrchestrationEngine)
 │       ├── OrchestrationNodes.java     # Orchestration node impls (lead/subtask/aggregate + predict* bridges + streaming aggregation guard)
 │       ├── LeadOutputParser.java       # Lead decomposition JSON parsing (subtask count + expert dispatch whitelist)
 │       ├── OrchestrationBudget.java    # Orchestration budget ledger (AtomicLong shared accounting + degradation note)
 │       ├── MultiAgentStreamPipeline.java  # Orchestration streaming pipeline (progress lines → SSE events, resume checkpoint selection)
-│       └── BranchProgressListener.java # graph-core lifecycle-hook sidecar (serializes parallel-branch completion events)
+│       └── BranchProgressListener.java # Subtask outcome broadcaster (serializes parallel completion events)
 ├── knowledge/                    # RAG knowledge base
 │   ├── KnowledgeDocumentScanner.java  # Knowledge directory scan (.md/.txt, front-matter titles, bad files skipped)
 │   ├── MarkdownChunker.java      # Paragraph-aware splitting (~700 chars + overlap, pure function)
