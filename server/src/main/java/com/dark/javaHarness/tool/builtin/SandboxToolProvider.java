@@ -1,6 +1,5 @@
 package com.dark.javaHarness.tool.builtin;
 
-import com.alibaba.cloud.ai.sandbox.ToolkitInit;
 import com.dark.javaHarness.tool.ToolAssignments;
 import io.agentscope.runtime.sandbox.box.BaseSandbox;
 import io.agentscope.runtime.sandbox.box.BrowserSandbox;
@@ -26,7 +25,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 /**
- * 容器级沙箱工具提供者（spring-ai-alibaba-sandbox / agentscope-runtime）。
+ * 容器级沙箱工具提供者（agentscope-runtime，工具封装见 {@link SandboxToolkit}）。
  *
  * <p>职责：把 agentscope 沙箱里的 ToolCallback（Python 执行 / Shell / 文件读写检索 /
  * 浏览器导航与快照）按安全类别暴露给 {@link ToolAssignments}，替代已退役的宿主机工具
@@ -204,15 +203,15 @@ public class SandboxToolProvider {
                 } else {
                     Sandbox browserBox = new BrowserSandbox(svc, SANDBOX_USER, SANDBOX_SESSION);
                     this.browser = List.of(
-                            ToolkitInit.BrowserNavigateTool(browserBox),
-                            ToolkitInit.BrowserSnapshotTool(browserBox),
-                            ToolkitInit.BrowserClickTool(browserBox),
-                            ToolkitInit.BrowserTypeTool(browserBox),
+                            SandboxToolkit.browserNavigate(browserBox),
+                            SandboxToolkit.browserSnapshot(browserBox),
+                            SandboxToolkit.browserClick(browserBox),
+                            SandboxToolkit.browserType(browserBox),
                             // 按键：agent 表 tools 列声明的页面交互四件套之一（与 legacy MCP
                             // 白名单同名），此前漏挂导致「未识别 token」告警、声明落空。
-                            // 注：上游 ToolkitInit 无滚动工具（browser_scroll 无从注册）
-                            ToolkitInit.BrowserPressKeyTool(browserBox),
-                            ToolkitInit.BrowserCloseTool(browserBox));
+                            // 注：上游 agentscope 无滚动工具（browser_scroll 无从注册）
+                            SandboxToolkit.browserPressKey(browserBox),
+                            SandboxToolkit.browserClose(browserBox));
                     log.info("[sandbox] 浏览器沙箱就绪: 浏览器类={}", browser.size());
                 }
             } catch (Throwable t) {
@@ -246,20 +245,20 @@ public class SandboxToolProvider {
         Sandbox sandbox = new BaseSandbox(svc, SANDBOX_USER, SANDBOX_SESSION);
 
         this.base = List.of(
-                ToolkitInit.RunPythonCodeTool(sandbox),
-                ToolkitInit.RunShellCommandTool(sandbox));
+                SandboxToolkit.runPythonCode(sandbox),
+                SandboxToolkit.runShellCommand(sandbox));
         this.readOnly = List.of(
-                ToolkitInit.ReadFileTool(sandbox),
-                ToolkitInit.ReadMultipleFilesTool(sandbox),
-                ToolkitInit.ListDirectoryTool(sandbox),
-                ToolkitInit.DirectoryTreeTool(sandbox),
-                ToolkitInit.SearchFilesTool(sandbox),
-                ToolkitInit.GetFileInfoTool(sandbox));
+                SandboxToolkit.readFile(sandbox),
+                SandboxToolkit.readMultipleFiles(sandbox),
+                SandboxToolkit.listDirectory(sandbox),
+                SandboxToolkit.directoryTree(sandbox),
+                SandboxToolkit.searchFiles(sandbox),
+                SandboxToolkit.getFileInfo(sandbox));
         this.write = List.of(
-                ToolkitInit.WriteFileTool(sandbox),
-                ToolkitInit.EditFileTool(sandbox),
-                ToolkitInit.CreateDirectoryTool(sandbox),
-                ToolkitInit.MoveFileTool(sandbox));
+                SandboxToolkit.writeFile(sandbox),
+                SandboxToolkit.editFile(sandbox),
+                SandboxToolkit.createDirectory(sandbox),
+                SandboxToolkit.moveFile(sandbox));
         this.service = svc;
         log.info("[sandbox] 容器级沙箱就绪: 执行类={} 只读={} 写入={}",
                 base.size(), readOnly.size(), write.size());
