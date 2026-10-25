@@ -119,12 +119,12 @@ public class AgentServiceImpl implements AgentService {
         return traceId == null || traceId.isBlank() ? newTraceId() : traceId;
     }
 
-    /** 复杂编排断点续跑：固定路由 multi-agent，复用既有 goal（检查点 threadId=goalId）。 */
+    /** 复杂编排断点续跑：固定路由 multi-agent，复用既有 goal（按阶段检查点续跑）。 */
     @Override
     public Flux<String> resumeStreamReactive(Goal goal) {
         Agent agent = requireAgent(AgentConstants.MULTI_AGENT);
-        log.info("[resume] goal '{}' 断点续跑（检查点 threadId={}）", goal.id(), goal.id());
-        return withGoalProgress(goal, streamWithLifecycle(goal, agent));
+        log.info("[resume] goal '{}' 断点续跑（检查点 goalId={}）", goal.id(), goal.id());
+        return withGoalProgress(goal, streamWithLifecycle(goal, () -> agent.resumeStreamReactive(goal)));
     }
 
     /** 流首插入 goal 进度行（stage=goal, detail=goalId），后续编排进度照常 */
@@ -138,10 +138,15 @@ public class AgentServiceImpl implements AgentService {
      * 阻塞的 DB 操作与 Agent 执行通过 subscribeOn(boundedElastic) 隔离，避免阻塞调用方线程。
      */
     private Flux<String> streamWithLifecycle(Goal goal, Agent agent) {
+        return streamWithLifecycle(goal, () -> agent.executeStreamReactive(goal));
+    }
+
+    /** 生命周期回写主体：执行流由调用方供给（全新执行 / 续跑共用同一收尾逻辑） */
+    private Flux<String> streamWithLifecycle(Goal goal, java.util.function.Supplier<Flux<String>> streamSupplier) {
         goal.markRunning();
         goalService.update(goal);
         StringBuilder full = new StringBuilder();
-        return agent.executeStreamReactive(goal)
+        return streamSupplier.get()
                 .doOnNext(full::append)
                 .doOnComplete(() -> {
                     String summary = full.toString();

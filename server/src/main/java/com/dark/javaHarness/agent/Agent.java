@@ -33,4 +33,9 @@ public interface Agent {
         // 用 defer 包住同步 execute，保证订阅时才执行，语义与 Flux.fromCallable 一致
         return Flux.defer(() -> Flux.just(execute(goal)));
     }
+
+    /** 断点续跑：默认退化为重新流式执行（不支持检查点的 Agent 行为不变）；支持续跑的实现应覆写。 */
+    default Flux<String> resumeStreamReactive(Goal goal) {
+        return executeStreamReactive(goal);
+    }
 }

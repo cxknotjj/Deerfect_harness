@@ -1,6 +1,6 @@
 package com.dark.javaHarness.agent.orchestrate;
 
-import com.alibaba.cloud.ai.graph.OverAllState;
+import com.dark.javaHarness.agent.orchestrate.engine.OrchestrationState;
 import com.dark.javaHarness.advisor.PromptBudgetAdvisor;
 import com.dark.javaHarness.agent.AgentChatCaller;
 import com.dark.javaHarness.agent.AggregateStreamGuard;
@@ -27,10 +27,10 @@ import reactor.core.publisher.Sinks;
  * 流式聚合护栏 {@link AggregateStreamGuard} 的所有权。
  *
  * <p>状态键常量仍归宿主（是 {@link MultiAgentStreamPipeline} 的跨类契约），本类经
- * {@code MultiAgentGraphAgent.K_*} 引用；图拓扑装配与执行/续跑入口留在宿主，
- * 节点方法签名逐字不变（宿主图装配 lambda 直接委托本类）。
+ * {@code MultiAgentGraphAgent.K_*} 引用；执行/流式/续跑入口留在宿主
+ * （{@code MultiAgentGraphAgent}），由自研引擎按阶段调用本类。
  */
-final class OrchestrationNodes {
+public class OrchestrationNodes {
 
     private static final Logger log = LoggerFactory.getLogger(OrchestrationNodes.class);
 
@@ -98,7 +98,7 @@ final class OrchestrationNodes {
      * 极小预算下 usage 帧中途熔断时降级为「拆解失败」——退化为单子任务，交由后续熔断跳过，
      * 聚合注入降级说明）。lead 自身消耗计入账本供后续判定。
      */
-    Map<String, Object> lead(OverAllState state, AtomicBoolean cancelled, Consumer<String> leadEmitter) {
+    public Map<String, Object> lead(OrchestrationState state, AtomicBoolean cancelled, Consumer<String> leadEmitter) {
         if (isCancelled(cancelled)) {
             log.info("[multi-agent][lead] 客户端已断开，跳过拆解");
             return new HashMap<>();
@@ -203,10 +203,10 @@ final class OrchestrationNodes {
      * result 写「预算超限跳过」占位，聚合据此注入降级说明。并行扇出下共享账本让后序调用
      * 及时看到前序消耗，配合 subtask-concurrency 错峰使「部分跳过」成为常态而非偶发。
      */
-    Map<String, Object> subtask(OverAllState state, int idx,
-                                java.util.function.Consumer<String> toolEmitter,
-                                AtomicBoolean cancelled,
-                                BranchProgressListener progress) {
+    public Map<String, Object> subtask(OrchestrationState state, int idx,
+                                       java.util.function.Consumer<String> toolEmitter,
+                                       AtomicBoolean cancelled,
+                                       BranchProgressListener progress) {
         String task = state.value(MultiAgentGraphAgent.K_SUBTASK_PREFIX + idx, String.class).orElse(null);
         if (task == null || task.isBlank()) {
             return new HashMap<>(); // lead 未设置该子任务 → 快速短路
@@ -335,10 +335,10 @@ final class OrchestrationNodes {
      * 改为在 prompt 前置降级说明（N 个子任务因预算超限未执行 + 已消耗/上限数字 + 估算口径），
      * 聚合自身不受预算熔断（照常执行，消耗照常上报账本）。
      */
-    Map<String, Object> aggregate(OverAllState state,
-                                  Sinks.Many<String> liveTokens,
-                                  AtomicBoolean contentSent,
-                                  AtomicBoolean cancelled) {
+    public Map<String, Object> aggregate(OrchestrationState state,
+                                         Sinks.Many<String> liveTokens,
+                                         AtomicBoolean contentSent,
+                                         AtomicBoolean cancelled) {
         if (isCancelled(cancelled)) {
             // 短路不写占位 final：避免「假完成」状态落检查点，导致续跑无法补跑聚合
             log.info("[multi-agent][aggregate] 客户端已断开，跳过聚合调用");

@@ -1,10 +1,8 @@
 package com.dark.javaHarness.config.agent;
 
-import com.alibaba.cloud.ai.graph.checkpoint.BaseCheckpointSaver;
-import com.alibaba.cloud.ai.graph.checkpoint.savers.mysql.CreateOption;
-import com.alibaba.cloud.ai.graph.checkpoint.savers.mysql.MysqlSaver;
 import com.dark.javaHarness.agent.AgentRegistry;
 import com.dark.javaHarness.agent.orchestrate.MultiAgentGraphAgent;
+import com.dark.javaHarness.agent.orchestrate.persistence.OrchestrationCheckpointStore;
 import com.dark.javaHarness.enums.AgentConstants;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.AgentService;
@@ -98,27 +96,22 @@ public class ChatAgentConfig {
     }
 
     /**
-     * 复杂路径检查点存储器：graph-core MysqlSaver，落库到 harness 库的
-     * GRAPH_THREAD / GRAPH_CHECKPOINT 两表（首次自动建表，CREATE_IF_NOT_EXISTS，
-     * 与 Flyway 管理的表互不冲突）。threadId=goalId，每个 superstep 落一条，
-     * 供长编排断开/失败后断点续跑。
+     * 复杂路径执行体：多 Agent 编排（lead 拆解 → 并行子任务 → 聚合），检查点落
+     * orchestration_checkpoint 表（自研引擎，替代 graph-core MysqlSaver）；memoryStore 与
+     * GeneralAssistantAgent 同源，lead 拆解据此注入会话记忆；toolLazyManager 与路径 A 共享
+     * （会话展开集跨路径通用）；promptAssembler/skillManager 共享实例（skill 索引段与
+     * load_skill 跨路径一致）；knowledgeRetriever 仅知识库启用时非 null（getIfAvailable 惰性解析，
+     * 禁用时编排退化为无知识段）；ragPrefetcher 与 knowledgeRetriever 同条件缺位（禁用时子任务
+     * 入口预取钩子零行为）；agentConfigProvider 为工具包定义读取器（子任务 toolPacks 挂载：
+     * 包工具并入工具面 + 包纪律段拼入 user）。
      */
-    @Bean
-    public BaseCheckpointSaver graphCheckpointSaver(DataSource dataSource) {
-        return MysqlSaver.builder()
-                .dataSource(dataSource)
-                .createOption(CreateOption.CREATE_IF_NOT_EXISTS)
-                .build();
-    }
-
-    /** 复杂路径执行体：多 Agent 编排（lead 拆解 → 并行子任务 → 聚合），带 MySQL 检查点与静态 prompt 预算；memoryStore 与 GeneralAssistantAgent 同源，lead 拆解据此注入会话记忆；toolLazyManager 与路径 A 共享（会话展开集跨路径通用）；promptAssembler/skillManager 共享实例（skill 索引段与 load_skill 跨路径一致）；knowledgeRetriever 仅知识库启用时非 null（getIfAvailable 惰性解析，禁用时编排退化为无知识段）；ragPrefetcher 与 knowledgeRetriever 同条件缺位（禁用时子任务入口预取钩子零行为）；agentConfigProvider 为工具包定义读取器（子任务 toolPacks 挂载：包工具并入工具面 + 包纪律段拼入 user） */
     @Bean
     public MultiAgentGraphAgent multiAgent(ChatClientRegistry registry,
                                            @Lazy AgentService agentService,
                                            SessionService memoryStore,
                                            ToolAssignments toolAssignments,
                                            LlmCallRecorder recorder,
-                                           BaseCheckpointSaver graphCheckpointSaver,
+                                           OrchestrationCheckpointStore checkpointStore,
                                            com.dark.javaHarness.config.ContextBudgetProperties budgets,
                                            ToolLazyManager toolLazyManager,
                                            PromptAssembler promptAssembler,
@@ -128,7 +121,7 @@ public class ChatAgentConfig {
                                            com.dark.javaHarness.config.ChatTimeoutProperties timeouts,
                                            AgentConfigProvider agentConfigProvider) {
         return new MultiAgentGraphAgent(AgentConstants.MULTI_AGENT, registry, agentService,
-                toolAssignments, recorder, graphCheckpointSaver, budgets, memoryStore,
+                toolAssignments, recorder, checkpointStore, budgets, memoryStore,
                 toolLazyManager, promptAssembler, skillManager, knowledgeRetriever.getIfAvailable(),
                 timeouts, ragPrefetcher.getIfAvailable(), agentConfigProvider);
     }

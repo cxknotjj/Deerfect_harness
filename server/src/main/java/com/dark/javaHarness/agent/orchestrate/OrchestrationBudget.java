@@ -1,6 +1,6 @@
 package com.dark.javaHarness.agent.orchestrate;
 
-import com.alibaba.cloud.ai.graph.OverAllState;
+import com.dark.javaHarness.agent.orchestrate.engine.OrchestrationState;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * AtomicLong 累计消耗 + AtomicBoolean 估算标记，节点经 state 读取（Replace 策略注册，
  * 续跑时新账本覆盖旧值）。0 = 不限制：不注入不记账不熔断，存量行为不变。
  */
-final class OrchestrationBudget {
+public class OrchestrationBudget {
 
     /**
      * 编排预算账本（input 注入，节点间共享同一 AtomicLong 实例）：
@@ -22,9 +22,9 @@ final class OrchestrationBudget {
      * 增量记账并熔断复检（真实 usage 优先，无则按输出估算）。orchestration-budget=0
      * 时不注入（不记账不熔断，存量行为）。
      */
-    static final String K_TOKEN_LEDGER = "tokenLedger";
+    public static final String K_TOKEN_LEDGER = "tokenLedger";
     /** 账本估算标记：任一调用无真实 usage 回包（按输出估算）时置位，聚合降级说明注明口径 */
-    static final String K_TOKEN_ESTIMATED = "tokenEstimated";
+    public static final String K_TOKEN_ESTIMATED = "tokenEstimated";
 
     private final ContextBudgetProperties budgets;
 
@@ -33,7 +33,7 @@ final class OrchestrationBudget {
     }
 
     /** 预算开关开启时向编排 input 注入共享账本（0 = 不注入，存量行为） */
-    void putLedger(Map<String, Object> input) {
+    public void putLedger(Map<String, Object> input) {
         if (budgets.getOrchestrationBudget() > 0) {
             input.put(K_TOKEN_LEDGER, new AtomicLong());
             input.put(K_TOKEN_ESTIMATED, new AtomicBoolean(false));
@@ -41,7 +41,7 @@ final class OrchestrationBudget {
     }
 
     /** 当前账本累计消耗（无账本返回 0，仅日志展示用） */
-    static long ledgerValue(OverAllState state) {
+    public static long ledgerValue(OrchestrationState state) {
         return state.value(K_TOKEN_LEDGER, AtomicLong.class)
                 .map(AtomicLong::get).orElse(0L);
     }
@@ -58,7 +58,7 @@ final class OrchestrationBudget {
      * </ul>
      * AtomicLong/AtomicBoolean 保证并行写安全（熔断为近似判定，竞态窗口见限并发说明）。
      */
-    BudgetLedger ledgerHandle(OverAllState state, boolean enforceBudget) {
+    public BudgetLedger ledgerHandle(OrchestrationState state, boolean enforceBudget) {
         AtomicLong ledger =
                 state.value(K_TOKEN_LEDGER, AtomicLong.class).orElse(null);
         if (ledger == null) {
@@ -87,7 +87,7 @@ final class OrchestrationBudget {
      * N 个子任务因预算超限未执行 + 已消耗/上限数字 + 消耗口径（估算标记置位时注明含估算值，
      * 与 llm_call_log.tokens_estimated 语义一致；全为真实 usage 则注明）。
      */
-    String degradationNote(int skipped, OverAllState state) {
+    public String degradationNote(int skipped, OrchestrationState state) {
         AtomicBoolean estimated = state.value(K_TOKEN_ESTIMATED, AtomicBoolean.class).orElse(null);
         String caliber = estimated != null && estimated.get()
                 ? "消耗含估算值（部分调用无真实 usage 回包，按输出文本估算）"

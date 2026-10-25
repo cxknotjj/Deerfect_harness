@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -20,6 +21,9 @@ import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.advisor.ContextAssemblingAdvisor;
 import com.dark.javaHarness.agent.ProgressLine;
+import com.dark.javaHarness.agent.orchestrate.engine.OrchestrationCheckpoint;
+import com.dark.javaHarness.agent.orchestrate.engine.OrchestrationStage;
+import com.dark.javaHarness.agent.orchestrate.persistence.OrchestrationCheckpointStore;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.Goal;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
@@ -320,7 +324,7 @@ class MultiAgentGraphAgentTest {
         verify(clientRegistry, never()).get(any(Long.class));
     }
 
-    /** agent 表无任何配置（含 null model）→ 走默认客户端，streamUsage 照常开启但 model 不设置 */
+    /** agent 表无任何配置（含 null model）→ 走默认客户端，不下发请求级 options（不覆盖模型） */
     @Test
     void execute_withoutConfig_usesDefaultClientWithoutModelOption() {
         stubChat(fixedContent());
@@ -331,14 +335,9 @@ class MultiAgentGraphAgentTest {
         assertEquals(fixedContent(), reply);
         // lead + 2 个并行子任务 + 聚合共 4 次调用，全部走默认客户端（model=null）
         verify(clientRegistry, org.mockito.Mockito.times(4)).get(isNull());
-        // streamUsage 统计开启后 options 必挂（仅设开关不覆盖客户端默认），但 model 不得被设置
-        org.mockito.ArgumentCaptor<org.springframework.ai.openai.OpenAiChatOptions> optionsCaptor =
-                org.mockito.ArgumentCaptor.forClass(org.springframework.ai.openai.OpenAiChatOptions.class);
-        verify(requestSpec, org.mockito.Mockito.times(4)).options(optionsCaptor.capture());
-        optionsCaptor.getAllValues().forEach(o -> {
-            assertTrue(o.getStreamUsage(), "streamUsage 统计应随每次调用开启");
-            assertNull(o.getModel(), "无配置时不得设置模型名（走客户端默认）");
-        });
+        // Spring AI 2.0 的 OpenAiChatOptions 恒带默认模型：无配置时不得下发请求级 options，
+        // 否则会用默认模型覆盖客户端配置（流式 usage 在 2.0 已默认开启）
+        verify(requestSpec, org.mockito.Mockito.never()).options(any());
     }
 
     /* ---------------- 动态子 Agent：模板 × 任务书（brief 注入 / 截断 / wms 白名单） ---------------- */
@@ -569,6 +568,27 @@ class MultiAgentGraphAgentTest {
 
     /* ---------------- 断点续跑（Checkpointer） ---------------- */
 
+    /** 内存检查点存储（替代旧 graph MemorySaver）：save 追加、list 按 goal 返回 */
+    private static OrchestrationCheckpointStore inMemoryCheckpointStore() {
+        java.util.Map<String, java.util.List<OrchestrationCheckpoint>> data =
+                new java.util.concurrent.ConcurrentHashMap<>();
+        OrchestrationCheckpointStore store = mock(OrchestrationCheckpointStore.class);
+        when(store.list(anyString())).thenAnswer(inv -> {
+            java.util.List<OrchestrationCheckpoint> list = data.get(inv.<String>getArgument(0));
+            return list == null ? java.util.List.of() : java.util.List.copyOf(list);
+        });
+        lenient().doAnswer(inv -> {
+            String goalId = inv.getArgument(0);
+            OrchestrationStage stage = inv.getArgument(1);
+            java.util.Map<String, Object> state = inv.getArgument(2);
+            data.computeIfAbsent(goalId, k -> new java.util.concurrent.CopyOnWriteArrayList<>())
+                    .add(new OrchestrationCheckpoint(goalId, java.util.UUID.randomUUID().toString(),
+                            stage, new java.util.HashMap<>(state), java.time.Instant.now()));
+            return null;
+        }).when(store).save(anyString(), any(), anyMap());
+        return store;
+    }
+
     /** 未启用检查点存储（构造传 null）→ resume 快速失败，抛出明确异常（无需 LLM 桩） */
     @Test
     void resume_withoutCheckpointer_throwsFast() {
@@ -583,7 +603,7 @@ class MultiAgentGraphAgentTest {
     @Test
     void resume_withoutCheckpoint_throwsFast() {
         agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null,
-                new com.alibaba.cloud.ai.graph.checkpoint.savers.MemorySaver());
+                inMemoryCheckpointStore());
 
         assertThrows(IllegalStateException.class,
                 () -> agent.resumeStreamReactive(new Goal("gr2", "调研竞品")),
@@ -598,9 +618,9 @@ class MultiAgentGraphAgentTest {
     void resume_afterCompletedRun_skipsAllLlmCalls() {
         stubChat(fixedContent());
         agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null,
-                new com.alibaba.cloud.ai.graph.checkpoint.savers.MemorySaver());
+                inMemoryCheckpointStore());
 
-        // 首跑：lead + 2 子任务 + 聚合 = 4 次流式调用（call 已统一流式背书），检查点逐 superstep 落库
+        // 首跑：lead + 2 子任务 + 聚合 = 4 次流式调用（call 已统一流式背书），检查点按阶段落库
         java.util.List<String> first = agent
                 .executeStreamReactive(new Goal("gr3", "调研竞品并输出报告"))
                 .collectList()
@@ -649,7 +669,7 @@ class MultiAgentGraphAgentTest {
             return fluxOf(fixedContent());
         });
         agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null,
-                new com.alibaba.cloud.ai.graph.checkpoint.savers.MemorySaver());
+                inMemoryCheckpointStore());
 
         // lead 完成（检查点已落库）→ 子任务批在途阻塞中 → 模拟客户端断开
         reactor.core.Disposable disposable = agent
