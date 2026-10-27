@@ -29,6 +29,10 @@ sessions_mount_dir/
 *.iml
 *.ipr
 
+
+.vscode/
+.trae/
+
 ### NetBeans ###
 /nbproject/private/
 /nbbuild/
