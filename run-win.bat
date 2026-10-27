@@ -5,7 +5,9 @@ cd /d "%~dp0"
 REM ================================================================
 REM  javaHarness one-click launcher (Windows-native edition).
 REM  Requires a Windows-side checkout of this repo plus Windows
-REM  JDK17 + Maven on PATH (script resolves .mvn\settings.xml via %~dp0).
+REM  JDK 25 (JAVA_HOME must point at it) + Maven on PATH
+REM  (script resolves .mvn\settings.xml via %~dp0).
+REM  NOTE: this script does NOT load .env.local; set API keys via setx.
 REM  For the WSL-based environment use run-wsl.sh instead.
 REM  Run only ONE launcher at a time (port 8080 conflict).
 REM  NOTE: keep this file ASCII-only (cmd parses .bat with the console

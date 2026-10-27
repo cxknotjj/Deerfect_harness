@@ -17,6 +17,12 @@ CREATE DATABASE IF NOT EXISTS harness DEFAULT CHARACTER SET utf8mb4;
 > - **`run-wsl.sh`**（WSL 终端）：`./run-wsl.sh` 全流程——编译 → 杀掉 8080 旧服务 → 新窗口起服务 → 本终端轮询就绪 → 进入 CLI；子命令 `server / stop / cli / build / test`
 > - **`run-win.bat`**（Windows 本机）：Windows 侧检出 + Windows JDK/Maven 环境时使用
 
+> [!NOTE]
+> **Windows 本机启动前核对三件事**
+> - `JAVA_HOME` 必须指向 **JDK 25**（项目 `pom.xml` 为 `release 25`；PATH 上的旧 JDK 会直接编译失败）。验证：`java -version` 输出 25.x；临时生效用 `$env:JAVA_HOME='<JDK25目录>'`，长期生效在"系统环境变量"里配置并重开终端
+> - `run-win.bat` **不读取** `.env.local`（该文件只被 `run-wsl.sh` 加载），API Key 需用 `setx QWEN_API_KEY "sk-..."` / `setx DEEPSEEK_API_KEY "sk-..."` 设为用户环境变量后重开窗口，或在启动服务的窗口里临时 `$env:QWEN_API_KEY='sk-...'`
+> - Web 控制台需要 **Node 20.19+**（Vite 7 要求）；低于该版本 `npm run dev` 只告警但建议升级（`nvm use 20.19.0` 或安装新版 Node）
+
 ### 🔧 手动启动
 
 **1️⃣ 启动主服务**

@@ -12,7 +12,7 @@
 
 **让多个 AI 专家替你干活：任务发进来，自动拆解、并行执行、汇总交付。**
 
-[![Java](https://img.shields.io/badge/Java-17-007396?logo=openjdk&logoColor=white)](https://openjdk.org/projects/jdk/17/)
+[![Java](https://img.shields.io/badge/Java-25-007396?logo=openjdk&logoColor=white)](https://openjdk.org/projects/jdk/25/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.x-6DB33F?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
 [![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.x-6DB33F?logo=spring&logoColor=white)](https://spring.io/projects/spring-ai)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
@@ -68,7 +68,7 @@
 
 ## 快速开始
 
-**1️⃣ 准备**：JDK 25+、Maven 3.8+、MySQL 8.x，建一次库（表结构启动时自动创建）：
+**1️⃣ 准备**：JDK 25+、Maven 3.8+、MySQL 8.x（Web 控制台另需 Node 20.19+），建一次库（表结构启动时自动创建）：
 
 ```sql
 CREATE DATABASE IF NOT EXISTS harness DEFAULT CHARACTER SET utf8mb4;
@@ -105,6 +105,7 @@ curl -s -X POST http://localhost:8080/api/chat \
 > - 启动时设置环境变量 `APP_PASSWORD=你的口令` 即开启登录鉴权（不设置则跳过登录）
 > - 不想装环境？Docker 三件套一键起：**[`docs/guides/docker-deploy.md`](./docs/guides/docker-deploy.md)**
 > - 国内网络可追加 `-s .mvn/settings.xml` 走阿里云镜像（会改用项目内 `.mvn-repo/` 仓库，首次全量重新下载）
+> - Windows 本机用 `run-win.bat` 前，需把 `JAVA_HOME` 指向 JDK 25（PATH 上的旧 JDK 会编译失败）；批处理不会加载 `.env.local`，API Key 请用 `setx` 设为用户环境变量，详见 **[`docs/guides/setup.md`](./docs/guides/setup.md)**
 
 ## 效果展示
 

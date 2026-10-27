@@ -12,7 +12,7 @@
 
 **An AI Agent orchestration framework built on Spring AI — a goal-driven, multi-agent execution harness**
 
-[![Java](https://img.shields.io/badge/Java-17-007396?logo=openjdk&logoColor=white)](https://openjdk.org/projects/jdk/17/)
+[![Java](https://img.shields.io/badge/Java-25-007396?logo=openjdk&logoColor=white)](https://openjdk.org/projects/jdk/25/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.x-6DB33F?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
 [![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.x-6DB33F?logo=spring&logoColor=white)](https://spring.io/projects/spring-ai)
 [![Graph](https://img.shields.io/badge/graph--core-1.1.2.2-orange)](https://github.com/alibaba/spring-ai-alibaba)
@@ -106,6 +106,7 @@ flowchart TD
 | ☕ JDK | ✅ | 25+ |
 | 🛠️ Maven | ✅ | 3.8+ (in-project settings; no global configuration needed) |
 | 🗄️ MySQL | ✅ | `harness` database; Flyway creates all tables at startup |
+| 🟢 Node.js | ⚠️ For the web console | 20.19+ (required by Vite 7) |
 | 🐳 Docker Desktop | ⚠️ For sandbox | Container isolation for Python/Shell/browser tools; without Docker only sandbox-class tools are unavailable, everything else works (pre-pull images, see `docs/TECH_STACK.md`) |
 | 🔑 API Key | 🔄 Optional | DashScope (Qwen) / DeepSeek; the app starts without keys — model calls return `invalid_api_key` |
 
@@ -114,7 +115,7 @@ flowchart TD
 > [!TIP]
 > Two launcher scripts — pick one (**never run two at once**, port 8080 would clash):
 > - **`run-wsl.sh`** (WSL terminal): `./run-wsl.sh` runs the full flow — compile → kill any stale server on 8080 → open a new window for the service → poll until ready in this terminal → enter the CLI; subcommands `server / stop / cli / build / test`
-> - **`run-win.bat`** (native Windows): for a Windows-side checkout with Windows JDK/Maven
+> - **`run-win.bat`** (native Windows): for a Windows-side checkout with Windows JDK 25 + Maven; make sure `JAVA_HOME` points at JDK 25 (an older JDK on PATH fails the build), and note the batch file does not load `.env.local` — set API keys with `setx` instead
 
 ### 🔧 Manual Start
 
