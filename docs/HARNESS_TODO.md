@@ -2,7 +2,7 @@
 
 > 由原 `ROADMAP.md` 与 `HARNESS_TODO.md` 合并而成；2026-09-11 结构重构：未完成区只保留 `- [ ]` 条目（P0→P3），已完成全部归档（按主题分节），拆出遗留尾巴立条。
 > 约定：`- [ ]` 未开始，`- [x]` 已完成。**未完成在前（按优先级），已完成在后（存档备查）**。
-> 版本强约束：Spring Boot 保持 3.5.14（兼容 Spring AI 1.1.4），升级任何 AI 相关依赖前先验证兼容性。
+> 版本基线：Spring Boot 4.1.2 / Spring AI 2.0.2 / Java 25（以根 `pom.xml` 与 [TECH_STACK.md](./TECH_STACK.md) 为准）；升级任何 AI 相关依赖前先验证兼容性。
 > 首次可用性约定：新增功能/入口合入前按 `docs/guides/first-run-audit.md`「五、首次使用流程规则」复查，走查结论追加至该报告「六、走查记录」。
 
 ***
@@ -19,7 +19,7 @@
         │
 3. 主 Agent 前置判断（RouteJudge，LLM 决策 SIMPLE / COMPLEX，失败兜底 SIMPLE）
      ├─ 场景 A 简单 → GeneralAssistantAgent 单次调用（真·逐 token 流式）→ 结束
-     └─ 场景 B 复杂 → MultiAgentGraphAgent 编排（StateGraph：lead 拆解 → 并行子任务 → 聚合）
+     └─ 场景 B 复杂 → MultiAgentGraphAgent 编排（自研 ParallelOrchestrationEngine：lead 拆解 → 并行子任务 → 聚合，阶段检查点续跑）
                        生命周期钩子旁路推送执行进度（event: progress SSE）→ 结束
 ```
 
@@ -38,24 +38,24 @@
 
 # 一、未完成 TODO
 
-## 方向定调（2026-08-28 / 2026-09-06 评估收拢）
+## 方向定调（2026-08-28 / 2026-09-06 评估收拢，2026-10-28 更新现状）
 
-- **现状**：单用户场景完整跑通——两路径架构闭环（RouteJudge 分流 + StateGraph 编排）、沙箱容器级隔离 + 按专家分配工具权限（服务端硬边界）、进度全链路可视 + 断连优雅处理、CLI 对标 Claude Code 体验。
-- **短板**（按风险排序）：可靠性（限流/熔断/降级仍缺，重试已有 `LlmRetry`）、能力面（web search 缺位，RAG/MCP 已完成）、编排智能化（无重规划/依赖声明）、部署与安全（无容器化交付、无接口鉴权）。
+- **现状**：两路径架构闭环（RouteJudge 分流 + 自研并行引擎编排）、沙箱容器级隔离 + 按专家分配工具权限（服务端硬边界）、进度全链路可视 + 断连优雅处理、CLI/Web/QQ 三端可用、RAG 混合检索、MCP 工具生态、Docker 部署与双通道鉴权均已落地。
+- **短板**（按风险排序）：工程化（接口级限流、CI/CD、Prometheus 监控仍缺）、编排智能化（无依赖声明 / 失败重规划）、长会话记忆（无滚动摘要与历史归档）、多实例水平扩展。
 - **定调**：主线 = 能力扩展（web search → RAG ✓ → MCP ✓）；支线 = 可靠性收口（P0）；中期 = 编排智能化（P2）；远期 = 工程化可观测 + 产品化（P3）。
 - **增补定档**（2026-09-06）：Goal 失败重投 → P2；长期记忆滚动摘要 → P2；多实例水平扩展、Agent 行为回归评测集 → P3；多模态输入 → 远期。
 
 ## P0 · 可靠性与安全收口（眼前优先，先做稳）
 
-- [ ] **模型调用重试/限流**：Spring Retry / Resilience4j，模型失败自动重试（指数退避，可重试错误与限流错误区分），接口限流防刷
-  - 验收：bad key 场景按策略重试后失败；限流返回 429
+- [ ] **接口级限流防刷**：模型调用重试与指数退避已由 `LlmRetry` 落地（3 次），流式并发上限已由 `StreamConnectionLimiter` 落地；剩余：按 IP / 端点的请求级限流（超限 429）
+  - 验收：突发请求超过阈值时返回 429，且不影响正常会话
 - [x] **并发 / 资源控制**：流式连接数限制、模型调用超时兜底与熔断降级（COMPLEX 编排失败可降级为 SIMPLE 单模型重答）。已完成（2026-09-13）
   - 2026-09 部分完成：异步线程池隔离与参数化已落地（`goalExecutor` 有界池 + 拒绝兜底 + MVC 异步槽位，见存档「异步治理与发布工程」）
   - 2026-09-13 完成：流式连接数限制（`StreamConnectionLimiter`，stream/resume 两入口 tryAcquire + doFinally 释放，超限 429，`app.chat.max-stream-connections` 配置 0=不限制）；LLM 超时参数化（`ChatTimeoutProperties` + `app.chat.timeouts.*`，connect/read/stream-idle 秒值，未配置回退现值）；COMPLEX 编排失败降级重答（流式与同步路径，降级为会话绑定 Agent 单模型重答一次，一层兜底不递归，`app.chat.complex-fallback.enabled` 开关）；spec 见 `.trae/specs/add-stream-limit-and-complex-fallback/`
   - 验收：并发提交多个流式请求稳定，无连接/线程池耗尽（全量回归 482 例绿；限流计数/超限/降级重答由 StreamConnectionLimiterTest + ChatServiceImplTest 降级用例覆盖）
 - [x] **工具分配最小权限化**：已完成（2026-09-14）。`general`（所有回退路径的落点：路由兜底/未识别专家/lead 漏指派）收敛为只读探索者——legacy 分配 = webTools（fetchUrl/getCurrentTime）+ `sandbox.read` + `sandbox.browser` + MCP 白名单（页面交互类，只读探索的推进动作），去掉 `sandbox.base`（执行）与 `sandbox.write`（写入）；执行/写入只留 lead 明确指派的 `coder`（base+write，读文件走 shell cat 闭环不变）/`analyst`（base+read）；researcher/未登记专家面零变化。数据驱动优先于 legacy，生产库 general 行 `tools` 列需手工对齐（README「MCP 工具接入」节已附收敛 UPDATE，改库即生效免重启）。验证：ToolAssignmentsTest 13 例全绿（general 只读面 5 callbacks + verify never base/write、重名去重重算、blank 回退断言同步）
 - [ ] **限制思考预算（Thinking Budget）**：qwen3 类混合推理模型的思考段不受控——长思考拖慢首 token、烧 token。经模型参数透传思考开关与预算上限（如 `enable_thinking` / `thinking_budget`），按 agent/场景粒度生效
-  - 设计要点待细化：参数透传方式（Spring AI 1.1.4 `OpenAiChatOptions` 扩展）、配置落点（agent 表列 vs `app.chat.*`）、路由场景（SIMPLE 直答可关思考）
+  - 设计要点待细化：参数透传方式（Spring AI 2.x `ChatOptions` 扩展）、配置落点（agent 表列 vs `app.chat.*`）、路由场景（SIMPLE 直答可关思考）；思考开关本身已落地（agent 表 `thinking` 列 + `ThinkingSwitchChatModel`），预算上限未做
   - 验收：指定 agent 的思考 token 有上限且可观测；关闭思考的会话直答不含思考段
 - [ ] **沙箱读写工具的重置与安全校验**：沙箱容器懒创建一次后无重置/重建机制（坏状态无法自愈，仅停服 `@PreDestroy` 销毁，强杀进程还会残留容器）；写入/执行工具完全信任模型输出透传容器，容器内无路径越界与危险命令拦截
   - 改造要点：容器健康探测 + 调用失败自动重建（限重建次数、超限降级空工具面并告警）；写入类工具（`WriteFileTool`/`EditFileTool`/`MoveFileTool` 等）限制在容器工作目录内，拒绝绝对路径与 `..` 越界；执行类工具（`RunShellCommandTool`/`RunPythonCodeTool`）危险命令黑名单拦截（`rm -rf /`、mkfs、fork 炸弹等）并返回可自愈提示
@@ -83,7 +83,7 @@
   - 验收：mock 某专家首次失败，端到端能看到重试/换人后的成功聚合
 - [ ] **子任务依赖编排**：lead 拆解支持声明依赖（如 `depends_on`），有依赖的子任务串行、无依赖的并行，替代当前纯并行
   - 验收：「先调研 X 再基于结论写代码」类任务按依赖顺序执行
-- [ ] **复杂路径 Checkpointer（可选，落库断点）**：长编排可断点续跑——如需再评估
+- [x] **复杂路径 Checkpointer（落库断点）**：已落地（`orchestration_checkpoint`，LEAD_DONE / SUBTASKS_DONE / DONE 三阶段，见 [guides/resume.md](./guides/resume.md)）。
 - [ ] **Goal 失败重投（任务化，2026-09 评估后另立）**：失败 Goal 自动重投——设计要点：
   - goal 表未存 agent 路由信息，重投需 V10 迁移加 `agent_name` 路由列（重走路由会再烧一次 LLM judge，不可取）
   - 加 `retry_count` / `next_retry_at`，仅对瞬态失败（网络/超时/5xx）重投且限次数；调用层 `LlmRetry` 已有 3 次退避，Goal 级重投的增量收益在「编排中后段失败」场景
@@ -122,12 +122,12 @@
 - [x] **容器化交付**：Dockerfile + docker-compose（app + MySQL + pgvector）一键启动
   - 验收：`docker compose up` 后完整可访问
 - [ ] **CI/CD**：GitHub Actions / Gitee Go 自动流水线（2026-09-18 充实，检查项取自多模块拆分验收清单）
-  - CI（push/PR 触发）：`mvn -s .mvn/settings.xml clean package` 全模块编译 + 测试（当前 server 670 / channel-qq 72 / cli 28 / wms 43 例）→ 断言 server fat jar 无 `com/dark/javaHarness/cli/` 目录与 jline → 断言 cli 运行时 classpath 无 spring-ai/mybatis/reactor 传递依赖（harness-api 框架依赖为 optional）→ `docker build -f docker/Dockerfile .` 验证镜像可构建（基础镜像走 BUILD\_BASE/RUN\_BASE ARG，CI 侧按网络环境注入加速通道）
+  - CI（push/PR 触发）：`mvn -s .mvn/settings.xml clean package` 全模块编译 + 测试（当前 server 682 / channel-qq 72 / cli 28 / wms 43 例）→ 断言 server fat jar 无 `com/dark/javaHarness/cli/` 目录与 jline → 断言 cli 运行时 classpath 无 spring-ai/mybatis/reactor 传递依赖（harness-api 框架依赖为 optional）→ `docker build -f docker/Dockerfile .` 验证镜像可构建（基础镜像走 BUILD\_BASE/RUN\_BASE ARG，CI 侧按网络环境注入加速通道）
   - 缓存：`actions/setup-java` 内置 maven 缓存对齐 `.mvn-repo`（localRepository 由 `maven.multiModuleProjectDirectory` 定位项目根，CI 工作区即仓库）
   - CD（可选后置）：分支镜像打 tag 推送镜像仓库，服务器 `docker compose pull && up -d` 拉起；上线前是否人工确认决定 Delivery/Deployment 形态
   - 验收：PR 红灯可见（测试失败 / fat jar 混入 cli class / 镜像构建失败均可拦截）；全绿后产物可直接部署
   - 验收：push 后流水线全绿并产出镜像
-- [ ] **web 端 MVP（完全自包含）**：顶层 `web/` 目录，Vue3 + Vite + TypeScript；`npm install && npm run dev` 即跑，不进 Maven 反应堆、不依赖项目任何文件，整目录可拷走独立部署（2026-09-19 定稿，升级原「前端 + EventSource」条目）
+- [x] **web 端 MVP（完全自包含）**：已完成（2026-10-27 核对）。顶层 `web/` 目录，Vue3 + Vite + TypeScript；`npm install && npm run dev` 即跑，不进 Maven 反应堆、不依赖项目任何文件，整目录可拷走独立部署（2026-09-19 定稿，升级原「前端 + EventSource」条目）；实际范围已超出 MVP——含 Trace 观测页与知识库管理页
   - 定位：server 的第二个客户端（与 cli 平级），只消费 REST + SSE，把 server 当外部服务对待
   - 独立性约束：TS 类型完全独立定义，不参照 shared 源码，以 server HTTP JSON 实际响应为准；代价是 server 改字段 web 端编译期零感知，靠 mock 回归 + server 侧 DTO 变更视为 breaking change 的纪律兜底
   - mock 模式：内置 mock（含 SSE 流式 mock），server 不启动也能开发调试 UI
@@ -138,7 +138,7 @@
   - 验收：一次多 Agent 任务完成后可导出排版正常的中文 PDF（标题/列表/代码块/表格不乱码、不缺字）
 - [ ] **消息队列**：RabbitMQ / Kafka 异步派发 Goal，长任务解耦
   - 验收：提交 Goal 后立即返回，执行与消费异步解耦
-- [ ] **安全**：Spring Security + JWT 接口鉴权；API Key 走 KMS/Vault 管理
+- [ ] **安全**：Spring Security + JWT 接口鉴权；API Key 走 KMS/Vault 管理（现有双通道鉴权已落地：`X-API-Token` 机器通道 + HttpOnly Cookie 登录通道，见 [TECH_STACK.md](./TECH_STACK.md)；本条指更高阶的 JWT/KMS 方案）
   - 验收：未带 token 的请求被拒绝
 - [ ] **WebSocket**：如需全双工交互（如任务进度推送）可扩展
 - [ ] **多实例水平扩展**：解除单实例假设——`failAllRunning` 启动清理、本地 `goalExecutor`、GRAPH\_CHECKPOINT 单写者；分布式锁（如 ShedLock）或消息队列派发二选一，与「消息队列」条目同批评估
@@ -166,6 +166,10 @@
 ***
 
 # 二、已完成（存档）
+
+> 本节按完成时点记录，保留当时的实现描述；部分技术选型已被后续重构替换
+> （StateGraph → 自研 `ParallelOrchestrationEngine`、Spring AI 1.1 → 2.0、Boot 3.5 → 4.1），
+> 现状以 [TECH_STACK.md](./TECH_STACK.md) 与 [features.md](./features.md) 为准。
 
 ## 两路径架构（2026-08 完成）
 

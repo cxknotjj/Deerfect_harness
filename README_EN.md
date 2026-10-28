@@ -15,9 +15,8 @@
 [![Java](https://img.shields.io/badge/Java-25-007396?logo=openjdk&logoColor=white)](https://openjdk.org/projects/jdk/25/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.x-6DB33F?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
 [![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.x-6DB33F?logo=spring&logoColor=white)](https://spring.io/projects/spring-ai)
-[![Graph](https://img.shields.io/badge/graph--core-1.1.2.2-orange)](https://github.com/alibaba/spring-ai-alibaba)
 [![MySQL](https://img.shields.io/badge/MySQL-Flyway%20Managed-4479A1?logo=mysql&logoColor=white)](https://www.mysql.com/)
-[![Tests](https://img.shields.io/badge/tests-262%20passing-brightgreen?logo=junit5&logoColor=white)](#-running-tests)
+[![Tests](https://img.shields.io/badge/tests-825-brightgreen?logo=junit5&logoColor=white)](#-running-tests)
 [![Docker](https://img.shields.io/badge/sandbox-Docker%20Isolated-2496ED?logo=docker&logoColor=white)](#-prerequisites)
 
 *Simple questions answered directly · Complex tasks orchestrated across agents · Fully streaming, end to end*
@@ -49,7 +48,7 @@
 | | Feature | Description |
 |---|---|---|
 | 🧠 | **Smart Routing** | An upfront LLM judge decides SIMPLE / COMPLEX: small talk and Q&A get answered directly, only complex tasks enter orchestration — no wasted tokens |
-| 🕸️ | **Multi-Agent Orchestration** | StateGraph "Lead decomposition → experts in parallel → aggregation"; subtasks are decomposed by difficulty (at most 4, no padding) |
+| 🕸️ | **Multi-Agent Orchestration** | Built-in `ParallelOrchestrationEngine` — "Lead decomposition → experts in parallel → aggregation"; subtasks are decomposed by difficulty (at most 4, no padding) |
 | 👨‍👩‍👧‍👦 | **Expert System** | Four expert roles — researcher / coder / analyst / writer — configured from the database; lead assigns each subtask to the right expert |
 | 📺 | **True Streaming** | Token-by-token SSE push with typewriter effect, plus real-time progress events for every orchestration stage (orchestration / decomposition / subtasks / aggregation) |
 | 🧵 | **Thread-Pool Governance** | Background goals run in a managed bounded pool (capacity cap + fast-fail to FAILED when full); streaming dispatch uses a separate pool so the two never starve each other |
@@ -66,7 +65,7 @@ flowchart TD
     A[🖥️ CLI / REST Request] --> B[ChatController<br/>Harness Shell Entry]
     B --> C{🧭 RouteJudge<br/>LLM decides SIMPLE / COMPLEX}
     C -->|SIMPLE| D[⚡ GeneralAssistantAgent<br/>Single call · token-by-token streaming]
-    C -->|COMPLEX| E[🕸️ MultiAgentGraphAgent<br/>StateGraph Orchestration]
+    C -->|COMPLEX| E[🕸️ MultiAgentGraphAgent<br/>Built-in Parallel Engine]
     E --> F[🧩 Lead Decomposition<br/>Max 4 subtasks · no padding]
     F --> G1[🔍 researcher]
     F --> G2[💻 coder]
@@ -79,7 +78,7 @@ flowchart TD
 ```
 
 > [!TIP]
-> For data-flow details see [`docs/data-flow.md`](./docs/data-flow.md) (Chinese), for the roadmap see [`docs/HARNESS_TODO.md`](./docs/HARNESS_TODO.md) (Chinese), and for the full test landscape see [`docs/guides/functional-testing.md`](./docs/guides/functional-testing.md) (Chinese).
+> For a full feature inventory see [`docs/features.md`](./docs/features.md) (Chinese); for data-flow details see [`docs/data-flow.md`](./docs/data-flow.md) (Chinese), for the roadmap see [`docs/HARNESS_TODO.md`](./docs/HARNESS_TODO.md) (Chinese), and for the full test landscape see [`docs/guides/functional-testing.md`](./docs/guides/functional-testing.md) (Chinese).
 
 ## 🧰 Tech Stack
 
@@ -93,7 +92,7 @@ flowchart TD
 | 📚 RAG | `spring-ai-pgvector-store` + PostgreSQL (pgvector) + DashScope text-embedding-v4 | Knowledge-base vector search: incremental ingestion + retrieval enhancement on both paths (optional dependency; an unavailable PostgreSQL never blocks startup) |
 | 🗄️ ORM | MyBatis-Plus 3.5.17 | CRUD for `goal` / `session` / `session_messages` / `agent` / `model_provider` |
 | 🛫 Schema | Flyway | Migrations run automatically at startup — no manual table creation |
-| 🖥️ CLI | In-house `ChatCli` + OkHttp 4.12 | Standalone pure HTTP client process; SSE parsing + terminal rendering |
+| 🖥️ CLI | In-house `ChatCli` + OkHttp 5.5.0 | Standalone pure HTTP client process; SSE parsing + terminal rendering |
 | ✅ Validation / JSON | Jakarta Validation / Jackson | Parameter validation, DTO serialization, SSE meta parsing |
 | 🛠️ Build | Maven (in-project repo `.mvn-repo`) | See [Quick Start](#-quick-start) |
 
@@ -307,7 +306,7 @@ A multi-module Maven project: `harness-api` (shared contracts: port interfaces /
 
 ## 🧪 Running Tests
 
-Unit tests run on JUnit 5 + Mockito and need **no real database / network / API keys** (currently 327 test cases, all green):
+Unit tests run on JUnit 5 + Mockito and need **no real database / network / API keys** (currently 825 test cases: server 682 / channel-qq 72 / cli 28 / wms-mcp-adapter 43; `JavaHarnessApplicationTests#contextLoads` is the only exception and needs local MySQL):
 
 ```bash
 mvn -s .mvn/settings.xml test
@@ -339,7 +338,7 @@ This project's design was inspired by the following excellent open-source projec
 
 | Reference | What we borrowed |
 |---|---|
-| 🦌 [Deer-Flow](https://github.com/bytedance/deer-flow) (ByteDance) | The multi-agent orchestration paradigm — "Coordinator → Planner decomposition → experts in parallel → Reporter aggregation" and the researcher / coder / analyst / writer expert roles directly inspired this project's StateGraph orchestration and expert agent system |
+| 🦌 [Deer-Flow](https://github.com/bytedance/deer-flow) (ByteDance) | The multi-agent orchestration paradigm — "Coordinator → Planner decomposition → experts in parallel → Reporter aggregation" and the researcher / coder / analyst / writer expert roles directly inspired this project's multi-agent orchestration and expert agent system |
 | ⌨️ [Claude Code](https://github.com/anthropics/claude-code) (Anthropic) | The CLI terminal experience: in-place spinner refresh + collapsed completion archive, tool-call lines (`⏺ tool(args)` → `✓ duration`), diff `+green/-red` coloring, turn summaries and other interactions (`TerminalRenderer`) |
 | 🐳 [DeepSeek](https://github.com/deepseek-ai) (deepseek-ai) | Agent toolset design: the capability split for web fetch (fetchUrl) and file/command tools, and the least-privilege idea of assigning tools per agent |
 

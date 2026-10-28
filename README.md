@@ -16,7 +16,7 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.x-6DB33F?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
 [![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.x-6DB33F?logo=spring&logoColor=white)](https://spring.io/projects/spring-ai)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
-[![Tests](https://img.shields.io/badge/tests-700%20passing-brightgreen?logo=junit5&logoColor=white)](#-运行测试)
+[![Tests](https://img.shields.io/badge/tests-825-brightgreen?logo=junit5&logoColor=white)](#-运行测试)
 
 *简单问题直接答 · 复杂任务多 Agent 编排 · 全程流式可视化*
 
@@ -135,6 +135,7 @@ curl -s -X POST http://localhost:8080/api/chat \
 | [`docs/guides/models.md`](./docs/guides/models.md) | 多模型与多服务商接入 |
 | [`docs/guides/first-run-audit.md`](./docs/guides/first-run-audit.md) | 首次使用流程规则与走查记录 |
 | **架构** | |
+| [`docs/features.md`](./docs/features.md) | 项目功能介绍（已落地能力全景 / 未实现清单） |
 | [`docs/architecture.md`](./docs/architecture.md) | 架构总览与数据流 |
 | [`docs/project-structure.md`](./docs/project-structure.md) | 服务端目录树（[EN](./docs/project-structure_EN.md)） |
 | [`docs/data-flow.md`](./docs/data-flow.md) | 数据流详解 |
@@ -165,7 +166,7 @@ Maven 多模块：`harness-api`（渠道与 core 共用的契约层：端口接�
 
 ## 🧪 运行测试
 
-单元测试基于 JUnit 5 + Mockito，**不依赖真实数据库 / 网络 / API Key**：
+单元测试基于 JUnit 5 + Mockito，**除 `JavaHarnessApplicationTests` 的 contextLoads 需本机 MySQL 外，不依赖真实数据库 / 网络 / API Key**（当前 825 个用例：server 682 / channel-qq 72 / cli 28 / wms-mcp-adapter 43）：
 
 ```bash
 mvn test

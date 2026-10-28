@@ -5,6 +5,10 @@
 > 独立测试库 `harness_it`，dummy key、无 NapCat、无 Docker、无 PostgreSQL——完整复刻全新机器状态），
 > 未触碰真实 8080 实例与既有配置，未执行真实授权/对外发送/真实 LLM 调用，实测后环境已清理。
 > 本报告区分三类结论：**【观察】**=隔离环境实测所见；**【推断】**=代码/数据佐证的推论；**【未验证】**=需真实环境确认。
+>
+> **历史提示（2026-10-28）**：本报告为时点记录，其中「Web Search / 前端 / 容器化 / 接口鉴权未开始」
+> 等条目现已全部落地（Web Search 经 Tavily MCP、Web 控制台、Docker 三件套、双通道鉴权）；
+> 当前功能面以 [features.md](../features.md) 为准。
 
 ## 一、模块阶段判定
 
@@ -25,7 +29,7 @@
 
 | 类别 | 内容 | 现状 |
 |---|---|---|
-| **必须由用户决定/授权** | LLM API Key（QWEN_API_KEY，或改绑其他 provider 后对应 key）；一次性环境：JDK17+Maven+MySQL | Key 有 README 三方式指引 ✓；但种子 agent 绑错端点使「只配 QWEN」走不通（问题 1） |
+| **必须由用户决定/授权** | LLM API Key（QWEN_API_KEY，或改绑其他 provider 后对应 key）；一次性环境：JDK 25+Maven+MySQL | Key 有 README 三方式指引 ✓；但种子 agent 绑错端点使「只配 QWEN」走不通（问题 1） |
 | **可用合理默认值** | 端口 8080、模型档位、token 预算、超时、限频、Flyway 建库表 | 全部已有合理默认 ✓ |
 | **可稍后补充（不应成为首启负担）** | PostgreSQL 知识库、NapCat/QQ 渠道、Docker 沙箱、MCP、skills、多 agent 定制 | PG 检索降级 ✓；但 NapCat 默认 enabled=true 违背此原则（问题 5）；沙箱假就绪误导（问题 4） |
 

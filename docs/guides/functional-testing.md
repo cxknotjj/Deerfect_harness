@@ -2,13 +2,13 @@
 
 > 本文档介绍 Harness 各模块的功能测试内容：每个模块测什么、怎么测、边界在哪。
 > 测试代码位于 `src/test/java`，与业务代码同步演进；本文以实际编码为准。
-> 更新日期：2026-10-04。
+> 更新日期：2026-10-28。
 
 ***
 
 ## 一、总览
 
-> 服务端 75 个测试类 / 700 用例，按功能域分组（2026-10-04 以 surefire 报告核对；另有 cli 3 类、wms-mcp-adapter 4 类）。
+> 服务端 77 个测试类 / 682 用例；另有 channel-qq 7 类 / 72 例、cli 3 类 / 28 例、wms-mcp-adapter 4 类 / 43 例（合计 91 类 / 825 例，按 `@Test` 统计，2026-10-28 核对）。
 
 **入口与异常**
 
@@ -113,6 +113,7 @@
 | `ToolCallTracerTest` | 工具调用事件追踪（装饰/schema 透传） | 22 |
 | `ToolObservationDecoratorTest` | 工具观测装饰器 | 3 |
 | `McpToolProviderTest` | MCP 工具懒连接与失败降级 | 17 |
+| `McpConfigParserTest` | MCP 配置解析与 URL 日志脱敏 | 4 |
 | `WebToolsTest` | 网页抓取工具 | 16 |
 | `SandboxToolProviderTest` | 沙箱初始化超时兜底（无 Docker 不阻塞请求线程） | 4 |
 
@@ -125,7 +126,7 @@
 | `NapCatApiClientImplTest` | NapCat HTTP 客户端 | 8 |
 | `EmojiRepliesTest` | 表情包匹配与发送 | 10 |
 
-**合计：75 个测试类 / 700 个用例，`mvn test` 全部通过（surefire 报告为准，2026-10-04 核对）。**
+**合计：91 个测试类 / 825 个用例（服务端 77/682 + channel-qq 7/72 + cli 3/28 + wms-mcp-adapter 4/43；按 `@Test` 统计，2026-10-28 核对）。除 `JavaHarnessApplicationTests` 需本机 MySQL 外，其余不依赖真实 DB/外网。**
 
 ***
 

@@ -618,7 +618,7 @@ sequenceDiagram
 
 边界说明：
 - **在途 LLM 请求可中止（2026-09 补齐）**：`AgentChatCaller.call()` 统一流式通道背书
-  （RestClient 阻塞调用不可中断，JDK HttpClient 不响应线程中断，流式是 Spring AI 1.1.4 +
+  （RestClient 阻塞调用不可中断，JDK HttpClient 不响应线程中断，流式是 Spring AI 2.x +
   JDK 连接器下唯一能中止在途 HTTP 请求的通道）——取消令牌置位后调用直接抛取消异常
   （零 HTTP 请求）；执行中置位经 `takeUntil` 在下一个 token 边界中止订阅，取消向上传播
   关闭 HTTP 连接（厂商端停止生成）。取消不重试、部分输出不按成功返回、`llm_call_log`

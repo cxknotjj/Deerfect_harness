@@ -16,6 +16,7 @@
 
 | 文档 | 内容 |
 |---|---|
+| [features.md](./features.md) | 项目功能介绍（已落地能力全景 / 未实现清单） |
 | [architecture.md](./architecture.md) | 架构总览（两路径数据流 + 架构图） |
 | [data-flow.md](./data-flow.md) | 数据流详解（路由 / 组装 / 调用 / 记账 / 观测） |
 | [project-structure.md](./project-structure.md) | 服务端目录树（[EN](./project-structure_EN.md)） |

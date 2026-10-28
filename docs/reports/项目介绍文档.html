@@ -270,7 +270,7 @@ svg text{font-family:var(--sans)}
 <section id="s1">
   <h2><span class="no">一</span>项目概述</h2>
   <div class="prose">
-    <p><strong>Deerfect Harness</strong> 是一个基于 Java 17 + Spring Boot 3.5 + Spring AI 1.1 构建的企业级 AI 智能体编排平台。任务发进来，自动拆解、并行执行、汇总交付：简单问题直答不浪费 token，复杂任务多 Agent 编排，全程流式可视化。</p>
+    <p><strong>Deerfect Harness</strong> 是一个基于 Java 25 + Spring Boot 4.1 + Spring AI 2.0 构建的企业级 AI 智能体编排平台。任务发进来，自动拆解、并行执行、汇总交付：简单问题直答不浪费 token，复杂任务多 Agent 编排，全程流式可视化。</p>
     <div class="callout"><p>项目消费智算云上的模型推理服务（通义千问 DashScope、DeepSeek 等），在其之上构建了覆盖<strong>算力调度、模型部署、智能体框架、AI 工作负载监控与成本管理</strong>的完整应用层体系。</p></div>
     <table>
       <thead><tr><th style="width:10.5em">征集方向</th><th>项目对应能力</th></tr></thead>
@@ -281,7 +281,7 @@ svg text{font-family:var(--sans)}
         <tr><td>监控与成本管理</td><td>四张观测表、按轮次的 token 成本账本、四级预算护栏、观测数据保留期治理</td></tr>
       </tbody>
     </table>
-    <p><strong>技术基线</strong>：Java 17 / Spring Boot 3.5.14 / Spring AI 1.1.4 / spring-ai-alibaba graph-core（StateGraph 编排）与 sandbox（容器沙箱）/ MySQL 9.x（主库）+ PostgreSQL pgvector（向量库）/ MyBatis-Plus / Vue 3 Web 控制台。服务端 700 个自动化测试用例，不依赖真实 DB 与外网。</p>
+    <p><strong>技术基线</strong>：Java 25 / Spring Boot 4.1.2 / Spring AI 2.0.2 / 自研 ParallelOrchestrationEngine（替代 StateGraph 编排）与 agentscope 容器沙箱 / MySQL 8.4+（Flyway 管理 41 个迁移版本）+ PostgreSQL pgvector（向量库）/ MyBatis-Plus / Vue 3 Web 控制台。服务端 682 个自动化测试用例（另有 QQ 72 / CLI 28 / WMS 43，合计 825），除 contextLoads 集成用例需本机 MySQL 外不依赖真实 DB 与外网。</p>
   </div>
 </section>
 
@@ -515,8 +515,8 @@ svg text{font-family:var(--sans)}
   <h2><span class="no">七</span>工程质量</h2>
   <div class="prose">
     <div class="stats">
-      <div class="stat"><b>700<i>+</i></b><span>自动化测试用例（75 个测试类），不依赖真实 DB 与外网</span></div>
-      <div class="stat"><b>26</b><span>Flyway 版本化迁移迭代，存量库 baseline 无缝接入</span></div>
+      <div class="stat"><b>825</b><span>自动化测试用例（91 个测试类），除 contextLoads 外不依赖真实 DB 与外网</span></div>
+      <div class="stat"><b>41</b><span>Flyway 版本化迁移迭代，存量库 baseline 无缝接入</span></div>
       <div class="stat"><b>90</b><span>天观测数据保留期，低峰期自动分批清理</span></div>
       <div class="stat"><b>2</b><span>条鉴权通道（HttpOnly Cookie + X-API-Token），常量时间比较 + 限流锁定</span></div>
     </div>

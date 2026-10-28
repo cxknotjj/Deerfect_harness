@@ -19,7 +19,7 @@
 
 | 分类       | 技术                         | 版本     | 用途 / 说明                                                                        |
 | -------- | -------------------------- | ------ | ------------------------------------------------------------------------------ |
-| 语言       | Java                       | 25     | JDK 版本（`pom.xml` release 25；JDK 存放见 `run-wsl.sh` 的 `JAVA_HOME`）                 |
+| 语言       | Java                       | 25     | JDK 版本（`pom.xml` release 25；启动前把 `JAVA_HOME` 指向 JDK 25，`run-wsl.sh` / `run-win.bat` 均按此校验）                 |
 | 构建       | Maven                      | -      | 依赖与构建管理，本地仓库重定向 `.mvn-repo`                                                    |
 | 核心框架     | Spring Boot                | 4.1.2  | Web 应用框架（与 Spring AI 2.0.2 对齐）                                               |
 | AI 框架    | Spring AI                  | 2.0.2  | `spring-ai-starter-model-openai`，以 OpenAI 兼容协议统一对接多供应商（DashScope qwen3.7-flash / DeepSeek deepseek-v4-flash），按 `model_provider` 表路由 |
@@ -35,7 +35,7 @@
 | HTTP 客户端 | OkHttp                     | 5.5.0  | CLI 端调用主服务 REST/SSE（`cli/api/ChatApiClient`）；模型调用经 Spring AI 内置 OkHttp 传输 |
 | 序列化      | Jackson                    | 3.x（随 Boot） | DTO 序列化 / SSE meta 解析 / 工具入参（`tools.jackson` 包）                          |
 | 代码生成     | Lombok                     | -      | 实体类简化                                                                          |
-| 测试       | JUnit 5 / Mockito          | 随 Boot | 服务端 678 用例（另有 channel-qq 72 / cli 28 / wms-mcp-adapter 43），其余用例不依赖真实 DB/网络；`JavaHarnessApplicationTests` 需本机 MySQL，见 docs/guides/functional-testing.md（2026-10-25 核对） |
+| 测试       | JUnit 5 / Mockito          | 随 Boot | 服务端 77 类 / 682 用例（另有 channel-qq 7/72、cli 3/28、wms-mcp-adapter 4/43，合计 91 类 / 825 例）；除 `JavaHarnessApplicationTests` 需本机 MySQL 外不依赖真实 DB/网络，见 docs/guides/functional-testing.md（2026-10-28 核对） |
 | 日志       | SLF4J + Logback            | 随 Boot | Agent 执行状态日志                                                                   |
 | 初始化 SQL  | ~~schema.sql~~ 已移除         | -      | 由 Flyway 迁移脚本接管（见上）                                                            |
 
