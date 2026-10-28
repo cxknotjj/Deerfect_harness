@@ -3,8 +3,9 @@
  * 端点与协议以 server 实际实现为准:
  * - REST:GET /api/harness/agents、GET|POST /api/harness/sessions、POST /api/harness/sessions/{id}/agent
  * - 流式:POST /api/chat/stream,chunked 文本,每帧两行 `event: <名>` + `data: <载荷>`(无空行)
- * 鉴权:server 未启用强制 API-Key 过滤(仓库中的 api-key 均为模型供应商凭据),
- * 此处仅预留可选注入:配置 VITE_API_KEY 时附带 X-API-Key 头,未配置则不带。
+ * 鉴权:server 双通道(见 ApiTokenFilter)——机器通道校验 X-API-Token 请求头,
+ * 登录通道经 /api/auth/login 以口令换 HttpOnly Cookie(浏览器同源自动携带)。
+ * 此处仅预留机器通道:配置 VITE_API_KEY 时附带 X-API-Token 头,未配置则不带。
  */
 import type {
   AgentListView,
@@ -31,7 +32,7 @@ const DONE_MARKER = '[DONE]'
 function baseHeaders(): Record<string, string> {
   const headers: Record<string, string> = {}
   const key: string | undefined = import.meta.env.VITE_API_KEY
-  if (key) headers['X-API-Key'] = key
+  if (key) headers['X-API-Token'] = key
   return headers
 }
 

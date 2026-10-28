@@ -62,7 +62,7 @@ final class McpConfigParser {
                             configFile, name, cmd.asText(), args);
                     specs.add(new McpToolProvider.ServerSpec(name, "stdio", null, cmd.asText().trim(), args));
                 } else if (url != null && !url.asText().isBlank()) {
-                    log.info("[mcp] 已从 {} 加载 http server '{}': {}", configFile, name, url.asText());
+                    log.info("[mcp] 已从 {} 加载 http server '{}': {}", configFile, name, redactUrl(url.asText()));
                     specs.add(new McpToolProvider.ServerSpec(name, "http", url.asText().trim(), null, List.of()));
                 } else {
                     log.warn("[mcp] server '{}' 缺少 command/url 字段，跳过", name);
@@ -113,5 +113,41 @@ final class McpConfigParser {
                     Arrays.asList(Arrays.copyOfRange(parts, 1, parts.length)));
         }
         return null;
+    }
+
+    /**
+     * 日志脱敏：query 参数值统一打码为 {@code ***}（保留参数名便于排查），
+     * 无 query 或空串原样返回。仅用于日志输出——{@link McpToolProvider.ServerSpec}
+     * 仍持有原始 URL，连接不受影响。
+     */
+    static String redactUrl(String rawUrl) {
+        if (rawUrl == null || rawUrl.isBlank()) {
+            return rawUrl;
+        }
+        int query = rawUrl.indexOf('?');
+        if (query < 0) {
+            return rawUrl;
+        }
+        String rest = rawUrl.substring(query + 1);
+        String fragment = "";
+        int hash = rest.indexOf('#');
+        if (hash >= 0) {
+            fragment = rest.substring(hash);
+            rest = rest.substring(0, hash);
+        }
+        StringBuilder redacted = new StringBuilder(rawUrl.substring(0, query)).append('?');
+        String[] params = rest.split("&", -1);
+        for (int i = 0; i < params.length; i++) {
+            if (i > 0) {
+                redacted.append('&');
+            }
+            int eq = params[i].indexOf('=');
+            if (eq > 0) {
+                redacted.append(params[i], 0, eq).append("=***");
+            } else {
+                redacted.append(params[i]);
+            }
+        }
+        return redacted.append(fragment).toString();
     }
 }

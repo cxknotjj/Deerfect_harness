@@ -18,6 +18,18 @@ describe('client 鉴权接线', () => {
   afterEach(() => {
     setUnauthorizedHandler(null)
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+  })
+
+  it('配置 VITE_API_KEY 时携带服务端约定的 X-API-Token 头', async () => {
+    vi.stubEnv('VITE_API_KEY', 'secret-token')
+    const fetchMock = vi.fn(async () => jsonResponse(200, emptyPage))
+    vi.stubGlobal('fetch', fetchMock)
+    await realApi.listSessions()
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    const headers = init.headers as Record<string, string>
+    expect(headers['X-API-Token']).toBe('secret-token')
+    expect(headers['X-API-Key']).toBeUndefined()
   })
 
   it('REST 401 触发统一未登录钩子并抛错', async () => {
