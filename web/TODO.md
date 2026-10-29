@@ -18,4 +18,4 @@
 
 - [ ] **web 端单测**:useChat / useSessions 等组合式逻辑零测试,引入 vitest;并进 CI(与 CI 条目合并跟进)
 - [ ] **部署方案**:web/dist 生产托管路径未定(nginx 或 server 静态托管),连同 CI/CD 条目一起规划
-- [x] **轨迹观测增强(turn_id / trace_id)**(已完成 2026-09-24):llm_call_log 加 turn_id/trace_id/span_id/parent_span、tool_call_log 加前三者减 span_id(V23,全 NULL 兼容);turnId 在 ChatService 入口生成沿显式参数链贯通,工具侧复用 Spring AI ToolContext 双参通道(原设想 ThreadLocal 桥接不需要);span 树经 OverAllState 状态键贯通编排 lead→subtask/aggregate,降级重答复用编排链 trace;轨迹页按轮分段(「第 N 轮 · M 步」)+ 按 parent_span 缩进,旧数据平铺如旧(spec 见 `.trae/specs/add-turn-trace-observability/`)
+- [x] **轨迹观测增强(turn_id / trace_id)**(已完成 2026-09-24):llm_call_log 加 turn_id/trace_id/span_id/parent_span、tool_call_log 加前三者减 span_id(V23,全 NULL 兼容);turnId 在 ChatService 入口生成沿显式参数链贯通,工具侧复用 Spring AI ToolContext 双参通道(原设想 ThreadLocal 桥接不需要);span 树经 OverAllState 状态键贯通编排 lead→subtask/aggregate,降级重答复用编排链 trace;轨迹页按轮分段(「第 N 轮 · M 步」)+ 按 parent_span 缩进,旧数据平铺如旧(spec 见 `docs/archive/specs/add-turn-trace-observability/`)

@@ -1,0 +1,11 @@
+# Checklist
+- [ ] 快照 JSON item 新增 `ts`（字符串毫秒），user 消息记录请求入口时刻、assistant 记录完成时刻
+- [ ] 原 `saveContext(String, Message)` 签名保留且行为不变（既有调用方与测试零改动）
+- [ ] `loadContext` 对带 `ts` 的快照还原正常（仅读 role/content）
+- [ ] 旧快照（无 `ts`）读取正常，listMessages 返回 `ts=null`，不回填历史数据
+- [ ] `SessionMessagesView.Item` 与前端 `SessionMessageView` 均含 `ts` 字段
+- [ ] 前端 `toItem` 用服务端 `ts` 填充（缺失维持 0 = 不展示时间），展示格式与实时消息一致
+- [ ] 落库守卫不变（同步路径仅 SUCCEEDED 写回）
+- [ ] SessionServiceImplTest / ChatServiceImplTest 补充或适配用例全绿
+- [ ] 全量 mvn test + npm run build 绿
+- [ ] 浏览器端到端：新消息→刷新→历史时间≈真实发送时刻；旧消息不显示错误时间
