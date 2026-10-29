@@ -6,11 +6,11 @@
 
 ## 一、项目现状
 
-- **定位**：两路径 AI Agent 编排框架 —— 主 Agent（`RouteJudge` LLM 决策）按复杂度分流：简单请求走单次调用（路径 A），复杂请求走自研并行引擎多 Agent 编排（路径 B）；执行目标（Goal）全生命周期（PENDING → RUNNING → SUCCEEDED/FAILED）落库可追溯。
+- **定位**：双路径 AI Agent 框架 —— 主 Agent（`RouteJudge` LLM 决策）选择执行路径：**Agentic 路径**由单 Agent 显式 ReAct 循环自主执行，**Graph 编排路径**走自研并行引擎多 Agent 编排（内部枚举 `SIMPLE` / `COMPLEX`）；执行目标（Goal）全生命周期（PENDING → RUNNING → SUCCEEDED/FAILED）落库可追溯。
 - **入口**：REST API（`/api/chat`、`/api/chat/stream`、`/api/harness/*`、`/api/llm-calls`）+ CLI 聊天客户端（`mvn exec:java`）。
 - **会话记忆**：MySQL 两张表（`session` + `session_messages`，一对一），`session_messages.content` 以 JSON 快照存储完整上下文。
 - **目标存储**：`Goal` 持久化到 MySQL `goal` 表，重启不丢，可追溯历史。
-- **执行反馈**：路径 A 逐 token 流式；路径 B 各阶段进度经生命周期钩子实时推送（`event: progress` SSE）。
+- **执行反馈**：Agentic 路径逐 token 流式；Graph 编排路径各阶段进度经生命周期钩子实时推送（`event: progress` SSE）。
 - **工具执行**：容器级沙箱（agentscope-runtime）——模型生成的 Python/Shell 与浏览器操作只在 Docker 容器内执行，宿主机零暴露；按专家分配工具（服务端硬边界，未分配的工具对模型不可见）。
 
 ***
@@ -23,6 +23,7 @@
 | 构建       | Maven                      | -      | 依赖与构建管理，本地仓库重定向 `.mvn-repo`                                                    |
 | 核心框架     | Spring Boot                | 4.1.2  | Web 应用框架（与 Spring AI 2.0.2 对齐）                                               |
 | AI 框架    | Spring AI                  | 2.0.2  | `spring-ai-starter-model-openai`，以 OpenAI 兼容协议统一对接多供应商（DashScope qwen3.7-flash / DeepSeek deepseek-v4-flash），按 `model_provider` 表路由 |
+| Agent 执行 | agentscope-core            | 2.0.4  | Agentic 路径显式 ReAct（`AgentScopeGeneralAgent`）：工具仍走 Spring AI ToolCallback 桥接，排除其自带 MCP SDK/Victools 旧版；`app.agentic.enabled=false` 回退 ChatClient 路径 |
 | 编排引擎    | 自研 `ParallelOrchestrationEngine` | -      | lead→并行子任务→聚合；阶段检查点落 `orchestration_checkpoint`（LEAD_DONE/SUBTASKS_DONE/DONE），替代 StateGraph |
 | 沙箱工具  | agentscope-runtime-sandbox-core | 1.0.2  | 容器级工具隔离（`SandboxToolkit` 本地薄封装）：base 容器（Python/Shell/文件读写检索）+ browser 容器（导航/快照/点击/输入），Docker 硬依赖 |
 | Web      | Spring MVC                 | 随 Boot | REST + 响应式 SSE（Controller 返回 `Flux<String>`，`text/event-stream`）+ 全局异常处理 |
@@ -35,7 +36,7 @@
 | HTTP 客户端 | OkHttp                     | 5.5.0  | CLI 端调用主服务 REST/SSE（`cli/api/ChatApiClient`）；模型调用经 Spring AI 内置 OkHttp 传输 |
 | 序列化      | Jackson                    | 3.x（随 Boot） | DTO 序列化 / SSE meta 解析 / 工具入参（`tools.jackson` 包）                          |
 | 代码生成     | Lombok                     | -      | 实体类简化                                                                          |
-| 测试       | JUnit 5 / Mockito          | 随 Boot | 服务端 77 类 / 682 用例（另有 channel-qq 7/72、cli 3/28、wms-mcp-adapter 4/43，合计 91 类 / 825 例）；除 `JavaHarnessApplicationTests` 需本机 MySQL 外不依赖真实 DB/网络，见 docs/guides/functional-testing.md（2026-10-28 核对） |
+| 测试       | JUnit 5 / Mockito          | 随 Boot | 服务端 78 类 / 687 用例（另有 channel-qq 7/72、cli 3/28、wms-mcp-adapter 4/43，合计 92 类 / 830 例）；除 `JavaHarnessApplicationTests` 需本机 MySQL 外不依赖真实 DB/网络，见 docs/guides/functional-testing.md（2026-10-29 核对） |
 | 日志       | SLF4J + Logback            | 随 Boot | Agent 执行状态日志                                                                   |
 | 初始化 SQL  | ~~schema.sql~~ 已移除         | -      | 由 Flyway 迁移脚本接管（见上）                                                            |
 
@@ -64,16 +65,16 @@ controller（REST + SSE 流式 + 全局异常处理 + 观测查询三接口，�
 
 ### 关键设计
 
-- **两路径分流**：`LlmRouteJudge` LLM 决策 SIMPLE/COMPLEX（异常兜底 SIMPLE 宁可简单）；`ChatServiceImpl.resolveAgent()` 据此路由 `general` 或 `multi-agent`。
+- **双路径分流**：`LlmRouteJudge` LLM 决策 Agentic / Graph 两条执行路径（内部枚举 `SIMPLE`/`COMPLEX`，异常兜底 `SIMPLE`）；`ChatServiceImpl.resolveAgent()` 据此路由 `general` 或 `multi-agent`。
 - **流式聊天**：`/api/chat/stream` 返回 `Flux<String>`（SSE）；每个事件单元素成对输出——内容 token 为普通 `data:` 行，进度为 `event: progress` + `{stage, detail}` JSON，结束发 `[DONE]` + `meta`（sessionId/goalId/status/error）。
-- **逐 token 推送**：路径 A `GeneralAssistantAgent.executeStreamReactive` 走 `.stream().content()` 真流式边收边发；路径 B 子任务完成事件由 `BranchProgressListener` 在引擎取到结果后逐条播报（串行发射防丢事件）。
+- **逐 token 推送**：Agentic 路径 `AgentScopeGeneralAgent.executeStreamReactive` 把 ReAct 文本增量边收边发；Graph 路径子任务完成事件由 `BranchProgressListener` 在引擎取到结果后逐条播报（串行发射防丢事件）。
 - **Agent 路由**：请求显式携带 `agentId` 时优先按 agent 表映射路由（CLI `/agent <id>` 手动指定），否则按分流结果选择执行体；未命中回退 `general`。
 - **动态配置**：每次调用经 `AgentService.getAgentConfig(agent_name)` 读 agent 表的 `model / prompt`，改库即时生效，无需重启。
 - **会话写回统一**：同步 / 流式路径都在 `ChatServiceImpl` 统一写回会话记忆（进度行不计入摘要）。
 - **工具调用（容器级沙箱）**：`SandboxToolProvider` 懒初始化 agentscope 沙箱（base 容器：Python/Shell/文件读写检索；browser 容器：导航/快照/点击/输入，独立镜像、独立初始化失败只降级本组），宿主机零暴露；`ToolAssignments` 按专家双通道注入（@Tool 对象走 `.tools()`、ToolCallback 走 `.toolCallbacks()`），未分配的工具对模型不可见（服务端硬边界）。researcher/general 拥有浏览器组，补 JS 渲染页面抓取空缺。
 - **统一异常响应**：`GlobalExceptionHandler` 把所有异常转成 `{code, message}` 结构（400/404/500），非法请求返回统一 400 错误体。
-- **LLM 调用观测（成本账本）**：每次 LLM 调用（路由判断 / lead 拆解 / 专家子任务 / 聚合 / 路径 A）结束经 `LlmCallRecorder` 异步写 `llm_call_log` 表——会话、角色、模型、SYNC/STREAM、成败、token（流式按输出文本近似估算）、耗时、错误；观测失败不影响主链路。`GET /api/llm-calls?sessionId=` 查询。完整链路追踪（Micrometer Tracing）见 TODO。
-- **RAG 知识库（检索增强）**：knowledge/ 目录 `.md/.txt` 文档经 `POST /api/knowledge/sync` 增量摄取（mtime 比对→`MarkdownChunker` 段落感知切分 ~700 字符+重叠→DashScope 嵌入→pgvector，确定性 chunk id=docName#idx 支持重摄取精确覆盖）；路径 A/B 共用 `AgentRequestSpecFactory` 汇合点，每次调用前 `KnowledgeRetriever` 按当前 user 文本向量检索 top-k（aggregator 角色策略跳过——其材料是子任务结果），命中渲染【出处N】知识段注入 system prompt（context-budget 预算截断）；回答内联【出处N】引用 + `meta.sources`/`ChatResponse.sources` 出处 + CLI「来源:」尾注；`GET /api/knowledge/documents|search` 调试检索、`DELETE /api/knowledge/documents/{name}` 删除。降级口径：知识库未启用（app.knowledge.enabled=false）或 PG 不可用时应用照常启动、检索返回空、不注入知识段。台账 `kb_document` 表走 Flyway V11；向量表由 PgVectorStore initializeSchema 按 yaml `app.knowledge.pgvector.table-name` 自建（当前 `vector_store_harness`，TEXT 主键，与库内其他项目向量表隔离；不经 Flyway，主库 schema 管理仍是 MySQL）。
+- **LLM 调用观测（成本账本）**：每次 LLM 调用（路由判断 / lead 拆解 / 专家子任务 / 聚合 / Agentic 路径）结束经 `LlmCallRecorder` 异步写 `llm_call_log` 表——会话、角色、模型、SYNC/STREAM、成败、token（流式按输出文本近似估算）、耗时、错误；观测失败不影响主链路。`GET /api/llm-calls?sessionId=` 查询。完整链路追踪（Micrometer Tracing）见 TODO。
+- **RAG 知识库（检索增强）**：knowledge/ 目录 `.md/.txt` 文档经 `POST /api/knowledge/sync` 增量摄取（mtime 比对→`MarkdownChunker` 段落感知切分 ~700 字符+重叠→DashScope 嵌入→pgvector，确定性 chunk id=docName#idx 支持重摄取精确覆盖）；Agentic / Graph 两条路径共用 `AgentRequestSpecFactory` 汇合点，每次调用前 `KnowledgeRetriever` 按当前 user 文本向量检索 top-k（aggregator 角色策略跳过——其材料是子任务结果），命中渲染【出处N】知识段注入 system prompt（context-budget 预算截断）；回答内联【出处N】引用 + `meta.sources`/`ChatResponse.sources` 出处 + CLI「来源:」尾注；`GET /api/knowledge/documents|search` 调试检索、`DELETE /api/knowledge/documents/{name}` 删除。降级口径：知识库未启用（app.knowledge.enabled=false）或 PG 不可用时应用照常启动、检索返回空、不注入知识段。台账 `kb_document` 表走 Flyway V11；向量表由 PgVectorStore initializeSchema 按 yaml `app.knowledge.pgvector.table-name` 自建（当前 `vector_store_harness`，TEXT 主键，与库内其他项目向量表隔离；不经 Flyway，主库 schema 管理仍是 MySQL）。
 
 ***
 
@@ -85,7 +86,7 @@ controller（REST + SSE 流式 + 全局异常处理 + 观测查询三接口，�
 | ------------- | ------------------------------------------------------------------------------- |
 | 更多模型接入        | 官方 DeepSeek starter、本地 Ollama、Qwen 官方 DashScope starter，按 Agent 路由不同模型          |
 | 多模态           | 图片/语音输入（DashScope 兼容模式逐步支持）                                                     |
-| **RAG（向量检索）** | **已实现**：pgvector + DashScope 嵌入，knowledge/ 目录增量摄取 + 路径 A/B 检索增强，一级子目录多知识库 + agent 表 knowledge 列绑定（向量 metadata.kb 过滤隔离）；待扩展：BM25 混合检索与重排、目录文件监听 |
+| **RAG（向量检索）** | **已实现**：pgvector + DashScope 嵌入，knowledge/ 目录增量摄取 + Agentic/Graph 路径检索增强，一级子目录多知识库 + agent 表 knowledge 列绑定（向量 metadata.kb 过滤隔离）；待扩展：BM25 混合检索与重排、目录文件监听 |
 | **MCP 接入**    | 让 Agent 通过 MCP 连接外部工具/服务，扩展工具生态                                                 |
 | Agent 编排框架    | LangGraph4j / AutoGen 风格的多 Agent 协作、任务规划、反思循环                                   |
 

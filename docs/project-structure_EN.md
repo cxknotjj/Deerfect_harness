@@ -79,7 +79,11 @@ server/src/main/java/com/dark/javaHarness/
 ├── exception/                    # Global exception handling (@RestControllerAdvice, uniform {code, message})
 ├── agent/                        # Agent abstractions, orchestration & LLM calls
 │   ├── Agent.java / AgentRegistry.java    # Agent interface and registry
-│   ├── GeneralAssistantAgent.java  # Path A: single-model chat (true token-by-token stream)
+│   ├── AgentScopeGeneralAgent.java # Agentic path: AgentScope ReAct reasoning-action loop
+│   ├── agentic/                    # Agentic path adapters
+│   │   ├── AgentScopeModelFactory.java  # model_provider row → AgentScope OpenAI-compatible Model
+│   │   └── SpringAiToolBridge.java      # Spring AI ToolCallback → AgentScope ToolBase (MCP/sandbox reuse)
+│   ├── GeneralAssistantAgent.java  # Agentic path fallback: ChatClient single-model chat (true token-by-token stream)
 │   ├── AgentChatCaller.java        # LLM call lifecycle facade (call/stream retry loops, cancellation interception, observation recording)
 │   ├── AgentChatPipeline.java      # Streaming pipeline core (streamAttempt/streamCore/tokenStream + watchdog idle timeout / frame accounting / empty-response guards)
 │   ├── CallContext.java            # Observation value object (llm_call_log parameter bundling, shared by call/stream)
@@ -87,8 +91,8 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── AgentRequestSpecFactory.java  # Shared request-assembly factory (system / memory injection / tool decoration / output tier)
 │   ├── LlmRetry.java               # LLM call retry policy
 │   ├── ProgressLine.java           # Progress line wire protocol (MARK+stage+SEP+detail) codec
-│   └── orchestrate/               # Path B multi-agent orchestration (complex requests)
-│       ├── MultiAgentGraphAgent.java   # Path B: orchestration facade (execute/stream/resume entries; engine in engine/ParallelOrchestrationEngine)
+│   └── orchestrate/               # Graph orchestration path (Lead → parallel experts → aggregation)
+│       ├── MultiAgentGraphAgent.java   # Graph path: orchestration facade (execute/stream/resume entries; engine in engine/ParallelOrchestrationEngine)
 │       ├── OrchestrationNodes.java     # Orchestration node impls (lead/subtask/aggregate + predict* bridges + streaming aggregation guard)
 │       ├── LeadOutputParser.java       # Lead decomposition JSON parsing (subtask count + expert dispatch whitelist)
 │       ├── OrchestrationBudget.java    # Orchestration budget ledger (AtomicLong shared accounting + degradation note)

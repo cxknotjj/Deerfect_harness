@@ -15,7 +15,7 @@ CLI 是纯 HTTP 客户端（**不监听任何端口**），通过 REST 调用主
 |---|---|
 | 直接输入文本 | 与当前 Agent（默认 general）聊天，多轮记忆自动延续 |
 | `/new [名称]` | 🆕 新建会话并切换（旧会话保留） |
-| `/agent <id>` | 🎭 切换到指定 Agent（agent 表主键，同步会话绑定）；简单问题由该 Agent 直答，复杂问题仍自动编排；`/agent` 查看当前；`/agent off` 恢复智能分流 |
+| `/agent <id>` | 🎭 切换到指定 Agent（agent 表主键，同步会话绑定）；绑定后由该 Agent 直接执行，未绑定则按 Agentic / Graph 路径自动分流；`/agent` 查看当前；`/agent off` 恢复智能分流 |
 | `/resume <goalId>` | 🔁 复杂编排断点续跑：从上次检查点继续（goalId 见每回合末尾会话信息） |
 | `/help` / `/exit` | ❓ 帮助 / 🚪 退出 |
 

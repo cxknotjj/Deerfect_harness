@@ -75,7 +75,7 @@ prompt().call() ──→ 【Advisor 链】──→ ChatModel.call ──→ �
 |--------|------|---------|
 | 聚合 `aggregate()` | 12k | **按子任务边界等份额截断**：每份保留头尾，中间截断带 `[内容已截断]` 标记；禁止先到先得 |
 | lead `lead()` | 4k | 目标文本超长时尾部截断（通用语义） |
-| 路径 A 历史 | 4k（维持现状） | `ContextAssemblingAdvisor` 继续负责 |
+| Agentic 路径历史 | 4k（维持现状） | `ContextAssemblingAdvisor` 继续负责 |
 
 **实现要点**：
 
@@ -99,7 +99,7 @@ public final class PromptBudgetAdvisor implements CallAdvisor {
 ```yaml
 app:
   context:
-    history-budget: 4000      # 路径 A 历史裁剪
+    history-budget: 4000      # Agentic 路径历史裁剪
     lead-budget: 4000         # lead 拆解 prompt
     aggregate-budget: 12000   # 聚合 prompt
     tool-result-budget: 5000  # 单次调用工具结果总预算（现有）
@@ -136,7 +136,7 @@ app:
 
 ### 3.3 验收标准
 
-1. 编排链路每个进入模型的 prompt 都有明确 token 上界：lead ≤ 4k、子任务 ≤ 5k（工具结果）+ persona 常量、聚合 ≤ 12k、路径 A ≤ 4k（历史）+ 当轮消息。
+1. 编排链路每个进入模型的 prompt 都有明确 token 上界：lead ≤ 4k、子任务 ≤ 5k（工具结果）+ persona 常量、聚合 ≤ 12k、Agentic 路径 ≤ 4k（历史）+ 当轮消息。
 2. `LlmCallRecorder` 观测到的 prompt token 与预算组件估算同口径、可比对。
 3. 聚合超预算时每个子任务的结果在 prompt 中至少保留等额份额，截断有标记可追溯（log.warn）。
 4. 全部预算参数可在 `application-chat.yaml` 调整，无需改代码。

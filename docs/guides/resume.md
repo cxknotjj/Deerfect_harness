@@ -4,7 +4,7 @@
 
 ---
 
-复杂编排（COMPLEX 路径）按阶段落检查点到 `orchestration_checkpoint` 表（goal 维度；阶段 `LEAD_DONE` / `SUBTASKS_DONE` / `DONE`）：
+Graph 编排路径（内部枚举 `COMPLEX`）按阶段落检查点到 `orchestration_checkpoint` 表（goal 维度；阶段 `LEAD_DONE` / `SUBTASKS_DONE` / `DONE`）：
 
 | 断开时机 | 续跑行为 |
 |---|---|

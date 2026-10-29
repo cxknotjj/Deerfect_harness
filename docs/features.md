@@ -7,7 +7,7 @@
 
 ## 一、项目定位
 
-Deerfect Harness 是一个基于 Spring AI 的多 Agent 编排平台：请求进来先做复杂度判定，简单问题单 Agent 直答，复杂任务自动拆解、专家并行执行、聚合交付，全过程流式可视。所有能力默认只依赖 MySQL，Docker 仅用于沙箱工具。
+Deerfect Harness 是一个基于 Spring AI 的双路径 Agent 平台：**Agentic 路径**由单 Agent 显式 ReAct 循环自主执行；**Graph 编排路径**自动拆解、专家并行、聚合交付，全过程流式可视。所有能力默认只依赖 MySQL，Docker 仅用于沙箱工具。
 
 ## 二、使用入口
 
@@ -19,13 +19,13 @@ Deerfect Harness 是一个基于 Spring AI 的多 Agent 编排平台：请求进
 | QQ 机器人 | NapCat/OneBot 11、群聊 @ 唤醒、渐进分段回复、拟人延迟、表情包、防刷 | [qq-channel.md](./guides/qq-channel.md) |
 | MCP Server | 主服务内置 Streamable HTTP MCP 端点，可对外暴露内置工具 | [TECH_STACK.md](./TECH_STACK.md) |
 
-## 三、智能路由与多 Agent 编排
+## 三、双路径执行：Agentic 与 Graph 编排
 
-- **LLM 路由判定**：`RouteJudge` 输出 `SIMPLE` / `COMPLEX`，判定异常或超时一律兜底 `SIMPLE`。
-- **路径 A 直答**：`GeneralAssistantAgent` 单次调用，逐 token 流式返回。
-- **路径 B 编排**：自研 `ParallelOrchestrationEngine` 执行「Lead 拆解 → 专家并行 → Aggregator 聚合」；子任务至多 4 条，禁止凑数。
+- **路径判定**：`RouteJudge` 输出内部枚举 `SIMPLE` / `COMPLEX`，分别对应 Agentic 与 Graph 编排两条执行路径；判定异常或超时一律兜底 Agentic（`SIMPLE`）。
+- **Agentic 路径**：`AgentScopeGeneralAgent` 以 ReActAgent 执行显式推理-行动循环（默认开启，`app.agentic.enabled`），工具仍由 Spring AI 提供并经桥接进入 Toolkit；初始化失败可回退 ChatClient 单次调用路径。
+- **Graph 编排路径**：自研 `ParallelOrchestrationEngine` 执行「Lead 拆解 → 专家并行 → Aggregator 聚合」；子任务至多 4 条，禁止凑数。
 - **失败不连坐**：单个子任务失败写占位结果，聚合照常执行并注入降级说明。
-- **编排失败降级**：COMPLEX 路径异常时降级为会话绑定 Agent 单模型重答一次，不递归。
+- **编排失败降级**：Graph 路径异常时降级为会话绑定 Agent 单模型重答一次，不递归。
 - **断点续跑**：按 `LEAD_DONE` / `SUBTASKS_DONE` / `DONE` 三阶段落检查点，已完成阶段不重跑（[resume.md](./guides/resume.md)）。
 
 ## 四、Agent 与模型体系
@@ -68,7 +68,7 @@ Deerfect Harness 是一个基于 Spring AI 的多 Agent 编排平台：请求进
 | 单次工具调用上限 | 4 次，工具结果注入 5000 token |
 | 超时梯队 | 连接 10s / 读 300s / 流空闲 40s / 首帧 20s / 路由判定 10s |
 
-另有：客户端断连后零新增 LLM 调用、失败连接丢池重建、LLM 调用 3 次退避重试、COMPLEX 失败降级重答。配置口径见 [context-optimization.md](./guides/context-optimization.md)。
+另有：客户端断连后零新增 LLM 调用、失败连接丢池重建、LLM 调用 3 次退避重试、Graph 路径失败降级重答。配置口径见 [context-optimization.md](./guides/context-optimization.md)。
 
 ## 八、观测与成本
 
@@ -85,7 +85,7 @@ Deerfect Harness 是一个基于 Spring AI 的多 Agent 编排平台：请求进
 - **数据库演进**：Flyway 版本化迁移，启动自动建表 / 升级。
 - **模块化**：`harness-api` / `channel-qq` / `server` / `cli` / `wms-mcp-adapter` 五模块 + 独立 `web`。
 - **容器化**：Dockerfile + docker-compose（app + MySQL + pgvector），见 [docker-deploy.md](./guides/docker-deploy.md)。
-- **测试**：91 个测试类 / 825 个用例（server 77/682、channel-qq 7/72、cli 3/28、wms-mcp-adapter 4/43），详见 [functional-testing.md](./guides/functional-testing.md)。
+- **测试**：92 个测试类 / 830 个用例（server 78/687、channel-qq 7/72、cli 3/28、wms-mcp-adapter 4/43），详见 [functional-testing.md](./guides/functional-testing.md)。
 
 ## 十、尚未实现（路线图未勾选项）
 

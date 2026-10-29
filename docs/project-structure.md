@@ -79,16 +79,20 @@ server/src/main/java/com/dark/javaHarness/
 ├── exception/                    # 全局异常处理（@RestControllerAdvice，统一 {code, message}）
 ├── agent/                        # Agent 抽象、编排与 LLM 调用
 │   ├── Agent.java / AgentRegistry.java    # Agent 接口与注册表
-│   ├── GeneralAssistantAgent.java  # 路径 A：单模型对话（真·逐 token stream）
+│   ├── AgentScopeGeneralAgent.java # Agentic 路径：AgentScope ReAct 显式推理-行动循环
+│   ├── agentic/                    # Agentic 路径适配层
+│   │   ├── AgentScopeModelFactory.java  # model_provider 行 → AgentScope OpenAI 兼容 Model
+│   │   └── SpringAiToolBridge.java      # Spring AI ToolCallback → AgentScope ToolBase（MCP/沙箱工具复用）
+│   ├── GeneralAssistantAgent.java  # Agentic 路径回退：ChatClient 单模型对话（真·逐 token stream）
 │   ├── AgentChatCaller.java        # LLM 调用生命周期编排门面（call/stream 重试循环、取消拦截、观测记录）
 │   ├── AgentChatPipeline.java      # 流管道核（streamAttempt/streamCore/tokenStream + watchdog 空闲超时/流帧记账/空响应防御）
 │   ├── CallContext.java            # 观测值对象（llm_call_log 落库参数收敛，call/stream 两通道共用）
 │   ├── CallSpecAssembler.java      # 角色装配策略（MemoryPolicy 记忆判定/maxTokens 档位/观测名单计算）
-│   ├── AgentRequestSpecFactory.java  # 两路径共用请求组装工厂（system/记忆注入/工具装饰/输出档位）
+│   ├── AgentRequestSpecFactory.java  # 双路径共用请求组装工厂（system/记忆注入/工具装饰/输出档位）
 │   ├── LlmRetry.java               # LLM 调用重试策略
 │   ├── ProgressLine.java           # 进度行线协议（MARK+stage+SEP+detail）编解码
-│   └── orchestrate/               # 路径 B 多 Agent 编排（复杂请求）
-│       ├── MultiAgentGraphAgent.java   # 路径 B：编排门面（执行/流式/续跑入口；引擎见 engine/ParallelOrchestrationEngine）
+│   └── orchestrate/               # Graph 编排路径（Lead → 专家并行 → 聚合）
+│       ├── MultiAgentGraphAgent.java   # Graph 编排门面（执行/流式/续跑入口；引擎见 engine/ParallelOrchestrationEngine）
 │       ├── OrchestrationNodes.java     # 编排三节点实现（lead/subtask/aggregate + predict* 桥接 + 流式聚合护栏）
 │       ├── LeadOutputParser.java       # lead 拆解 JSON 解析（子任务数 + 专家指派白名单）
 │       ├── OrchestrationBudget.java    # 编排预算账本（AtomicLong 共享记账 + 降级说明）

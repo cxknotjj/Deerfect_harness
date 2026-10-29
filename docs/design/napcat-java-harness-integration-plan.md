@@ -3,7 +3,7 @@
 > 目标：QQ 消息（私聊/群聊）→ NapCat → java-harness AI Agent → AI 回复 → QQ
 > 通信方式：**HTTP POST 上报 + HTTP API 下行**（OneBot 11 协议）
 >
-> 本计划写于当时的项目基线（376 测试、OkHttp 4.12；当前为 825 测试、OkHttp 5.5.0、Java 25），
+> 本计划写于当时的项目基线（376 测试、OkHttp 4.12；当前为 830 测试、OkHttp 5.5.0、Java 25），
 > 属设计存档，现状以 [features.md](../features.md) / [TECH_STACK.md](../TECH_STACK.md) 为准。
 > 渠道适配代码按 **channel/qq 垂直包隔离**：core 单向不依赖渠道包。
 

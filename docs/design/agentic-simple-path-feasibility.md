@@ -1,9 +1,11 @@
-# Agentic SIMPLE 路径可行性分析（AgentScope 方案）
+# Agentic 路径接入 AgentScope ReAct 可行性分析
 
-> 日期：2026-10-28　|　状态：可行性评估（未实施）　|　目标：SIMPLE 路径改为 agentic 执行，COMPLEX 路径保留现有 graph 式编排
+> 日期：2026-10-28（评估） / 2026-10-29（落地）　|　状态：已实施　|　目标：Agentic 路径改为 AgentScope ReAct 执行，Graph 编排路径保留自研并行引擎
+>
+> 术语说明：本文写于改造前，文中的 `SIMPLE` 路径即现在的 **Agentic 路径**，`COMPLEX` 即 **Graph 编排路径**。
 >
 > 评估依据：仓库现有代码与依赖（`mvn dependency:tree` 实测）、AgentScope Java 2.0.4 官方文档。
-> 结论先行：**技术上有条件可行，但不建议直接替换主链路**；推荐先做隔离 PoC，或采用「不新增框架依赖」的显式 ReAct 方案（见第 8 节）。
+> 结论先行：**技术可行且已落地**——只引 `agentscope-core`，工具经 Spring AI 桥接，MCP/Victools 冲突已排除；落地结果与剩余观察项见第 12 节。
 
 ---
 
@@ -16,6 +18,7 @@
 | 当前 SIMPLE 路径是否已经算 agentic？ | 已有**工具调用循环**（Spring AI ChatClient 内部 ReAct），但没有显式迭代/计划/反思/任务清单 |
 | 推荐做法 | 方案 A：AgentScope `ReActAgent` + Spring AI 工具桥接 + feature flag；模型层二选一（见 5.1） |
 | 主要剩余风险 | 模型适配（AgentScope 需要自己的 `Model`）与事件/记忆/观测对等，不再是 MCP 版本 |
+| PoC 状态 | ✅ 2026-10-29 已落地：SIMPLE 路径默认由 `AgentScopeGeneralAgent`（ReAct）执行，工具/模型/记忆/观测复用 Spring AI 侧设施；`app.agentic.enabled=false` 可回退。详见第 12 节 |
 
 ---
 
@@ -214,7 +217,10 @@ SpringAiToolBridge extends ToolBase
   Spring AI 获取为 `ToolCallback`，再桥接成 AgentScope `ToolBase`。
 - 残余验证点：`Toolkit` 类加载与工具注册是否会触发旧版 MCP API（预期不会，因其 MCP 代码路径不执行）。
   PoC 若出现 `NoSuchMethodError`，退路是隔离类加载/独立进程，或放弃 AgentScope 路径。
-- 风险等级：由「硬风险」降为「可控，需 PoC 验证」。
+- **PoC 结论（2026-10-28）**：`Toolkit` 创建、`registerTool`、真实工具调用均正常，未出现
+  `NoSuchMethodError` / `NoClassDefFoundError`；`mvn dependency:tree` 确认 classpath 上只有
+  `io.modelcontextprotocol.sdk:mcp:2.1.0`，0.17.2 已被完全排除。
+- 风险等级：已由「硬风险」降为「已规避（基础工具场景）」，MCP 工具桥接仍需真实 server 联调。
 
 ### 6.2 其他依赖
 
@@ -300,7 +306,71 @@ SpringAiToolBridge extends ToolBase
 
 ---
 
-## 12. 参考
+## 12. PoC 实测结果（2026-10-28）
+
+**分支**：`feat/agentscope-agentic-poc`（`agentscope-core` 与模型扩展均为 **test scope**，不影响运行期产物）
+
+**依赖验证**
+
+- `agentscope-core:2.0.4` + `agentscope-extensions-model-openai:2.0.4`，显式排除
+  `io.modelcontextprotocol.sdk:mcp`。
+- `mvn -pl server dependency:tree -Dincludes=io.agentscope:*,io.modelcontextprotocol.sdk:mcp`
+  结果：`agentscope-core:2.0.4:test`、`agentscope-extensions-model-openai:2.0.4:test`、
+  `io.modelcontextprotocol.sdk:mcp:2.1.0:compile`（无 0.17.2）。
+
+**用例与结果**：[AgentScopeReActPoC](../../server/src/test/java/com/dark/javaHarness/agent/agentic/AgentScopeReActPoC.java)
+
+| 用例 | 验证内容 | 结果 |
+|---|---|---|
+| `reactLoopCallsSpringRegisteredStyleToolAndStreamsEvents` | 真实 DeepSeek 模型 + `@Tool` 反射工具 + `streamEvents` | ✅ 2.69s，工具被调用，事件流完整 |
+| `springAiToolCallbackBridgesIntoAgentScopeToolkit` | Spring AI `ToolCallback` → `ToolBase` 桥接 + `Toolkit.registerTool` + 调用回填 | ✅ 参数/结果双向转换正常 |
+
+**实测事件序列**：
+
+```
+AGENT_START → MODEL_CALL_START → TOOL_CALL_START → TOOL_CALL_DELTA → TOOL_CALL_END
+→ MODEL_CALL_END → TOOL_RESULT_START → TOOL_RESULT_TEXT_DELTA → TOOL_RESULT_END
+→ TEXT_BLOCK_START → TEXT_BLOCK_DELTA → TEXT_BLOCK_END → AGENT_RESULT → AGENT_END
+```
+
+**已确认**
+
+- AgentScope 与 Spring Boot 4 / Spring AI 2 / MCP SDK 2.1.0 同 classpath 可启动；
+- ReAct 循环、工具调用、文本增量事件可用；
+- Spring AI 工具（含未来 MCP 工具）可通过一个 `ToolBase` 桥接类进入 AgentScope，无需第二套 MCP client。
+
+**落地结果（2026-10-29）**
+
+- 新增 `AgentScopeGeneralAgent`：SIMPLE 路径默认 ReAct；`AgentRegistry` 按 `app.agentic.enabled` 选择，
+  初始化失败回退既有 `GeneralAssistantAgent`（流开始后不切换）；
+- 新增 `AgentScopeModelFactory`：按 `model_provider` 行构建 OpenAI 兼容 Model，Key 解析与 ChatClient 同源，
+  `disable_thinking=1` 映射为 `enable_thinking=false`；
+- 新增 `SpringAiToolBridge`：工具仍由 Spring AI 提供并经装饰链（观测→预算→懒加载→元工具），
+  trace 标识经 `RuntimeContext` → `ToolContext` 透传；
+- 记忆不启用 AgentStateStore，每请求注入裁剪后的 MySQL 历史；system 复用 `PromptAssembler` + RAG；
+- 观测记一轮 `llm_call_log`，usage 按 `MODEL_CALL_END` 逐次累加（多轮工具调用不低估）；取消映射为 `agent.interrupt`；
+- `AgentRequestSpecFactory` 抽出 `assembleSystem` / `loadHistory` / `resolveTools`，两条路径共用装配面。
+
+**依赖冲突补充（实测）**
+
+- 第二个冲突：AgentScope 自带 `victools:jsonschema-generator/module-jackson:4.38.0` 会将项目
+  Spring AI 需要的 **5.0.0** 降级，导致 `ToolDefinitions` 缺 `JacksonSchemaModule`、注解工具 Schema 生成失败；
+  已在 `agentscope-core` / 模型扩展上排除这两个 artifact，最终 classpath 为 5.0.0。
+- 最终依赖树：`agentscope-core:2.0.4`、`agentscope-extensions-model-openai:2.0.4`、
+  `io.modelcontextprotocol.sdk:mcp:2.1.0`、`com.github.victools:*:5.0.0`。
+- 测试：`AgentScopeReActPoC` 2 例 + `AgentScopeGeneralAgentTest` 3 例（真实模型/回退/历史+工具桥接）通过；
+  server 全量 686 例通过（排除需 MySQL 的 `JavaHarnessApplicationTests`）。
+
+**仍未验证（生产观察项）**
+
+- 真实 MCP server 工具（Tavily/WMS）经桥接后的调用与错误结构（当前验证的是合成 Spring AI ToolCallback）；
+- 客户端断连 `interrupt` 的真实链路（单测未覆盖取消时序）；
+- DashScope 等其他供应商的 `api_url` 兼容性（当前仅 DeepSeek 官方端点实测）；
+- 历史裁剪只对历史段做预算，未把 system/本轮合并裁剪（与 ChatClient 路径存在轻微口径差异）。
+
+---
+
+## 13. 参考
 
 **仓库代码**
 - [GeneralAssistantAgent.java](../../server/src/main/java/com/dark/javaHarness/agent/GeneralAssistantAgent.java)

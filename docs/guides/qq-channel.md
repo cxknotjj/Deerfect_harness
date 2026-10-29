@@ -5,7 +5,7 @@
 ---
 
 
-除 CLI / REST 之外的第三个入口：基于 **OneBot 11 协议（HTTP POST 模式）** 经 [NapCat](https://napneko.github.io/) 对接 QQ 群聊与私聊。消息进入后与 REST 全链路一致（会话记忆 → SIMPLE/COMPLEX 分流 → 编排），回复按真人节奏分段发出。
+除 CLI / REST 之外的第三个入口：基于 **OneBot 11 协议（HTTP POST 模式）** 经 [NapCat](https://napneko.github.io/) 对接 QQ 群聊与私聊。消息进入后与 REST 全链路一致（会话记忆 → Agentic / Graph 路径分流 → 编排），回复按真人节奏分段发出。
 
 | 能力 | 说明 |
 |---|---|
@@ -16,7 +16,7 @@
 | 🧵 会话记忆 | 同一 QQ 用户自动延续多轮上下文；`@机器人 /reset`（群聊）或 `/reset`（私聊）重置会话 |
 | 🚦 防刷 | 同用户限频（`rate-limit.per-user-seconds`）+ 私聊白名单（`private-allow-users`，空 = 不限制） |
 | ␥ 聊天超时 | `chat-timeout-seconds` 超时放弃回复（后台跑完仍落会话记忆），防 LLM 卡死占满线程池 |
-| 🎯 指定 Agent | `agent-id` 填 agent 表主键后会话绑定该 Agent（knowledge 绑定自动生效），仍走统一路由判定：简单问题直答、复杂问题编排，编排失败降级回该 Agent 重答 |
+| 🎯 指定 Agent | `agent-id` 填 agent 表主键后会话绑定该 Agent（knowledge 绑定自动生效），仍走统一路径判定：Agentic 路径由该 Agent 执行，Graph 编排路径进入多 Agent 编排，编排失败降级回该 Agent 重答 |
 
 **接入步骤**（NapCat 侧建议 Docker 部署，只允许 HTTP POST、不用 WebSocket）：
 

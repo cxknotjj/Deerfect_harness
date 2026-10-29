@@ -16,10 +16,10 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.x-6DB33F?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
 [![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.x-6DB33F?logo=spring&logoColor=white)](https://spring.io/projects/spring-ai)
 [![MySQL](https://img.shields.io/badge/MySQL-Flyway%20Managed-4479A1?logo=mysql&logoColor=white)](https://www.mysql.com/)
-[![Tests](https://img.shields.io/badge/tests-825-brightgreen?logo=junit5&logoColor=white)](#-running-tests)
+[![Tests](https://img.shields.io/badge/tests-830-brightgreen?logo=junit5&logoColor=white)](#-running-tests)
 [![Docker](https://img.shields.io/badge/sandbox-Docker%20Isolated-2496ED?logo=docker&logoColor=white)](#-prerequisites)
 
-*Simple questions answered directly · Complex tasks orchestrated across agents · Fully streaming, end to end*
+*Agentic single-agent execution · Graph multi-agent orchestration · Fully streaming, end to end*
 
 </div>
 
@@ -47,7 +47,7 @@
 
 | | Feature | Description |
 |---|---|---|
-| 🧠 | **Smart Routing** | An upfront LLM judge decides SIMPLE / COMPLEX: small talk and Q&A get answered directly, only complex tasks enter orchestration — no wasted tokens |
+| 🧠 | **Dual Execution Paths** | An upfront LLM judge selects the **Agentic** path (single agent, explicit ReAct loop) or the **Graph orchestration** path (Lead → parallel experts → aggregation); internal route enum stays `SIMPLE` / `COMPLEX` |
 | 🕸️ | **Multi-Agent Orchestration** | Built-in `ParallelOrchestrationEngine` — "Lead decomposition → experts in parallel → aggregation"; subtasks are decomposed by difficulty (at most 4, no padding) |
 | 👨‍👩‍👧‍👦 | **Expert System** | Four expert roles — researcher / coder / analyst / writer — configured from the database; lead assigns each subtask to the right expert |
 | 📺 | **True Streaming** | Token-by-token SSE push with typewriter effect, plus real-time progress events for every orchestration stage (orchestration / decomposition / subtasks / aggregation) |
@@ -63,9 +63,9 @@
 ```mermaid
 flowchart TD
     A[🖥️ CLI / REST Request] --> B[ChatController<br/>Harness Shell Entry]
-    B --> C{🧭 RouteJudge<br/>LLM decides SIMPLE / COMPLEX}
-    C -->|SIMPLE| D[⚡ GeneralAssistantAgent<br/>Single call · token-by-token streaming]
-    C -->|COMPLEX| E[🕸️ MultiAgentGraphAgent<br/>Built-in Parallel Engine]
+    B --> C{🧭 RouteJudge<br/>Selects Agentic / Graph path}
+    C -->|Agentic| D[⚡ AgentScope ReActAgent<br/>Explicit reasoning-action loop · token-by-token streaming]
+    C -->|Graph| E[🕸️ MultiAgentGraphAgent<br/>Built-in Parallel Engine]
     E --> F[🧩 Lead Decomposition<br/>Max 4 subtasks · no padding]
     F --> G1[🔍 researcher]
     F --> G2[💻 coder]
@@ -228,7 +228,7 @@ Streaming responses use an SSE-style line protocol (one element per line, `event
 
 ## 🔁 Resume from Checkpoint
 
-Complex orchestration (the COMPLEX path) records stage checkpoints in `orchestration_checkpoint` (goal-scoped):
+Graph orchestration (the `COMPLEX` route label) records stage checkpoints in `orchestration_checkpoint` (goal-scoped):
 
 | Interruption Point | Resume Behavior |
 |---|---|
@@ -250,7 +250,7 @@ curl -N -X POST "http://localhost:8080/api/chat/resume?goalId=<goalId>"
 
 ## 🤖 QQ Bot
 
-A third entry point besides CLI / REST: connects to QQ group & private chats via [NapCat](https://napneko.github.io/) over the **OneBot 11 protocol (HTTP POST mode)**. Incoming messages go through the same pipeline as REST (session memory → SIMPLE/COMPLEX routing → orchestration), and replies are sent progressively like a real person.
+A third entry point besides CLI / REST: connects to QQ group & private chats via [NapCat](https://napneko.github.io/) over the **OneBot 11 protocol (HTTP POST mode)**. Incoming messages go through the same pipeline as REST (session memory → Agentic / Graph routing → orchestration), and replies are sent progressively like a real person.
 
 | Capability | Notes |
 |---|---|
@@ -306,7 +306,7 @@ A multi-module Maven project: `harness-api` (shared contracts: port interfaces /
 
 ## 🧪 Running Tests
 
-Unit tests run on JUnit 5 + Mockito and need **no real database / network / API keys** (currently 825 test cases: server 682 / channel-qq 72 / cli 28 / wms-mcp-adapter 43; `JavaHarnessApplicationTests#contextLoads` is the only exception and needs local MySQL):
+Unit tests run on JUnit 5 + Mockito and need **no real database / network / API keys** (currently 830 test cases: server 687 / channel-qq 72 / cli 28 / wms-mcp-adapter 43; `JavaHarnessApplicationTests#contextLoads` is the only exception and needs local MySQL):
 
 ```bash
 mvn -s .mvn/settings.xml test
@@ -317,7 +317,7 @@ mvn -s .mvn/settings.xml test
 
 | Group | Tests | What it verifies |
 |---|---|---|
-| 🧭 Routing & sessions | `LlmRouteJudgeTest` `AgentServiceImplTest` `AgentConfigProviderTest` `SessionServiceImplTest` `GoalServiceImplTest` | SIMPLE/COMPLEX routing and malformed-JSON fallback, multi-agent routing with fallback, session & goal lifecycle |
+| 🧭 Routing & sessions | `LlmRouteJudgeTest` `AgentServiceImplTest` `AgentConfigProviderTest` `SessionServiceImplTest` `GoalServiceImplTest` | Agentic/Graph routing (internal enum SIMPLE/COMPLEX) and malformed-JSON fallback, multi-agent routing with fallback, session & goal lifecycle |
 | 🤖 Agent calls | `AgentChatCallerTest` `AgentChatCallerRetryTest` `LlmRetryTest` `GeneralAssistantAgentTest` | Tool loop with budget accounting & circuit breaking, hallucinated-tool fallback retry, retry policy, progressive token emission (anti fake-streaming regression) |
 | 🕸️ Orchestration | `MultiAgentGraphAgentTest` `ProgressLineTest` | Orchestration closed loop, progress ordering (anti deadlock / lost events), expert dispatch whitelist, checkpoint resume (gaps filled / completed nodes reused), **partial budget degradation** (remaining subtasks skipped, aggregation keeps earlier results) |
 | 🧩 Prompt assembly | `PromptAssemblerTest` `MemoryPolicyTest` `SkillManagerTest` `SkillRepositoryTest` `ToolLazyManagerTest` | Five-section assembly, per-role memory injection matrix, dynamic skill assembly, two-phase lazy tool-schema loading |

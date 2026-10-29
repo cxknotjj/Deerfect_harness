@@ -8,7 +8,7 @@
 
 ## 一、总览
 
-> 服务端 77 个测试类 / 682 用例；另有 channel-qq 7 类 / 72 例、cli 3 类 / 28 例、wms-mcp-adapter 4 类 / 43 例（合计 91 类 / 825 例，按 `@Test` 统计，2026-10-28 核对）。
+> 服务端 78 个测试类 / 687 用例；另有 channel-qq 7 类 / 72 例、cli 3 类 / 28 例、wms-mcp-adapter 4 类 / 43 例（合计 92 类 / 830 例，按 `@Test` 统计，2026-10-29 核对）。
 
 **入口与异常**
 
@@ -61,14 +61,14 @@
 | `AgentChatCallerRetryTest` | 编排调用器失败自动重试（指数退避） | 5 |
 | `AgentChatPipelineTest` | 流管道核（watchdog/帧记账/空响应防御） | 6 |
 | `AgentRegistryTest` | Agent 注册表（表驱动自动注册/内部角色排除） | 9 |
-| `GeneralAssistantAgentTest` | 路径 A 真·逐 token 透传契约 | 7 |
-| `GeneralAssistantAgentScaffoldTest` | 路径 A 装配脚手架 | 7 |
+| `GeneralAssistantAgentTest` | Agentic 路径回退（ChatClient）真·逐 token 透传契约 | 7 |
+| `GeneralAssistantAgentScaffoldTest` | Agentic 路径回退装配脚手架 | 7 |
 | `LlmCallObserverTest` | 调用观测值对象（估算标记/usage 帧） | 2 |
 | `LlmErrorClassifierTest` | 4xx 客户端错误分类（连接池失效判定） | 4 |
 | `LlmRequestLogAdvisorChainTest` | 请求日志 advisor 链 | 1 |
 | `LlmRetryTest` | LLM 重试策略（可重试判定/退避/耗尽抛错） | 12 |
 | `ProgressLineTest` | 进度行线协议编解码 | 4 |
-| `MultiAgentGraphAgentTest` | 路径 B 多 Agent 编排 + 流式进度 + 记忆注入 + 断点续跑 | 44 |
+| `MultiAgentGraphAgentTest` | Graph 编排路径多 Agent 编排 + 流式进度 + 记忆注入 + 断点续跑 | 44 |
 | `BranchProgressListenerTest` | 并行分支钩子旁路（结局登记/串行发射） | 5 |
 | `LeadOutputParserTest` | lead 拆解 JSON 解析（专家白名单/brief） | 13 |
 | `ThinkingThrottleTest` | 子任务思考内容合帧节流 | 5 |
@@ -126,7 +126,7 @@
 | `NapCatApiClientImplTest` | NapCat HTTP 客户端 | 8 |
 | `EmojiRepliesTest` | 表情包匹配与发送 | 10 |
 
-**合计：91 个测试类 / 825 个用例（服务端 77/682 + channel-qq 7/72 + cli 3/28 + wms-mcp-adapter 4/43；按 `@Test` 统计，2026-10-28 核对）。除 `JavaHarnessApplicationTests` 需本机 MySQL 外，其余不依赖真实 DB/外网。**
+**合计：92 个测试类 / 830 个用例（服务端 78/687 + channel-qq 7/72 + cli 3/28 + wms-mcp-adapter 4/43；按 `@Test` 统计，2026-10-29 核对）。除 `JavaHarnessApplicationTests` 需本机 MySQL 外，其余不依赖真实 DB/外网。**
 
 ***
 
@@ -153,20 +153,20 @@ IDEA 中直接点测试方法旁的绿色按钮即可；报告输出在 `target/
 
 ### 1. `LlmRouteJudgeTest` —— 主 Agent 前置判断
 
-验证「分流」这个核心薄环：LLM 只回一行 JSON，解析结果决定 SIMPLE / COMPLEX。
+验证「路径判定」这个核心薄环：LLM 只回一行 JSON，解析结果决定走 Agentic 还是 Graph 编排（内部枚举 `SIMPLE` / `COMPLEX`）。
 
 | 用例 | 验证点 |
 | --- | --- |
-| `judge_whenLlmReturnsComplex_shouldReturnComplex` | 返回 `{"route":"complex"}` → 判定 COMPLEX（走路径 B） |
-| `judge_whenLlmReturnsSimple_shouldReturnSimple` | 返回 simple → 判定 SIMPLE（走路径 A） |
-| `judge_whenLlmReturnsInvalidJson_shouldFallbackSimple` | 非 JSON 输出 → 兜底 SIMPLE |
-| `judge_whenLlmReturnsBlank_shouldFallbackSimple` | 返回为空 → 兜底 SIMPLE |
-| `judge_whenCallThrows_shouldFallbackSimple` | LLM 调用抛异常 → 兜底 SIMPLE，不向上传播 |
-| `judge_whenMessageBlank_shouldReturnSimpleWithoutCall` | 消息为空 → 直接 SIMPLE，**不发起 LLM 调用** |
+| `judge_whenLlmReturnsComplex_shouldReturnComplex` | 返回 `{"route":"complex"}` → 判定 `COMPLEX`（走 Graph 编排路径） |
+| `judge_whenLlmReturnsSimple_shouldReturnSimple` | 返回 simple → 判定 `SIMPLE`（走 Agentic 路径） |
+| `judge_whenLlmReturnsInvalidJson_shouldFallbackSimple` | 非 JSON 输出 → 兜底 Agentic（`SIMPLE`） |
+| `judge_whenLlmReturnsBlank_shouldFallbackSimple` | 返回为空 → 兜底 Agentic（`SIMPLE`） |
+| `judge_whenCallThrows_shouldFallbackSimple` | LLM 调用抛异常 → 兜底 Agentic（`SIMPLE`），不向上传播 |
+| `judge_whenMessageBlank_shouldReturnSimpleWithoutCall` | 消息为空 → 直接 Agentic（`SIMPLE`），**不发起 LLM 调用** |
 
-**核心设计**：任何失败都兜底 SIMPLE——「宁可简单，不阻塞请求」。
+**核心设计**：任何失败都兜底 Agentic（`SIMPLE`）——「宁可轻量，不阻塞请求」。
 
-### 2. `MultiAgentGraphAgentTest` —— 路径 B 多 Agent 编排
+### 2. `MultiAgentGraphAgentTest` —— Graph 编排路径
 
 mock `ChatClientRegistry` / `ChatClient` 固定 content（lead 固定返回两条子任务的 JSON），整图执行不真实出网。
 
@@ -213,7 +213,7 @@ mock `ChatClientRegistry` / `ChatClient` 固定 content（lead 固定返回两�
 | `streamReactive_shouldInvokeMainAgentRouteJudge` | 流式入口同样经过分流 |
 | `streamReactive_withAgentId_shouldRouteByAgentId` | 显式 agentId 优先于路由结果 |
 
-**进度流式化（复杂任务体验）：**
+**进度流式化（Graph 编排体验）：**
 
 | 用例 | 验证点 |
 | --- | --- |
@@ -284,7 +284,7 @@ mock `ChatClientRegistry` / `ChatClient` 固定 content（lead 固定返回两�
 
 - **mock 边界**：数据库经 H2/spring-test 或 mock Mapper 规避真实依赖；LLM 一律 mock `ChatClient` 返回固定 content——单测不真实出网、结果确定可重复。
 - **分层结构**：单元测试为主（Agent/Advisor/Service 层行为），`JavaHarnessApplicationTests` 提供容器级冒烟。
-- **防回归重点**：钩子方案的两个踩坑（merge 后关闸死锁、并行线程并发发射丢事件）由 `executeStreamReactive_streamsStageEventsInOrder` 的时序断言兜住；「宁可简单」的分流兜底语义由 `LlmRouteJudgeTest` 六个失败分支覆盖。
+- **防回归重点**：钩子方案的两个踩坑（merge 后关闸死锁、并行线程并发发射丢事件）由 `executeStreamReactive_streamsStageEventsInOrder` 的时序断言兜住；「宁可轻量」的路径判定兜底语义由 `LlmRouteJudgeTest` 六个失败分支覆盖。
 - **命名规约**：`方法_条件_期望结果`（如 `judge_whenCallThrows_shouldFallbackSimple`），失败信息一眼定位功能点。
 
 ***
@@ -293,10 +293,10 @@ mock `ChatClientRegistry` / `ChatClient` 固定 content（lead 固定返回两�
 
 | 业务功能 | 对应测试 |
 | --- | --- |
-| 主 Agent 前置分流（SIMPLE/COMPLEX + 兜底） | `LlmRouteJudgeTest`、`ChatServiceImplTest.chat/streamReactive_shouldInvokeMainAgentRouteJudge` |
-| 路径 A 单模型对话（上下文注入 + 记忆多轮） | `ChatServiceImplTest`（会话/写回）、`ContextAssemblingAdvisorTest` |
-| 路径 B 多 Agent 编排（拆解→并行→聚合） | `MultiAgentGraphAgentTest.execute_*` |
-| 复杂任务实时进度推送 | `MultiAgentGraphAgentTest.executeStreamReactive_*`、`ProgressLineTest`、`ChatServiceImplTest.streamReactive_shouldMapProgressRowToProgressEvent` |
+| 主 Agent 前置路径判定（Agentic / Graph，内部枚举 SIMPLE/COMPLEX + 兜底） | `LlmRouteJudgeTest`、`ChatServiceImplTest.chat/streamReactive_shouldInvokeMainAgentRouteJudge` |
+| Agentic 路径对话（上下文注入 + 记忆多轮；含 ChatClient 回退） | `ChatServiceImplTest`（会话/写回）、`ContextAssemblingAdvisorTest`、`AgentScopeGeneralAgentTest` |
+| Graph 编排路径（拆解→并行→聚合） | `MultiAgentGraphAgentTest.execute_*` |
+| Graph 编排路径实时进度推送 | `MultiAgentGraphAgentTest.executeStreamReactive_*`、`ProgressLineTest`、`ChatServiceImplTest.streamReactive_shouldMapProgressRowToProgressEvent` |
 | SSE 对外契约（token/DONE/meta/error 按序） | `ChatServiceImplTest.streamReactive_*`、`ChatControllerTest` |
 | 多 Agent 显式指定与回退 | `AgentServiceImplTest` |
 | agent/model 双表配置驱动 | `AgentConfigProviderTest`、`ChatClientRegistryTest` |

@@ -2,6 +2,7 @@
 
 > 由原 `ROADMAP.md` 与 `HARNESS_TODO.md` 合并而成；2026-09-11 结构重构：未完成区只保留 `- [ ]` 条目（P0→P3），已完成全部归档（按主题分节），拆出遗留尾巴立条。
 > 约定：`- [ ]` 未开始，`- [x]` 已完成。**未完成在前（按优先级），已完成在后（存档备查）**。
+> 术语说明：历史条目中的「路径 A / SIMPLE」对应 **Agentic 路径**，「路径 B / COMPLEX」对应 **Graph 编排路径**。
 > 版本基线：Spring Boot 4.1.2 / Spring AI 2.0.2 / Java 25（以根 `pom.xml` 与 [TECH_STACK.md](./TECH_STACK.md) 为准）；升级任何 AI 相关依赖前先验证兼容性。
 > 首次可用性约定：新增功能/入口合入前按 `docs/guides/first-run-audit.md`「五、首次使用流程规则」复查，走查结论追加至该报告「六、走查记录」。
 
@@ -122,7 +123,7 @@
 - [x] **容器化交付**：Dockerfile + docker-compose（app + MySQL + pgvector）一键启动
   - 验收：`docker compose up` 后完整可访问
 - [ ] **CI/CD**：GitHub Actions / Gitee Go 自动流水线（2026-09-18 充实，检查项取自多模块拆分验收清单）
-  - CI（push/PR 触发）：`mvn -s .mvn/settings.xml clean package` 全模块编译 + 测试（当前 server 682 / channel-qq 72 / cli 28 / wms 43 例）→ 断言 server fat jar 无 `com/dark/javaHarness/cli/` 目录与 jline → 断言 cli 运行时 classpath 无 spring-ai/mybatis/reactor 传递依赖（harness-api 框架依赖为 optional）→ `docker build -f docker/Dockerfile .` 验证镜像可构建（基础镜像走 BUILD\_BASE/RUN\_BASE ARG，CI 侧按网络环境注入加速通道）
+  - CI（push/PR 触发）：`mvn -s .mvn/settings.xml clean package` 全模块编译 + 测试（当前 server 687 / channel-qq 72 / cli 28 / wms 43 例）→ 断言 server fat jar 无 `com/dark/javaHarness/cli/` 目录与 jline → 断言 cli 运行时 classpath 无 spring-ai/mybatis/reactor 传递依赖（harness-api 框架依赖为 optional）→ `docker build -f docker/Dockerfile .` 验证镜像可构建（基础镜像走 BUILD\_BASE/RUN\_BASE ARG，CI 侧按网络环境注入加速通道）
   - 缓存：`actions/setup-java` 内置 maven 缓存对齐 `.mvn-repo`（localRepository 由 `maven.multiModuleProjectDirectory` 定位项目根，CI 工作区即仓库）
   - CD（可选后置）：分支镜像打 tag 推送镜像仓库，服务器 `docker compose pull && up -d` 拉起；上线前是否人工确认决定 Delivery/Deployment 形态
   - 验收：PR 红灯可见（测试失败 / fat jar 混入 cli class / 镜像构建失败均可拦截）；全绿后产物可直接部署

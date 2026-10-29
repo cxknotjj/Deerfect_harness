@@ -16,24 +16,24 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.x-6DB33F?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
 [![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.x-6DB33F?logo=spring&logoColor=white)](https://spring.io/projects/spring-ai)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
-[![Tests](https://img.shields.io/badge/tests-825-brightgreen?logo=junit5&logoColor=white)](#-运行测试)
+[![Tests](https://img.shields.io/badge/tests-830-brightgreen?logo=junit5&logoColor=white)](#-运行测试)
 
-*简单问题直接答 · 复杂任务多 Agent 编排 · 全程流式可视化*
+*Agentic 单 Agent 自主执行 · Graph 多 Agent 编排 · 全程流式可视化*
 
 </div>
 
 ## 为什么需要它？
 
-- 直接调对话 API：复杂任务要自己写循环编排、人工多轮搬运中间结果
+- 直接调对话 API：多 Agent 编排要自己写循环、人工多轮搬运中间结果
 - 通用编排框架（LangChain 等）：从零画图写代码，沙箱隔离、会话记忆、知识库还得自己拼
 - 本项目把这些都做成开箱即用：**数据库里配两行就能跑**，拆解 → 专家并行 → 汇总全自动，连"模型失控""烧 token""子任务失败连坐"这些坑都提前铺好了护栏
 
 ## 核心亮点
 
-### 🧠 智能分流与多 Agent 编排
+### 🧠 双路径执行：Agentic 与 Graph 编排
 
-- **LLM 路由判定**：简单问题直答不浪费 token，复杂任务才进编排——判定过程本身也可视化（「路由判定中…」→「判定完成：COMPLEX」）
-- **Lead 拆解**：复杂目标拆成结构化任务书（目标 / 背景 / 约束 / 交付物四要素），子任务并发执行，聚合节点汇成成稿
+- **LLM 路径判定**：Agentic 路径由单个 Agent 自主推理-行动，Graph 路径才展开多 Agent 编排——判定过程本身也可视化（「路由判定中…」→「判定完成」，内部枚举 `SIMPLE` / `COMPLEX` 分别对应这两条路径）
+- **Graph 编排**：编排目标拆成结构化任务书（目标 / 背景 / 约束 / 交付物四要素），子任务并发执行，聚合节点汇成成稿
 - **专家团开箱即用**：researcher / coder / analyst / writer 四类通用专家 + 领域专员（如 WMS 仓储专员，10 个只读中文语义工具）；agent 表里加一行就是新专家，改库即生效
 - **失败不连坐**：单个子任务失败写占位跳过，聚合照常进行——一个专家翻车不拖垮整张图
 
@@ -160,13 +160,13 @@ curl -s -X POST http://localhost:8080/api/chat \
 
 ## 技术架构
 
-Maven 多模块：`harness-api`（渠道与 core 共用的契约层：端口接口 / DTO / 共享枚举 / `ReplyPostProcessor` SPI）+ `server`（Spring Boot 主服务与 fat jar 宿主）+ `channel-qq`（QQ 渠道，仅依赖 `harness-api`）+ `cli`（终端客户端，纯 HTTP + SSE，复用 `harness-api` 契约）+ `web`（Vue3 自包含前端）+ `wms-mcp-adapter`（领域 MCP 适配范例）。`server` 以 **runtime** scope 装配 `channel-qq`，core 编译期看不到渠道代码（`maven-enforcer-plugin` 守护）；渠道输出控制走通用 `ReplyPostProcessor` SPI。核心链路：`ChatController` 入口 → `RouteJudge` 判定 SIMPLE / COMPLEX → 路径 A 单 Agent 直答 或 路径 B 自研并行引擎编排（Lead → 专家并行 → Aggregator）→ 统一出口。
+Maven 多模块：`harness-api`（渠道与 core 共用的契约层：端口接口 / DTO / 共享枚举 / `ReplyPostProcessor` SPI）+ `server`（Spring Boot 主服务与 fat jar 宿主）+ `channel-qq`（QQ 渠道，仅依赖 `harness-api`）+ `cli`（终端客户端，纯 HTTP + SSE，复用 `harness-api` 契约）+ `web`（Vue3 自包含前端）+ `wms-mcp-adapter`（领域 MCP 适配范例）。`server` 以 **runtime** scope 装配 `channel-qq`，core 编译期看不到渠道代码（`maven-enforcer-plugin` 守护）；渠道输出控制走通用 `ReplyPostProcessor` SPI。核心链路：`ChatController` 入口 → `RouteJudge` 在两条执行路径间分流 → **Agentic 路径**（AgentScope ReAct，单 Agent 自主推理-行动，工具经 Spring AI 桥接）或 **Graph 编排路径**（自研并行引擎：Lead → 专家并行 → Aggregator）→ 统一出口。
 
 架构图与数据流细节见 **[`docs/architecture.md`](./docs/architecture.md)** 与 **[`docs/data-flow.md`](./docs/data-flow.md)**。
 
 ## 🧪 运行测试
 
-单元测试基于 JUnit 5 + Mockito，**除 `JavaHarnessApplicationTests` 的 contextLoads 需本机 MySQL 外，不依赖真实数据库 / 网络 / API Key**（当前 825 个用例：server 682 / channel-qq 72 / cli 28 / wms-mcp-adapter 43）：
+单元测试基于 JUnit 5 + Mockito，**除 `JavaHarnessApplicationTests` 的 contextLoads 需本机 MySQL 外，不依赖真实数据库 / 网络 / API Key**（当前 830 个用例：server 687 / channel-qq 72 / cli 28 / wms-mcp-adapter 43）：
 
 ```bash
 mvn test

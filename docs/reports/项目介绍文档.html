@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>智算云上的多智能体编排平台 — Deerfect Harness 技术文档</title>
+<title>智算云上的双路径 Agent 平台 — Deerfect Harness 技术文档</title>
 <style>
 :root{
   --ink:#1B2A38;          /* 主色 1：墨蓝（标题/深色块） */
@@ -220,7 +220,7 @@ svg text{font-family:var(--sans)}
 <section class="cover">
   <div class="top"><span>智算云主题技术文档</span><span>Deerfect Harness</span></div>
   <div class="mid">
-    <h1>智算云上的<br>多智能体编排平台</h1>
+    <h1>智算云上的<br>双路径 Agent 平台</h1>
     <p class="sub">Deerfect Harness 面向 LLM 工作负载的调度、部署与成本管理实践——从底层算力优化，到基于云平台构建智能体、RAG 应用与 AI 服务，再到 AI 工作负载的监控、调度与成本管理。</p>
   </div>
   <div class="meta"><span>Deerfect Harness 团队</span><span>2026 年 10 月</span></div>
@@ -270,18 +270,18 @@ svg text{font-family:var(--sans)}
 <section id="s1">
   <h2><span class="no">一</span>项目概述</h2>
   <div class="prose">
-    <p><strong>Deerfect Harness</strong> 是一个基于 Java 25 + Spring Boot 4.1 + Spring AI 2.0 构建的企业级 AI 智能体编排平台。任务发进来，自动拆解、并行执行、汇总交付：简单问题直答不浪费 token，复杂任务多 Agent 编排，全程流式可视化。</p>
+    <p><strong>Deerfect Harness</strong> 是一个基于 Java 25 + Spring Boot 4.1 + Spring AI 2.0 构建的企业级 AI 智能体平台，提供两条执行路径：<strong>Agentic 路径</strong>由单 Agent 显式 ReAct 循环自主推理-行动；<strong>Graph 编排路径</strong>自动拆解、专家并行、汇总交付。两条路径全程流式可视化。</p>
     <div class="callout"><p>项目消费智算云上的模型推理服务（通义千问 DashScope、DeepSeek 等），在其之上构建了覆盖<strong>算力调度、模型部署、智能体框架、AI 工作负载监控与成本管理</strong>的完整应用层体系。</p></div>
     <table>
       <thead><tr><th style="width:10.5em">征集方向</th><th>项目对应能力</th></tr></thead>
       <tbody>
         <tr><td>算力调度</td><td>请求级智能分流、模型分级路由、并发错峰、双闸资源保护、连接层自愈</td></tr>
         <tr><td>模型部署</td><td>多服务商统一接入、模型配置库表化热生效、独立 MCP 服务、容器化交付</td></tr>
-        <tr><td>智能体框架</td><td>两路径编排、Lead 拆解-专家并行-聚合、RAG 混合检索、MCP 工具生态、Docker 沙箱</td></tr>
+        <tr><td>智能体框架</td><td>Agentic + Graph 双路径执行、Lead 拆解-专家并行-聚合、RAG 混合检索、MCP 工具生态、Docker 沙箱</td></tr>
         <tr><td>监控与成本管理</td><td>四张观测表、按轮次的 token 成本账本、四级预算护栏、观测数据保留期治理</td></tr>
       </tbody>
     </table>
-    <p><strong>技术基线</strong>：Java 25 / Spring Boot 4.1.2 / Spring AI 2.0.2 / 自研 ParallelOrchestrationEngine（替代 StateGraph 编排）与 agentscope 容器沙箱 / MySQL 8.4+（Flyway 管理 41 个迁移版本）+ PostgreSQL pgvector（向量库）/ MyBatis-Plus / Vue 3 Web 控制台。服务端 682 个自动化测试用例（另有 QQ 72 / CLI 28 / WMS 43，合计 825），除 contextLoads 集成用例需本机 MySQL 外不依赖真实 DB 与外网。</p>
+    <p><strong>技术基线</strong>：Java 25 / Spring Boot 4.1.2 / Spring AI 2.0.2 / AgentScope ReAct（Agentic 路径）+ 自研 ParallelOrchestrationEngine（Graph 编排路径，替代 StateGraph）与 agentscope 容器沙箱 / MySQL 8.4+（Flyway 管理 41 个迁移版本）+ PostgreSQL pgvector（向量库）/ MyBatis-Plus / Vue 3 Web 控制台。服务端 687 个自动化测试用例（另有 QQ 72 / CLI 28 / WMS 43，合计 830），除 contextLoads 集成用例需本机 MySQL 外不依赖真实 DB 与外网。</p>
   </div>
 </section>
 
@@ -310,9 +310,9 @@ svg text{font-family:var(--sans)}
         <text x="310" y="211" text-anchor="middle" font-size="15" fill="#242A31">鉴权过滤器</text>
         <polygon points="470,130 545,205 470,280 395,205" fill="#FFFCF0" stroke="#2D5F8A" stroke-width="1.5"/>
         <text x="470" y="199" text-anchor="middle" font-size="14" fill="#242A31">RouteJudge</text>
-        <text x="470" y="221" text-anchor="middle" font-size="12.5" fill="#6E7780">复杂度判定</text>
+        <text x="470" y="221" text-anchor="middle" font-size="12.5" fill="#6E7780">路径判定</text>
         <rect x="600" y="55" width="220" height="80" rx="8" fill="#EDF2F6" stroke="#2D5F8A" stroke-width="1.5"/>
-        <text x="710" y="89" text-anchor="middle" font-size="15" fill="#242A31">general 直答</text>
+        <text x="710" y="89" text-anchor="middle" font-size="15" fill="#242A31">Agentic 路径</text>
         <text x="710" y="112" text-anchor="middle" font-size="12.5" fill="#6E7780">单 Agent · 逐 token 流式</text>
         <rect x="575" y="300" width="140" height="70" rx="8" fill="#fff" stroke="#2D5F8A" stroke-width="1.5"/>
         <text x="645" y="329" text-anchor="middle" font-size="15" fill="#242A31">Lead 拆解</text>
@@ -326,16 +326,16 @@ svg text{font-family:var(--sans)}
         <text x="935" y="196" text-anchor="middle" font-size="14.5" fill="#fff">统一出口</text>
         <text x="935" y="219" text-anchor="middle" font-size="11.5" fill="#DCE6EF">SSE 流式</text>
         <text x="935" y="238" text-anchor="middle" font-size="11.5" fill="#DCE6EF">断点续跑</text>
-        <text x="523" y="80" text-anchor="middle" font-size="12.5" font-weight="700" fill="#2D5F8A">SIMPLE</text>
-        <text x="518" y="318" text-anchor="middle" font-size="12.5" font-weight="700" fill="#2D5F8A">COMPLEX</text>
-        <text x="470" y="36" text-anchor="middle" font-size="12.5" fill="#6E7780">SIMPLE · 简单请求</text>
-        <text x="470" y="390" text-anchor="middle" font-size="12.5" fill="#6E7780">COMPLEX · 复杂任务</text>
+        <text x="523" y="80" text-anchor="middle" font-size="12.5" font-weight="700" fill="#2D5F8A">AGENTIC</text>
+        <text x="518" y="318" text-anchor="middle" font-size="12.5" font-weight="700" fill="#2D5F8A">GRAPH</text>
+        <text x="470" y="36" text-anchor="middle" font-size="12.5" fill="#6E7780">AGENTIC · 单 Agent 执行</text>
+        <text x="470" y="390" text-anchor="middle" font-size="12.5" fill="#6E7780">GRAPH · 多 Agent 编排</text>
       </svg>
-      <figcaption>双路径编排主链路：简单请求经判定后由 general 直答；复杂任务经 Lead 拆解、专家并行、聚合后由统一出口流式交付</figcaption>
+      <figcaption>双路径主链路：Agentic 路径由单 Agent 自主推理-行动；Graph 编排路径经 Lead 拆解、专家并行、聚合后由统一出口流式交付</figcaption>
     </figure>
     <ul>
-      <li><strong>路径 A（SIMPLE）</strong>：单 Agent 直答，逐 token 真·流式输出；</li>
-      <li><strong>路径 B（COMPLEX）</strong>：Lead 将复杂目标拆解为带「目标 / 背景 / 约束 / 交付物」四要素的结构化任务书，子任务并发执行，聚合节点汇成最终回答；</li>
+      <li><strong>Agentic 路径</strong>：单 Agent 以显式 ReAct 循环自主推理-行动，逐 token 真·流式输出；</li>
+      <li><strong>Graph 编排路径</strong>：Lead 将目标拆解为带「目标 / 背景 / 约束 / 交付物」四要素的结构化任务书，子任务并发执行，聚合节点汇成最终回答；</li>
       <li><strong>专属 Agent 直答</strong>：会话绑定领域专员（如 WMS 仓储专员）时跳过判定与 RAG 预取，该 Agent 直接应答，避免编排链路额外开销。</li>
     </ul>
   </div>
@@ -346,7 +346,7 @@ svg text{font-family:var(--sans)}
   <div class="prose">
     <p>项目的「算力」即云端模型推理资源（token 与并发），调度体系分五层。</p>
     <h3>3.1 请求级智能分流</h3>
-    <p><code>LlmRouteJudge</code> 以独立轻量 LLM 调用（独立连接池、10 秒读超时、无工具）判定请求复杂度：<strong>简单问题直答不进编排</strong>，避免为小任务支付 lead 拆解 + 多专家 + 聚合的成倍推理成本；判定异常兜底 SIMPLE（宁可简单，不烧 token）。判定过程本身可视化（「路由判定中…」→「判定完成：COMPLEX」）。</p>
+    <p><code>LlmRouteJudge</code> 以独立轻量 LLM 调用（独立连接池、10 秒读超时、无工具）选择执行路径：<strong>Agentic 路径</strong>由单 Agent 自主执行，避免为轻量请求支付 Lead 拆解 + 多专家 + 聚合的成倍推理成本；<strong>Graph 编排路径</strong>才进入多 Agent 拆解与并行。判定异常兜底 Agentic（内部枚举 <code>SIMPLE</code>，宁可轻量，不烧 token）。判定过程本身可视化（「路由判定中…」→「判定完成」，标签为 <code>SIMPLE</code> / <code>COMPLEX</code>）。</p>
     <h3>3.2 模型分级路由</h3>
     <p><code>model_provider</code> 表登记各服务商模型端点，<code>agent</code> 表为每个智能体独立指定模型——<strong>重活用强模型、轻活用快模型</strong>：</p>
     <ul>
@@ -459,7 +459,7 @@ svg text{font-family:var(--sans)}
     <h3>5.4 记忆体系</h3>
     <ul>
       <li><strong>会话记忆</strong>：多轮上下文自动组装、按预算裁剪（MySQL 双表）；</li>
-      <li><strong>用户画像</strong>：后台定时扫描空闲会话（≥30 分钟静默），LLM 提炼跨会话偏好合并进全局画像（原子写防丢失），注入直答与 Lead 编排，越聊越懂用户。</li>
+      <li><strong>用户画像</strong>：后台定时扫描空闲会话（≥30 分钟静默），LLM 提炼跨会话偏好合并进全局画像（原子写防丢失），注入 Agentic 与 Graph 编排，越聊越懂用户。</li>
     </ul>
     <h3>5.5 多端接入</h3>
     <p>Web 控制台（会话管理 / 思考折叠 / 轨迹观测）、REST API（同步 / SSE 流式）、Claude Code 风格终端 CLI、QQ 机器人（NapCat / OneBot 11，群聊 @ 触发、私聊白名单 + 限频、渐进式拟人回复）。</p>
@@ -515,7 +515,7 @@ svg text{font-family:var(--sans)}
   <h2><span class="no">七</span>工程质量</h2>
   <div class="prose">
     <div class="stats">
-      <div class="stat"><b>825</b><span>自动化测试用例（91 个测试类），除 contextLoads 外不依赖真实 DB 与外网</span></div>
+      <div class="stat"><b>830</b><span>自动化测试用例（92 个测试类），除 contextLoads 外不依赖真实 DB 与外网</span></div>
       <div class="stat"><b>41</b><span>Flyway 版本化迁移迭代，存量库 baseline 无缝接入</span></div>
       <div class="stat"><b>90</b><span>天观测数据保留期，低峰期自动分批清理</span></div>
       <div class="stat"><b>2</b><span>条鉴权通道（HttpOnly Cookie + X-API-Token），常量时间比较 + 限流锁定</span></div>
