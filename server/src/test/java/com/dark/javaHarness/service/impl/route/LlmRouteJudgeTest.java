@@ -211,7 +211,7 @@ class LlmRouteJudgeTest {
         assertEquals(0.91, plan.confidence());
     }
 
-    /** 置信度策略：Graph 但置信度低于 0.8 → 收敛为 Agentic（编排成本让位于先直答） */
+    /** 置信度策略：Graph 但置信度低于 0.75 → 收敛为 Agentic（编排成本让位于先直答） */
     @Test
     void plan_whenGraphConfidenceBelowThreshold_shouldCollapseToAgentic() {
         stubContent("{\"route\":\"graph\",\"confidence\":0.55,"
@@ -222,6 +222,43 @@ class LlmRouteJudgeTest {
         assertEquals("agentic", plan.path());
         assertEquals(RoutePlan.Source.FALLBACK, plan.source());
         assertEquals(0.55, plan.confidence());
+    }
+
+    /** 阈值下调到 0.75 后：0.78 + 2 个工作流应保留 Graph（此前会被误收敛为 Agentic） */
+    @Test
+    void plan_whenGraphConfidenceAtLoweredThreshold_shouldKeepGraph() {
+        stubContent("{\"route\":\"graph\",\"confidence\":0.78,"
+                + "\"workstreams\":[\"竞品定价\",\"用户口碑\"],\"reason\":\"两条独立调研线\"}");
+
+        RoutePlan plan = judge.plan("先梳理一下这几家竞品的情况再给我结论", null, null);
+
+        assertEquals("graph", plan.path());
+        assertEquals(0.78, plan.confidence());
+    }
+
+    /** workstreams 去重：同一工作流的两种表述（仅空格/标点差异）不得虚增为并行流 */
+    @Test
+    void plan_whenWorkstreamsNearDuplicates_shouldCollapseToAgentic() {
+        stubContent("{\"route\":\"graph\",\"confidence\":0.95,"
+                + "\"workstreams\":[\"竞品调研\",\"竞品 调研！\"],\"reason\":\"same stream twice\"}");
+
+        RoutePlan plan = judge.plan("先梳理一下这几家竞品的情况再给我结论", null, null);
+
+        assertEquals("agentic", plan.path());
+        assertEquals(RoutePlan.Source.FALLBACK, plan.source());
+        assertEquals("llm: workstreams<2, collapse to agentic", plan.reason());
+    }
+
+    /** 规则信号支持英文触发词（大小写不敏感） */
+    @Test
+    void plan_whenEnglishParallelPhrase_shouldShortCircuitToGraph() {
+        judge = new LlmRouteJudge(clientRegistry, null, null, agentConfigProvider);
+
+        RoutePlan plan = judge.plan("Research each competitor separately and give me the comparison", null, null);
+
+        assertEquals("graph", plan.path());
+        assertEquals(RoutePlan.Source.RULE, plan.source());
+        verify(clientRegistry, org.mockito.Mockito.never()).getLightweightByModel(anyString(), any());
     }
 
     /** 工作流形态：Graph 但可独立工作流不足 2 个 → 收敛为 Agentic（单工作流无并行收益） */

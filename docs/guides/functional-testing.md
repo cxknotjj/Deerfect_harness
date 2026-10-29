@@ -161,8 +161,11 @@ IDEA 中直接点测试方法旁的绿色按钮即可；报告输出在 `target/
 | `plan_whenLlmReturnsAgentic_shouldReturnAgentic` | 返回 `agentic` → 判定 Agentic 路径 |
 | `plan_whenMessageShort_shouldShortCircuitToAgentic` | ≤12 字短消息 → 规则短路 Agentic，**不发起 LLM 调用** |
 | `plan_whenMultiWorkstreamPhrase_shouldShortCircuitToGraph` | 多工作流措辞 → 规则短路 Graph，**不发起 LLM 调用** |
+| `plan_whenEnglishParallelPhrase_shouldShortCircuitToGraph` | 英文并行措辞（separately/for each 等）→ 规则短路 Graph |
 | `plan_whenLlmGraphWithEnoughWorkstreamsAndConfidence_shouldKeepGraph` | Graph + ≥2 工作流 + 置信度达标 → 保持 Graph，字段完整透出 |
-| `plan_whenGraphConfidenceBelowThreshold_shouldCollapseToAgentic` | Graph 但置信度 <0.8 → 收敛 Agentic（FALLBACK） |
+| `plan_whenGraphConfidenceBelowThreshold_shouldCollapseToAgentic` | Graph 但置信度 <0.75 → 收敛 Agentic（FALLBACK） |
+| `plan_whenGraphConfidenceAtLoweredThreshold_shouldKeepGraph` | 置信度 0.78（新阈值区间）→ 保持 Graph |
+| `plan_whenWorkstreamsNearDuplicates_shouldCollapseToAgentic` | 近重复工作流（空格/标点差异）去重后 <2 → 收敛 Agentic |
 | `plan_whenGraphHasSingleWorkstream_shouldCollapseToAgentic` | Graph 但工作流 <2 → 收敛 Agentic（FALLBACK） |
 | `plan_whenLlmReturnsInvalidJson_shouldFallbackAgentic` | 非 JSON 输出 → 兜底 Agentic |
 | `plan_whenCallThrows_shouldFallbackAgenticAndDropPool` | LLM 调用抛异常 → 兜底 Agentic，丢弃黑洞连接池 |

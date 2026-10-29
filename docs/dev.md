@@ -60,7 +60,7 @@ mvn -s .mvn/settings.xml -pl cli -Pcli compile exec:exec
 Test-NetConnection 127.0.0.1 -Port 3306
 ```
 
-- Flyway 随 server 启动自动迁移，当前最高版本为 `V42`；改表只新增迁移文件，不改已发布的。
+- Flyway 随 server 启动自动迁移，当前最高版本为 `V43`；改表只新增迁移文件，不改已发布的。
 
 ## 5. 前端（`web/`）
 

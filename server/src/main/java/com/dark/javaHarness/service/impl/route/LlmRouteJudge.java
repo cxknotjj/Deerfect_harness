@@ -10,7 +10,9 @@ import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.RouteJudge;
 import com.dark.javaHarness.observability.LlmCallRecorder;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -45,30 +47,40 @@ public class LlmRouteJudge implements RouteJudge {
     /** 观测/落库用的调用方标识（llm_call_log.agent_name 与发起日志一致），兼作 agent 表行名 */
     private static final String ROUTE_AGENT = "route-judge";
 
-    /** 判定提示词回退默认：与 V22 迁移写入 agent 表 route-judge 行的 prompt 原文一致 */
+    /** 判定提示词回退默认：与 V43 迁移写入 agent 表 route-judge 行的 prompt 原文一致 */
     private static final String SYSTEM_PROMPT =
             "你是 Harness 的主路径判断器。判断一条用户请求应走「Agentic」还是「Graph 编排」路径。\n"
-            + "Agentic：单一工作流，可由一个 Agent 自主推理-行动、按需多步调用工具。\n"
-            + "Graph：存在至少 2 个可独立并行推进的工作流，或多份独立交付物；只有并行收益大于协调成本时才选。\n"
-            + "不要按消息长短或主观难度判断。";
+            + "Graph 判据（满足任一）：存在至少 2 个可独立执行、互不依赖、可并行推进的工作流；"
+            + "或需要至少 2 份可独立交付的产物（多份报告/多个方案/多份文件）。\n"
+            + "Agentic 判据（满足任一）：只有单一交付物；步骤之间存在强顺序依赖（后一步必须等前一步结果）；"
+            + "对话/问答/单次查询/单文件小改；只是需要多次串行调用工具——ReAct 可在单 Agent 内完成。\n"
+            + "注意：Agentic 不会在运行时升级为 Graph，判错即失去并行能力；"
+            + "但也不要按消息长短或主观难度判断，只有「可并行」和「多交付物」才是 Graph 的充分理由。"
+            + "工作流必须互不重叠：同一主题的「调研」和「分析」应算一个工作流，不是两个。";
 
     /** 无论 agent 表 prompt 是否更新，都追加输出契约，保证模型返回置信度与工作流字段 */
     private static final String OUTPUT_CONTRACT =
             "\n\n只输出一行 JSON，不要任何解释、前后缀。格式严格为："
             + "{\"route\":\"agentic|graph\",\"confidence\":0.0,\"workstreams\":[\"...\"],"
             + "\"deliverables\":[\"...\"],\"reason\":\"...\"}\n"
-            + "confidence 为 0~1；workstreams 为可独立并行推进的工作流列表；"
+            + "confidence 为 0~1；workstreams 为可独立且互不重叠的并行工作流列表；"
             + "无法判断时 route=agentic、confidence=0。";
 
-    /** 强多工作流信号：命中即规则短路到 Graph（不覆盖显式指定） */
+    /** 强多工作流信号：命中即规则短路到 Graph（不覆盖显式指定）；中英文触发词，大小写不敏感 */
     private static final Pattern GRAPH_SIGNAL = Pattern.compile(
-            "分别|各写|各生成|各输出|各一份|多份|逐一|逐个|同时调研|同时分析|多个报告|多个方案");
+            "分别|各写|各生成|各输出|各一份|各做|多份|多个报告|多个方案|逐一|逐个|同时调研|同时分析|同时处理"
+                    + "|并行|对比多个|多角度|for each|separately|multiple (reports|options)|in parallel",
+            Pattern.CASE_INSENSITIVE);
 
     /** 短消息直接 Agentic 的字符阈值（避免为寒暄/单句问答付判定调用） */
     private static final int TRIVIAL_MAX_CHARS = 12;
 
-    /** Graph 置信度门槛：低于该值先走 Agentic，由运行时升级兜底 */
-    private static final double GRAPH_CONFIDENCE_THRESHOLD = 0.8;
+    /**
+     * Graph 置信度门槛：低于该值先走 Agentic。Agentic 取消运行时升级后漏判成本变高
+     * （误判 COMPLEX 为 Agentic 没有任何补救），而误判 Graph 只多花调用且编排层有降级兜底，
+     * 因此阈值从 0.8 下调到 0.75，覆盖「模型倾向 Graph 但把握不足」的灰区。
+     */
+    private static final double GRAPH_CONFIDENCE_THRESHOLD = 0.75;
 
     /**
      * 判定输出封顶（token）：契约只要求一行 JSON（route/confidence/workstreams/deliverables/reason），
@@ -250,16 +262,24 @@ public class LlmRouteJudge implements RouteJudge {
         }
     }
 
-    /** JSON 数组字段 → 字符串列表；缺失/非数组返回空列表。 */
+    /** JSON 数组字段 → 字符串列表；缺失/非数组返回空列表。
+     *  近似重复项（忽略空白/中英文标点/大小写）只保留首次出现，避免同一工作流的
+     *  「调研/分析」两种表述被算成两个并行流、虚增 workstreams 数量。 */
     private static List<String> stringArray(JsonNode node, String field) {
         JsonNode array = node.path(field);
         if (!array.isArray()) {
             return List.of();
         }
+        Set<String> seen = new LinkedHashSet<>();
         List<String> values = new ArrayList<>(array.size());
         array.forEach(item -> {
             String text = item.asText("").trim();
-            if (!text.isEmpty()) {
+            if (text.isEmpty()) {
+                return;
+            }
+            String key = text.replaceAll("[\\s\\p{Punct}，。；、：？！「」『』（）]", "")
+                    .toLowerCase(java.util.Locale.ROOT);
+            if (!key.isEmpty() && seen.add(key)) {
                 values.add(text);
             }
         });

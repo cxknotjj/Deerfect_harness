@@ -116,13 +116,13 @@ RouteJudge.plan(message)（接口）
        4. 灰区：一次轻量 LLM 调用，要求输出
           {"route":"agentic|graph","confidence":0~1,
            "workstreams":[...],"deliverables":[...],"reason":"..."}
-       5. 置信度策略：Graph 且 workstreams<2 → Agentic（FALLBACK）
-                      Graph 且 confidence<0.8 → Agentic（FALLBACK）
+       5. 置信度策略：Graph 且 workstreams<2 → Agentic（FALLBACK；近似重复项先去重）
+                      Graph 且 confidence<0.75 → Agentic（FALLBACK）
        兜底（任何失败都 Agentic，「宁可简单」）：
            异常 / 超时 / 空 / 非 JSON → Agentic，confidence=0
 ```
 
-**提示词**：库中 route-judge 行的 prompt（V42 起为 Agentic/Graph 语义）+ 代码统一追加输出契约；判定按任务形态而非难度。
+**提示词**：库中 route-judge 行的 prompt（V43 起按「可并行工作流/多交付物」组织，明确"多次串行工具调用不算 Graph"）+ 代码统一追加输出契约；判定按任务形态而非难度。
 
 **分流点**：同步在建档后执行前；流式在 async 流开始前（旁路）。`resolveRouting()` 据此选执行体并写 `routeRef`。
 

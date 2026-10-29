@@ -32,8 +32,8 @@
 
 ### 🧠 双路径执行：Agentic 与 Graph 编排
 
-- **按任务形态判定路径**：先规则短路（多工作流措辞 → Graph、短消息 → Agentic），灰区再由轻量 LLM 输出 `route` / `confidence` / `workstreams`，Graph 需 ≥2 个可独立工作流且置信度 ≥0.8（内部枚举 `SIMPLE` / `COMPLEX` 分别对应两条路径）
-- **运行时逃生舱**：流式路径下 Agentic 迭代耗尽或失败且尚无输出时自动升级 Graph，Graph 编排失败则降级单 Agent 重答一次
+- **按任务形态判定路径**：先规则短路（多工作流措辞 → Graph、短消息 → Agentic），灰区再由轻量 LLM 输出 `route` / `confidence` / `workstreams`，Graph 需 ≥2 个可独立且互不重叠的工作流（近重复项先去重）且置信度 ≥0.75（内部枚举 `SIMPLE` / `COMPLEX` 分别对应两条路径）
+- **降级策略**：Agentic 链路不升级 Graph（迭代耗尽按 maxIters 的整理结果返回「部分完成」或兜底话术）；Graph 编排失败先在编排层简化（聚合失败用子任务结果汇总），仍失败再降级单 Agent 重答一次
 - **显式路径开关**：请求体 `routing`（auto / agentic / graph），Web 控制台「路径」下拉与 CLI `/routing` 同源；判定结果经 `meta.route` 透出并在消息头显示路径徽标
 - **Graph 编排**：编排目标拆成结构化任务书（目标 / 背景 / 约束 / 交付物四要素），子任务并发执行，聚合节点汇成成稿
 - **专家团开箱即用**：researcher / coder / analyst / writer 四类通用专家 + 领域专员（如 WMS 仓储专员，10 个只读中文语义工具）；agent 表里加一行就是新专家，改库即生效
