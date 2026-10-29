@@ -70,6 +70,12 @@ public class LlmRouteJudge implements RouteJudge {
     /** Graph 置信度门槛：低于该值先走 Agentic，由运行时升级兜底 */
     private static final double GRAPH_CONFIDENCE_THRESHOLD = 0.8;
 
+    /**
+     * 判定输出封顶（token）：契约只要求一行 JSON（route/confidence/workstreams/deliverables/reason），
+     * 512 留出思考增量与较长 reason 的余量；封顶只为防模型跑长，不追求压到最小。
+     */
+    private static final int JUDGE_MAX_TOKENS = 512;
+
     private final ChatClientRegistry clientRegistry;
     /** LLM 调用观测记录器：judge 调用耗时/token 也落 llm_call_log（agent_name='route-judge'） */
     private final LlmCallRecorder recorder;
@@ -185,7 +191,10 @@ public class LlmRouteJudge implements RouteJudge {
                 .system(settings.prompt() + OUTPUT_CONTRACT)
                 .user(message)
                 .options(org.springframework.ai.openai.OpenAiChatOptions.builder()
-                        .model(settings.model()))
+                        .model(settings.model())
+                        // 判定只要一行 JSON：输出封顶防跑长，温度 0 让灰区判定稳定可复现
+                        .maxTokens(JUDGE_MAX_TOKENS)
+                        .temperature(0.0))
                 // 发起前观测：与 agent 链路同款日志（此前 route-judge 在发起瞬间无任何痕迹）
                 .advisors(new LlmRequestLogAdvisor(ROUTE_AGENT, null))
                 .call()
