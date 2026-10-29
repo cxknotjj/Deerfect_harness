@@ -29,7 +29,8 @@ import org.springframework.stereotype.Component;
  *       组名：{@code web}/{@code demo}/{@code sandbox.base}/{@code sandbox.read}/
  *       {@code sandbox.write}/{@code sandbox.browser}；其余 token 按精确工具名跨目录查找
  *       （自研注解工具 → 沙箱各组 → MCP 动态发现工具，同名先到优先=沙箱优先）。
- *       未识别 token warn 跳过，不影响其余声明。</li>
+ *       注入前按当前可用工具面判定：解析不到的 token 一律不注入——已登记但当前环境
+ *       不可用的（沙箱未启动/MCP 未连接）只记 debug，未登记的按 agent+token 单次 info 记录。</li>
  *   <li><b>代码内置（兜底）</b>：tools 列 NULL/空白或查询异常时回退 legacy switch——
  *       与数据化前语义完全一致（含 MCP 白名单收窄）。</li>
  * </ol>
@@ -96,6 +97,9 @@ public class ToolAssignments {
         }
     }
 
+    /** 未解析 token 的单次记录键（agent + token）：避免每请求重复刷日志 */
+    private final Set<String> reportedUnavailable = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
     private final WebTools webTools;
     private final SandboxToolProvider sandbox;
     private final McpToolProvider mcp;
@@ -132,9 +136,9 @@ public class ToolAssignments {
      * 按工具名单声明解析（工具包通道）：与 {@link #forAgent} 共用 {@link #resolveDeclared}
      * 的目录索引/组名展开/精确名查找/跨通道同名防重引擎，但不查 agent 表 tools 列、
      * 无 legacy 兜底——名单来自子任务声明的领域工具包（包定义行 tools 列原文，由调用方传入），
-     * 未识别 token warn 单行跳过（与 forAgent 数据路径同口径）。
+     * 当前不可用的 token 单次记录后跳过（与 forAgent 数据路径同口径）。
      *
-     * @param packName    包名（仅用于未识别 token 的 warn 日志归因）
+     * @param packName    包名（仅用于不可用 token 的日志归因）
      * @param declaredCsv 逗号分隔的组名/精确工具名声明（包定义 tools 列原文）
      */
     public ToolSet forNames(String packName, String declaredCsv) {
@@ -201,12 +205,31 @@ public class ToolAssignments {
                     if (cb != null) {
                         addCallbacks(callbacks, usedNames, List.of(cb));
                     } else if (unknown.add(token)) {
-                        log.warn("[tool分配] agent='{}' tools 声明含未识别 token '{}'，跳过", agentName, token);
+                        // 注入前可用性判定：未进入当前可用工具面的 token 一律不注入
+                        reportUnavailable(agentName, token);
                     }
                 }
             }
         }
         return new ToolSet(List.copyOf(annotated), List.copyOf(callbacks));
+    }
+
+    /**
+     * 注入前可用性判定后的记录：不在当前可用工具面的 token 一律跳过注入。
+     * 已登记用途元数据、但当前环境不可用的（沙箱未启动 / MCP 未连接 / 上游无该工具）
+     * 只记 debug；完全未登记的 token 按 agent+token 单次 info 记录——保留排查声明笔误的
+     * 线索，又不会像逐轮 warn 那样刷屏。
+     */
+    private void reportUnavailable(String agentName, String token) {
+        if (!reportedUnavailable.add(agentName + '\u0000' + token)) {
+            return;
+        }
+        if (TOOL_PURPOSES.containsKey(token)) {
+            log.debug("[tool分配] agent='{}' 工具 '{}' 当前环境不可用，跳过注入", agentName, token);
+        } else {
+            log.info("[tool分配] agent='{}' 工具 '{}' 不在当前可用工具面（未注册或来源未启用），跳过注入",
+                    agentName, token);
+        }
     }
 
     /** 查工具一句话用途；未登记回退 MCP callback 真实 description（动态发现的工具在索引段也能显示用途） */

@@ -233,6 +233,22 @@ class ToolAssignmentsTest {
     }
 
     @Test
+    void declaredTools_unavailableTools_skippedBeforeInjection() {
+        // 注入前可用性判定：Docker/沙箱未启动时浏览器组为空、MCP 未连接时无动态工具，
+        // 组名（sandbox.browser）与同组精确工具名（browser_click/browser_type，agent 表
+        // 常见的冗余声明）都不得注入；其余可用声明照常解析，不能因部分不可用整体失败
+        when(sandbox.browserTools()).thenReturn(List.of());
+        when(mcp.toolCallbacks()).thenReturn(List.of());
+        when(agentConfigProvider.findAgentTools("custom"))
+                .thenReturn(Optional.of("web, sandbox.browser, browser_click, browser_type"));
+
+        ToolAssignments.ToolSet set = dataDriven.forAgent("custom");
+
+        assertEquals(List.of(webTools), set.annotated(), "web 组不受不可用工具影响");
+        assertTrue(set.callbacks().isEmpty(), "不可用的浏览器工具（组名与精确名）均不注入");
+    }
+
+    @Test
     void declaredTools_blankOrMissing_fallsBackToLegacy() {
         // tools 列 NULL/空白 → 回退代码内置分配（legacy switch 语义不变）：
         // 与无 AgentConfigProvider 的纯 legacy 实例结果逐字段一致（ToolSet 为 record，值相等）
