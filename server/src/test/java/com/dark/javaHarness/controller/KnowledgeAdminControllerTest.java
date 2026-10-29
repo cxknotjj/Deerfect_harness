@@ -151,7 +151,7 @@ class KnowledgeAdminControllerTest {
     @Test
     void upload_oversize_rejected() {
         enableService();
-        byte[] oversize = new byte[(int) (KnowledgeAdminController.MAX_UPLOAD_BYTES + 1)];
+        byte[] oversize = new byte[(int) (com.dark.javaHarness.validation.FileNameRules.MAX_UPLOAD_BYTES + 1)];
         MockMultipartFile big = new MockMultipartFile("file", "big.md", "text/markdown", oversize);
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,

@@ -140,23 +140,9 @@ public class ProviderAdminServiceImpl implements ProviderAdminService {
     }
 
     private void validate(ProviderAddRequest request) {
-        if (request == null || request.provider() == null || request.provider().isBlank()) {
-            throw new IllegalArgumentException("provider 不能为空");
-        }
-        if (request.apiUrl() == null || request.apiUrl().isBlank()) {
-            throw new IllegalArgumentException("apiUrl 不能为空");
-        }
-        if (request.models() == null || request.models().isEmpty()
-                || request.models().stream().anyMatch(m -> m == null || m.isBlank())) {
-            throw new IllegalArgumentException("models 不能为空且不能含空项");
-        }
-        // 模型名防呆：只允许字母/数字/点/下划线/连字符——方括号、反引号等符号
-        // 多为 CLI 误输入（如 markdown 包裹残留），入库后 agent 永远不会引用
-        for (String m : request.models()) {
-            if (!m.trim().matches("[A-Za-z0-9._-]+")) {
-                throw new IllegalArgumentException(
-                        "模型名 '" + m.trim() + "' 含非法字符（仅允许字母/数字/./_/-）");
-            }
-        }
+        com.dark.javaHarness.validation.ProviderRules.validateProvider(
+                request == null ? null : request.provider(),
+                request == null ? null : request.apiUrl(),
+                request == null ? null : request.models());
     }
 }

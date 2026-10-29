@@ -58,7 +58,7 @@
   SandboxToolProvider    ── 自研 SandboxToolkit ── agentscope runtime(直接依赖)
 ```
 
-**新增包**：`com.dark.javaHarness.agent.orchestrate.engine`
+**新增包**：`com.dark.javaHarness.graph.engine`
 - `OrchestrationEngine`：`String execute(Goal)` / `Flux<String> stream(Goal)` / `Flux<String> resume(Goal)`
 - `ParallelOrchestrationEngine`：lead → 并行 subtask（信号量）→ aggregate
 - `OrchestrationState`：`Map<String,Object>` 包装（替代 `OverAllState`）

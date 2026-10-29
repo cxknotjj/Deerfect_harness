@@ -33,7 +33,7 @@
   - 流式 token、思考内容透传、工具起止进度行
   - 重试（`LlmRetry` 3 次）、取消、`llm_call_log` 观测、MCP/沙箱/RAG 工具
   - 见 [GeneralAssistantAgent.java](../../server/src/main/java/com/dark/javaHarness/agent/GeneralAssistantAgent.java#L27-L45) 与 [AgentChatCaller.java](../../server/src/main/java/com/dark/javaHarness/agent/AgentChatCaller.java#L163-L214)
-- **COMPLEX（路径 B）**：自研 `ParallelOrchestrationEngine`（Lead 拆解 → 子任务并行 → 聚合 → 检查点续跑），见 [ParallelOrchestrationEngine.java](../../server/src/main/java/com/dark/javaHarness/agent/orchestrate/engine/ParallelOrchestrationEngine.java#L28-L98)。
+- **COMPLEX（路径 B）**：自研 `ParallelOrchestrationEngine`（Lead 拆解 → 子任务并行 → 聚合 → 检查点续跑），见 [ParallelOrchestrationEngine.java](../../server/src/main/java/com/dark/javaHarness/graph/engine/ParallelOrchestrationEngine.java#L28-L98)。
 
 ### 2.2 项目里的 AgentScope 是什么（同名不同物）
 
@@ -380,7 +380,7 @@ AGENT_START → MODEL_CALL_START → TOOL_CALL_START → TOOL_CALL_DELTA → TOO
 **仓库代码**
 - [GeneralAssistantAgent.java](../../server/src/main/java/com/dark/javaHarness/agent/GeneralAssistantAgent.java)
 - [AgentChatCaller.java](../../server/src/main/java/com/dark/javaHarness/agent/AgentChatCaller.java)
-- [ParallelOrchestrationEngine.java](../../server/src/main/java/com/dark/javaHarness/agent/orchestrate/engine/ParallelOrchestrationEngine.java)
+- [ParallelOrchestrationEngine.java](../../server/src/main/java/com/dark/javaHarness/graph/engine/ParallelOrchestrationEngine.java)
 - [server/pom.xml](../../server/pom.xml#L41-L48)
 - [TECH_STACK.md](../TECH_STACK.md)
 

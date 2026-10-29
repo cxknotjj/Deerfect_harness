@@ -1,13 +1,13 @@
 package com.dark.javaHarness.config.agent;
 
 import com.dark.javaHarness.agent.AgentRegistry;
-import com.dark.javaHarness.agent.orchestrate.MultiAgentGraphAgent;
-import com.dark.javaHarness.agent.orchestrate.persistence.OrchestrationCheckpointStore;
+import com.dark.javaHarness.graph.MultiAgentGraphAgent;
+import com.dark.javaHarness.state.persistence.OrchestrationCheckpointStore;
 import com.dark.javaHarness.enums.AgentConstants;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.SessionService;
-import com.dark.javaHarness.service.impl.observe.LlmCallRecorder;
+import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.tool.ToolAssignments;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.prompt.SkillManager;

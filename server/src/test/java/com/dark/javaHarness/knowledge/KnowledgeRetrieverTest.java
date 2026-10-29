@@ -327,7 +327,7 @@ class KnowledgeRetrieverTest {
     // ===== 检索观测采集（kb_retrieval_log，recorder 非 null 时四类事件）=====
 
     @Mock
-    private com.dark.javaHarness.service.impl.observe.KbRetrievalRecorder recorder;
+    private com.dark.javaHarness.observability.KbRetrievalRecorder recorder;
 
     private KnowledgeRetriever retrieverWithRecorder() {
         return new KnowledgeRetriever(knowledgeService, props, recorder);

@@ -3,7 +3,7 @@ package com.dark.javaHarness.knowledge;
 import com.dark.javaHarness.config.knowledge.KnowledgeProperties;
 import com.dark.javaHarness.domain.KbRetrievalLog;
 import com.dark.javaHarness.domain.dto.KnowledgeSource;
-import com.dark.javaHarness.service.impl.observe.LlmCallRecorder;
+import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.tool.TokenEstimator;
 import java.util.ArrayList;
 import java.util.List;
@@ -66,7 +66,7 @@ public class KnowledgeRetriever {
     private final KnowledgeService knowledgeService;
     private final KnowledgeProperties props;
     /** 检索观测记录器（kb_retrieval_log 落库面）；null = 单测/未装配零行为，采集纯旁路 */
-    private final com.dark.javaHarness.service.impl.observe.KbRetrievalRecorder recorder;
+    private final com.dark.javaHarness.observability.KbRetrievalRecorder recorder;
 
     /** 检索守护线程序号（线程命名 knowledge-search-N，JVM 内唯一） */
     private static final AtomicInteger SEARCH_THREAD_SEQ = new AtomicInteger();
@@ -89,7 +89,7 @@ public class KnowledgeRetriever {
 
     /** 全参构造：recorder 为检索观测记录器（kb_retrieval_log），null 时零采集（单测/未装配场景） */
     public KnowledgeRetriever(KnowledgeService knowledgeService, KnowledgeProperties props,
-                              com.dark.javaHarness.service.impl.observe.KbRetrievalRecorder recorder) {
+                              com.dark.javaHarness.observability.KbRetrievalRecorder recorder) {
         this.knowledgeService = knowledgeService;
         this.props = props;
         this.recorder = recorder;

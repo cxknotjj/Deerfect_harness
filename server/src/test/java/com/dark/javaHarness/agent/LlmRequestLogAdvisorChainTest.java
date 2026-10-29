@@ -53,7 +53,7 @@ class LlmRequestLogAdvisorChainTest {
         AgentRequestSpecFactory factory = new AgentRequestSpecFactory(registry, assembler,
                 null, null, null, null, new ContextBudgetProperties(), null, null, List.of());
 
-        Logger logger = (Logger) LoggerFactory.getLogger(com.dark.javaHarness.advisor.LlmRequestLogAdvisor.class);
+        Logger logger = (Logger) LoggerFactory.getLogger(com.dark.javaHarness.observability.LlmRequestLogAdvisor.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
         appender.start();
         logger.addAppender(appender);

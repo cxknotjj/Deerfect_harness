@@ -36,12 +36,10 @@ server/src/main/java/com/dark/javaHarness/
 │   └── KbRetrievalController.java # RAG 检索观测查询（/api/kb-retrievals）
 ├── service/                      # 业务层（接口 + impl/ 实现）
 │   ├── GoalService.java          # 目标台账（AgentService/SessionService/ChatService/SessionBindingCleaner 端口已迁 harness-api）
-│   ├── RouteJudge.java           # 主 Agent 路由判断（SIMPLE / COMPLEX 分流）
+│   ├── RouteJudge.java           # 主 Agent 路由判断（Agentic / Graph 路径决策）
 │   ├── AgentConfigProvider.java  # 从 agent 表读取运行配置（路由映射）
 │   ├── ProviderAdminService.java # model_provider 映射管理（新增即热刷新注册表）
-│   ├── ObserveQueryService.java  # 观测日志查询收口（llm/tool/kb-retrieval 三表读取口径，controller 不直连 mapper）
 │   └── impl/                     # AgentServiceImpl / ChatServiceImpl / SessionServiceImpl / ProviderAdminServiceImpl / SseEncoder 等
-│       ├── observe/              # LlmCallRecorder / McpServerRecorder（LLM/MCP 调用观测落库）+ ObserveQueryServiceImpl（观测查询）+ ObservabilityLogCleaner（观测表保留期清理）
 │       └── route/                # LlmRouteJudge（主 Agent 路由判定）/ RagPrefetcher（RAG 入口预取）
 ├── advisor/                      # Spring AI Advisor 拦截器（Agent 流程横切管理）
 │   ├── ContextAssemblingAdvisor.java  # 上下文组装：过滤/token 预算截断/role 归一化
@@ -91,13 +89,26 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── AgentRequestSpecFactory.java  # 双路径共用请求组装工厂（system/记忆注入/工具装饰/输出档位）
 │   ├── LlmRetry.java               # LLM 调用重试策略
 │   ├── ProgressLine.java           # 进度行线协议（MARK+stage+SEP+detail）编解码
-│   └── orchestrate/               # Graph 编排路径（Lead → 专家并行 → 聚合）
-│       ├── MultiAgentGraphAgent.java   # Graph 编排门面（执行/流式/续跑入口；引擎见 engine/ParallelOrchestrationEngine）
-│       ├── OrchestrationNodes.java     # 编排三节点实现（lead/subtask/aggregate + predict* 桥接 + 流式聚合护栏）
-│       ├── LeadOutputParser.java       # lead 拆解 JSON 解析（子任务数 + 专家指派白名单）
-│       ├── OrchestrationBudget.java    # 编排预算账本（AtomicLong 共享记账 + 降级说明）
-│       ├── MultiAgentStreamPipeline.java  # 编排流式管道（进度行 → SSE 事件装配、续跑检查点选择）
-│       └── BranchProgressListener.java # 子任务结局播报（并行完成事件串行发射）
+│   └── BranchProgressListener.java # 子任务结局播报（并行完成事件串行发射；与 Graph 共用）
+├── graph/                        # Graph 编排路径（Lead → 专家并行 → 聚合）
+│   ├── MultiAgentGraphAgent.java   # Graph 编排门面（执行/流式/续跑入口；引擎见 engine/ParallelOrchestrationEngine）
+│   ├── OrchestrationNodes.java     # 编排三节点实现（lead/subtask/aggregate + predict* 桥接 + 流式聚合护栏）
+│   ├── LeadOutputParser.java       # lead 拆解 JSON 解析（子任务数 + 专家指派白名单）
+│   ├── OrchestrationBudget.java    # 编排预算账本（AtomicLong 共享记账 + 降级说明）
+│   ├── MultiAgentStreamPipeline.java  # 编排流式管道（进度行 → SSE 事件装配）
+│   ├── ThinkingThrottle.java       # 思考增量合帧节流器
+│   └── engine/                     # OrchestrationEngine / ParallelOrchestrationEngine / OrchestrationState / EngineEvent
+├── state/                        # 执行态与断点续跑
+│   ├── OrchestrationStage.java / OrchestrationCheckpoint.java / CheckpointSelector.java
+│   └── persistence/              # OrchestrationCheckpointStore / OrchestrationCheckpointEntity
+├── observability/                # 观测（记录器 + 查询 + 请求日志）
+│   ├── LlmCallRecorder / KbRetrievalRecorder / McpServerRecorder  # 三表异步落库
+│   ├── LlmCallObserver / LlmRequestLogAdvisor  # 调用侧口径与请求发起观测
+│   ├── ObserveQueryService / ObserveQueryServiceImpl  # 三表查询收口（controller 不直连 mapper）
+│   └── ObservabilityLogCleaner  # 观测表保留期清理
+├── validation/                   # 纯规则（无状态、不查库）
+│   ├── FileNameRules.java        # 上传文件名/大小/kb 命名
+│   └── ProviderRules.java        # provider/apiUrl/模型名格式
 ├── knowledge/                    # RAG 知识库
 │   ├── KnowledgeDocumentScanner.java  # 知识目录扫描（.md/.txt、front-matter 标题、坏文件跳过）
 │   ├── MarkdownChunker.java      # 段落感知切分（~700 字符 + 重叠，纯函数）
@@ -125,7 +136,7 @@ server/src/main/java/com/dark/javaHarness/
 </details>
 
 > [!NOTE]
-> **分层职责**：`controller` 收发 REST/SSE，不承载业务逻辑；`service` 编排核心逻辑（接口与实现分离）；`mapper` / `domain.entity` 负责数据库读写与映射。
+> **分层职责**：`controller` 收发 REST/SSE，不承载业务逻辑；`service` 编排核心逻辑（接口与实现分离）；`mapper` / `domain.entity` 负责数据库读写与映射。运行时关注点独立成包：`agent`（Agentic 执行体）、`graph`（Graph 编排）、`state`（检查点/续跑）、`observability`（观测落库与查询）、`validation`（纯规则）。
 
 
 ---

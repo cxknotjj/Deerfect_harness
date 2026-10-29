@@ -11,8 +11,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.List;
-import java.util.Locale;
-import java.util.regex.Pattern;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -40,12 +38,6 @@ import org.springframework.web.multipart.MultipartFile;
 @RestController
 @RequestMapping("/api/knowledge")
 public class KnowledgeAdminController {
-
-    /** 上传单文件大小上限（与 spring.servlet.multipart.max-file-size 一致） */
-    static final long MAX_UPLOAD_BYTES = 1024 * 1024;
-
-    /** kb 归库子目录白名单：小写字母/数字/-/_（防路径穿越，kb 拼接目录前唯一闸门） */
-    private static final Pattern KB_PATTERN = Pattern.compile("^[a-z0-9_-]+$");
 
     private final ObjectProvider<KnowledgeService> knowledgeService;
     private final KnowledgeDocumentScanner scanner;
@@ -116,29 +108,9 @@ public class KnowledgeAdminController {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("上传文件为空");
         }
-        String filename = file.getOriginalFilename();
-        if (filename == null || filename.isBlank()) {
-            throw new IllegalArgumentException("文件名缺失");
-        }
-        filename = filename.strip();
-        String lower = filename.toLowerCase(Locale.ROOT);
-        boolean validExtension = (lower.endsWith(".md") && lower.length() > 3)
-                || (lower.endsWith(".txt") && lower.length() > 4);
-        if (!validExtension) {
-            // 排除恰为 ".md"/".txt" 的裸扩展名文件名
-            throw new IllegalArgumentException("仅支持 .md/.txt 文档: " + filename);
-        }
-        if (filename.indexOf('/') >= 0 || filename.indexOf('\\') >= 0
-                || filename.contains("..") || filename.startsWith(".")) {
-            throw new IllegalArgumentException("文件名非法（拒绝路径分隔符/隐藏文件）: " + filename);
-        }
-        if (file.getSize() > MAX_UPLOAD_BYTES) {
-            throw new IllegalArgumentException("文件超过 1MB 上限: " + file.getSize() + " bytes");
-        }
-        String normalizedKb = kb == null || kb.isBlank() ? null : kb.strip();
-        if (normalizedKb != null && !KB_PATTERN.matcher(normalizedKb).matches()) {
-            throw new IllegalArgumentException("kb 仅允许小写字母/数字/-/_: " + normalizedKb);
-        }
+        String filename = com.dark.javaHarness.validation.FileNameRules
+                .requireUpload(file.getOriginalFilename(), file.getSize());
+        String normalizedKb = com.dark.javaHarness.validation.FileNameRules.normalizeKb(kb);
         return normalizedKb == null
                 ? knowledgeDir.resolve(filename)
                 : knowledgeDir.resolve(normalizedKb).resolve(filename);

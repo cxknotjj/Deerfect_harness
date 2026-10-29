@@ -179,7 +179,7 @@ public class KnowledgeConfig {
     @Bean
     public KnowledgeRetriever knowledgeRetriever(KnowledgeService knowledgeService,
                                                  KnowledgeProperties props,
-                                                 com.dark.javaHarness.service.impl.observe.KbRetrievalRecorder recorder) {
+                                                 com.dark.javaHarness.observability.KbRetrievalRecorder recorder) {
         return new KnowledgeRetriever(knowledgeService, props, recorder);
     }
 

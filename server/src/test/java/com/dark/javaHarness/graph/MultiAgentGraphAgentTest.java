@@ -1,0 +1,1373 @@
+package com.dark.javaHarness.graph;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.when;
+
+import com.dark.javaHarness.advisor.ContextAssemblingAdvisor;
+import com.dark.javaHarness.agent.ProgressLine;
+import com.dark.javaHarness.state.OrchestrationCheckpoint;
+import com.dark.javaHarness.state.OrchestrationStage;
+import com.dark.javaHarness.state.persistence.OrchestrationCheckpointStore;
+import com.dark.javaHarness.config.agent.ChatClientRegistry;
+import com.dark.javaHarness.domain.Goal;
+import com.dark.javaHarness.knowledge.KnowledgeRetriever;
+import com.dark.javaHarness.service.AgentConfigProvider;
+import com.dark.javaHarness.service.AgentService;
+import com.dark.javaHarness.service.SessionService;
+import com.dark.javaHarness.service.impl.route.RagPrefetcher;
+import com.dark.javaHarness.tool.ToolAssignments;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.ChatClient.ChatClientRequestSpec;
+import org.springframework.ai.chat.client.ChatClient.StreamResponseSpec;
+import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
+import reactor.core.publisher.Flux;
+
+/**
+ * MultiAgentGraphAgent 单测：
+ * - 能构建 StateGraph 并执行（lead 拆解 → 并行子任务 → 聚合）
+ * - lead 返回合法 JSON 时，execute() 返回最终回答（非空）
+ * - 流式执行同时发射进度行与内容行，且阶段次序符合「编排→拆解→子任务→聚合→内容」
+ * - 专家派遣：子任务按专家名查配置取对应客户端；白名单外回退默认
+ * - 节点层复用 ChatClient（mock 固定 content）
+ */
+@ExtendWith(MockitoExtension.class)
+class MultiAgentGraphAgentTest {
+
+    /** 文本 token → ChatResponse 流（生产流式链已切 chatResponse 通道以捕获 streamUsage 末帧） */
+    private static Flux<ChatResponse> fluxOf(String... tokens) {
+        return Flux.fromArray(java.util.Arrays.stream(tokens)
+                .map(t -> new ChatResponse(List.of(new Generation(new AssistantMessage(t)))))
+                .toArray(ChatResponse[]::new));
+    }
+
+    @Mock
+    private ChatClientRegistry clientRegistry;
+    @Mock
+    private ChatClient chatClient;
+    @Mock
+    private ChatClientRequestSpec requestSpec;
+    @Mock
+    private StreamResponseSpec streamSpec;
+    @Mock
+    private AgentService agentService;
+    @Mock
+    private ToolAssignments toolAssignments;
+    @Mock
+    private SessionService memoryStore;
+    @Mock
+    private AgentConfigProvider agentConfigProvider;
+
+    private MultiAgentGraphAgent agent;
+
+    /** lead 返回两条子任务（旧纯字符串格式），子任务/聚合返回固定文本 */
+    private String fixedContent() {
+        return "{\"subtasks\":[\"子任务A\",\"子任务B\"]}";
+    }
+
+    private void stubChat(String content) {
+        when(clientRegistry.get(any())).thenReturn(chatClient);
+        when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(anyString())).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        // call() 已统一流式背书：lead/子任务/聚合全部走 stream().chatResponse() 通道
+        when(requestSpec.stream()).thenReturn(streamSpec);
+        when(streamSpec.chatResponse()).thenReturn(fluxOf(content));
+    }
+
+    /** 独立 stub 的客户端：专家子任务使用，内容固定（避免与共享 mock 的 stub 冲突） */
+    private ChatClient newStubbedClient(String content) {
+        ChatClient c = mock(ChatClient.class);
+        ChatClientRequestSpec rs = mock(ChatClientRequestSpec.class);
+        StreamResponseSpec ss = mock(StreamResponseSpec.class);
+        when(c.prompt()).thenReturn(rs);
+        when(rs.system(anyString())).thenReturn(rs);
+        when(rs.user(anyString())).thenReturn(rs);
+        when(rs.stream()).thenReturn(ss);
+        when(ss.chatResponse()).thenReturn(fluxOf(content));
+        return c;
+    }
+
+    /** 捕获型专家客户端：独立 stub 且记录每次 user 文本，供断言专家实际收到的输入（brief/desc 口径） */
+    private ChatClient newCapturingClient(String content, java.util.List<String> userTexts) {
+        ChatClient c = mock(ChatClient.class);
+        ChatClientRequestSpec rs = mock(ChatClientRequestSpec.class);
+        StreamResponseSpec ss = mock(StreamResponseSpec.class);
+        when(c.prompt()).thenReturn(rs);
+        when(rs.system(anyString())).thenReturn(rs);
+        when(rs.user(anyString())).thenAnswer(inv -> {
+            userTexts.add(inv.getArgument(0, String.class));
+            return rs;
+        });
+        when(rs.stream()).thenReturn(ss);
+        when(ss.chatResponse()).thenReturn(fluxOf(content));
+        return c;
+    }
+
+    @Test
+    void execute_shouldBuildGraphAndReturnFinalAnswer() {
+        stubChat(fixedContent());
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+
+        Goal goal = new Goal("g1", "调研竞品并输出报告");
+        String reply = agent.execute(goal);
+
+        assertNotNull(reply);
+        assertFalse(reply.isBlank(), "execute 应产出最终回答");
+        // lead 拆解与聚合按独立角色行查配置（与编排器 multi-agent 解耦）；
+        // system 经 PromptAssembler 组装，角色段查表 + 调用器查表共至少两次
+        verify(agentService, atLeastOnce()).getAgentConfig("lead");
+        verify(agentService, atLeastOnce()).getAgentConfig("aggregator");
+        verify(agentService, never()).getAgentConfig("multi-agent");
+    }
+
+    @Test
+    void execute_returnsNonEmptyForAggregate() {
+        // 所有节点统一返回固定 content；lead 解析出 subtasks，聚合把该 content 作为最终回答
+        stubChat(fixedContent());
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+
+        String reply = agent.execute(new Goal("g2", "hello"));
+
+        assertNotNull(reply);
+        assertEquals(fixedContent(), reply, "聚合节点把读取到的结果作为最终回答返回");
+    }
+
+    /** executeStreamReactive 应同时发射：进度行（ProgressLine.MARK 前缀）+ 内容行（最终回答） */
+    @Test
+    void executeStreamReactive_emitsProgressRowsAndContent() {
+        stubChat(fixedContent());
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+
+        Goal goal = new Goal("g3", "调研竞品并输出报告");
+        java.util.List<String> rows = agent.executeStreamReactive(goal).collectList().block();
+
+        assertNotNull(rows);
+        assertFalse(rows.isEmpty());
+        long progressCount = rows.stream()
+                .filter(r -> r.length() > 0 && r.charAt(0) == ProgressLine.MARK)
+                .count();
+        long contentCount = rows.stream()
+                .filter(r -> r.length() > 0 && r.charAt(0) != ProgressLine.MARK)
+                .count();
+        assertTrue(progressCount > 0, "应发射进度行, 实际帧序列: " + rows);
+        assertTrue(contentCount > 0, "应发射内容行(最终回答), 实际帧序列: " + rows);
+        assertEquals(fixedContent(), rows.get(rows.size() - 1), "内容行应为聚合产出的最终回答");
+    }
+
+    @Test
+    void executeStreamReactive_streamsStageEventsInOrder() {
+        stubChat(fixedContent());
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+
+        java.util.List<String> rows = agent
+                .executeStreamReactive(new Goal("g4", "调研竞品并输出报告"))
+                .collectList()
+                .block();
+
+        assertNotNull(rows);
+        assertFalse(rows.isEmpty());
+
+        // 解析出各行的 (stage, isContent)
+        java.util.List<ParsedRow> parsed = new java.util.ArrayList<>();
+        for (String r : rows) {
+            if (!r.isEmpty() && r.charAt(0) == ProgressLine.MARK) {
+                ProgressLine.StageRow p = ProgressLine.decode(r);
+                parsed.add(new ParsedRow(p.stage(), false));
+            } else {
+                parsed.add(new ParsedRow(null, true));
+            }
+        }
+
+        // 1. 首帧为「编排」进度行
+        assertEquals("编排", parsed.get(0).stage(), "首行应为编排开始的进度行");
+        assertFalse(parsed.get(0).content());
+
+        // 2. 存在「拆解」，且位于首帧之后、内容行之前
+        int leadIdx = indexOfStage(parsed, "拆解");
+        assertTrue(leadIdx > 0, "应存在 lead 拆解的进度行");
+
+        // 3. 至少 2 条「子任务」完成事件（生命周期钩子 after(subtask-N) 补齐并行分支），
+        //    且都位于最终内容行之前
+        long subtaskCount = parsed.stream().filter(r -> "子任务".equals(r.stage())).count();
+        assertTrue(subtaskCount >= 2, "应有两条并行子任务完成事件, 实际帧序列: " + rows);
+        int lastIdx = rows.size() - 1;
+        for (int i = 0; i < parsed.size(); i++) {
+            if ("子任务".equals(parsed.get(i).stage())) {
+                assertTrue(i < lastIdx, "子任务完成事件应在最终回答之前");
+                assertFalse(parsed.get(i).content());
+            }
+        }
+
+        // 4. 最后一个有效帧：内容行 = 最终回答，且前面紧邻「聚合」进度
+        ParsedRow last = parsed.get(parsed.size() - 1);
+        assertTrue(last.content(), "流应以最终回答内容行收尾");
+        assertEquals(fixedContent(), rows.get(rows.size() - 1), "内容行应为聚合产出的最终回答");
+        assertEquals("聚合", parsed.get(parsed.size() - 2).stage(), "内容行前应紧邻聚合进度行");
+    }
+
+    /** 聚合节点逐 token：多段 token 按序发射、拼接=完整内容，「聚合」进度在首 token 之前，主干不重复发射 */
+    @Test
+    void executeStreamReactive_streamsFinalAnswerTokenByToken() {
+        stubChat(fixedContent());
+        // 覆盖聚合节点的 stream 内容：三段 token（含一个空片段，模拟真实流的空 token）
+        when(streamSpec.chatResponse())
+                .thenReturn(fluxOf("最终回答", "", "第二段", "。"));
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+
+        java.util.List<String> rows = agent
+                .executeStreamReactive(new Goal("g8", "调研竞品并输出报告"))
+                .collectList()
+                .block();
+
+        assertNotNull(rows);
+        // 尾部应为：... 聚合进度, token1, token2, token3（空 token 不发射）
+        int n = rows.size();
+        assertEquals("最终回答", rows.get(n - 3), "token1 应倒数第三");
+        assertEquals("第二段", rows.get(n - 2), "token2 应倒数第二（空 token 被跳过）");
+        assertEquals("。", rows.get(n - 1), "token3 应收尾");
+        ProgressLine.StageRow agg = ProgressLine.decode(rows.get(n - 4));
+        assertNotNull(agg, "首 token 前应有聚合进度行");
+        assertEquals("聚合", agg.stage(), "聚合进度应紧邻首 token 之前");
+
+        // 全流拼接的内容 = token 序列拼接（主干不重复发完整内容）
+        StringBuilder content = new StringBuilder();
+        for (String r : rows) {
+            if (r.isEmpty() || r.charAt(0) != ProgressLine.MARK) {
+                content.append(r);
+            }
+        }
+        assertEquals("最终回答第二段。", content.toString(), "所有内容行拼接应为完整最终回答");
+    }
+
+    /** 解析行容器：stage（进度行非空，内容行为 null）+ 是否内容行 */
+    private record ParsedRow(String stage, boolean content) {
+    }
+
+    /** 找指定阶段的进度行索引，无则 -1 */
+    private static int indexOfStage(java.util.List<ParsedRow> parsed, String stage) {
+        for (int i = 0; i < parsed.size(); i++) {
+            if (stage.equals(parsed.get(i).stage())) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** lead 返回新格式（对象数组带专家指派），专家行有配置 → 子任务按专家 model 取对应客户端 */
+    @Test
+    void execute_dispatchesSubtasksToExpertClients() {
+        String leadJson = "{\"subtasks\":[{\"desc\":\"调研竞品\",\"agent\":\"researcher\"},"
+                + "{\"desc\":\"统计销量\",\"agent\":\"analyst\"}]}";
+        stubChat(leadJson); // 默认客户端：lead + 聚合（get(any()) 兜底）
+        // 专家行有配置 → 子任务按专家部署模型 id 取对应客户端
+        when(agentService.getAgentConfig(eq("researcher")))
+                .thenReturn(java.util.Optional.of(new com.dark.javaHarness.domain.AgentConfig(101L, "qwen-plus", "调研提示词", null)));
+        when(agentService.getAgentConfig(eq("analyst")))
+                .thenReturn(java.util.Optional.of(new com.dark.javaHarness.domain.AgentConfig(102L, "deepseek-chat", "分析提示词", null)));
+        // 先建好独立 stub 的专家客户端，再注册（避免在 when() 求值内嵌套 stubbing）
+        ChatClient researcherClient = newStubbedClient("调研结果");
+        ChatClient analystClient = newStubbedClient("分析结果");
+        when(clientRegistry.get(eq(101L))).thenReturn(researcherClient);
+        when(clientRegistry.get(eq(102L))).thenReturn(analystClient);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+
+        String reply = agent.execute(new Goal("g5", "调研竞品并统计销量"));
+
+        assertNotNull(reply);
+        assertFalse(reply.isBlank(), "专家派遣后仍应产出聚合最终回答");
+        // 子任务按指派查询专家配置并取对应部署模型的客户端（persona/请求组装各查一次）
+        verify(agentService, atLeastOnce()).getAgentConfig("researcher");
+        verify(agentService, atLeastOnce()).getAgentConfig("analyst");
+        verify(clientRegistry).get(101L);
+        verify(clientRegistry).get(102L);
+    }
+
+    /** lead 指派了白名单外的专家名 → 拒绝按非法名查配置/取客户端，回退默认执行 */
+    @Test
+    void execute_rejectsUnknownAgentAndFallsBackToDefault() {
+        String leadJson = "{\"subtasks\":[{\"desc\":\"任务X\",\"agent\":\"hacker\"}]}";
+        stubChat(leadJson);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+
+        String reply = agent.execute(new Goal("g6", "任务X"));
+
+        assertNotNull(reply);
+        // 白名单拒绝：绝不以非法名查配置；客户端只允许走默认兜底（get(null)），不得按 id 取
+        verify(agentService, never()).getAgentConfig("hacker");
+        verify(clientRegistry, never()).get(any(Long.class));
+    }
+
+    /** agent 表无任何配置（含 null model）→ 走默认客户端，不下发请求级 options（不覆盖模型） */
+    @Test
+    void execute_withoutConfig_usesDefaultClientWithoutModelOption() {
+        stubChat(fixedContent());
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+
+        String reply = agent.execute(new Goal("g7", "hello"));
+
+        assertEquals(fixedContent(), reply);
+        // lead + 2 个并行子任务 + 聚合共 4 次调用，全部走默认客户端（model=null）
+        verify(clientRegistry, org.mockito.Mockito.times(4)).get(isNull());
+        // Spring AI 2.0 的 OpenAiChatOptions 恒带默认模型：无配置时不得下发请求级 options，
+        // 否则会用默认模型覆盖客户端配置（流式 usage 在 2.0 已默认开启）
+        verify(requestSpec, org.mockito.Mockito.never()).options(any());
+    }
+
+    /* ---------------- 动态子 Agent：模板 × 任务书（brief 注入 / 截断 / wms 白名单） ---------------- */
+
+    /**
+     * brief 注入执行：lead 新格式返回带自包含任务书的子任务 →
+     * researcher 专家客户端收到的 user 文本为 brief 全文（而非 desc）。
+     */
+    @Test
+    void execute_briefPresent_subtaskUserTextIsBriefNotDesc() {
+        String brief = "目标：对比定价\n背景：竞品 A/B/C\n约束：只看国内市场\n交付物：报告";
+        String leadJson = "{\"subtasks\":[{\"desc\":\"调研竞品定价\",\"agent\":\"researcher\","
+                + "\"brief\":\"目标：对比定价\\n背景：竞品 A/B/C\\n约束：只看国内市场\\n交付物：报告\"}]}";
+        stubChat(leadJson); // 默认客户端：lead + 聚合（get(any()) 兜底）
+        when(agentService.getAgentConfig(eq("researcher")))
+                .thenReturn(java.util.Optional.of(new com.dark.javaHarness.domain.AgentConfig(201L, "qwen-plus", "调研提示词", null)));
+        java.util.List<String> researcherUsers = new java.util.ArrayList<>();
+        ChatClient researcherClient = newCapturingClient("调研结果", researcherUsers);
+        when(clientRegistry.get(eq(201L))).thenReturn(researcherClient);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+
+        String reply = agent.execute(new Goal("gbr1", "调研竞品定价策略"));
+
+        assertNotNull(reply);
+        assertFalse(reply.isBlank(), "带 brief 的子任务执行后仍应产出聚合最终回答");
+        assertEquals(List.of(brief), researcherUsers, "子任务 user 文本应为 brief 全文（而非 desc）: " + researcherUsers);
+    }
+
+    /** 旧格式回归：lead 返回不含 brief 的旧格式 → 子任务 user 文本为 desc，行为与现状一致 */
+    @Test
+    void execute_legacyFormatWithoutBrief_subtaskUserTextIsDesc() {
+        String leadJson = "{\"subtasks\":[{\"desc\":\"调研竞品\",\"agent\":\"researcher\"},{\"desc\":\"撰写摘要\"}]}";
+        stubChat(leadJson);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+
+        String reply = agent.execute(new Goal("gbr2", "调研竞品并撰写摘要"));
+
+        assertNotNull(reply);
+        // lead 的 user 文本带「拆解目标：」前缀、聚合为长 prompt，均不与 desc 全等——
+        // 精确匹配命中即为子任务节点的 user 文本
+        org.mockito.ArgumentCaptor<String> userCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(requestSpec, atLeastOnce()).user(userCaptor.capture());
+        java.util.List<String> users = userCaptor.getAllValues();
+        assertTrue(users.contains("调研竞品"), "子任务 user 文本应为 desc: " + users);
+        assertTrue(users.contains("撰写摘要"), "子任务 user 文本应为 desc: " + users);
+    }
+
+    /** brief 超限截断：subtask-brief-max-chars=10 → 子任务 user 文本为前 10 字符 */
+    @Test
+    void execute_briefExceedsMaxChars_truncatedToLimit() {
+        String brief = "目标：对比定价策略，输出完整报告";
+        String leadJson = "{\"subtasks\":[{\"desc\":\"调研竞品定价\",\"agent\":\"researcher\","
+                + "\"brief\":\"目标：对比定价策略，输出完整报告\"}]}";
+        stubChat(leadJson);
+        when(agentService.getAgentConfig(eq("researcher")))
+                .thenReturn(java.util.Optional.of(new com.dark.javaHarness.domain.AgentConfig(202L, "qwen-plus", "调研提示词", null)));
+        java.util.List<String> researcherUsers = new java.util.ArrayList<>();
+        ChatClient researcherClient = newCapturingClient("调研结果", researcherUsers);
+        when(clientRegistry.get(eq(202L))).thenReturn(researcherClient);
+        com.dark.javaHarness.config.ContextBudgetProperties budgets =
+                new com.dark.javaHarness.config.ContextBudgetProperties();
+        budgets.setSubtaskBriefMaxChars(10);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, budgets);
+
+        String reply = agent.execute(new Goal("gbr3", "调研竞品定价策略"));
+
+        assertNotNull(reply);
+        assertEquals(List.of(brief.substring(0, 10)),
+                researcherUsers, "超限 brief 应截断为前 10 字符后下发: " + researcherUsers);
+    }
+
+    /** brief 上限=0（不限制）→ 全文透传不截断 */
+    @Test
+    void execute_briefMaxCharsZero_fullBriefPassthrough() {
+        String brief = "目标：对比定价策略，输出完整报告";
+        String leadJson = "{\"subtasks\":[{\"desc\":\"调研竞品定价\",\"agent\":\"researcher\","
+                + "\"brief\":\"目标：对比定价策略，输出完整报告\"}]}";
+        stubChat(leadJson);
+        when(agentService.getAgentConfig(eq("researcher")))
+                .thenReturn(java.util.Optional.of(new com.dark.javaHarness.domain.AgentConfig(204L, "qwen-plus", "调研提示词", null)));
+        java.util.List<String> researcherUsers = new java.util.ArrayList<>();
+        ChatClient researcherClient = newCapturingClient("调研结果", researcherUsers);
+        when(clientRegistry.get(eq(204L))).thenReturn(researcherClient);
+        com.dark.javaHarness.config.ContextBudgetProperties budgets =
+                new com.dark.javaHarness.config.ContextBudgetProperties();
+        budgets.setSubtaskBriefMaxChars(0);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, budgets);
+
+        String reply = agent.execute(new Goal("gbr5", "调研竞品定价策略"));
+
+        assertNotNull(reply);
+        assertEquals(List.of(brief), researcherUsers, "上限 0 = 不限制，brief 应全文透传: " + researcherUsers);
+    }
+
+    /**
+     * wms 指派（白名单领域模板）不回退：lead 指派 agent=wms → 按专家名查 wms 配置并取
+     * 其对应客户端执行（无 brief → user 文本回退 desc）。
+     */
+    @Test
+    void execute_wmsAgent_dispatchedToWmsClient() {
+        String leadJson = "{\"subtasks\":[{\"desc\":\"查库存\",\"agent\":\"wms\"}]}";
+        stubChat(leadJson); // 默认客户端：lead + 聚合（get(any()) 兜底）
+        when(agentService.getAgentConfig(eq("wms")))
+                .thenReturn(java.util.Optional.of(new com.dark.javaHarness.domain.AgentConfig(203L, "wms-model", "wms提示词", null)));
+        java.util.List<String> wmsUsers = new java.util.ArrayList<>();
+        ChatClient wmsClient = newCapturingClient("库存结果", wmsUsers);
+        when(clientRegistry.get(eq(203L))).thenReturn(wmsClient);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+
+        String reply = agent.execute(new Goal("gbr4", "查库存并核对差异"));
+
+        assertNotNull(reply);
+        // 子任务按指派查询 wms 配置并取其部署模型对应客户端
+        verify(agentService, atLeastOnce()).getAgentConfig("wms");
+        verify(clientRegistry).get(203L);
+        assertEquals(List.of("查库存"), wmsUsers, "wms 子任务应落到 wms 客户端且 user 文本为 desc: " + wmsUsers);
+    }
+
+    /* ---------------- 子任务工具包通道（可分配边界 = lead 自身 tools 列，越权零授出） ---------------- */
+
+    /**
+     * 全参构造便捷入口：单测只关注工具包通道（agentConfigProvider），其余依赖沿用既有用例的最小桩（均可 null）
+     */
+    private MultiAgentGraphAgent agentWithPackProvider(AgentConfigProvider provider) {
+        return new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, null, null, null, null, null, null, null, null, provider);
+    }
+
+    /** 无 toolPacks（现状唯一形态：lead 无工具可分配，产物不含包）→ 包解析零触发（回归） */
+    @Test
+    void execute_noToolPacks_behaviourUnchangedForNamesNeverCalled() {
+        stubChat(fixedContent());
+        agent = agentWithPackProvider(agentConfigProvider);
+
+        String reply = agent.execute(new Goal("gpk2", "调研竞品并输出报告"));
+
+        assertEquals(fixedContent(), reply);
+        // 无包声明：包定义不查、包工具不解析（状态键写空串，读侧归一化为无包——旧 checkpoint 缺键同口径）
+        verify(agentConfigProvider, never()).findToolPack(anyString());
+        verify(toolAssignments, never()).forNames(anyString(), anyString());
+    }
+
+    /**
+     * 可分配边界回归（analyst 越权执行 wms 工具的根因场景）：lead 声明 wms 包但其自身
+     * tools 列为空（未声明任何可分配工具）→ 包工具零授出、forNames 不触发、user 文本无纪律段。
+     */
+    @Test
+    void execute_packBeyondLeadToolsColumn_grantNothing() {
+        String leadJson = "{\"subtasks\":[{\"desc\":\"查库存\",\"agent\":\"analyst\",\"brief\":\"盘点任务书\","
+                + "\"toolPacks\":[\"wms\"]}]}";
+        stubChat(leadJson);
+        when(agentConfigProvider.findAgentTools("lead")).thenReturn(java.util.Optional.empty());
+        when(agentConfigProvider.findToolPack("wms")).thenReturn(java.util.Optional.of(
+                new AgentConfigProvider.ToolPackDef(List.of("wms_search_stock"), "仓储只读纪律")));
+        agent = agentWithPackProvider(agentConfigProvider);
+
+        String reply = agent.execute(new Goal("gpk3", "查库存并核对差异"));
+
+        assertEquals(leadJson, reply, "越权包应静默裁剪、不阻断子任务执行");
+        // 包工具零授出 → 包工具解析不触发
+        verify(toolAssignments, never()).forNames(anyString(), anyString());
+        org.mockito.ArgumentCaptor<String> userCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(requestSpec, atLeastOnce()).user(userCaptor.capture());
+        assertTrue(userCaptor.getAllValues().contains("盘点任务书"),
+                "子任务 user 文本应为 brief（无纪律段）: " + userCaptor.getAllValues());
+    }
+
+    /* ---------------- 静态 prompt 预算（PromptBudgetAdvisor 挂载） ---------------- */
+
+    /**
+     * 编排链路预算防线：lead 与聚合调用请求级挂载 PromptBudgetAdvisor，
+     * 子任务调用不挂（其动态工具结果由 ToolCallBudget 管）。
+     */
+    @Test
+    void execute_leadAndAggregateCallsCarryPromptBudgetAdvisor() {
+        stubChat(fixedContent());
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null,
+                null, new com.dark.javaHarness.config.ContextBudgetProperties());
+
+        agent.execute(new Goal("gb1", "调研竞品并输出报告"));
+
+        // lead 1 次 + 聚合 1 次挂载预算 advisor；子任务不挂
+        verify(requestSpec, org.mockito.Mockito.times(2))
+                .advisors(any(com.dark.javaHarness.advisor.PromptBudgetAdvisor.class));
+    }
+
+    /* ---------------- 记忆动态注入（MemoryPolicy） ---------------- */
+
+    /**
+     * 记忆只读注入：lead 拆解把会话历史只读拼入请求消息（不挂 MessageChatMemoryAdvisor，
+     * 避免其自动写回把编排中间产物入库）+ ContextAssemblingAdvisor 预算裁剪，
+     * 子任务专家（含未指派回退的 general 兜底专家身份）与聚合节点不注入。
+     */
+    @Test
+    void execute_leadWithSession_injectsHistoryReadOnly_subtasksAndAggregateDoNot() {
+        // 一条指派 researcher、一条未指派（执行时回退 general 兜底专家身份）：两路子任务都不注入
+        String leadJson = "{\"subtasks\":[{\"desc\":\"调研竞品\",\"agent\":\"researcher\"},{\"desc\":\"撰写摘要\"}]}";
+        stubChat(leadJson);
+        when(memoryStore.get("sess-1")).thenReturn(List.of(new UserMessage("上一轮用户提问"), new AssistantMessage("上一轮回答")));
+        when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null,
+                null, null, memoryStore);
+
+        agent.execute(new Goal("gm1", "调研竞品并撰写摘要", "sess-1"));
+
+        // 仅 lead 1 次调用注入历史（只读，无记忆 advisor、无 CONVERSATION_ID 参数）+ 上下文裁剪
+        verify(requestSpec, org.mockito.Mockito.times(1)).messages(anyList());
+        verify(requestSpec, never()).advisors(any(MessageChatMemoryAdvisor.class));
+        verify(requestSpec, org.mockito.Mockito.times(1)).advisors(any(ContextAssemblingAdvisor.class));
+    }
+
+    /** 无会话 ID（Goal 未关联会话）→ lead 也不注入历史（策略：无会话 ID 场景一律不注入） */
+    @Test
+    void execute_withoutSessionId_skipsMemoryAdvisor() {
+        stubChat(fixedContent());
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null,
+                null, null, memoryStore);
+
+        agent.execute(new Goal("gm2", "调研竞品并输出报告"));
+
+        verify(requestSpec, never()).messages(anyList());
+        verify(requestSpec, never()).advisors(any(MessageChatMemoryAdvisor.class));
+        verify(requestSpec, never()).advisors(any(ContextAssemblingAdvisor.class));
+    }
+
+    /* ---------------- 断点续跑（Checkpointer） ---------------- */
+
+    /** 内存检查点存储（替代旧 graph MemorySaver）：save 追加、list 按 goal 返回 */
+    private static OrchestrationCheckpointStore inMemoryCheckpointStore() {
+        java.util.Map<String, java.util.List<OrchestrationCheckpoint>> data =
+                new java.util.concurrent.ConcurrentHashMap<>();
+        OrchestrationCheckpointStore store = mock(OrchestrationCheckpointStore.class);
+        when(store.list(anyString())).thenAnswer(inv -> {
+            java.util.List<OrchestrationCheckpoint> list = data.get(inv.<String>getArgument(0));
+            return list == null ? java.util.List.of() : java.util.List.copyOf(list);
+        });
+        lenient().doAnswer(inv -> {
+            String goalId = inv.getArgument(0);
+            OrchestrationStage stage = inv.getArgument(1);
+            java.util.Map<String, Object> state = inv.getArgument(2);
+            data.computeIfAbsent(goalId, k -> new java.util.concurrent.CopyOnWriteArrayList<>())
+                    .add(new OrchestrationCheckpoint(goalId, java.util.UUID.randomUUID().toString(),
+                            stage, new java.util.HashMap<>(state), java.time.Instant.now()));
+            return null;
+        }).when(store).save(anyString(), any(), anyMap());
+        return store;
+    }
+
+    /** 未启用检查点存储（构造传 null）→ resume 快速失败，抛出明确异常（无需 LLM 桩） */
+    @Test
+    void resume_withoutCheckpointer_throwsFast() {
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+
+        assertThrows(IllegalStateException.class,
+                () -> agent.resumeStreamReactive(new Goal("gr1", "调研竞品")),
+                "未启用 checkpointer 应拒绝续跑");
+    }
+
+    /** 启用了检查点但该 goal 从未跑过编排（无检查点记录）→ resume 快速失败（无需 LLM 桩） */
+    @Test
+    void resume_withoutCheckpoint_throwsFast() {
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null,
+                inMemoryCheckpointStore());
+
+        assertThrows(IllegalStateException.class,
+                () -> agent.resumeStreamReactive(new Goal("gr2", "调研竞品")),
+                "无检查点记录应拒绝续跑");
+    }
+
+    /**
+     * 完整跑完一次编排后 resume：检查点已记录最终状态（nextNodeId=END），
+     * 续跑不应再发起任何 LLM 调用，且应从检查点状态取回最终回答（END 帧兜底读 state.final）。
+     */
+    @Test
+    void resume_afterCompletedRun_skipsAllLlmCalls() {
+        stubChat(fixedContent());
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null,
+                inMemoryCheckpointStore());
+
+        // 首跑：lead + 2 子任务 + 聚合 = 4 次流式调用（call 已统一流式背书），检查点按阶段落库
+        java.util.List<String> first = agent
+                .executeStreamReactive(new Goal("gr3", "调研竞品并输出报告"))
+                .collectList()
+                .block();
+        assertNotNull(first);
+        assertEquals(fixedContent(), first.get(first.size() - 1), "首跑应以最终回答收尾");
+
+        // 续跑：所有节点已完成，零 LLM 调用，从检查点状态直接取回最终回答
+        java.util.List<String> resumed = agent
+                .resumeStreamReactive(new Goal("gr3", "调研竞品并输出报告"))
+                .collectList()
+                .block();
+        assertNotNull(resumed);
+        assertEquals(fixedContent(), resumed.get(resumed.size() - 1),
+                "续跑应从检查点状态取回最终回答, 实际帧序列: " + resumed);
+
+        // stream 共 4 次（lead + 2 子任务 + 聚合），resume 零新增
+        verify(requestSpec, org.mockito.Mockito.times(4)).stream();
+    }
+
+    /**
+     * 中途断开后 resume 补执行缺口：
+     * 时序：lead 正常完成落检查点 → 子任务批流式调用阻塞（在途）→ dispose（cancel 后图执行停止，
+     * 取消置位后子任务在途调用随令牌中止并抛取消异常，子任务批 superstep 无检查点）
+     * → resume 只能恢复到 lead 检查点（nextNodeId=__PARALLEL__(lead)）→ lead 不重跑（结果已复用），
+     * 子任务批作为执行缺口补跑（+2），聚合补跑（+1）。
+     * stream 共 6 次 = 首跑（lead 1 + 子任务 2）+ 续跑（子任务 2 + 聚合 1）。
+     */
+    @Test
+    void resume_afterLeadCheckpoint_reusesLeadResult() throws Exception {
+        java.util.concurrent.CountDownLatch releaseSubtasks = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicInteger contentCalls = new java.util.concurrent.atomic.AtomicInteger();
+        when(clientRegistry.get(any())).thenReturn(chatClient);
+        when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(anyString())).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        // lead（第 1 次）立即返回拆解 JSON；子任务（第 2、3 次）在途阻塞到放行
+        when(requestSpec.stream()).thenReturn(streamSpec);
+        when(streamSpec.chatResponse()).thenAnswer(inv -> {
+            if (contentCalls.incrementAndGet() == 1) {
+                return fluxOf(fixedContent());
+            }
+            releaseSubtasks.await(10, java.util.concurrent.TimeUnit.SECONDS);
+            return fluxOf(fixedContent());
+        });
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null,
+                inMemoryCheckpointStore());
+
+        // lead 完成（检查点已落库）→ 子任务批在途阻塞中 → 模拟客户端断开
+        reactor.core.Disposable disposable = agent
+                .executeStreamReactive(new Goal("gr4", "调研竞品并输出报告"))
+                .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
+                .subscribe();
+        Thread.sleep(500);
+        disposable.dispose();        // cancel → 置位取消令牌：在途子任务调用随令牌中止
+        releaseSubtasks.countDown(); // 放行：子任务流的下一 token 边界中止（取消异常上抛）
+        Thread.sleep(300);
+
+        // 续跑：从 lead 检查点恢复 → lead 不重跑（复用拆解），子任务批补跑 + 聚合补跑
+        java.util.List<String> resumed = agent
+                .resumeStreamReactive(new Goal("gr4", "调研竞品并输出报告"))
+                .collectList()
+                .block();
+        assertNotNull(resumed);
+        assertEquals(fixedContent(), resumed.get(resumed.size() - 1), "续跑应以最终回答收尾");
+        verify(requestSpec, org.mockito.Mockito.times(6)).stream();
+    }
+
+    /**
+     * 客户端断连（cancel）→ doOnCancel 置位取消令牌 → 后续节点不再发起新的 LLM 调用：
+     * lead 流式调用在途阻塞期间 dispose，释放后 lead 在 token 边界中止（取消异常上抛，
+     * 图终止），除 lead 外不应有任何新调用（子任务/聚合全部短路）。
+     * subscribeOn 模拟 AgentServiceImpl 的真实订阅方式（图执行与 cancel 分属不同线程）。
+     */
+    @Test
+    void executeStreamReactive_cancelDuringLead_skipsRemainingLlmCalls() throws Exception {
+        // 独立 stub：lead 的流式调用阻塞在闩锁上，模拟「调用进行中客户端断开」
+        java.util.concurrent.CountDownLatch releaseLead = new java.util.concurrent.CountDownLatch(1);
+        when(clientRegistry.get(any())).thenReturn(chatClient);
+        when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(anyString())).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        // lenient：短路生效时 lead 可能一次都不调用（UnnecessaryStubbing 免检）
+        lenient().when(requestSpec.stream()).thenReturn(streamSpec);
+        lenient().when(streamSpec.chatResponse()).thenAnswer(inv -> {
+            releaseLead.await(10, java.util.concurrent.TimeUnit.SECONDS);
+            return fluxOf(fixedContent());
+        });
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+
+        // subscribeOn 让图执行离开测试线程（否则同步图驱动会把 subscribe() 卡在 lead 阻塞上）
+        reactor.core.Disposable disposable = agent
+                .executeStreamReactive(new Goal("g9", "调研竞品并输出报告"))
+                .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
+                .subscribe();
+        Thread.sleep(300);                    // 等图启动、lead 进入在途流式调用
+
+        disposable.dispose();                 // 模拟客户端断开 → cancel → 置位取消令牌
+        releaseLead.countDown();              // 供给恢复：lead 在下一个 token 边界中止
+        Thread.sleep(500);                    // 给「短路失效则子任务会发起新调用」留暴露窗口
+
+        // 时序兼容：lead 或在置位前已发起调用（1 次）、或被更早短路（0 次），但绝不能再多；
+        // call 已统一流式背书，子任务/聚合的调用同样走 stream——断连后零新增
+        verify(requestSpec, org.mockito.Mockito.atMost(1)).stream();
+    }
+
+    /**
+     * 客户端断连中止在途聚合流式调用（Spec：在途 LLM 请求随断连中止）：
+     * lead + 2 子任务正常完成 → 聚合首 token 已产出（在途）→ dispose 置位 →
+     * 尾 token 供给恢复 → 聚合在下一个 token 边界中止（取消异常不可重试、图终止），
+     * 不产生任何新增调用、部分输出不按成功收尾。
+     */
+    @Test
+    void executeStreamReactive_cancelDuringAggregateStream_abortsInFlightCall() throws Exception {
+        java.util.concurrent.CountDownLatch aggStarted = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch releaseTail = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicInteger contentCalls = new java.util.concurrent.atomic.AtomicInteger();
+        when(clientRegistry.get(any())).thenReturn(chatClient);
+        when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(anyString())).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        when(requestSpec.stream()).thenReturn(streamSpec);
+        when(streamSpec.chatResponse()).thenAnswer(inv -> {
+            if (contentCalls.incrementAndGet() <= 3) {
+                return fluxOf(fixedContent()); // lead + 2 子任务正常完成
+            }
+            // 聚合：首 token 已产出（在途），尾 token 等放行
+            aggStarted.countDown();
+            return Flux.concat(
+                    fluxOf("首token"),
+                    Flux.defer(() -> {
+                        try {
+                            releaseTail.await(10, java.util.concurrent.TimeUnit.SECONDS);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                        return fluxOf("尾token");
+                    }));
+        });
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+
+        java.util.List<String> rows = new java.util.concurrent.CopyOnWriteArrayList<>();
+        reactor.core.Disposable disposable = agent
+                .executeStreamReactive(new Goal("g10", "调研竞品并输出报告"))
+                .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
+                .subscribe(rows::add);
+        assertTrue(aggStarted.await(10, java.util.concurrent.TimeUnit.SECONDS),
+                "聚合应在超时前进入流式输出");
+
+        disposable.dispose();     // 模拟客户端断开：取消置位，在途聚合调用随令牌中止
+        releaseTail.countDown();  // 尾 token 供给恢复：验证在下一个 token 边界中止
+        Thread.sleep(500);        // 留暴露窗口：若无中止/短路，会有新增调用
+
+        // lead+2 子任务+聚合共 4 次调用，断连后零新增（取消异常不可重试、无后续节点）
+        assertEquals(4, contentCalls.get(), "断连后不得发起新增 LLM 调用");
+        // 部分输出不按成功返回：断连中止后收集到的帧不含完整最终回答
+        assertTrue(rows.stream().noneMatch(fixedContent()::equals),
+                "断连中止后不应产出完整最终回答, 实际帧序列: " + rows);
+    }
+
+    /**
+     * 聚合流式失败自愈（Spec：聚合只有流式一条语义路径，不再回退阻塞调用）：
+     * lead + 2 子任务正常完成 → 聚合首试流式异常（0 token，模拟厂商挂死超时）→
+     * 护栏重试一次（仍走流式通道）→ 重试成功产出最终回答。
+     */
+    @Test
+    void executeStreamReactive_aggregateStreamZeroTokenFailure_retriesStreaming() {
+        java.util.concurrent.atomic.AtomicInteger contentCalls = new java.util.concurrent.atomic.AtomicInteger();
+        when(clientRegistry.get(any())).thenReturn(chatClient);
+        when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(anyString())).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        when(requestSpec.stream()).thenReturn(streamSpec);
+        when(streamSpec.chatResponse()).thenAnswer(inv -> {
+            int call = contentCalls.incrementAndGet();
+            if (call <= 3) {
+                return fluxOf(fixedContent()); // lead + 2 子任务正常完成
+            }
+            if (call == 4) {
+                return Flux.error(new RuntimeException("模拟厂商端挂死超时")); // 聚合首试失败（0 token）
+            }
+            return fluxOf(fixedContent()); // 聚合重试成功
+        });
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+
+        java.util.List<String> rows = agent
+                .executeStreamReactive(new Goal("g11", "调研竞品并输出报告"))
+                .collectList()
+                .block(java.time.Duration.ofSeconds(10));
+
+        assertNotNull(rows);
+        assertEquals(fixedContent(), rows.get(rows.size() - 1), "重试成功应以最终回答收尾");
+        // lead(1) + 子任务(2) + 聚合首试(1) + 聚合重试(1)，无阻塞兜底调用
+        assertEquals(5, contentCalls.get(), "聚合失败应流式重试一次而非回退阻塞调用");
+    }
+
+    /**
+     * 聚合已推出部分 token 后失败：不重试（重试会造成内容重复），以已收内容为准收尾。
+     */
+    @Test
+    void executeStreamReactive_aggregatePartialTokenFailure_noRetry() {
+        java.util.concurrent.atomic.AtomicInteger contentCalls = new java.util.concurrent.atomic.AtomicInteger();
+        when(clientRegistry.get(any())).thenReturn(chatClient);
+        when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(anyString())).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        when(requestSpec.stream()).thenReturn(streamSpec);
+        when(streamSpec.chatResponse()).thenAnswer(inv -> {
+            int call = contentCalls.incrementAndGet();
+            if (call <= 3) {
+                return fluxOf(fixedContent()); // lead + 2 子任务正常完成
+            }
+            // 聚合：先推一个 token 再失败（部分输出）
+            return Flux.concat(fluxOf("部分"), Flux.error(new RuntimeException("中途失败")));
+        });
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+
+        java.util.List<String> rows = new java.util.concurrent.CopyOnWriteArrayList<>();
+        agent.executeStreamReactive(new Goal("g12", "调研竞品并输出报告"))
+                .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
+                .subscribe(rows::add);
+        try {
+            Thread.sleep(800);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        // lead(1) + 子任务(2) + 聚合(1)：已推 token 后失败不重试
+        assertEquals(4, contentCalls.get(), "已推出部分 token 后不得重试（内容重复风险）");
+        assertTrue(rows.contains("部分"), "已收内容应作为部分输出保留, 实际帧序列: " + rows);
+        assertTrue(rows.stream().noneMatch(fixedContent()::equals),
+                "部分输出后不应出现完整重发内容, 实际帧序列: " + rows);
+    }
+
+    /* ---------------- 编排消费上限熔断（预算账本） ---------------- */
+
+    /**
+     * 同步路径熔断：orchestration-budget=1（极小），lead 拆解消耗已超限 →
+     * 2 个子任务全部短路（零 LLM 调用、result 写占位），聚合照常执行且 prompt
+     * 前置降级说明（跳过数 + 已消耗/上限数字 + 估算口径），编排正常终态。
+     */
+    @Test
+    void execute_overBudget_skipsSubtasks_aggregatesWithDegradationNote() {
+        stubChat(fixedContent());
+        com.dark.javaHarness.config.ContextBudgetProperties budgets =
+                new com.dark.javaHarness.config.ContextBudgetProperties();
+        budgets.setOrchestrationBudget(1);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, budgets);
+
+        String reply = agent.execute(new Goal("gover1", "调研竞品并输出报告"));
+
+        // 编排正常终态：聚合产出最终回答（非 FAILED、非「未生成最终回答」兜底）
+        assertEquals(fixedContent(), reply, "熔断后聚合节点应照常执行并产出最终回答");
+        // lead(1) + 聚合(1) = 2 次流式调用；2 个子任务全部熔断（mock 零交互）
+        verify(requestSpec, org.mockito.Mockito.times(2)).stream();
+        // 聚合 prompt 前置降级说明（最后一次 user 调用）：跳过数 + 消耗数字 + 估算口径
+        org.mockito.ArgumentCaptor<String> userCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(requestSpec, atLeastOnce()).user(userCaptor.capture());
+        String aggPrompt = userCaptor.getAllValues().get(userCaptor.getAllValues().size() - 1);
+        assertTrue(aggPrompt.contains("预算降级说明"), "聚合 prompt 应前置降级说明: " + aggPrompt);
+        assertTrue(aggPrompt.contains("2 个子任务因预算超限未执行"),
+                "降级说明应含跳过子任务数: " + aggPrompt);
+        assertTrue(aggPrompt.contains("已消耗") && aggPrompt.contains("上限"),
+                "降级说明应含已消耗/上限数字: " + aggPrompt);
+        assertTrue(aggPrompt.contains("估算"), "降级说明应注明消耗口径（无 usage 回包按估算）: " + aggPrompt);
+    }
+
+    /** 未超限（预算宽裕）：子任务全部执行、行为与现状一致、聚合 prompt 无降级说明 */
+    @Test
+    void execute_withinBudget_allSubtasksRun_noDegradation() {
+        stubChat(fixedContent());
+        com.dark.javaHarness.config.ContextBudgetProperties budgets =
+                new com.dark.javaHarness.config.ContextBudgetProperties();
+        budgets.setOrchestrationBudget(60000);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, budgets);
+
+        String reply = agent.execute(new Goal("gover2", "调研竞品并输出报告"));
+
+        assertEquals(fixedContent(), reply);
+        // lead(1) + 2 子任务 + 聚合 = 4 次调用（子任务全部执行，零熔断）
+        verify(requestSpec, org.mockito.Mockito.times(4)).stream();
+        org.mockito.ArgumentCaptor<String> userCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(requestSpec, atLeastOnce()).user(userCaptor.capture());
+        String aggPrompt = userCaptor.getAllValues().get(userCaptor.getAllValues().size() - 1);
+        assertFalse(aggPrompt.contains("预算降级说明"),
+                "未超限时聚合 prompt 不得含降级说明: " + aggPrompt);
+    }
+
+    /* ---------------- 拆解子任务数量上限（subtask-max-count 配置化） ---------------- */
+
+    /** 配置 2 且 lead 返回 3 条 → 仅前 2 条落槽位执行（lead 1 + 子任务 2 + 聚合 1 = 4 次 stream） */
+    @Test
+    void execute_subtaskMaxCount2_truncatesLeadItemsToTwoSlots() {
+        String leadJson = "{\"subtasks\":[\"任务一\",\"任务二\",\"任务三\"]}";
+        stubChat(leadJson);
+        com.dark.javaHarness.config.ContextBudgetProperties budgets =
+                new com.dark.javaHarness.config.ContextBudgetProperties();
+        budgets.setSubtaskMaxCount(2);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, budgets);
+
+        String reply = agent.execute(new Goal("gmc1", "调研竞品并输出报告"));
+
+        assertEquals(leadJson, reply);
+        // 只截断到 2 条：lead(1) + 已布置的 2 个子任务 + 聚合(1) = 4 次（第 3 条未布置零调用）
+        verify(requestSpec, org.mockito.Mockito.times(4)).stream();
+        org.mockito.ArgumentCaptor<String> userCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(requestSpec, atLeastOnce()).user(userCaptor.capture());
+        java.util.List<String> users = userCaptor.getAllValues();
+        assertTrue(users.contains("任务一") && users.contains("任务二"),
+                "前 2 条子任务应落槽位执行: " + users);
+        assertFalse(users.contains("任务三"), "第 3 条子任务应被上限截断（零执行）: " + users);
+    }
+
+    /** 配置 0（缺省）→ 回退兜底 4：lead 返回 4 条 → 4 条全部执行（6 次 stream，现状回归） */
+    @Test
+    void execute_subtaskMaxCountZero_fallsBackToFour() {
+        String leadJson = "{\"subtasks\":[\"任务一\",\"任务二\",\"任务三\",\"任务四\"]}";
+        stubChat(leadJson);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, new com.dark.javaHarness.config.ContextBudgetProperties());
+
+        String reply = agent.execute(new Goal("gmc2", "调研竞品并输出报告"));
+
+        assertEquals(leadJson, reply);
+        // 缺省 0 → 兜底 4：lead(1) + 4 子任务 + 聚合(1) = 6 次
+        verify(requestSpec, org.mockito.Mockito.times(6)).stream();
+    }
+
+    /** 配置 8（超界）→ clamp 回兜底 4：lead 返回 5 条 → 仅 4 条执行（6 次 stream） */
+    @Test
+    void execute_subtaskMaxCountOverBound_clampsToFour() {
+        String leadJson = "{\"subtasks\":[\"任务一\",\"任务二\",\"任务三\",\"任务四\",\"任务五\"]}";
+        stubChat(leadJson);
+        com.dark.javaHarness.config.ContextBudgetProperties budgets =
+                new com.dark.javaHarness.config.ContextBudgetProperties();
+        budgets.setSubtaskMaxCount(8);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, budgets);
+
+        String reply = agent.execute(new Goal("gmc3", "调研竞品并输出报告"));
+
+        assertEquals(leadJson, reply);
+        // 超界 8 → clamp 4：前 4 条执行（lead 1 + 4 + 聚合 1 = 6 次），第 5 条未布置零调用
+        verify(requestSpec, org.mockito.Mockito.times(6)).stream();
+        org.mockito.ArgumentCaptor<String> userCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(requestSpec, atLeastOnce()).user(userCaptor.capture());
+        assertFalse(userCaptor.getAllValues().contains("任务五"),
+                "第 5 条子任务应被 clamp 到 4 截断（零执行）: " + userCaptor.getAllValues());
+    }
+
+    /* ---------------- 子任务墙钟超时（subtask-wall-clock-seconds） ---------------- */
+
+    /** 延迟发 token 的流（模拟专家调用人为拖慢）：首个 token 在延迟后才到达 */
+    private static Flux<ChatResponse> delayedFluxOf(long delayMillis, String... tokens) {
+        return Flux.defer(() -> {
+            try {
+                Thread.sleep(delayMillis);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return fluxOf(tokens);
+        });
+    }
+
+    /**
+     * 超时命中（wall-clock=1s，子任务人为拖慢 2s）：caller 在 token 边界中止 → 节点写
+     * 「子任务执行超时」占位 → 聚合 prompt 前置超时说明（与预算降级互不掺混），编排正常终态。
+     */
+    @Test
+    void execute_subtaskWallClockTimeout_writesPlaceholderAndAggregatorNotes() {
+        String leadJson = "{\"subtasks\":[\"任务一\",\"任务二\"]}";
+        when(clientRegistry.get(any())).thenReturn(chatClient);
+        when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(anyString())).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        when(requestSpec.stream()).thenReturn(streamSpec);
+        // 调用序列（限并发=1 串行确定）：lead(立即) → 子任务A(拖 2s，超时) → 子任务B(拖 2s，超时) → 聚合(立即)
+        when(streamSpec.chatResponse()).thenReturn(
+                fluxOf(leadJson),
+                delayedFluxOf(2000, "子任务结果"),
+                delayedFluxOf(2000, "子任务结果"),
+                fluxOf("最终回答"));
+        com.dark.javaHarness.config.ContextBudgetProperties budgets =
+                new com.dark.javaHarness.config.ContextBudgetProperties();
+        budgets.setSubtaskWallClockSeconds(1);
+        budgets.setSubtaskConcurrency(1);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, budgets);
+
+        String reply = agent.execute(new Goal("gtw1", "调研竞品并输出报告"));
+
+        assertEquals("最终回答", reply, "超时占位后聚合应照常执行并产出最终回答");
+        // 聚合 prompt 前置超时说明：2 个子任务超时未执行，且不得混入预算降级文案
+        org.mockito.ArgumentCaptor<String> userCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(requestSpec, atLeastOnce()).user(userCaptor.capture());
+        String aggPrompt = userCaptor.getAllValues().get(userCaptor.getAllValues().size() - 1);
+        assertTrue(aggPrompt.contains("【超时说明】"), "聚合 prompt 应前置超时说明: " + aggPrompt);
+        assertTrue(aggPrompt.contains("2 个子任务执行超时"),
+                "超时说明应含超时子任务数: " + aggPrompt);
+        assertFalse(aggPrompt.contains("预算降级说明"),
+                "超时路径不得混入预算降级文案: " + aggPrompt);
+    }
+
+    /**
+     * 子任务执行失败占位（2026-10-02）：子任务 A 模型流异常（不可重试错误，一次即失败）→
+     * 节点写「执行失败」占位不上抛 → 并行节点正常完成、子任务 B 真实结果保留 → 聚合 prompt
+     * 前置失败说明、编排正常终态（不再整图失败触发入口层降级 general 重答作废其他结果）。
+     */
+    @Test
+    void execute_subtaskFailure_writesPlaceholder_aggregatesRemainingResults() {
+        String leadJson = "{\"subtasks\":[\"任务一\",\"任务二\"]}";
+        when(clientRegistry.get(any())).thenReturn(chatClient);
+        when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(anyString())).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        when(requestSpec.stream()).thenReturn(streamSpec);
+        // 调用序列（限并发=1 串行确定）：lead(立即) → 子任务A(失败) → 子任务B(成功) → 聚合(立即)
+        when(streamSpec.chatResponse()).thenReturn(
+                fluxOf(leadJson),
+                Flux.error(new RuntimeException("模拟子任务执行失败")),
+                fluxOf("子任务B结果"),
+                fluxOf("最终回答"));
+        com.dark.javaHarness.config.ContextBudgetProperties budgets =
+                new com.dark.javaHarness.config.ContextBudgetProperties();
+        budgets.setSubtaskConcurrency(1);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, budgets);
+
+        String reply = agent.execute(new Goal("gfail1", "调研竞品并输出报告"));
+
+        assertEquals("最终回答", reply, "失败占位后聚合应照常执行并产出最终回答（其余子任务结果不作废）");
+        // 聚合 prompt 前置失败说明：1 个子任务失败已跳过，B 的真实结果保留，不得混入超时/预算文案
+        org.mockito.ArgumentCaptor<String> userCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(requestSpec, atLeastOnce()).user(userCaptor.capture());
+        String aggPrompt = userCaptor.getAllValues().get(userCaptor.getAllValues().size() - 1);
+        assertTrue(aggPrompt.contains("【失败说明】"), "聚合 prompt 应前置失败说明: " + aggPrompt);
+        assertTrue(aggPrompt.contains("1 个子任务执行失败"),
+                "失败说明应含失败子任务数: " + aggPrompt);
+        assertTrue(aggPrompt.contains("子任务B结果"),
+                "失败子任务不应连坐作废其余子任务的真实结果: " + aggPrompt);
+        assertFalse(aggPrompt.contains("【超时说明】"), "失败路径不得混入超时说明: " + aggPrompt);
+        assertFalse(aggPrompt.contains("预算降级说明"), "失败路径不得混入预算降级文案: " + aggPrompt);
+    }
+
+    /**
+     * 全部子任务执行失败 → 聚合照常执行（聚合必发，与预算/超时占位同语义）：
+     * prompt 前置失败说明交代占比，编排正常终态（不降级重答）。
+     */
+    @Test
+    void execute_allSubtasksFail_aggregatesWithFailureNote() {
+        String leadJson = "{\"subtasks\":[\"任务一\",\"任务二\"]}";
+        when(clientRegistry.get(any())).thenReturn(chatClient);
+        when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(anyString())).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        when(requestSpec.stream()).thenReturn(streamSpec);
+        // 调用序列（限并发=1 串行确定）：lead(立即) → 子任务A(失败) → 子任务B(失败) → 聚合(立即)
+        when(streamSpec.chatResponse()).thenReturn(
+                fluxOf(leadJson),
+                Flux.error(new RuntimeException("模拟子任务失败1")),
+                Flux.error(new RuntimeException("模拟子任务失败2")),
+                fluxOf("最终回答"));
+        com.dark.javaHarness.config.ContextBudgetProperties budgets =
+                new com.dark.javaHarness.config.ContextBudgetProperties();
+        budgets.setSubtaskConcurrency(1);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, budgets);
+
+        String reply = agent.execute(new Goal("gfail2", "调研竞品并输出报告"));
+
+        assertEquals("最终回答", reply, "全失败占位后聚合应照常执行并产出最终回答");
+        // 聚合 prompt 前置失败说明：2 个子任务失败，不得混入超时/预算文案
+        org.mockito.ArgumentCaptor<String> userCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(requestSpec, atLeastOnce()).user(userCaptor.capture());
+        String aggPrompt = userCaptor.getAllValues().get(userCaptor.getAllValues().size() - 1);
+        assertTrue(aggPrompt.contains("【失败说明】"), "聚合 prompt 应前置失败说明: " + aggPrompt);
+        assertTrue(aggPrompt.contains("2 个子任务执行失败"),
+                "失败说明应含失败子任务数: " + aggPrompt);
+        assertFalse(aggPrompt.contains("【超时说明】"), "失败路径不得混入超时说明: " + aggPrompt);
+        assertFalse(aggPrompt.contains("预算降级说明"), "失败路径不得混入预算降级文案: " + aggPrompt);
+    }
+
+    /**
+     * 子任务工具行归属改写：tool/tool-done 行 stage 追加「N · 专家名」（tool1 · researcher /
+     * tool-done1 · researcher），非工具行（思考行/内容 token）原样返回（2026-10-02）。
+     */
+    @Test
+    void attributeToolLine_rewritesToolStages_keepsOthers() {
+        String attribution = "1 · researcher";
+        assertEquals(
+                com.dark.javaHarness.agent.ProgressLine.encode("tool1 · researcher", "WriteFile(/tmp/a.py)"),
+                OrchestrationNodes.attributeToolLine(
+                        com.dark.javaHarness.agent.ProgressLine.encode("tool", "WriteFile(/tmp/a.py)"), attribution),
+                "起始行 stage 应追加归属后缀");
+        assertEquals(
+                com.dark.javaHarness.agent.ProgressLine.encode("tool-done1 · researcher", "WriteFile ✓ 1.2s"),
+                OrchestrationNodes.attributeToolLine(
+                        com.dark.javaHarness.agent.ProgressLine.encode("tool-done", "WriteFile ✓ 1.2s"), attribution),
+                "结束行 stage 应追加归属后缀");
+        String thinking = com.dark.javaHarness.agent.ProgressLine.encode("思考1 · researcher", "思考内容");
+        assertEquals(thinking, OrchestrationNodes.attributeToolLine(thinking, attribution),
+                "思考行不应被改写");
+        assertEquals("普通内容token", OrchestrationNodes.attributeToolLine("普通内容token", attribution),
+                "内容 token 不应被改写");
+    }
+
+    /** wall-clock=0（缺省）→ 不限制：不包装取消供给，行为与现状完全一致（回归） */
+    @Test
+    void execute_wallClockZero_unlimited_normalCompletion() {
+        stubChat(fixedContent());
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, new com.dark.javaHarness.config.ContextBudgetProperties());
+
+        String reply = agent.execute(new Goal("gtw2", "调研竞品并输出报告"));
+
+        assertEquals(fixedContent(), reply);
+        // lead(1) + 2 子任务 + 聚合(1) = 4 次全部正常执行
+        verify(requestSpec, org.mockito.Mockito.times(4)).stream();
+    }
+
+    /** 流式路径熔断：行为与同步路径一致，聚合 token 旁路照常推流收尾 */
+    @Test
+    void executeStreamReactive_overBudget_skipsSubtasks_aggregatesWithDegradationNote() {
+        stubChat(fixedContent());
+        com.dark.javaHarness.config.ContextBudgetProperties budgets =
+                new com.dark.javaHarness.config.ContextBudgetProperties();
+        budgets.setOrchestrationBudget(1);
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, budgets);
+
+        java.util.List<String> rows = agent
+                .executeStreamReactive(new Goal("gover3", "调研竞品并输出报告"))
+                .collectList()
+                .block(java.time.Duration.ofSeconds(10));
+
+        assertNotNull(rows);
+        assertEquals(fixedContent(), rows.get(rows.size() - 1), "流式熔断后聚合应照常推流最终回答");
+        // lead(1) + 聚合流式(1) = 2 次；子任务零调用
+        verify(requestSpec, org.mockito.Mockito.times(2)).stream();
+        org.mockito.ArgumentCaptor<String> userCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(requestSpec, atLeastOnce()).user(userCaptor.capture());
+        String aggPrompt = userCaptor.getAllValues().get(userCaptor.getAllValues().size() - 1);
+        assertTrue(aggPrompt.contains("预算降级说明"), "聚合 prompt 应前置降级说明: " + aggPrompt);
+        assertTrue(aggPrompt.contains("2 个子任务因预算超限未执行"),
+                "降级说明应含跳过子任务数: " + aggPrompt);
+    }
+
+    /**
+     * 真实部分跳过（C1 方向 b + I2 场景）：熔断下沉到 caller 后，共享账本在每轮 LLM roundtrip
+     * 上增量记账并复检——lead + 前序子任务累计消耗后超限，后续子任务熔断跳过，而前序子任务
+     * 的真实结果保留进聚合。限并发=1 使子任务错峰串行，跳过数确定（与执行次序无关：
+     * 各子任务消耗相同 → 恰好 1 个成功、其余熔断跳过）。
+     *
+     * <p>消耗编排：budget=200；lead usage=50（账本 50）→ 子任务 A usage=100（账本 150，放行）
+     * → 子任务 B usage=100（入账后 250 ≥ 200，usage 帧上断流熔断）→ 子任务 C/D 预检拒绝。
+     */
+    @Test
+    void execute_partialBudgetExhaustion_skipsOnlyRemainingSubtasks() {
+        com.dark.javaHarness.config.ContextBudgetProperties budgets =
+                new com.dark.javaHarness.config.ContextBudgetProperties();
+        budgets.setOrchestrationBudget(200);
+        budgets.setSubtaskConcurrency(1);
+        when(clientRegistry.get(any())).thenReturn(chatClient);
+        when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(anyString())).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        when(requestSpec.stream()).thenReturn(streamSpec);
+        // 调用序列（限并发串行）：lead → 子任务A（放行）→ 子任务B（usage 帧熔断）→ 聚合；
+        // 子任务 C/D 预检拒绝零 HTTP，不再消耗流桩
+        when(streamSpec.chatResponse()).thenReturn(
+                fluxWithUsage(50, "{\"subtasks\":[\"任务一\",\"任务二\",\"任务三\",\"任务四\"]}"),
+                fluxWithUsage(100, "子任务结果"),
+                fluxWithUsage(100, "子任务结果"),
+                fluxOf("最终回答"));
+        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, budgets);
+
+        String reply = agent.execute(new Goal("gpart1", "调研竞品并输出报告"));
+
+        assertEquals("最终回答", reply, "部分熔断后聚合应照常产出最终回答");
+        // lead(1) + 子任务A(1) + 子任务B(1，中途断流) + 聚合(1) = 4 次 HTTP
+        verify(requestSpec, org.mockito.Mockito.times(4)).stream();
+        // 聚合 prompt：前置降级说明（1 个跳过）+ 前序子任务真实结果保留
+        org.mockito.ArgumentCaptor<String> userCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(requestSpec, atLeastOnce()).user(userCaptor.capture());
+        String aggPrompt = userCaptor.getAllValues().get(userCaptor.getAllValues().size() - 1);
+        assertTrue(aggPrompt.contains("预算降级说明"), "聚合 prompt 应前置降级说明: " + aggPrompt);
+        assertTrue(aggPrompt.contains("3 个子任务因预算超限未执行"),
+                "降级说明应含部分跳过数（1 个真实执行，其余 3 个熔断跳过）: " + aggPrompt);
+        assertTrue(aggPrompt.contains("【子任务1】") && aggPrompt.contains("子任务结果"),
+                "前序子任务的真实结果应保留进聚合: " + aggPrompt);
+    }
+
+    /** 文本 token + 末帧 usage（total 为该轮完整 prompt+completion 的累计口径）→ ChatResponse 流 */
+    private static Flux<ChatResponse> fluxWithUsage(int total, String... tokens) {
+        java.util.List<ChatResponse> frames = new java.util.ArrayList<>();
+        for (String t : tokens) {
+            frames.add(new ChatResponse(List.of(new Generation(new AssistantMessage(t)))));
+        }
+        frames.add(new ChatResponse(List.of(),
+                org.springframework.ai.chat.metadata.ChatResponseMetadata.builder()
+                        .usage(new org.springframework.ai.chat.metadata.DefaultUsage(
+                                total / 2, total - total / 2, total))
+                        .build()));
+        return Flux.fromIterable(frames);
+    }
+
+    /* ---------------- 子任务 RAG 预取（lead 出口主提交 + subtask 入口补提交） ---------------- */
+
+    /** 全参构造便捷入口：单测只关注 ragPrefetcher，其余依赖沿用既有用例的最小桩（均可 null） */
+    private MultiAgentGraphAgent agentWithPrefetcher(RagPrefetcher ragPrefetcher) {
+        return new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
+                null, null, null, null, null, null, null, null, null, ragPrefetcher);
+    }
+
+    /** 已布置槽位触发预取提交：参数与执行完全同源（agentName=指派专家、query=子任务文本、sessionId=编排会话）；lead 出口主提交 + subtask 入口补提交各一次 */
+    @Test
+    void execute_assignedSubtasks_submitPrefetchWithSameSourceArgs() {
+        String leadJson = "{\"subtasks\":[{\"desc\":\"调研竞品\",\"agent\":\"researcher\"},"
+                + "{\"desc\":\"统计销量\",\"agent\":\"analyst\"}]}";
+        stubChat(leadJson);
+        RagPrefetcher prefetcher = mock(RagPrefetcher.class);
+        agent = agentWithPrefetcher(prefetcher);
+
+        agent.execute(new Goal("gp1", "调研竞品并统计销量", "sess-p1"));
+
+        // lead 出口 + subtask 入口各提交一次（同参数幂等重复）
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("researcher", "sess-p1", "调研竞品", KnowledgeRetriever.SOURCE_LEAD_PREFETCH);
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("researcher", "sess-p1", "调研竞品", KnowledgeRetriever.SOURCE_SUBTASK_PREFETCH);
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("analyst", "sess-p1", "统计销量", KnowledgeRetriever.SOURCE_LEAD_PREFETCH);
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("analyst", "sess-p1", "统计销量", KnowledgeRetriever.SOURCE_SUBTASK_PREFETCH);
+        org.mockito.Mockito.verifyNoMoreInteractions(prefetcher);
+    }
+
+    /** 未布置空槽位不提交预取：lead 拆 2 条（旧格式未指派）→ 4 个并行槽位中仅 2 个已布置，空槽快速短路零提交 */
+    @Test
+    void execute_emptySlots_noPrefetchSubmission() {
+        stubChat(fixedContent());
+        RagPrefetcher prefetcher = mock(RagPrefetcher.class);
+        agent = agentWithPrefetcher(prefetcher);
+
+        agent.execute(new Goal("gp2", "调研竞品并输出报告", "sess-p2"));
+
+        // 仅 2 个已布置槽位提交（lead 出口 + subtask 入口各一次；未指派 → 执行回退 general，
+        // 预取同源用 general 查绑定）；槽位 2/3 未布置 → 快速短路零提交（NoMore 兜底证明零贡献）
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("general", "sess-p2", "子任务A", KnowledgeRetriever.SOURCE_LEAD_PREFETCH);
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("general", "sess-p2", "子任务A", KnowledgeRetriever.SOURCE_SUBTASK_PREFETCH);
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("general", "sess-p2", "子任务B", KnowledgeRetriever.SOURCE_LEAD_PREFETCH);
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("general", "sess-p2", "子任务B", KnowledgeRetriever.SOURCE_SUBTASK_PREFETCH);
+        org.mockito.Mockito.verifyNoMoreInteractions(prefetcher);
+    }
+
+    /** ragPrefetcher=null（知识库禁用 bean 缺位）→ 预取钩子零行为，编排流程与现状完全一致 */
+    @Test
+    void execute_nullPrefetcher_orchestrationUnchanged() {
+        stubChat(fixedContent());
+        agent = agentWithPrefetcher(null);
+
+        String reply = agent.execute(new Goal("gp3", "调研竞品并输出报告"));
+
+        assertEquals(fixedContent(), reply);
+        // lead + 2 子任务 + 聚合照常执行（零感知、零报错）
+        verify(requestSpec, org.mockito.Mockito.times(4)).stream();
+    }
+
+    /**
+     * lead 出口主提交点时序：submit 在 lead 阶段即被调用——以事件序列断言
+     * 「lead 拆解调用 → lead 出口批量提交预取」先于子任务批的任何 LLM 调用与入口补提交
+     * （子任务并行线程在 lead 节点返回后才启动，事件前缀跨线程确定；并行段不比次序，
+     * 故不用 InOrder——入口补提交与子任务流式调用在不同线程竞速）。
+     */
+    @Test
+    void execute_prefetchSubmittedAtLeadExit_beforeExpertCalls() {
+        String leadJson = "{\"subtasks\":[{\"desc\":\"调研竞品\",\"agent\":\"researcher\"},"
+                + "{\"desc\":\"统计销量\",\"agent\":\"analyst\"}]}";
+        stubChat(leadJson);
+        RagPrefetcher prefetcher = mock(RagPrefetcher.class);
+        // 事件流：记录每次 LLM stream 调用与预取提交的先后
+        java.util.List<String> events = new java.util.concurrent.CopyOnWriteArrayList<>();
+        when(requestSpec.stream()).thenAnswer(inv -> {
+            events.add("stream");
+            return streamSpec;
+        });
+        when(prefetcher.submit(any(), any(), any(), any())).thenAnswer(inv -> {
+            events.add("submit:" + inv.getArgument(0, String.class));
+            return null;
+        });
+        agent = agentWithPrefetcher(prefetcher);
+
+        String reply = agent.execute(new Goal("gpo1", "调研竞品并统计销量", "sess-po1"));
+
+        assertNotNull(reply);
+        assertFalse(reply.isBlank(), "预取钩子不得影响编排产出");
+        // 前缀确定：lead 拆解调用 → lead 出口两个子任务的预取提交，先于子任务批的任何事件
+        assertEquals(java.util.List.of("stream", "submit:researcher", "submit:analyst"),
+                events.subList(0, 3), "lead 出口预取应先于子任务批的 LLM 调用与入口补提交: " + events);
+        // 全量 sanity：4 次 LLM 调用（lead+2子任务+聚合）+ 4 次预取提交（每子任务 lead 出口与入口各一）
+        assertEquals(8, events.size(), "事件总数应为 4 次 LLM 调用 + 4 次预取提交: " + events);
+    }
+
+    /** 同参数重复提交幂等：lead 出口 + subtask 入口对同一子任务各提交一次（同参数），编排零报错、行为正常 */
+    @Test
+    void execute_duplicatePrefetchSubmissions_idempotent() {
+        String leadJson = "{\"subtasks\":[{\"desc\":\"调研竞品\",\"agent\":\"researcher\"},"
+                + "{\"desc\":\"统计销量\",\"agent\":\"analyst\"}]}";
+        stubChat(leadJson);
+        RagPrefetcher prefetcher = mock(RagPrefetcher.class);
+        agent = agentWithPrefetcher(prefetcher);
+
+        String reply = agent.execute(new Goal("gpd1", "调研竞品并统计销量", "sess-pd1"));
+
+        assertEquals(leadJson, reply, "重复提交不得影响最终回答");
+        // 每个子任务恰好两次提交（lead 出口 + subtask 入口）：KnowledgeRetriever 复合缓存键下同参数幂等，无需去重
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("researcher", "sess-pd1", "调研竞品", KnowledgeRetriever.SOURCE_LEAD_PREFETCH);
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("researcher", "sess-pd1", "调研竞品", KnowledgeRetriever.SOURCE_SUBTASK_PREFETCH);
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("analyst", "sess-pd1", "统计销量", KnowledgeRetriever.SOURCE_LEAD_PREFETCH);
+        verify(prefetcher, org.mockito.Mockito.times(1)).submit("analyst", "sess-pd1", "统计销量", KnowledgeRetriever.SOURCE_SUBTASK_PREFETCH);
+        org.mockito.Mockito.verifyNoMoreInteractions(prefetcher);
+    }
+}

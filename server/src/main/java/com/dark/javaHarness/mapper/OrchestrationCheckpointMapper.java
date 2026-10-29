@@ -1,7 +1,7 @@
 package com.dark.javaHarness.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.dark.javaHarness.agent.orchestrate.persistence.OrchestrationCheckpointEntity;
+import com.dark.javaHarness.state.persistence.OrchestrationCheckpointEntity;
 import org.apache.ibatis.annotations.Mapper;
 
 /**

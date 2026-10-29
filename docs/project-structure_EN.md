@@ -39,9 +39,7 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── RouteJudge.java           # Main-agent routing decision (SIMPLE / COMPLEX)
 │   ├── AgentConfigProvider.java  # Runtime config from the agent table (routing map)
 │   ├── ProviderAdminService.java # model_provider mapping management (hot refresh on add)
-│   ├── ObserveQueryService.java  # Unified observability-log queries (llm / tool / kb-retrieval; controllers never touch mappers directly)
 │   └── impl/                     # Implementations (AgentServiceImpl / ChatServiceImpl / SessionServiceImpl / ProviderAdminServiceImpl / SseEncoder etc.)
-│       ├── observe/              # LlmCallRecorder / McpServerRecorder (LLM/MCP call observation persistence) + ObserveQueryServiceImpl (observability queries) + ObservabilityLogCleaner (observation-table retention cleanup)
 │       └── route/                # LlmRouteJudge (main-agent routing decision) / RagPrefetcher (RAG entry prefetch)
 ├── advisor/                      # Spring AI Advisor interceptors (cross-cutting agent-flow management)
 │   ├── ContextAssemblingAdvisor.java  # Context assembly: filter / token-budget truncation / role normalization
@@ -91,13 +89,26 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── AgentRequestSpecFactory.java  # Shared request-assembly factory (system / memory injection / tool decoration / output tier)
 │   ├── LlmRetry.java               # LLM call retry policy
 │   ├── ProgressLine.java           # Progress line wire protocol (MARK+stage+SEP+detail) codec
-│   └── orchestrate/               # Graph orchestration path (Lead → parallel experts → aggregation)
-│       ├── MultiAgentGraphAgent.java   # Graph path: orchestration facade (execute/stream/resume entries; engine in engine/ParallelOrchestrationEngine)
-│       ├── OrchestrationNodes.java     # Orchestration node impls (lead/subtask/aggregate + predict* bridges + streaming aggregation guard)
-│       ├── LeadOutputParser.java       # Lead decomposition JSON parsing (subtask count + expert dispatch whitelist)
-│       ├── OrchestrationBudget.java    # Orchestration budget ledger (AtomicLong shared accounting + degradation note)
-│       ├── MultiAgentStreamPipeline.java  # Orchestration streaming pipeline (progress lines → SSE events, resume checkpoint selection)
-│       └── BranchProgressListener.java # Subtask outcome broadcaster (serializes parallel completion events)
+│   └── BranchProgressListener.java # Subtask outcome broadcaster (shared with Graph)
+├── graph/                        # Graph orchestration path (Lead → parallel experts → aggregation)
+│   ├── MultiAgentGraphAgent.java   # Graph facade (execute/stream/resume entries; engine in engine/ParallelOrchestrationEngine)
+│   ├── OrchestrationNodes.java     # Orchestration node impls (lead/subtask/aggregate + predict* bridges + streaming aggregation guard)
+│   ├── LeadOutputParser.java       # Lead decomposition JSON parsing (subtask count + expert dispatch whitelist)
+│   ├── OrchestrationBudget.java    # Orchestration budget ledger (AtomicLong shared accounting + degradation note)
+│   ├── MultiAgentStreamPipeline.java  # Orchestration streaming pipeline (progress lines → SSE events)
+│   ├── ThinkingThrottle.java       # Thinking-delta frame throttle
+│   └── engine/                     # OrchestrationEngine / ParallelOrchestrationEngine / OrchestrationState / EngineEvent
+├── state/                        # Execution state and checkpoint/resume
+│   ├── OrchestrationStage.java / OrchestrationCheckpoint.java / CheckpointSelector.java
+│   └── persistence/              # OrchestrationCheckpointStore / OrchestrationCheckpointEntity
+├── observability/                # Observability (recorders + queries + request logging)
+│   ├── LlmCallRecorder / KbRetrievalRecorder / McpServerRecorder  # Async persistence of the three observation tables
+│   ├── LlmCallObserver / LlmRequestLogAdvisor  # Call-side accounting and request-start logging
+│   ├── ObserveQueryService / ObserveQueryServiceImpl  # Unified three-table queries (controllers never touch mappers)
+│   └── ObservabilityLogCleaner  # Observation-table retention cleanup
+├── validation/                   # Pure rules (stateless, no DB access)
+│   ├── FileNameRules.java        # Upload filename / size / kb naming
+│   └── ProviderRules.java        # provider / apiUrl / model-name format
 ├── knowledge/                    # RAG knowledge base
 │   ├── KnowledgeDocumentScanner.java  # Knowledge directory scan (.md/.txt, front-matter titles, bad files skipped)
 │   ├── MarkdownChunker.java      # Paragraph-aware splitting (~700 chars + overlap, pure function)
@@ -126,7 +137,7 @@ server/src/main/java/com/dark/javaHarness/
 </details>
 
 > [!NOTE]
-> **Layer responsibilities**: `controller` handles REST/SSE and carries no business logic; `service` orchestrates the core logic (interfaces separated from implementations); `mapper` / `domain.entity` handle database reads, writes and mapping.
+> **Layer responsibilities**: `controller` handles REST/SSE and carries no business logic; `service` orchestrates the core logic (interfaces separated from implementations); `mapper` / `domain.entity` handle database reads, writes and mapping. Runtime concerns live in dedicated packages: `agent` (Agentic executor), `graph` (Graph orchestration), `state` (checkpoint/resume), `observability` (observation persistence and queries), `validation` (pure rules).
 
 
 ---

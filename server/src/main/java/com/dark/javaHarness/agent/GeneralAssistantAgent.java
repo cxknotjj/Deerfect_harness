@@ -1,14 +1,14 @@
 package com.dark.javaHarness.agent;
 
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
-import com.dark.javaHarness.agent.orchestrate.BranchProgressListener;
+import com.dark.javaHarness.agent.BranchProgressListener;
 import com.dark.javaHarness.domain.AgentConfig;
 import com.dark.javaHarness.domain.Goal;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.prompt.SkillManager;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.SessionService;
-import com.dark.javaHarness.service.impl.observe.LlmCallRecorder;
+import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.tool.ToolAssignments;
 import com.dark.javaHarness.prompt.ToolLazyManager;
 import java.util.List;

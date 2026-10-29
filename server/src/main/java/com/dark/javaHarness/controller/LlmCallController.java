@@ -1,7 +1,7 @@
 package com.dark.javaHarness.controller;
 
 import com.dark.javaHarness.domain.entity.LlmCallLogEntity;
-import com.dark.javaHarness.service.ObserveQueryService;
+import com.dark.javaHarness.observability.ObserveQueryService;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;

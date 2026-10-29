@@ -19,7 +19,7 @@ import com.dark.javaHarness.domain.entity.LlmCallLogEntity;
 import com.dark.javaHarness.mapper.LlmCallLogMapper;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.SessionService;
-import com.dark.javaHarness.service.impl.observe.LlmCallRecorder;
+import com.dark.javaHarness.observability.LlmCallRecorder;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeoutException;
