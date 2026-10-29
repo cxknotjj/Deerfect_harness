@@ -230,9 +230,9 @@ class AgentRegistryTest {
                 "预注入的 Graph 编排 bean 不应被 agent 表行覆盖");
     }
 
-    /** Agentic 开启时，ReAct 只装配默认 general；绑定专属 Agent 的直答仍走 ChatClient */
+    /** Agentic 开启时，所有可路由对话 Agent 都由 ReAct 承载（单 Agent 直答形态，含显式指定 Agent） */
     @Test
-    void agenticEnabled_onlyGeneralUsesReAct() {
+    void agenticEnabled_allRoutableAgentsUseReAct() {
         when(provider.listAgentNames()).thenReturn(List.of("general", "coder"));
         when(agentServiceProvider.getObject()).thenReturn(agentService);
         AgentRegistry registry = new AgentRegistry(provider, agentServiceProvider, clientRegistry,
@@ -244,9 +244,9 @@ class AgentRegistryTest {
         registry.init();
 
         assertInstanceOf(AgentScopeGeneralAgent.class, registry.require("general"),
-                "SIMPLE 路径的默认 Agent 应由 AgentScope ReAct 承载");
-        assertInstanceOf(GeneralAssistantAgent.class, registry.require("coder"),
-                "绑定专属 Agent 直答不应使用 ReAct");
+                "判定为 agentic 的 general 路径应由 ReAct 承载");
+        assertInstanceOf(AgentScopeGeneralAgent.class, registry.require("coder"),
+                "显式指定 Agent 的直答同样走 ReAct");
     }
 
     /** 最小 Agent stub：仅验证路由命中与 name 透传 */

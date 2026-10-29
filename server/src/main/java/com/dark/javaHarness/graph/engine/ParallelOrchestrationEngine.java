@@ -73,7 +73,7 @@ public final class ParallelOrchestrationEngine implements OrchestrationEngine {
         save(goal, OrchestrationStage.LEAD_DONE, state);
         runSubtasks(state, null, null, null);
         save(goal, OrchestrationStage.SUBTASKS_DONE, state);
-        merge(state, nodes.aggregate(state, null, null, null));
+        aggregateWithDigest(state, null);
         save(goal, OrchestrationStage.DONE, state);
         return state.value(MultiAgentGraphAgent.K_FINAL, String.class).orElse(goal.objective());
     }
@@ -156,11 +156,13 @@ public final class ParallelOrchestrationEngine implements OrchestrationEngine {
     }
 
     /**
-     * 聚合阶段：调用聚合节点（流式 token 经 tokens sink 旁路），落 DONE 检查点；
-     * 聚合未推出任何 token 时按旧主干帧语义补发进度行与最终内容。
+     * 聚合阶段（含「简化 Graph」降级）：Graph 失败常是流程层问题（节点异常/超时），
+     * 不应整体作废——聚合失败但已有完成的子任务结果时，用结果汇总直接产出最终回答；
+     * 无任何可用结果、或聚合已流出部分正文（再拼汇总会重复）时保持原异常，
+     * 交由上层 Agentic 重答兜底。
      */
     private void aggregateStage(Goal goal, OrchestrationState state, Channels channels) {
-        merge(state, nodes.aggregate(state, channels.tokens, channels.contentSent, channels.cancelled));
+        aggregateWithDigest(state, channels);
         save(goal, OrchestrationStage.DONE, state);
         if (channels.contentSent.get()) {
             return;
@@ -172,6 +174,52 @@ public final class ParallelOrchestrationEngine implements OrchestrationEngine {
         } else {
             emit(channels.progress, ProgressLine.encode("聚合", "正在生成最终回答…"));
         }
+    }
+
+    private void aggregateWithDigest(OrchestrationState state, Channels channels) {
+        try {
+            merge(state, channels == null
+                    ? nodes.aggregate(state, null, null, null)
+                    : nodes.aggregate(state, channels.tokens, channels.contentSent, channels.cancelled));
+        } catch (RuntimeException e) {
+            if (e instanceof java.util.concurrent.CancellationException) {
+                throw e;
+            }
+            if (channels != null && channels.contentSent.get()) {
+                throw e;
+            }
+            String digest = subtaskDigest(state);
+            if (digest == null) {
+                throw e;
+            }
+            log.warn("[multi-agent][aggregate] 聚合失败，降级为子任务结果汇总：{}", safe(e));
+            if (channels != null) {
+                emit(channels.progress, ProgressLine.encode("聚合", "聚合失败，降级为子任务结果汇总"));
+                emit(channels.tokens, digest);
+                channels.contentSent.set(true);
+            }
+            state.put(MultiAgentGraphAgent.K_FINAL, digest);
+        }
+    }
+
+    /** 简化 Graph 的最终回答：拼装非占位子任务结果；全部失败/跳过（无可用结果）时返回 null */
+    private String subtaskDigest(OrchestrationState state) {
+        int count = state.value(MultiAgentGraphAgent.K_SUBTASK_COUNT, Integer.class).orElse(0);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            String result = state.value(MultiAgentGraphAgent.K_RESULT_PREFIX + i, String.class).orElse(null);
+            if (result == null || result.isBlank()
+                    || MultiAgentGraphAgent.SKIPPED_RESULT.equals(result)
+                    || MultiAgentGraphAgent.TIMEOUT_SKIPPED_RESULT.equals(result)
+                    || MultiAgentGraphAgent.FAILED_RESULT.equals(result)) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append("\n\n");
+            }
+            sb.append("### 子任务 ").append(i + 1).append('\n').append(result);
+        }
+        return sb.length() == 0 ? null : sb.toString();
     }
 
     private CheckpointSelector.ResumePlan selectResumePlan(Goal goal) {

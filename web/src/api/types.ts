@@ -28,7 +28,7 @@ export interface RouteInfo {
   /** 交付物形态:Graph 路径预期产物 */
   deliverables: string[]
   reason: string
-  /** 决策来源:OVERRIDE / RULE / LLM / FALLBACK / BOUND_AGENT / RESUME / ESCALATED */
+  /** 决策来源:OVERRIDE / RULE / LLM / FALLBACK / BOUND_AGENT / RESUME */
   source: string
 }
 

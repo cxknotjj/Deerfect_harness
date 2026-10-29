@@ -24,7 +24,7 @@ Deerfect Harness 是一个基于 Spring AI 的双路径 Agent 平台：**Agentic
 - **路径判定按任务形态**：`RouteJudge` 判的是「是否存在可独立并行的工作流 / 多份交付物」，而非消息长短或主观难度；内部枚举 `SIMPLE` / `COMPLEX` 分别对应 Agentic 与 Graph 两条路径。
 - **两段式判定**：先规则短路（多工作流措辞 → Graph；≤12 字短消息 → Agentic），灰区再走一次轻量 LLM 判定，返回 `route` / `confidence` / `workstreams` / `deliverables` / `reason`。
 - **置信度策略**：Graph 需同时满足「≥2 个可独立工作流」且「置信度 ≥0.8」，否则收敛为 Agentic，避免为单工作流支付编排成本；判定异常一律兜底 Agentic。
-- **运行时逃生舱**：流式路径下，Agentic 迭代耗尽或执行失败且尚无输出时，自动升级 Graph 编排重跑一次（`Source.ESCALATED`）；Graph 编排异常时降级为会话绑定 Agent 单模型重答一次，不递归。
+- **降级策略**：Agentic 链路不升级 Graph——ReAct 迭代耗尽时按 `GenerateReason.MAX_ITERATIONS` 判定：有整理结果按「部分完成」返回，无结果返回兜底话术。Graph 编排异常时先在编排层简化（聚合失败用已完成子任务结果汇总），仍失败再降级为会话绑定 Agent 单模型重答一次，不递归。
 - **Agentic 路径**：`AgentScopeGeneralAgent` 以 ReActAgent 执行显式推理-行动循环（默认开启，`app.agentic.enabled`），工具仍由 Spring AI 提供并经桥接进入 Toolkit；初始化失败可回退 ChatClient 单次调用路径。
 - **Graph 编排路径**：自研 `ParallelOrchestrationEngine` 执行「Lead 拆解 → 专家并行 → Aggregator 聚合」；子任务至多 4 条，禁止凑数。
 - **失败不连坐**：单个子任务失败写占位结果，聚合照常执行并注入降级说明。

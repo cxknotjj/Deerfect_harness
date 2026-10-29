@@ -4,7 +4,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * Agentic SIMPLE 路径配置（app.agentic.*）：路径 A 由 AgentScope ReActAgent 执行，
+ * Agentic 路径配置（app.agentic.*）：路径 A（单 Agent 直答，含 route-judge 判定为 SIMPLE 的
+ * general 路径与显式指定 Agent 的直答）由 AgentScope ReActAgent 执行；
  * 路径 B（多 Agent 编排）不受影响。
  *
  * <p>数值唯一来源是 application-agent.yaml 的 app.agentic 块；本类只做绑定载体。
@@ -13,7 +14,7 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "app.agentic")
 public class AgenticProperties {
 
-    /** 是否启用 AgentScope ReAct 执行 SIMPLE 路径（false 回退既有 ChatClient 单次调用路径） */
+    /** 是否启用 AgentScope ReAct 执行单 Agent 直答路径（false 回退既有 ChatClient 单次调用路径） */
     private boolean enabled = true;
 
     /** ReAct 最大迭代次数：工具调用上限 + 最终回答一轮，默认与 tool-call-limit=4 对齐为 5 */

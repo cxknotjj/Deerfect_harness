@@ -29,6 +29,7 @@ import io.agentscope.core.event.ModelCallEndEvent;
 import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.event.ThinkingBlockDeltaEvent;
 import io.agentscope.core.message.AssistantMessage;
+import io.agentscope.core.message.GenerateReason;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.UserMessage;
 import io.agentscope.core.model.ChatUsage;
@@ -293,12 +294,31 @@ public class AgentScopeGeneralAgent implements Agent {
                 collected.append(suffix);
                 BranchProgressListener.tryEmitSerialized(content, suffix);
             }
+            // ReAct 达到 maxIters 后不会直接失败：AgentScope 会进入 summarizing 阶段再调一次模型，
+            // 最终是否有总结由 GenerateReason.MAX_ITERATIONS 的结果 Msg 决定——
+            // 有输出即「部分完成」正常返回，无输出才交由上层降级（此前在 Exceed 事件处就断言，语义不准）
+            GenerateReason reason = result.getResult() == null ? null : result.getResult().getGenerateReason();
+            if (reason == GenerateReason.MAX_ITERATIONS) {
+                boolean hasOutput = (text != null && !text.isEmpty()) || !collected.isEmpty();
+                if (hasOutput) {
+                    BranchProgressListener.tryEmitSerialized(progress,
+                            ProgressLine.encode("agentic", "部分完成：达到最大迭代轮次，已输出整理结果"));
+                    log.warn("[agentic-{}] 达到最大迭代轮次，summarizing 产出整理结果，按部分完成返回", agentName);
+                } else {
+                    // 总结为空/整理失败：Agentic 链路不升级 Graph，返回兜底话术，避免空回答
+                    String fallbackText = "本次任务未能在限定轮次内完成，请重试或把问题拆小一些。";
+                    collected.append(fallbackText);
+                    BranchProgressListener.tryEmitSerialized(content, fallbackText);
+                    BranchProgressListener.tryEmitSerialized(progress,
+                            ProgressLine.encode("agentic", "达到最大迭代轮次，未产出有效总结，已返回兜底提示"));
+                    log.warn("[agentic-{}] 达到最大迭代轮次，summarizing 未产出有效总结，已返回兜底话术", agentName);
+                }
+            }
         } else if (event instanceof ExceedMaxItersEvent) {
+            // 只提示进入整理阶段：maxIters 后仍会 summarizing 再出总结（结果判定见 AgentResultEvent）；
+            // Agentic 链路不做 Graph 升级，这里不再发内部控制信号
             BranchProgressListener.tryEmitSerialized(progress,
-                    ProgressLine.encode("agentic", "达到最大迭代轮次，输出当前结果"));
-            // 内部控制信号（不对用户展示）：ReAct 未收敛，ChatService 据此决定是否升级 Graph 编排
-            BranchProgressListener.tryEmitSerialized(progress,
-                    ProgressLine.encode(ProgressLine.STAGE_AGENTIC_EXHAUSTED, "max-iters"));
+                    ProgressLine.encode("agentic", "达到最大迭代轮次，正在整理当前结果…"));
         }
     }
 

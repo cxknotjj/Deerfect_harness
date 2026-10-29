@@ -879,59 +879,37 @@ class ChatServiceImplTest {
         assertTrue(meta.contains("\"source\":\"BOUND_AGENT\""));
     }
 
-    /** Agentic→Graph 升级：迭代耗尽且无任何正文输出时自动重跑编排，内部控制信号不下发 */
+    /** Agentic 链路不做 Graph 升级：正常收尾，绝不转 multi-agent 编排 */
     @Test
-    void streamReactive_agenticExhaustedWithoutOutput_shouldEscalateToGraph() {
+    void streamReactive_agenticExhausted_shouldNotEscalateToGraph() {
         ChatRequest req = new ChatRequest("这个任务有点复杂", "50", null);
         when(routeJudge.plan(eq("这个任务有点复杂"), any(), any()))
                 .thenReturn(RoutePlan.agentic(0.95, "rule: short", RoutePlan.Source.RULE));
         when(agentService.executeStreamReactive(eq("general"), eq("这个任务有点复杂"), eq("50"), any(), any()))
-                .thenReturn(Flux.just(ProgressLine.encode(ProgressLine.STAGE_AGENTIC_EXHAUSTED, "max-iters")));
-        when(agentService.executeStreamReactive(eq("multi-agent"), eq("这个任务有点复杂"), eq("50"), any(), any()))
-                .thenReturn(Flux.just("编排补救结果"));
-
-        List<String> lines = chatService.streamReactive(req).collectList().block();
-
-        assertTrue(lines.contains("event: token\ndata: 编排补救结果"), "升级后应产出编排结果: " + lines);
-        assertTrue(lines.stream().noneMatch(l -> l.contains(ProgressLine.STAGE_AGENTIC_EXHAUSTED)),
-                "内部控制信号不得下发到客户端");
-        assertTrue(lines.stream().anyMatch(l -> l.contains("Agentic 未收敛，升级为 Graph 编排")),
-                "应下发升级进度行");
-        String meta = lines.stream().filter(l -> l.startsWith("event: meta")).findFirst().orElseThrow();
-        assertTrue(meta.contains("\"path\":\"graph\""), "meta 应反映升级后的实际路径: " + meta);
-        assertTrue(meta.contains("\"source\":\"ESCALATED\""));
-    }
-
-    /** 已有正文输出时不升级：半截回答再补编排结果会重复且口径不一致 */
-    @Test
-    void streamReactive_agenticExhaustedWithOutput_shouldNotEscalate() {
-        ChatRequest req = new ChatRequest("这个任务有点复杂", "50", null);
-        when(routeJudge.plan(eq("这个任务有点复杂"), any(), any()))
-                .thenReturn(RoutePlan.agentic(0.95, "rule: short", RoutePlan.Source.RULE));
-        when(agentService.executeStreamReactive(eq("general"), eq("这个任务有点复杂"), eq("50"), any(), any()))
-                .thenReturn(Flux.just("已有部分回答",
-                        ProgressLine.encode(ProgressLine.STAGE_AGENTIC_EXHAUSTED, "max-iters")));
+                .thenReturn(Flux.just("兜底回答"));
 
         List<String> lines = chatService.streamReactive(req).collectList().block();
 
         verify(agentService, never()).executeStreamReactive(eq("multi-agent"), any(), any(), any(), any());
-        assertTrue(lines.contains("event: token\ndata: 已有部分回答"));
+        assertTrue(lines.contains("event: token\ndata: 兜底回答"));
+        String meta = lines.stream().filter(l -> l.startsWith("event: meta")).findFirst().orElseThrow();
+        assertTrue(meta.contains("\"path\":\"agentic\""), "meta 应保持 agentic: " + meta);
     }
 
-    /** Agentic 执行失败且无输出：升级 Graph 兜底，而不是直接把错误抛给用户 */
+    /** Agentic 执行失败：不升级 Graph，错误按原样透出（含 meta FAILED） */
     @Test
-    void streamReactive_agenticFailsWithoutOutput_shouldEscalateToGraph() {
+    void streamReactive_agenticFails_shouldNotEscalateAndEmitError() {
         ChatRequest req = new ChatRequest("这个任务有点复杂", "50", null);
         when(routeJudge.plan(eq("这个任务有点复杂"), any(), any()))
                 .thenReturn(RoutePlan.agentic(0.95, "rule: short", RoutePlan.Source.RULE));
         when(agentService.executeStreamReactive(eq("general"), eq("这个任务有点复杂"), eq("50"), any(), any()))
                 .thenReturn(Flux.error(new IllegalStateException("model down")));
-        when(agentService.executeStreamReactive(eq("multi-agent"), eq("这个任务有点复杂"), eq("50"), any(), any()))
-                .thenReturn(Flux.just("编排补救结果"));
 
         List<String> lines = chatService.streamReactive(req).collectList().block();
 
-        assertTrue(lines.contains("event: token\ndata: 编排补救结果"), "升级后应产出编排结果: " + lines);
-        assertTrue(lines.stream().noneMatch(l -> l.startsWith("event: error")), "不应向客户端抛错: " + lines);
+        verify(agentService, never()).executeStreamReactive(eq("multi-agent"), any(), any(), any(), any());
+        assertTrue(lines.stream().anyMatch(l -> l.startsWith("event: error")), "失败应透出 error 事件: " + lines);
+        String meta = lines.stream().filter(l -> l.startsWith("event: meta")).findFirst().orElseThrow();
+        assertTrue(meta.contains("\"path\":\"agentic\""), "meta 应保持 agentic: " + meta);
     }
 }

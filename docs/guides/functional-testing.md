@@ -223,16 +223,15 @@ mock `ChatClientRegistry` / `ChatClient` 固定 content（lead 固定返回两�
 | --- | --- |
 | `streamReactive_shouldMapProgressRowToProgressEvent` | 进度行 → `event: progress` + `data: {"stage":..,"detail":..}`，且**不计入**会话摘要 |
 
-**路由策略与运行时逃生舱：**
+**路由策略与降级：**
 
 | 用例 | 验证点 |
 | --- | --- |
 | `streamReactive_routingGraphOverride_shouldOrchestrateWithoutJudge` | 显式 `routing=graph` → 不询问判定器直接编排，meta 透出 `path=graph` / `source=OVERRIDE` |
 | `streamReactive_routingAgenticOverride_shouldDirectAnswer` | 显式 `routing=agentic` → general 直答，meta 透出 `source=OVERRIDE` |
 | `streamReactive_boundAgentWithGraphOverride_shouldStaySingleAgent` | 绑定专属 Agent 忽略 graph，保持单 Agent（meta `source=BOUND_AGENT`） |
-| `streamReactive_agenticExhaustedWithoutOutput_shouldEscalateToGraph` | Agentic 迭代耗尽且无输出 → 升级 Graph，内部控制信号不下发，meta 更新为 `source=ESCALATED` |
-| `streamReactive_agenticExhaustedWithOutput_shouldNotEscalate` | 已有输出不升级（避免重复回答） |
-| `streamReactive_agenticFailsWithoutOutput_shouldEscalateToGraph` | Agentic 失败且无输出 → 升级 Graph 兜底，不向客户端抛错 |
+| `streamReactive_agenticExhausted_shouldNotEscalateToGraph` | Agentic 链路不升级 Graph：正常收尾，meta 保持 `path=agentic` |
+| `streamReactive_agenticFails_shouldNotEscalateAndEmitError` | Agentic 失败不升级 Graph，错误原样透出（error 事件 + meta 仍为 agentic） |
 
 ### 5. `AgentServiceImplTest` —— Agent 路由与 Goal 生命周期
 

@@ -113,9 +113,9 @@ public class AgentRegistry {
 
     /**
      * 全参构造（含 Agentic 路径）：agenticProperties.enabled 且 modelFactory 非空时，
-     * <b>仅默认 Agent general</b> 由 {@link AgentScopeGeneralAgent}（ReAct）承载，ChatClient 实例作为回退；
-     * 其余可路由 Agent 保持 {@link GeneralAssistantAgent}——ReAct 只服务 route-judge 判定的
-     * SIMPLE 路径（该路径固定落到 general），绑定专属 Agent 的直答不走 ReAct。
+     * 可路由对话 Agent 由 {@link AgentScopeGeneralAgent}（ReAct）承载，ChatClient 实例作为回退。
+     * Agentic 链路包含「判定为 SIMPLE 后由 general 执行」与「显式指定 Agent 直答」两种形态，
+     * 它们都是单 Agent 路径；Graph 编排（multi-agent）由预注入实例承载，不走 ReAct。
      */
     public AgentRegistry(AgentConfigProvider provider,
                          ObjectProvider<AgentService> agentServiceProvider,
@@ -215,13 +215,12 @@ public class AgentRegistry {
     }
 
     /** 构造对话 Agent 实例：依赖全部来自本类构造注入字段，AgentService 经 ObjectProvider 现取透传。
-     *  ReAct 只装配到 general：SIMPLE 路径固定由 general 执行，其余 Agent（绑定直答等）保持 ChatClient。 */
+     *  ReAct 装配到全部可路由对话 Agent（单 Agent 直答形态），Graph 编排 bean 走预注入不受影响。 */
     private Agent createGeneralAssistant(String agentName) {
         Agent chatClientAgent = new GeneralAssistantAgent(agentName, clientRegistry, memoryStore,
                 agentServiceProvider.getObject(), toolAssignments, recorder, budgets, lazyTools,
                 promptAssembler, skillManager, knowledgeRetriever, timeouts);
-        if (agenticProperties == null || !agenticProperties.isEnabled() || agentScopeModelFactory == null
-                || !AgentConstants.DEFAULT_AGENT.equals(agentName)) {
+        if (agenticProperties == null || !agenticProperties.isEnabled() || agentScopeModelFactory == null) {
             return chatClientAgent;
         }
         return new AgentScopeGeneralAgent(agentName, clientRegistry, agentServiceProvider.getObject(),

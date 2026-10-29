@@ -17,15 +17,14 @@ public record RoutePlan(
         String reason,
         Source source) {
 
-    /** 决策来源：显式指定 / 规则短路 / LLM 判定 / 兜底 / 会话绑定 / 续跑 / 运行时升级 */
+    /** 决策来源：显式指定 / 规则短路 / LLM 判定 / 兜底 / 会话绑定 / 续跑 */
     public enum Source {
         OVERRIDE,
         RULE,
         LLM,
         FALLBACK,
         BOUND_AGENT,
-        RESUME,
-        ESCALATED
+        RESUME
     }
 
     public RoutePlan {

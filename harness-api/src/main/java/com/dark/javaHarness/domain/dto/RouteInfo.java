@@ -7,7 +7,7 @@ import java.util.List;
  *
  * <p>{@code path} 为 {@code agentic} 或 {@code graph}；{@code confidence} 为 LLM 判定的置信度
  * （规则/显式指定为 1.0）；{@code workstreams} 是判定出的可并行工作流；
- * {@code source} 标识决策来源（OVERRIDE/RULE/LLM/FALLBACK/BOUND_AGENT/RESUME/ESCALATED）。
+ * {@code source} 标识决策来源（OVERRIDE/RULE/LLM/FALLBACK/BOUND_AGENT/RESUME）。
  */
 public record RouteInfo(
         String path,

@@ -295,14 +295,8 @@ public class ChatServiceImpl implements ChatService {
                         routeRef.set(routing.plan().toInfo());
                         String resolvedAgent = routing.agent();
                         Flux<String> agentStream = agentService.executeStreamReactive(resolvedAgent, request.message(), ctx.sid(), turnId, traceId);
-                        // Agentic 未收敛逃生舱：仅 general 的 Agentic 路径启用（绑定专属 Agent 的 Graph
-                        // 专家没有其领域工具，升级会丢能力）
-                        if (!routing.plan().graph() && AgentConstants.DEFAULT_AGENT.equals(resolvedAgent)) {
-                            agentStream = withAgenticEscalation(agentStream, request.message(), ctx.sid(),
-                                    turnId, traceId, routeRef);
-                        }
                         // COMPLEX 编排失败降级：编排自身异常（客户端断开走 cancel，不触发 onErrorResume）时
-                        // 降级为会话 Agent 单模型重答一次，一层兜底不递归
+                        // 降级为会话 Agent 单模型重答一次，一层兜底不递归；Agentic 链路不做 Graph 升级
                         if (complexFallbackEnabled && AgentConstants.MULTI_AGENT.equals(resolvedAgent)) {
                             agentStream = withComplexFallback(agentStream, request.message(), ctx.sid(), turnId, traceId);
                         }
@@ -317,74 +311,6 @@ public class ChatServiceImpl implements ChatService {
                       .flatMapMany(flux -> flux)),
                     ctx.sid(), ctx.newSession(), request.message(), null, routeRef);
         });
-    }
-
-    /**
-     * Agentic → Graph 运行时升级（逃生舱）：Agentic ReAct 迭代耗尽（内部控制信号）或执行失败，
-     * 且本轮尚未产出任何正文时，自动切换 Graph 编排重跑一次，避免「空回答」；已有输出则不升级
-     * （半截回答再补一段编排结果会重复且口径不一致）。
-     * 升级后的 Graph 流仍享有编排失败降级（{@link #withComplexFallback}），一层兜底不递归。
-     */
-    private Flux<String> withAgenticEscalation(Flux<String> agentic, String message, String sessionId,
-                                               String turnId, String traceId,
-                                               java.util.concurrent.atomic.AtomicReference<RouteInfo> routeRef) {
-        StringBuilder emitted = new StringBuilder();
-        java.util.concurrent.atomic.AtomicBoolean exhausted = new java.util.concurrent.atomic.AtomicBoolean();
-        java.util.concurrent.atomic.AtomicBoolean escalated = new java.util.concurrent.atomic.AtomicBoolean();
-        Flux<String> escalatedGraph = Flux.defer(() -> {
-            escalated.set(true);
-            RoutePlan plan = RoutePlan.graph(0.5, List.of(), List.of(),
-                    "agentic not converged without output; escalated to graph", RoutePlan.Source.ESCALATED);
-            routeRef.set(plan.toInfo());
-            log.warn("[route] Agentic 未收敛且无输出，运行时升级为 Graph 编排 sid={}", sessionId);
-            Flux<String> graph = agentService.executeStreamReactive(AgentConstants.MULTI_AGENT,
-                    message, sessionId, turnId, traceId);
-            if (complexFallbackEnabled) {
-                graph = withComplexFallback(graph, message, sessionId, turnId, traceId);
-            }
-            return Flux.concat(
-                    Flux.just(ProgressLine.encode("路由", "Agentic 未收敛，升级为 Graph 编排")),
-                    SseEncoder.withAgentProgress(AgentConstants.MULTI_AGENT, graph));
-        });
-        return agentic
-                .doOnNext(row -> {
-                    if (!ProgressLine.isProgress(row)) {
-                        emitted.append(row);
-                    }
-                })
-                // 内部控制信号不转发给客户端：仅作为升级判定依据
-                .flatMap(row -> {
-                    ProgressLine.StageRow p = ProgressLine.decode(row);
-                    if (p != null && ProgressLine.STAGE_AGENTIC_EXHAUSTED.equals(p.stage())) {
-                        exhausted.set(true);
-                        return Flux.empty();
-                    }
-                    return Flux.just(row);
-                })
-                .concatWith(Flux.defer(() -> {
-                    if (!exhausted.get() || escalated.get()) {
-                        return Flux.empty();
-                    }
-                    if (emitted.length() > 0) {
-                        log.warn("[route] Agentic 迭代耗尽但已有输出（{} 字符），不升级 sid={}",
-                                emitted.length(), sessionId);
-                        return Flux.empty();
-                    }
-                    return escalatedGraph;
-                }))
-                .onErrorResume(e -> {
-                    if (escalated.get() || emitted.length() > 0) {
-                        return Flux.error(e);
-                    }
-                    log.warn("[route] Agentic 执行失败且无输出，尝试升级 Graph：{}", safeMessage(e));
-                    return escalatedGraph;
-                });
-    }
-
-    /** 内部控制信号行（不面向用户）：升级判定消费或兜底过滤，绝不下发到 SSE/CLI/Web。 */
-    private static boolean isInternalSignal(String row) {
-        ProgressLine.StageRow p = ProgressLine.decode(row);
-        return p != null && ProgressLine.STAGE_AGENTIC_EXHAUSTED.equals(p.stage());
     }
 
     /**
@@ -455,8 +381,6 @@ public class ChatServiceImpl implements ChatService {
         // meta.sources 延迟到 meta 事件发射期求值（Flux.defer）：编排路径的知识检索发生在执行期
         // （lead 出口预取 remember 在组装之后），组装期求值会恒取到空值；直答路径求值结果不变
         return agentTokens
-                // 内部控制信号（升级判定用）绝不下发：消费方未拦下的场景在此兜底过滤
-                .filter(row -> !isInternalSignal(row))
                 .doOnNext(row -> { if (!ProgressLine.isProgress(row)) { full.append(row); } })
                 .flatMap(SseEncoder::toSseRows)
                 .concatWithValues("event: " + SseProtocol.EVENT_TOKEN

@@ -85,8 +85,9 @@ ChatService.streamReactive(request)
        resolveRouting → Agentic  → executeStreamReactive(会话绑定 Agent, ...)
                       → Graph    → executeStreamReactive(multi-agent, ...)
        └─ AgentService：create(sessionId) → markRunning → 订阅 Agent 流
-       └─ Agentic 迭代耗尽/失败且尚无正文 → 升级 Graph 重跑（Source.ESCALATED）
-       └─ Graph 编排流异常（非客户端断开）→ 降级为会话绑定 Agent 单模型重答一次
+       └─ Agentic 链路不升级 Graph：迭代耗尽（summarizing 有结果按部分完成返回，无结果返回兜底话术）
+       └─ Graph 编排流异常（非客户端断开）→ 先简化（聚合失败用子任务结果汇总），
+          再降级为会话绑定 Agent 单模型重答一次
          （先发「降级」进度行；重答失败保留「编排失败 + 重答失败」两段错误；
           app.chat.complex-fallback.enabled 开关，一层兜底不递归）
   4. Flux 管道：data: token… → data: [DONE] → event: meta
@@ -125,7 +126,7 @@ RouteJudge.plan(message)（接口）
 
 **分流点**：同步在建档后执行前；流式在 async 流开始前（旁路）。`resolveRouting()` 据此选执行体并写 `routeRef`。
 
-**运行时逃生舱（流式路径）**：Agentic 迭代耗尽（内部控制信号 `agentic-exhausted`，不下发客户端）或执行失败且尚无正文 → 升级 Graph（`Source.ESCALATED`，meta 同步更新）；Graph 编排异常 → 降级会话 Agent 单模型重答一次。
+**降级策略（流式路径）**：Agentic 链路不升级 Graph——迭代耗尽时以 `GenerateReason.MAX_ITERATIONS` 判定，有整理结果按「部分完成」返回，无结果返回兜底话术；Graph 编排异常时先在编排层简化（聚合失败用已完成的子任务结果汇总），仍失败再降级会话 Agent 单模型重答一次。
 
 **可观测**：日志 `[route] ... path/confidence/source/reason/agent`；SSE `meta.route` 与同步响应 `route`（RouteInfo），Web 消息头路径徽标。
 
