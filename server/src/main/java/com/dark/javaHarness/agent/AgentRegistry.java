@@ -113,8 +113,9 @@ public class AgentRegistry {
 
     /**
      * 全参构造（含 Agentic 路径）：agenticProperties.enabled 且 modelFactory 非空时，
-     * 对话 Agent 由 {@link AgentScopeGeneralAgent}（ReAct）承载，ChatClient 实例作为回退；
-     * 否则保持既有 {@link GeneralAssistantAgent} 装配。
+     * <b>仅默认 Agent general</b> 由 {@link AgentScopeGeneralAgent}（ReAct）承载，ChatClient 实例作为回退；
+     * 其余可路由 Agent 保持 {@link GeneralAssistantAgent}——ReAct 只服务 route-judge 判定的
+     * SIMPLE 路径（该路径固定落到 general），绑定专属 Agent 的直答不走 ReAct。
      */
     public AgentRegistry(AgentConfigProvider provider,
                          ObjectProvider<AgentService> agentServiceProvider,
@@ -146,11 +147,16 @@ public class AgentRegistry {
         this.agentScopeModelFactory = agentScopeModelFactory;
     }
 
-    /** 启动注册：注册 agent 表全部对话 Agent 行（is_internal=0），逐行容错；general 行缺失时代码兜底注册。 */
+    /** 启动注册：注册 agent 表全部对话 Agent 行（is_internal=0），逐行容错；general 行缺失时代码兜底注册。
+     *  已存在的实例（预注入的 Graph 编排 bean）不再被表行覆盖——防止数据误配把 multi-agent 换成对话 Agent。 */
     public void init() {
         for (String name : provider.listAgentNames()) {
             if (name == null || name.isBlank()) {
                 log.warn("[agent注册] agent 表存在空白行名，跳过");
+                continue;
+            }
+            if (agents.containsKey(name)) {
+                log.info("[agent注册] agent='{}' 已由预注入实例注册，跳过表行覆盖", name);
                 continue;
             }
             try {
@@ -208,12 +214,14 @@ public class AgentRegistry {
         }
     }
 
-    /** 构造对话 Agent 实例：依赖全部来自本类构造注入字段，AgentService 经 ObjectProvider 现取透传 */
+    /** 构造对话 Agent 实例：依赖全部来自本类构造注入字段，AgentService 经 ObjectProvider 现取透传。
+     *  ReAct 只装配到 general：SIMPLE 路径固定由 general 执行，其余 Agent（绑定直答等）保持 ChatClient。 */
     private Agent createGeneralAssistant(String agentName) {
         Agent chatClientAgent = new GeneralAssistantAgent(agentName, clientRegistry, memoryStore,
                 agentServiceProvider.getObject(), toolAssignments, recorder, budgets, lazyTools,
                 promptAssembler, skillManager, knowledgeRetriever, timeouts);
-        if (agenticProperties == null || !agenticProperties.isEnabled() || agentScopeModelFactory == null) {
+        if (agenticProperties == null || !agenticProperties.isEnabled() || agentScopeModelFactory == null
+                || !AgentConstants.DEFAULT_AGENT.equals(agentName)) {
             return chatClientAgent;
         }
         return new AgentScopeGeneralAgent(agentName, clientRegistry, agentServiceProvider.getObject(),

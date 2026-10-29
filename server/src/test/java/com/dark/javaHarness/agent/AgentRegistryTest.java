@@ -3,14 +3,23 @@ package com.dark.javaHarness.agent;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.dark.javaHarness.agent.agentic.AgentScopeModelFactory;
+import com.dark.javaHarness.config.AgenticProperties;
+import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.Goal;
+import com.dark.javaHarness.knowledge.KnowledgeRetriever;
+import com.dark.javaHarness.observability.LlmCallRecorder;
+import com.dark.javaHarness.prompt.PromptAssembler;
+import com.dark.javaHarness.prompt.SkillManager;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.SessionService;
@@ -203,6 +212,41 @@ class AgentRegistryTest {
         Agent replacement = stubAgent("multi-agent");
         registry.register(replacement);
         assertSame(replacement, registry.require("multi-agent"), "同名重复注册按覆盖处理");
+    }
+
+    @Test
+    void init_preInjectedAgent_shouldNotBeOverwrittenByRow() {
+        // 防数据误配：即使 multi-agent 行被标成 is_internal=0 出现在表行名单里，
+        // 也不能把预注入的 Graph 编排 bean 换成对话 Agent
+        when(provider.listAgentNames()).thenReturn(List.of("multi-agent", "general"));
+        when(agentServiceProvider.getObject()).thenReturn(agentService);
+        Agent multiAgent = stubAgent("multi-agent");
+        AgentRegistry registry = newRegistry();
+        registry.register(multiAgent);
+
+        registry.init();
+
+        assertSame(multiAgent, registry.require("multi-agent"),
+                "预注入的 Graph 编排 bean 不应被 agent 表行覆盖");
+    }
+
+    /** Agentic 开启时，ReAct 只装配默认 general；绑定专属 Agent 的直答仍走 ChatClient */
+    @Test
+    void agenticEnabled_onlyGeneralUsesReAct() {
+        when(provider.listAgentNames()).thenReturn(List.of("general", "coder"));
+        when(agentServiceProvider.getObject()).thenReturn(agentService);
+        AgentRegistry registry = new AgentRegistry(provider, agentServiceProvider, clientRegistry,
+                memoryStore, toolAssignments, mock(LlmCallRecorder.class), new ContextBudgetProperties(),
+                null, mock(PromptAssembler.class), mock(SkillManager.class),
+                mock(KnowledgeRetriever.class), mock(ChatTimeoutProperties.class),
+                new AgenticProperties(), mock(AgentScopeModelFactory.class));
+
+        registry.init();
+
+        assertInstanceOf(AgentScopeGeneralAgent.class, registry.require("general"),
+                "SIMPLE 路径的默认 Agent 应由 AgentScope ReAct 承载");
+        assertInstanceOf(GeneralAssistantAgent.class, registry.require("coder"),
+                "绑定专属 Agent 直答不应使用 ReAct");
     }
 
     /** 最小 Agent stub：仅验证路由命中与 name 透传 */

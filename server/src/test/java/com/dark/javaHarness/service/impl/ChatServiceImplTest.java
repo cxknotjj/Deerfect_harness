@@ -310,21 +310,42 @@ class ChatServiceImplTest {
     }
 
     @Test
-    void streamReactive_withAgentId_complex_shouldOrchestrate() {
-        // 指定 agentId + COMPLEX：照常进 multi-agent 编排（含 complexFallback 接线）
+    void streamReactive_withAgentId_complexWording_stillDirectAnswerWithoutJudge() {
+        // 显式指定 Agent（绑定成功）固定走该 Agent 的 agentic 链路：即便措辞像 COMPLEX 也不再判定
         ChatRequest req = new ChatRequest("调研竞品", "50", 2L);
-        when(routeJudge.plan(eq("调研竞品"), any(), any())).thenReturn(graphPlan());
-        when(agentService.executeStreamReactive(eq("multi-agent"), eq("调研竞品"), eq("50"), any(), any()))
-                .thenReturn(Flux.just("编排结果"));
+        SessionEntity session = new SessionEntity();
+        session.setAgentId(2);
+        when(sessionService.getSession("50")).thenReturn(session);
+        when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("writer"));
+        when(agentService.executeStreamReactive(eq("writer"), eq("调研竞品"), eq("50"), any(), any()))
+                .thenReturn(Flux.just("writer-direct"));
 
         List<String> lines = chatService.streamReactive(req).collectList().block();
 
+        assertTrue(lines.contains("event: token\ndata: writer-direct"), "指定 Agent 应直接流式直答");
         verify(sessionService).switchAgent("50", 2L);
-        verify(routeJudge).plan(eq("调研竞品"), any(), any());
-        verify(agentService).executeStreamReactive(eq("multi-agent"), eq("调研竞品"), eq("50"), any(), any());
-        assertTrue(lines.stream().anyMatch(l -> l.contains("\"stage\":\"agent\"")
-                        && l.contains("\"detail\":\"multi-agent\"")),
-                "流首 agent 进度行应为 multi-agent（编排归属）");
+        verify(routeJudge, never()).plan(any(), any(), any());
+        verify(agentService, never()).executeStreamReactive(eq("multi-agent"), any(), any(), any(), any());
+    }
+
+    @Test
+    void streamReactive_withAgentId_general_skipsJudgeAndKeepsDirectBanner() {
+        // 显式指定 general 同样跳过判定（仍属 agentic 链路），首帧直接是「直答」而非「判定中…」
+        ChatRequest req = new ChatRequest("hi", "50", 1L);
+        SessionEntity session = new SessionEntity();
+        session.setAgentId(1);
+        when(sessionService.getSession("50")).thenReturn(session);
+        when(agentService.findAgentNameById(1L)).thenReturn(Optional.of("general"));
+        when(agentService.executeStreamReactive(eq("general"), eq("hi"), eq("50"), any(), any()))
+                .thenReturn(Flux.just("general-token"));
+
+        List<String> lines = chatService.streamReactive(req).collectList().block();
+
+        verify(sessionService).switchAgent("50", 1L);
+        verify(routeJudge, never()).plan(any(), any(), any());
+        assertTrue(lines.stream().anyMatch(l -> l.contains("\"detail\":\"直答\"")),
+                "显式 Agent 首帧应为「直答」");
+        assertTrue(lines.stream().noneMatch(l -> l.contains("判定中")), "显式 Agent 不应出现判定提示");
     }
 
     @Test
@@ -378,19 +399,22 @@ class ChatServiceImplTest {
     }
 
     @Test
-    void chat_withAgentId_complex_shouldOrchestrate() {
-        // 指定 agentId + COMPLEX：不再钉死单 Agent，照常进 multi-agent 编排
+    void chat_withAgentId_complexWording_stillDirectAnswerWithoutJudge() {
+        // 显式指定 Agent + COMPLEX 措辞：不再进 multi-agent 编排，固定由指定 Agent 直答
         ChatRequest req = new ChatRequest("调研竞品", "50", 2L);
-        when(routeJudge.plan(eq("调研竞品"), any(), any())).thenReturn(graphPlan());
-        when(agentService.executeSync(eq("multi-agent"), eq("调研竞品"), eq("50"), any()))
-                .thenReturn(succeededGoal("50", "编排结果"));
+        SessionEntity session = new SessionEntity();
+        session.setAgentId(2);
+        when(sessionService.getSession("50")).thenReturn(session);
+        when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("writer"));
+        when(agentService.executeSync(eq("writer"), eq("调研竞品"), eq("50"), any()))
+                .thenReturn(succeededGoal("50", "writer 的回答"));
 
         ChatResponse resp = chatService.chat(req);
 
         assertEquals("SUCCEEDED", resp.status());
         verify(sessionService).switchAgent("50", 2L);
-        verify(routeJudge).plan(eq("调研竞品"), any(), any());
-        verify(agentService).executeSync(eq("multi-agent"), eq("调研竞品"), eq("50"), any());
+        verify(routeJudge, never()).plan(any(), any(), any());
+        verify(agentService, never()).executeSync(eq("multi-agent"), any(), any(), any());
     }
 
     /* ---------------- COMPLEX 编排失败降级重答（同步 + 流式） ---------------- */

@@ -112,16 +112,19 @@ public class ChatServiceImpl implements ChatService {
             newSession = true;
         }
 
-        // agentId 仅作会话绑定副作用（失败告警不中断）
+        // agentId 仅作会话绑定副作用（失败告警不中断）；绑定成功即视为「用户显式指定 Agent」，
+        // 本轮直接走该 Agent 的 agentic 单 Agent 链路，不再做路由判定
+        boolean explicitAgent = false;
         if (request.agentId() != null) {
-            bindAgentQuietly(sessionId, request.agentId());
+            explicitAgent = bindAgentQuietly(sessionId, request.agentId());
         }
         // 路由策略（2026-09-27 用户决策）：绑定专属 Agent（≠general）只走简单链路——跳过
         // routeJudge 与 RAG 预取汇合，由该 Agent 携带自身工具直答（如 wms 仓储专员：编排会把
         // 子任务派给无 wms 工具的通用专家，直答才能查到真实数据）；general 会话保持统一判定
-        // （SIMPLE 由 general 直答 / COMPLEX 进 multi-agent 编排）
+        // （SIMPLE 由 general 直答 / COMPLEX 进 multi-agent 编排）；请求显式携带 agentId 且绑定成功
+        // 时（含通用 general），同样跳过判定，由指定 Agent 走 agentic 链路
         String boundAgent = sessionAgentName(sessionId);
-        RoutingOutcome routing = resolveRouting(boundAgent, request, sessionId, turnId);
+        RoutingOutcome routing = resolveRouting(boundAgent, request, sessionId, turnId, explicitAgent);
         String resolvedAgent = routing.agent();
 
         Goal goal = agentService.executeSync(resolvedAgent, request.message(), sessionId, turnId);
@@ -174,12 +177,14 @@ public class ChatServiceImpl implements ChatService {
      * 会话内切换 Agent（副作用绑定）：失败只告警不中断，随后统一判定按会话绑定继续路由。
      * sync/stream 两入口共用（原两份重复 try-catch 收编，超长类拆分 2026-09-25）。
      */
-    private void bindAgentQuietly(String sessionId, Long agentId) {
+    private boolean bindAgentQuietly(String sessionId, Long agentId) {
         try {
             sessionService.switchAgent(sessionId, agentId);
+            return true;
         } catch (Exception e) {
             log.warn("[chat] 会话 Agent 同步失败（不影响本次路由）sid={} agentId={}: {}",
                     sessionId, agentId, safeMessage(e));
+            return false;
         }
     }
 
@@ -269,22 +274,24 @@ public class ChatServiceImpl implements ChatService {
         return sessionMono.flatMapMany(ctx -> {
             // 请求携带 agentId 即视为「会话内切换 Agent」：同步更新 session 表 agent_id，
             // 会话档案与实际路由保持一致（新建会话则从默认 1 修正为请求指定的 Agent）。
-            // 失败只告警不中断：随后统一判定按会话绑定（无绑定/失效回退 general）继续路由
-            if (request.agentId() != null) {
-                bindAgentQuietly(ctx.sid(), request.agentId());
-            }
+            // 失败只告警不中断：随后统一判定按会话绑定（无绑定/失效回退 general）继续路由；
+            // 绑定成功则本轮跳过判定，由指定 Agent 走 agentic 链路
+            final boolean explicitAgent = request.agentId() != null
+                    && bindAgentQuietly(ctx.sid(), request.agentId());
             // 路由策略（2026-09-27 用户决策）同 chat()：general 会话统一判定（SIMPLE/COMPLEX 分流）；
-            // 绑定专属 Agent（≠general）跳过判定与预取，由该 Agent 携带自身工具直答
+            // 绑定专属 Agent（≠general）跳过判定与预取，由该 Agent 携带自身工具直答；
+            // 请求显式指定 agentId（绑定成功，含 general）同样跳过判定
             String boundAgent = sessionAgentName(ctx.sid());
             boolean useJudge = AgentConstants.DEFAULT_AGENT.equals(boundAgent);
             java.util.concurrent.atomic.AtomicReference<RouteInfo> routeRef =
                     new java.util.concurrent.atomic.AtomicReference<>();
             // 首帧先行：进度行在订阅时立即发出（judge 是同步阻塞调用，挪入 boundedElastic 防止
-            // 「连接已建立却零字节」窗口被外部掐断；专属 Agent 无判定环节，首帧直出行「直答」）
+            // 「连接已建立却零字节」窗口被外部掐断；专属/显式 Agent 无判定环节，首帧直出行「直答」）
+            boolean judgeThisTurn = useJudge && !explicitAgent;
             return toSseBody(Flux.concat(
-                    Flux.just(ProgressLine.encode("路由", useJudge ? "判定中…" : "直答")),
+                    Flux.just(ProgressLine.encode("路由", judgeThisTurn ? "判定中…" : "直答")),
                     Mono.fromCallable(() -> {
-                        RoutingOutcome routing = resolveRouting(boundAgent, request, ctx.sid(), turnId);
+                        RoutingOutcome routing = resolveRouting(boundAgent, request, ctx.sid(), turnId, explicitAgent);
                         routeRef.set(routing.plan().toInfo());
                         String resolvedAgent = routing.agent();
                         Flux<String> agentStream = agentService.executeStreamReactive(resolvedAgent, request.message(), ctx.sid(), turnId, traceId);
@@ -493,10 +500,16 @@ public class ChatServiceImpl implements ChatService {
      */
     private RoutingOutcome resolveRouteWithPrefetch(String agentName, String message, String sessionId,
                                                     String turnId, String routing) {
+        return resolveRouteWithPrefetch(agentName, message, sessionId, turnId, routing, null);
+    }
+
+    /** forcedPlan 非空时跳过判定（显式指定 Agent 的 agentic 链路），入口 RAG 预取照常提交/汇合。 */
+    private RoutingOutcome resolveRouteWithPrefetch(String agentName, String message, String sessionId,
+                                                    String turnId, String routing, RoutePlan forcedPlan) {
         Future<?> prefetch = ragPrefetcher == null ? null
                 : ragPrefetcher.submit(agentName, sessionId, message, KnowledgeRetriever.SOURCE_ENTRY_PREFETCH);
         try {
-            RoutePlan plan = decidePlan(message, sessionId, turnId, routing);
+            RoutePlan plan = forcedPlan != null ? forcedPlan : decidePlan(message, sessionId, turnId, routing);
             String resolvedAgent = plan.graph() ? AgentConstants.MULTI_AGENT : sessionAgentName(sessionId);
             if (ragPrefetcher != null) { // 知识库禁用时预取器缺位，判定完成即返回
                 ragPrefetcher.await(prefetch);
@@ -514,7 +527,21 @@ public class ChatServiceImpl implements ChatService {
 
     /** 绑定专属 Agent 的会话跳过判定（Graph 专家没有该 Agent 的领域工具），显式 graph 仅告警。 */
     private RoutingOutcome resolveRouting(String boundAgent, ChatRequest request, String sessionId,
-                                          String turnId) {
+                                          String turnId, boolean explicitAgent) {
+        if (explicitAgent) {
+            // 用户显式指定 Agent（绑定成功）：本轮固定走该 Agent 的 agentic 链路，不做路由判定；
+            // 显式 routing=graph 与「指定 Agent」语义冲突，忽略并告警
+            if ("graph".equalsIgnoreCase(request.routing())) {
+                log.warn("[route] 请求显式指定 Agent {}，忽略 routing=graph，保持单 Agent 执行", boundAgent);
+            }
+            RoutePlan plan = RoutePlan.agentic(1.0, "explicit agent: " + boundAgent,
+                    RoutePlan.Source.OVERRIDE);
+            if (AgentConstants.DEFAULT_AGENT.equals(boundAgent)) {
+                // 显式选 general 仍属 agentic 链路：跳过判定，但保留入口 RAG 预取（与自动判定同待遇）
+                return resolveRouteWithPrefetch(boundAgent, request.message(), sessionId, turnId, null, plan);
+            }
+            return new RoutingOutcome(plan, boundAgent);
+        }
         if (!AgentConstants.DEFAULT_AGENT.equals(boundAgent)) {
             if ("graph".equalsIgnoreCase(request.routing())) {
                 log.warn("[route] 会话绑定专属 Agent {}，忽略 routing=graph，保持单 Agent 执行", boundAgent);
