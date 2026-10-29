@@ -1,5 +1,7 @@
 package com.dark.javaHarness.agent;
 
+import com.dark.javaHarness.agent.agentic.AgentScopeModelFactory;
+import com.dark.javaHarness.config.AgenticProperties;
 import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
@@ -55,6 +57,10 @@ public class AgentRegistry {
     private final SkillManager skillManager;
     /** 知识检索器（RAG 注入面）；null 时零行为变化（知识库禁用/测试场景） */
     private final com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever;
+    /** Agentic SIMPLE 路径配置（app.agentic.*）；null = 未启用（测试/旧装配），全部走 ChatClient 路径 */
+    private final AgenticProperties agenticProperties;
+    /** AgentScope 模型工厂；null = 未启用 AgentScope 路径 */
+    private final AgentScopeModelFactory agentScopeModelFactory;
 
     /** 已注册路由表（agentName → 实例）；computeIfAbsent 保证并发惰性注册单次构造 */
     private final ConcurrentHashMap<String, Agent> agents = new ConcurrentHashMap<>();
@@ -100,6 +106,30 @@ public class AgentRegistry {
                          SkillManager skillManager,
                          com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
                          ChatTimeoutProperties timeouts) {
+        this(provider, agentServiceProvider, clientRegistry, memoryStore, toolAssignments, recorder,
+                budgets, lazyTools, promptAssembler, skillManager, knowledgeRetriever, timeouts,
+                null, null);
+    }
+
+    /**
+     * 全参构造（含 Agentic 路径）：agenticProperties.enabled 且 modelFactory 非空时，
+     * 对话 Agent 由 {@link AgentScopeGeneralAgent}（ReAct）承载，ChatClient 实例作为回退；
+     * 否则保持既有 {@link GeneralAssistantAgent} 装配。
+     */
+    public AgentRegistry(AgentConfigProvider provider,
+                         ObjectProvider<AgentService> agentServiceProvider,
+                         ChatClientRegistry clientRegistry,
+                         SessionService memoryStore,
+                         ToolAssignments toolAssignments,
+                         LlmCallRecorder recorder,
+                         ContextBudgetProperties budgets,
+                         ToolLazyManager lazyTools,
+                         PromptAssembler promptAssembler,
+                         SkillManager skillManager,
+                         com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
+                         ChatTimeoutProperties timeouts,
+                         AgenticProperties agenticProperties,
+                         AgentScopeModelFactory agentScopeModelFactory) {
         this.provider = provider;
         this.agentServiceProvider = agentServiceProvider;
         this.clientRegistry = clientRegistry;
@@ -112,6 +142,8 @@ public class AgentRegistry {
         this.skillManager = skillManager;
         this.knowledgeRetriever = knowledgeRetriever;
         this.timeouts = timeouts;
+        this.agenticProperties = agenticProperties;
+        this.agentScopeModelFactory = agentScopeModelFactory;
     }
 
     /** 启动注册：注册 agent 表全部对话 Agent 行（is_internal=0），逐行容错；general 行缺失时代码兜底注册。 */
@@ -178,9 +210,16 @@ public class AgentRegistry {
 
     /** 构造对话 Agent 实例：依赖全部来自本类构造注入字段，AgentService 经 ObjectProvider 现取透传 */
     private Agent createGeneralAssistant(String agentName) {
-        return new GeneralAssistantAgent(agentName, clientRegistry, memoryStore,
+        Agent chatClientAgent = new GeneralAssistantAgent(agentName, clientRegistry, memoryStore,
                 agentServiceProvider.getObject(), toolAssignments, recorder, budgets, lazyTools,
                 promptAssembler, skillManager, knowledgeRetriever, timeouts);
+        if (agenticProperties == null || !agenticProperties.isEnabled() || agentScopeModelFactory == null) {
+            return chatClientAgent;
+        }
+        return new AgentScopeGeneralAgent(agentName, clientRegistry, agentServiceProvider.getObject(),
+                memoryStore, toolAssignments, recorder, budgets, lazyTools, promptAssembler,
+                skillManager, knowledgeRetriever, timeouts, agentScopeModelFactory, agenticProperties,
+                chatClientAgent);
     }
 
     /** 统一「未知 Agent」文案：含可用列表，不泄漏底层异常。 */

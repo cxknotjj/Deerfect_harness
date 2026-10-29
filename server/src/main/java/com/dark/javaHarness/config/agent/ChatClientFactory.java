@@ -138,8 +138,9 @@ public class ChatClientFactory {
         }
     }
 
-    /** 按服务商解析 api-key：yaml 显式映射优先，约定式环境变量回退（敏感信息不落库） */
-    private String resolveApiKey(String provider) {
+    /** 按服务商解析 api-key：yaml 显式映射优先，约定式环境变量回退（敏感信息不落库）。
+     * public：AgentScope 模型工厂复用同一解析口径，避免两套 Key 规则漂移。 */
+    public String resolveApiKey(String provider) {
         if (provider == null || provider.isBlank()) {
             return null;
         }

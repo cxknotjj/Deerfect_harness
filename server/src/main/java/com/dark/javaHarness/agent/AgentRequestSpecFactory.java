@@ -164,25 +164,8 @@ final class AgentRequestSpecFactory {
         Long modelProviderId = config != null ? config.modelProviderId() : null;
         String model = config != null ? config.model() : null;
         ChatClient client = clientRegistry.get(modelProviderId);
-        // system 经 PromptAssembler 按段组装：角色段（表 prompt > 兜底指令 > 默认）+ 索引/纪律/约定等段；
-        // 兜底角色指令收敛为角色段兜底，不再拼进 user。
-        // 知识检索（RAG）：按当前 user 文本检索知识库，命中则追加【出处N】知识段——
-        // retriever 为 null（禁用/单测）或无命中时原样，退化现状；aggregator 角色策略跳过；
-        // 多库隔离：agent 表 knowledge 列（config 携带）解析为绑定库列表，null/空 = 未绑定不检索
-        // config 已由调用方查好传入：经三参 assemble 复载下传，角色段不再重复查表
-        String system = promptAssembler.assemble(forAgent, fallbackSystem, config);
-        if (knowledgeRetriever != null) {
-            // 执行期现查（source=inline_query）：turnId/traceId 经 build 的 trace 参数归因落
-            // kb_retrieval_log（预取行无轨迹，执行期行可挂到具体轮次与执行链）
-            String knowledgeBlock = knowledgeRetriever.buildKnowledgeBlock(forAgent, sessionId, user,
-                    KnowledgeRetriever.parseBinding(config != null ? config.knowledge() : null),
-                    KnowledgeRetriever.SOURCE_INLINE,
-                    trace != null ? trace.turnId() : null,
-                    trace != null ? trace.traceId() : null);
-            if (knowledgeBlock != null && !knowledgeBlock.isBlank()) {
-                system = system + "\n\n" + knowledgeBlock;
-            }
-        }
+        // system 经 PromptAssembler 按段组装，RAG 命中时追加知识段（与 AgentScope 路径共用）
+        String system = assembleSystem(config, sessionId, forAgent, fallbackSystem, user, trace);
         ChatClient.ChatClientRequestSpec spec = client.prompt()
                 .system(system)
                 .user(user);
@@ -192,7 +175,7 @@ final class AgentRequestSpecFactory {
         // 手动注入同时让 ContextAssemblingAdvisor 对「历史 + 本轮」整体做归一化与预算裁剪
         // （advisor 方式下历史在裁剪之后才合并，既不受预算约束也不做 role 归一化）
         if (assembly.injectMemory()) {
-            List<Message> history = memoryStore.get(sessionId);
+            List<Message> history = loadHistory(sessionId);
             if (history != null && !history.isEmpty()) {
                 spec.messages(history);
             }
@@ -238,12 +221,58 @@ final class AgentRequestSpecFactory {
             }
             spec.toolContext(toolContext);
         }
-        // 专家工具分配：按 agent 名注入请求级工具（与客户端 defaultTools 合并）；
-        // disableTools=true 跳过（幻觉工具调用的降级重试路径）。
-        // 双通道统一为 ToolCallback 单通道（@Tool 注解对象经 ToolCallbacks.from 转回调，与
-        // .tools 注入等价），便于装饰链统一装饰
+        // 专家工具分配 + 装饰链（AgentScope 路径复用同一解析面，保证预算/观测/懒加载一致）
         if (assembly.disableTools()) {
             return spec;
+        }
+        List<ToolCallback> tools = resolveTools(forAgent, sessionId, assembly.toolEmitter(),
+                false, assembly.extraToolNames());
+        if (!tools.isEmpty()) {
+            spec.toolCallbacks(tools.toArray(new ToolCallback[0]));
+        }
+        return spec;
+    }
+
+    /**
+     * 系统提示词组装（角色段 + 工具/技能/画像段 + RAG 知识段）：路径 A（ChatClient）与
+     * AgentScope ReAct 路径共用，避免两套 system 口径漂移。
+     */
+    String assembleSystem(AgentConfig config, String sessionId, String forAgent,
+                          String fallbackSystem, String user, CallTrace trace) {
+        // system 经 PromptAssembler 按段组装：角色段（表 prompt > 兜底指令 > 默认）+ 索引/纪律/约定等段；
+        // 兜底角色指令收敛为角色段兜底，不再拼进 user。
+        // 知识检索（RAG）：按当前 user 文本检索知识库，命中则追加【出处N】知识段——
+        // retriever 为 null（禁用/单测）或无命中时原样，退化现状；aggregator 角色策略跳过；
+        // 多库隔离：agent 表 knowledge 列（config 携带）解析为绑定库列表，null/空 = 未绑定不检索
+        String system = promptAssembler.assemble(forAgent, fallbackSystem, config);
+        if (knowledgeRetriever != null) {
+            // 执行期现查（source=inline_query）：turnId/traceId 经 build 的 trace 参数归因落
+            // kb_retrieval_log（预取行无轨迹，执行期行可挂到具体轮次与执行链）
+            String knowledgeBlock = knowledgeRetriever.buildKnowledgeBlock(forAgent, sessionId, user,
+                    KnowledgeRetriever.parseBinding(config != null ? config.knowledge() : null),
+                    KnowledgeRetriever.SOURCE_INLINE,
+                    trace != null ? trace.turnId() : null,
+                    trace != null ? trace.traceId() : null);
+            if (knowledgeBlock != null && !knowledgeBlock.isBlank()) {
+                system = system + "\n\n" + knowledgeBlock;
+            }
+        }
+        return system;
+    }
+
+    /** 会话历史原始快照（未裁剪）：ChatClient 路径交给 ContextAssemblingAdvisor，AgentScope 路径自行裁剪。 */
+    List<Message> loadHistory(String sessionId) {
+        return memoryStore.get(sessionId);
+    }
+
+    /**
+     * 工具面解析 + 装饰链（观测→预算→懒加载→元工具）：ChatClient 路径注入请求，
+     * AgentScope 路径逐项桥接为 ToolBase。disableTools=true 返回空表。
+     */
+    List<ToolCallback> resolveTools(String forAgent, String sessionId, Consumer<String> toolEmitter,
+                                    boolean disableTools, List<String> extraToolNames) {
+        if (disableTools) {
+            return List.of();
         }
         ToolAssignments.ToolSet toolSet = toolAssignments == null
                 ? ToolAssignments.ToolSet.EMPTY
@@ -256,10 +285,10 @@ final class AgentRequestSpecFactory {
         // 在装饰链之前并入，ToolBudgetDecorator 等统一装饰、预算无豁免；按回调名去重
         // （模板自身工具优先=先到者保留，防 Spring AI 同名工具注入同一请求被拒）；
         // @Tool 注解对象先经 ToolCallbacks.from 转回调，与 callbacks 同口径参与去重
-        if (assembly.extraToolNames() != null && !assembly.extraToolNames().isEmpty()) {
+        if (extraToolNames != null && !extraToolNames.isEmpty()) {
             ToolAssignments.ToolSet packSet = toolAssignments == null
                     ? ToolAssignments.ToolSet.EMPTY
-                    : toolAssignments.forNames("toolPack", String.join(", ", assembly.extraToolNames()));
+                    : toolAssignments.forNames("toolPack", String.join(", ", extraToolNames));
             List<ToolCallback> packCallbacks = new ArrayList<>(packSet.callbacks());
             if (!packSet.annotated().isEmpty()) {
                 packCallbacks.addAll(List.of(ToolCallbacks.from(packSet.annotated().toArray())));
@@ -277,19 +306,16 @@ final class AgentRequestSpecFactory {
                 // 空工具面兜底（如下游 MCP server 未启动时的空缓存）：声明的包一个回调都没解析到，
                 // 子任务按无包工具继续执行（模型会如实告知无法查询），warn 留排查痕迹
                 log.warn("[spec] 工具包 {} 解析到 0 个工具回调（疑似下游服务未启动/空工具面），按无包工具执行",
-                        assembly.extraToolNames());
+                        extraToolNames);
             }
         }
         // 装饰链应用（可插拔）：按 Order 升序逐层装饰——观测(100)→预算(200)→懒加载(300)→
         // 元工具(400)；各装饰器自判适用条件（不适用原样直通）。顺序契约见 ToolCallbackDecorator。
-        ToolDecorationContext ctx = new ToolDecorationContext(forAgent, sessionId, assembly.toolEmitter());
+        ToolDecorationContext ctx = new ToolDecorationContext(forAgent, sessionId, toolEmitter);
         for (ToolCallbackDecorator decorator : decorators) {
             tools = Objects.requireNonNull(decorator.decorate(ctx, tools),
                     decorator.getClass().getSimpleName() + " 返回 null（禁止，组装期编程错误）");
         }
-        if (!tools.isEmpty()) {
-            spec.toolCallbacks(tools.toArray(new ToolCallback[0]));
-        }
-        return spec;
+        return tools;
     }
 }

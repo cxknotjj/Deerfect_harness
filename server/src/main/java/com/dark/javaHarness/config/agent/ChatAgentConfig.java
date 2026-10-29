@@ -86,10 +86,13 @@ public class ChatAgentConfig {
                                        SkillManager skillManager,
                                        MultiAgentGraphAgent multiAgent,
                                        ObjectProvider<com.dark.javaHarness.knowledge.KnowledgeRetriever> knowledgeRetriever,
-                                       com.dark.javaHarness.config.ChatTimeoutProperties timeouts) {
+                                       com.dark.javaHarness.config.ChatTimeoutProperties timeouts,
+                                       com.dark.javaHarness.config.AgenticProperties agenticProperties,
+                                       com.dark.javaHarness.agent.agentic.AgentScopeModelFactory agentScopeModelFactory) {
         AgentRegistry agentRegistry = new AgentRegistry(agentConfigProvider, agentService, registry,
                 memoryStore, toolAssignments, recorder, budgets, toolLazyManager,
-                promptAssembler, skillManager, knowledgeRetriever.getIfAvailable(), timeouts);
+                promptAssembler, skillManager, knowledgeRetriever.getIfAvailable(), timeouts,
+                agenticProperties, agentScopeModelFactory);
         agentRegistry.register(multiAgent);
         agentRegistry.init();
         return agentRegistry;

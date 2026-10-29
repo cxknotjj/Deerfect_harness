@@ -4,6 +4,14 @@
 # ============================================================
 
 app:
+  # Agentic SIMPLE 路径（路径 A）：由 AgentScope ReActAgent 执行推理-行动循环；
+  # 工具仍走 Spring AI（MCP/沙箱/自研工具经 ToolCallback 桥接），COMPLEX 编排路径不受影响。
+  # enabled=false 时回退既有 ChatClient 单次调用路径。
+  agentic:
+    enabled: true
+    max-iters: 5              # ReAct 最大迭代：工具调用上限 4 + 最终回答一轮
+    max-attempts: 3           # 模型调用最大尝试次数（含首次）
+    fallback-enabled: true    # AgentScope 初始化失败时回退 ChatClient 路径（流已开始后不切换）
   # 容器沙箱 Docker daemon 地址（host:port 或 tcp://host:port）：
   # SDK 默认发现只认 DOCKER_HOST 环境变量与 unix socket（/var/run/docker.sock）；
   # WSL/远程 daemon 等无 socket 场景用此项直连 TCP（如 Windows 宿主机 Docker Desktop
