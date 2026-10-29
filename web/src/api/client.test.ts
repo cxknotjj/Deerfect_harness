@@ -26,7 +26,8 @@ describe('client 鉴权接线', () => {
     const fetchMock = vi.fn(async () => jsonResponse(200, emptyPage))
     vi.stubGlobal('fetch', fetchMock)
     await realApi.listSessions()
-    const init = fetchMock.mock.calls[0][1] as RequestInit
+    // vi.fn 零参桩的 calls 元组类型为 []，取第二参需先放宽为 unknown[]
+    const init = (fetchMock.mock.calls[0] as unknown[])[1] as RequestInit
     const headers = init.headers as Record<string, string>
     expect(headers['X-API-Token']).toBe('secret-token')
     expect(headers['X-API-Key']).toBeUndefined()

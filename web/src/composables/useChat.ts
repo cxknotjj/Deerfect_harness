@@ -9,7 +9,7 @@
  */
 import { ref } from 'vue'
 import { api, isAbort } from '../api'
-import type { KnowledgeSource, ProgressPayload, SessionMessageView } from '../api'
+import type { KnowledgeSource, ProgressPayload, RouteInfo, SessionMessageView } from '../api'
 import { loadCache, saveCache } from './chatCache'
 
 /** 思考折叠块:stage 为后端 ProgressLine stage(「思考」=主回答/聚合,「思考N」=第 N 个子任务,1 基);
@@ -30,6 +30,8 @@ export interface MessageItem {
   progress: ProgressPayload[]
   thinking: ThinkingBlock[]
   sources: KnowledgeSource[]
+  /** 本轮路由决策(流末 meta 回传;刷新/历史回显为空) */
+  route: RouteInfo | null
   error: boolean
   ts: number
 }
@@ -42,6 +44,8 @@ export interface ChatHooks {
   setSessionId(id: string): void
   /** meta 报告后端新建了会话时通知外层刷新列表(可选) */
   onNewSession?(): void
+  /** 当前显式执行路径(可选):undefined/auto=服务端判定,agentic/graph=本轮显式覆盖 */
+  getRouting?(): 'agentic' | 'graph' | undefined
   /** 一轮流式成功结束(无流内 error/异常)时回调,携带「流发起时会话 id + 本轮 user 消息原文」(可选):
    *  外层据此把占位会话名「新会话」改为首条提问,与服务端 touchSession 自动命名同口径;
    *  会话 id 取发起时快照而非实时值——旧流收尾时用户可能已切走,实时值会改错会话 */
@@ -73,7 +77,7 @@ export function useChat(hooks: ChatHooks) {
     for (const m of cached) {
       if (m.id > seq) seq = m.id
     }
-    return cached.map((m) => ({ ...m, progress: [], thinking: [], sources: [], error: false }))
+    return cached.map((m) => ({ ...m, progress: [], thinking: [], sources: [], route: null, error: false }))
   }
 
   /** 取桶(无则建:优先用本地缓存填充,实现切回旧会话即时渲染) */
@@ -118,6 +122,7 @@ export function useChat(hooks: ChatHooks) {
       progress: [],
       thinking: [],
       sources: [],
+      route: null,
       error: false,
       ts: m.ts ?? 0,
     }
@@ -200,8 +205,9 @@ export function useChat(hooks: ChatHooks) {
     const bucket = messages.value
     try {
       await api.streamChat(
-        // 无选中会话时不带 sessionId:后端可能新建并经 meta 回传
-        { message: text, sessionId: hooks.getSessionId() || undefined },
+        // 无选中会话时不带 sessionId:后端可能新建并经 meta 回传;
+        // routing 仅在显式指定时携带(auto 省略,由服务端规则+LLM 判定)
+        { message: text, sessionId: hooks.getSessionId() || undefined, routing: hooks.getRouting?.() },
         {
           onProgress: (p) => {
             routeProgress(assistant, p)
@@ -216,6 +222,8 @@ export function useChat(hooks: ChatHooks) {
             // RAG 知识引用:流末回传,回答结束后展示(本轮是否用了知识库可感知);
             // 必须在会话迁移 return 之前存储——新建会话时迁移会提前返回
             assistant.sources = meta.sources ?? []
+            // 路由决策:本轮实际走 Agentic 还是 Graph、置信度与决策来源(排障可见)
+            assistant.route = meta.route
             const sid = meta.sessionId?.trim() ?? ''
             if (sid === '' || sid === hooks.getSessionId()) return
             // 后端在本轮新建会话:把当前消息桶迁移到真实会话 id 下
@@ -254,8 +262,8 @@ export function useChat(hooks: ChatHooks) {
 
     // user 消息与 assistant 占位立即进当前会话桶
     const list = messages.value
-    list.push({ id: ++seq, role: 'user', content: text, progress: [], thinking: [], sources: [], error: false, ts: Date.now() })
-    list.push({ id: ++seq, role: 'assistant', content: '', progress: [], thinking: [], sources: [], error: false, ts: Date.now() })
+    list.push({ id: ++seq, role: 'user', content: text, progress: [], thinking: [], sources: [], route: null, error: false, ts: Date.now() })
+    list.push({ id: ++seq, role: 'assistant', content: '', progress: [], thinking: [], sources: [], route: null, error: false, ts: Date.now() })
     // 从数组取回 reactive 代理引用:直接持有原始对象修改不会触发视图更新
     await streamText(list[list.length - 1], text)
   }
@@ -268,7 +276,7 @@ export function useChat(hooks: ChatHooks) {
     const prev = list[list.length - 2]
     if (last?.id !== id || last.role !== 'assistant' || prev?.role !== 'user') return
     list.pop()
-    list.push({ id: ++seq, role: 'assistant', content: '', progress: [], thinking: [], sources: [], error: false, ts: Date.now() })
+    list.push({ id: ++seq, role: 'assistant', content: '', progress: [], thinking: [], sources: [], route: null, error: false, ts: Date.now() })
     await streamText(list[list.length - 1], prev.content)
   }
 

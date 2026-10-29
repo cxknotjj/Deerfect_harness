@@ -2,10 +2,11 @@ package com.dark.javaHarness.service.impl;
 
 import com.dark.javaHarness.agent.ProgressLine;
 import com.dark.javaHarness.domain.Goal;
-import com.dark.javaHarness.domain.RouteDecision;
+import com.dark.javaHarness.domain.RoutePlan;
 import com.dark.javaHarness.domain.dto.ChatRequest;
 import com.dark.javaHarness.domain.dto.ChatResponse;
 import com.dark.javaHarness.domain.dto.KnowledgeSource;
+import com.dark.javaHarness.domain.dto.RouteInfo;
 import com.dark.javaHarness.enums.AgentConstants;
 import com.dark.javaHarness.enums.GoalStatus;
 import com.dark.javaHarness.enums.SseProtocol;
@@ -120,9 +121,8 @@ public class ChatServiceImpl implements ChatService {
         // 子任务派给无 wms 工具的通用专家，直答才能查到真实数据）；general 会话保持统一判定
         // （SIMPLE 由 general 直答 / COMPLEX 进 multi-agent 编排）
         String boundAgent = sessionAgentName(sessionId);
-        String resolvedAgent = AgentConstants.DEFAULT_AGENT.equals(boundAgent)
-                ? resolveAgentWithPrefetch(boundAgent, request.message(), sessionId, turnId)
-                : boundAgent;
+        RoutingOutcome routing = resolveRouting(boundAgent, request, sessionId, turnId);
+        String resolvedAgent = routing.agent();
 
         Goal goal = agentService.executeSync(resolvedAgent, request.message(), sessionId, turnId);
         // COMPLEX 编排失败降级（同步路径无客户端断开，FAILED 即编排自身失败）：
@@ -136,10 +136,11 @@ public class ChatServiceImpl implements ChatService {
 
         if (goal.status() == GoalStatus.FAILED) {
             // 失败文案不做后处理（保持原始错误信息），flags 走 failure 的空集
-            return ChatResponse.failure(sessionId, newSession, goal.id(), goal.summary(), resolvedAgent);
+            return ChatResponse.failure(sessionId, newSession, goal.id(), goal.summary(), resolvedAgent,
+                    routing.plan().toInfo());
         }
         return ChatResponse.success(sessionId, newSession, goal.id(), pr.text(),
-                recentKnowledgeSources(sessionId), resolvedAgent, pr.flags());
+                recentKnowledgeSources(sessionId), resolvedAgent, pr.flags(), routing.plan().toInfo());
     }
 
     /**
@@ -152,6 +153,8 @@ public class ChatServiceImpl implements ChatService {
                                                  String turnId) {
         log.warn("[route] 编排失败（goal={}），降级单模型重答：{}", orchestration.id(), orchestration.summary());
         String fallbackAgent = sessionAgentName(sessionId);
+        RouteInfo fallbackRoute = RoutePlan.agentic(1.0, "graph path failed; fallback to single agent",
+                RoutePlan.Source.FALLBACK).toInfo();
         // 降级重答仍属同一轮同一执行链：turnId 沿用本轮值，traceId 复用编排 Goal 的（轨迹同树）
         Goal retry = agentService.executeSync(fallbackAgent, request.message(), sessionId, turnId,
                 orchestration.traceId());
@@ -160,10 +163,11 @@ public class ChatServiceImpl implements ChatService {
         if (retry.status() == GoalStatus.FAILED) {
             // 失败文案不做后处理（保持原始双段错误信息）
             return ChatResponse.failure(sessionId, newSession, retry.id(),
-                    "编排失败: " + orchestration.summary() + "；重答失败: " + retry.summary(), fallbackAgent);
+                    "编排失败: " + orchestration.summary() + "；重答失败: " + retry.summary(),
+                    fallbackAgent, fallbackRoute);
         }
         return ChatResponse.success(sessionId, newSession, retry.id(), pr.text(),
-                recentKnowledgeSources(sessionId), fallbackAgent, pr.flags());
+                recentKnowledgeSources(sessionId), fallbackAgent, pr.flags(), fallbackRoute);
     }
 
     /**
@@ -273,32 +277,107 @@ public class ChatServiceImpl implements ChatService {
             // 绑定专属 Agent（≠general）跳过判定与预取，由该 Agent 携带自身工具直答
             String boundAgent = sessionAgentName(ctx.sid());
             boolean useJudge = AgentConstants.DEFAULT_AGENT.equals(boundAgent);
+            java.util.concurrent.atomic.AtomicReference<RouteInfo> routeRef =
+                    new java.util.concurrent.atomic.AtomicReference<>();
             // 首帧先行：进度行在订阅时立即发出（judge 是同步阻塞调用，挪入 boundedElastic 防止
             // 「连接已建立却零字节」窗口被外部掐断；专属 Agent 无判定环节，首帧直出行「直答」）
             return toSseBody(Flux.concat(
                     Flux.just(ProgressLine.encode("路由", useJudge ? "判定中…" : "直答")),
                     Mono.fromCallable(() -> {
-                        String resolvedAgent = useJudge
-                                ? resolveAgentWithPrefetch(boundAgent, request.message(), ctx.sid(), turnId)
-                                : boundAgent;
+                        RoutingOutcome routing = resolveRouting(boundAgent, request, ctx.sid(), turnId);
+                        routeRef.set(routing.plan().toInfo());
+                        String resolvedAgent = routing.agent();
                         Flux<String> agentStream = agentService.executeStreamReactive(resolvedAgent, request.message(), ctx.sid(), turnId, traceId);
+                        // Agentic 未收敛逃生舱：仅 general 的 Agentic 路径启用（绑定专属 Agent 的 Graph
+                        // 专家没有其领域工具，升级会丢能力）
+                        if (!routing.plan().graph() && AgentConstants.DEFAULT_AGENT.equals(resolvedAgent)) {
+                            agentStream = withAgenticEscalation(agentStream, request.message(), ctx.sid(),
+                                    turnId, traceId, routeRef);
+                        }
                         // COMPLEX 编排失败降级：编排自身异常（客户端断开走 cancel，不触发 onErrorResume）时
                         // 降级为会话 Agent 单模型重答一次，一层兜底不递归
                         if (complexFallbackEnabled && AgentConstants.MULTI_AGENT.equals(resolvedAgent)) {
                             agentStream = withComplexFallback(agentStream, request.message(), ctx.sid(), turnId, traceId);
                         }
-                        // 路由去向可见化：SIMPLE/COMPLEX 判定去向 / 专属 Agent 直答
-                        String path = AgentConstants.MULTI_AGENT.equals(resolvedAgent)
-                                ? "COMPLEX，走 multi-agent 编排"
-                                : (useJudge ? "SIMPLE，走 " + resolvedAgent + " 直答"
-                                            : "专属 Agent：" + resolvedAgent + " 直答");
+                        // 路径去向可见化：Agentic / Graph 编排（带置信度与决策来源）
+                        String path = routing.plan().graph()
+                                ? "Graph 编排路径（置信度 " + formatConfidence(routing.plan().confidence()) + "）"
+                                : "Agentic 路径（置信度 " + formatConfidence(routing.plan().confidence()) + "）";
                         return Flux.concat(
                                 Flux.just(ProgressLine.encode("路由", "判定完成：" + path)),
                                 SseEncoder.withAgentProgress(resolvedAgent, agentStream));
                     }).subscribeOn(Schedulers.boundedElastic())
                       .flatMapMany(flux -> flux)),
-                    ctx.sid(), ctx.newSession(), request.message(), null);
+                    ctx.sid(), ctx.newSession(), request.message(), null, routeRef);
         });
+    }
+
+    /**
+     * Agentic → Graph 运行时升级（逃生舱）：Agentic ReAct 迭代耗尽（内部控制信号）或执行失败，
+     * 且本轮尚未产出任何正文时，自动切换 Graph 编排重跑一次，避免「空回答」；已有输出则不升级
+     * （半截回答再补一段编排结果会重复且口径不一致）。
+     * 升级后的 Graph 流仍享有编排失败降级（{@link #withComplexFallback}），一层兜底不递归。
+     */
+    private Flux<String> withAgenticEscalation(Flux<String> agentic, String message, String sessionId,
+                                               String turnId, String traceId,
+                                               java.util.concurrent.atomic.AtomicReference<RouteInfo> routeRef) {
+        StringBuilder emitted = new StringBuilder();
+        java.util.concurrent.atomic.AtomicBoolean exhausted = new java.util.concurrent.atomic.AtomicBoolean();
+        java.util.concurrent.atomic.AtomicBoolean escalated = new java.util.concurrent.atomic.AtomicBoolean();
+        Flux<String> escalatedGraph = Flux.defer(() -> {
+            escalated.set(true);
+            RoutePlan plan = RoutePlan.graph(0.5, List.of(), List.of(),
+                    "agentic not converged without output; escalated to graph", RoutePlan.Source.ESCALATED);
+            routeRef.set(plan.toInfo());
+            log.warn("[route] Agentic 未收敛且无输出，运行时升级为 Graph 编排 sid={}", sessionId);
+            Flux<String> graph = agentService.executeStreamReactive(AgentConstants.MULTI_AGENT,
+                    message, sessionId, turnId, traceId);
+            if (complexFallbackEnabled) {
+                graph = withComplexFallback(graph, message, sessionId, turnId, traceId);
+            }
+            return Flux.concat(
+                    Flux.just(ProgressLine.encode("路由", "Agentic 未收敛，升级为 Graph 编排")),
+                    SseEncoder.withAgentProgress(AgentConstants.MULTI_AGENT, graph));
+        });
+        return agentic
+                .doOnNext(row -> {
+                    if (!ProgressLine.isProgress(row)) {
+                        emitted.append(row);
+                    }
+                })
+                // 内部控制信号不转发给客户端：仅作为升级判定依据
+                .flatMap(row -> {
+                    ProgressLine.StageRow p = ProgressLine.decode(row);
+                    if (p != null && ProgressLine.STAGE_AGENTIC_EXHAUSTED.equals(p.stage())) {
+                        exhausted.set(true);
+                        return Flux.empty();
+                    }
+                    return Flux.just(row);
+                })
+                .concatWith(Flux.defer(() -> {
+                    if (!exhausted.get() || escalated.get()) {
+                        return Flux.empty();
+                    }
+                    if (emitted.length() > 0) {
+                        log.warn("[route] Agentic 迭代耗尽但已有输出（{} 字符），不升级 sid={}",
+                                emitted.length(), sessionId);
+                        return Flux.empty();
+                    }
+                    return escalatedGraph;
+                }))
+                .onErrorResume(e -> {
+                    if (escalated.get() || emitted.length() > 0) {
+                        return Flux.error(e);
+                    }
+                    log.warn("[route] Agentic 执行失败且无输出，尝试升级 Graph：{}", safeMessage(e));
+                    return escalatedGraph;
+                });
+    }
+
+    /** 内部控制信号行（不面向用户）：升级判定消费或兜底过滤，绝不下发到 SSE/CLI/Web。 */
+    private static boolean isInternalSignal(String row) {
+        ProgressLine.StageRow p = ProgressLine.decode(row);
+        return p != null && ProgressLine.STAGE_AGENTIC_EXHAUSTED.equals(p.stage());
     }
 
     /**
@@ -340,8 +419,11 @@ public class ChatServiceImpl implements ChatService {
         streamConnectionLimiter.tryAcquire();
         Flux<String> flux;
         try {
+            RouteInfo resumeRoute = RoutePlan.graph(1.0, List.of(), List.of(),
+                    "resume from orchestration checkpoint", RoutePlan.Source.RESUME).toInfo();
             flux = toSseBody(SseEncoder.withAgentProgress(AgentConstants.MULTI_AGENT, agentService.resumeStreamReactive(goal)),
-                goal.sessionId(), false, goal.objective(), goal.id());
+                goal.sessionId(), false, goal.objective(), goal.id(),
+                new java.util.concurrent.atomic.AtomicReference<>(resumeRoute));
         } catch (RuntimeException e) {
             streamConnectionLimiter.release();
             throw e;
@@ -356,7 +438,8 @@ public class ChatServiceImpl implements ChatService {
      * @param goalId     meta 事件携带的目标 ID（resume 场景传 goal.id()；全新 stream 时 null）
      */
     private Flux<String> toSseBody(Flux<String> agentTokens, String sessionId, boolean newSession,
-                                   String userMessage, String goalId) {
+                                   String userMessage, String goalId,
+                                   java.util.concurrent.atomic.AtomicReference<RouteInfo> routeRef) {
         // 发送时刻在组装期捕获（请求到达即记录，写回 user 消息快照用——历史回显真实发送时间）
         long userSentAt = System.currentTimeMillis();
         // doOnNext 收集完整回复，流正常结束后由 doOnComplete 统一写回会话记忆（保持多轮记忆语义）
@@ -365,12 +448,15 @@ public class ChatServiceImpl implements ChatService {
         // meta.sources 延迟到 meta 事件发射期求值（Flux.defer）：编排路径的知识检索发生在执行期
         // （lead 出口预取 remember 在组装之后），组装期求值会恒取到空值；直答路径求值结果不变
         return agentTokens
+                // 内部控制信号（升级判定用）绝不下发：消费方未拦下的场景在此兜底过滤
+                .filter(row -> !isInternalSignal(row))
                 .doOnNext(row -> { if (!ProgressLine.isProgress(row)) { full.append(row); } })
                 .flatMap(SseEncoder::toSseRows)
                 .concatWithValues("event: " + SseProtocol.EVENT_TOKEN
                         + "\ndata: " + SseProtocol.DONE_MARKER)
                 .concatWith(Flux.defer(() -> SseEncoder.metaEvent(sessionId, newSession, goalId,
-                        GoalStatus.SUCCEEDED.name(), null, recentKnowledgeSources(sessionId))))
+                        GoalStatus.SUCCEEDED.name(), null, recentKnowledgeSources(sessionId),
+                        routeRef == null ? null : routeRef.get())))
                 .doOnComplete(() -> writeBackContext(sessionId, userMessage, full.toString(), userSentAt))
                 // 客户端断开（Tomcat 报 AsyncRequestNotUsableException/Connection reset）：
                 // 框架层 ERROR 堆栈由 ClientAbortLogFilter 降噪，此处统一记可观测 warn 单行
@@ -380,7 +466,8 @@ public class ChatServiceImpl implements ChatService {
                     return Flux.concat(
                             Flux.just("event: " + SseProtocol.EVENT_ERROR + "\ndata: " + err),
                             SseEncoder.metaEvent(sessionId, newSession, goalId,
-                                    GoalStatus.FAILED.name(), err, recentKnowledgeSources(sessionId)));
+                                    GoalStatus.FAILED.name(), err, recentKnowledgeSources(sessionId),
+                                    routeRef == null ? null : routeRef.get()));
                 });
     }
 
@@ -401,18 +488,23 @@ public class ChatServiceImpl implements ChatService {
     }
 
     /**
-     * 预取提交 + judge 并行 + 汇合的收敛入口：sync/stream 两份重复块收编于此（汇合次序是聊天编排语义，留守宿主）。
+     * 预取提交 + 路径判定并行 + 汇合的收敛入口：sync/stream 共用。
      * 会话 agent 名由入口解析后显式传入（kb 绑定解析内聚预取器，null/空白不入池）。
      */
-    private String resolveAgentWithPrefetch(String agentName, String message, String sessionId, String turnId) {
+    private RoutingOutcome resolveRouteWithPrefetch(String agentName, String message, String sessionId,
+                                                    String turnId, String routing) {
         Future<?> prefetch = ragPrefetcher == null ? null
                 : ragPrefetcher.submit(agentName, sessionId, message, KnowledgeRetriever.SOURCE_ENTRY_PREFETCH);
         try {
-            String resolvedAgent = resolveAgent(message, sessionId, turnId);
-            if (ragPrefetcher != null) { // 知识库禁用时预取器缺位，judge 完成即返回
+            RoutePlan plan = decidePlan(message, sessionId, turnId, routing);
+            String resolvedAgent = plan.graph() ? AgentConstants.MULTI_AGENT : sessionAgentName(sessionId);
+            if (ragPrefetcher != null) { // 知识库禁用时预取器缺位，判定完成即返回
                 ragPrefetcher.await(prefetch);
             }
-            return resolvedAgent;
+            log.info("[route] message '{}' -> path={} confidence={} source={} reason='{}' -> agent={}",
+                    trimForLog(message), plan.path(), formatConfidence(plan.confidence()),
+                    plan.source(), plan.reason(), resolvedAgent);
+            return new RoutingOutcome(plan, resolvedAgent);
         } finally {
             if (prefetch != null) {
                 prefetch.cancel(true); // 汇合窗口外放弃：中断预取任务，占用即归还共享池
@@ -420,34 +512,46 @@ public class ChatServiceImpl implements ChatService {
         }
     }
 
-    /** 安全取异常信息，避免 getMessage 为空导致行文本不规范；换行替换为空格避免破坏逐行解析 */
-    private static String safeMessage(Throwable ex) {
-        String msg = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
-        return msg.replaceAll("[\\r\\n]+", " ");
+    /** 绑定专属 Agent 的会话跳过判定（Graph 专家没有该 Agent 的领域工具），显式 graph 仅告警。 */
+    private RoutingOutcome resolveRouting(String boundAgent, ChatRequest request, String sessionId,
+                                          String turnId) {
+        if (!AgentConstants.DEFAULT_AGENT.equals(boundAgent)) {
+            if ("graph".equalsIgnoreCase(request.routing())) {
+                log.warn("[route] 会话绑定专属 Agent {}，忽略 routing=graph，保持单 Agent 执行", boundAgent);
+            }
+            RoutePlan plan = RoutePlan.agentic(1.0, "session bound agent: " + boundAgent,
+                    RoutePlan.Source.BOUND_AGENT);
+            return new RoutingOutcome(plan, boundAgent);
+        }
+        return resolveRouteWithPrefetch(boundAgent, request.message(), sessionId, turnId, request.routing());
     }
 
     /**
-     * 主 Agent 前置判断：调用 {@link RouteJudge} 决定走哪条路径。
-     * 复杂(COMPLEX) → multi-agent 多 Agent 编排；简单/未知 → 会话绑定的 Agent
-     * （session.agent_id，如曾用 /agent 切换；未绑定或失效回退默认 general），
-     * 不再一律压回 general——会话切过 Agent 后简单问题也应由该 Agent 回答。
-     * 判断异常/失败时兜底简单路径（宁可简单，不阻塞请求）。
-     *
-     * @return 选中的 agent 名（会话 Agent/general 或 "multi-agent"）
+     * 路径决策：显式 routing 优先，否则交给判定器（规则短路 + 灰区 LLM + 置信度策略；
+     * 判定器内部已兜底 Agentic，此处不再重复防御）。
      */
-    private String resolveAgent(String message, String sessionId, String turnId) {
-        try {
-            RouteDecision route = routeJudge.judge(message, sessionId, turnId);
-            String resolved = route == RouteDecision.COMPLEX
-                    ? AgentConstants.MULTI_AGENT
-                    : sessionAgentName(sessionId);
-            log.info("[route] message '{}' -> {} -> agent={}", trimForLog(message), route, resolved);
-            return resolved;
-        } catch (Exception e) {
-            // 判断异常不得影响请求主流程：兜底默认（简单）路径
-            log.warn("[route] 主 Agent 判断异常，回退会话 Agent：{}", safeMessage(e));
-            return sessionAgentName(sessionId);
+    private RoutePlan decidePlan(String message, String sessionId, String turnId, String routing) {
+        String mode = routing == null ? "auto" : routing.trim().toLowerCase(java.util.Locale.ROOT);
+        if ("agentic".equals(mode)) {
+            return RoutePlan.agentic(1.0, "routing override: agentic", RoutePlan.Source.OVERRIDE);
         }
+        if ("graph".equals(mode)) {
+            return RoutePlan.graph(1.0, List.of(), List.of(), "routing override: graph",
+                    RoutePlan.Source.OVERRIDE);
+        }
+        if (!"auto".equals(mode) && !mode.isBlank()) {
+            log.warn("[route] 未知 routing='{}'，按 auto 处理", routing);
+        }
+        return routeJudge.plan(message, sessionId, turnId);
+    }
+
+    /** 置信度展示（两位小数，便于进度行/日志阅读）。 */
+    private static String formatConfidence(double confidence) {
+        return String.format(java.util.Locale.ROOT, "%.2f", confidence);
+    }
+
+    /** 路径决策 + 实际执行 Agent 的绑定结果。 */
+    private record RoutingOutcome(RoutePlan plan, String agent) {
     }
 
     /**
@@ -469,6 +573,12 @@ public class ChatServiceImpl implements ChatService {
             log.warn("[route] 会话 Agent 解析失败，回退默认 sid={}: {}", sessionId, safeMessage(e));
             return AgentConstants.DEFAULT_AGENT;
         }
+    }
+
+    /** 异常信息取安全短文案（message 为空时退回类名，避免日志出现 "null"） */
+    private static String safeMessage(Throwable e) {
+        String m = e.getMessage();
+        return m == null || m.isBlank() ? e.getClass().getSimpleName() : m;
     }
 
     /** 截断过长的 message 用于日志，避免刷屏 */

@@ -21,11 +21,15 @@ Deerfect Harness 是一个基于 Spring AI 的双路径 Agent 平台：**Agentic
 
 ## 三、双路径执行：Agentic 与 Graph 编排
 
-- **路径判定**：`RouteJudge` 输出内部枚举 `SIMPLE` / `COMPLEX`，分别对应 Agentic 与 Graph 编排两条执行路径；判定异常或超时一律兜底 Agentic（`SIMPLE`）。
+- **路径判定按任务形态**：`RouteJudge` 判的是「是否存在可独立并行的工作流 / 多份交付物」，而非消息长短或主观难度；内部枚举 `SIMPLE` / `COMPLEX` 分别对应 Agentic 与 Graph 两条路径。
+- **两段式判定**：先规则短路（多工作流措辞 → Graph；≤12 字短消息 → Agentic），灰区再走一次轻量 LLM 判定，返回 `route` / `confidence` / `workstreams` / `deliverables` / `reason`。
+- **置信度策略**：Graph 需同时满足「≥2 个可独立工作流」且「置信度 ≥0.8」，否则收敛为 Agentic，避免为单工作流支付编排成本；判定异常一律兜底 Agentic。
+- **运行时逃生舱**：流式路径下，Agentic 迭代耗尽或执行失败且尚无输出时，自动升级 Graph 编排重跑一次（`Source.ESCALATED`）；Graph 编排异常时降级为会话绑定 Agent 单模型重答一次，不递归。
 - **Agentic 路径**：`AgentScopeGeneralAgent` 以 ReActAgent 执行显式推理-行动循环（默认开启，`app.agentic.enabled`），工具仍由 Spring AI 提供并经桥接进入 Toolkit；初始化失败可回退 ChatClient 单次调用路径。
 - **Graph 编排路径**：自研 `ParallelOrchestrationEngine` 执行「Lead 拆解 → 专家并行 → Aggregator 聚合」；子任务至多 4 条，禁止凑数。
 - **失败不连坐**：单个子任务失败写占位结果，聚合照常执行并注入降级说明。
-- **编排失败降级**：Graph 路径异常时降级为会话绑定 Agent 单模型重答一次，不递归。
+- **产品侧显式开关**：请求体 `routing`（`auto` / `agentic` / `graph`）可覆盖判定；Web 端「路径」下拉、CLI `/routing` 均走同一字段，绑定专属 Agent 的会话忽略 `graph`（保留领域工具直答）。
+- **决策可观测**：判定结果（路径 / 置信度 / 工作流 / 来源）写入日志、SSE `meta.route` 与同步响应 `route`，Web 消息头显示路径徽标，悬浮可见来源与理由。
 - **断点续跑**：按 `LEAD_DONE` / `SUBTASKS_DONE` / `DONE` 三阶段落检查点，已完成阶段不重跑（[resume.md](./guides/resume.md)）。
 
 ## 四、Agent 与模型体系

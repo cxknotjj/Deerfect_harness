@@ -42,6 +42,23 @@ function thinkingTitle(stage: string, index: number): string {
   return props.streaming && isLast ? `${title} · ${running}` : title
 }
 
+/** 路由徽标:本轮实际路径 + 置信度(流末 meta 注入;历史回显为空不展示) */
+const routeLabel = computed(() => {
+  const r = props.message.route
+  if (!r) return ''
+  return `${r.path === 'graph' ? 'Graph' : 'Agentic'} · ${r.confidence.toFixed(2)}`
+})
+
+/** 路由徽标悬浮说明:决策来源、理由与工作流/交付物形态(排障可见) */
+const routeTitle = computed(() => {
+  const r = props.message.route
+  if (!r) return ''
+  const parts = [`来源: ${r.source}`, `理由: ${r.reason}`]
+  if (r.workstreams.length > 0) parts.push(`工作流: ${r.workstreams.join('，')}`)
+  if (r.deliverables.length > 0) parts.push(`交付物: ${r.deliverables.join('，')}`)
+  return parts.join('\n')
+})
+
 /** 混排时间线项:进度行原样;思考块携带原始下标(thinkingTitle 的「最后一个块」语义依赖它) */
 type TimelineItem =
   | { kind: 'progress'; p: ProgressPayload; i: number }
@@ -179,10 +196,14 @@ async function onBodyClick(e: MouseEvent): Promise<void> {
 
 <template>
   <div class="msg-row" :class="message.role === 'user' ? 'msg-row-user' : 'msg-row-assistant'">
-    <!-- assistant 消息头:mono 小字标注时间(历史回显 ts=0,无原始时间故不展示) -->
-    <div v-if="message.role === 'assistant' && message.ts > 0" class="msg-meta">{{
-      new Date(message.ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
-    }}</div>
+    <!-- assistant 消息头:mono 小字标注时间(历史回显 ts=0,无原始时间故不展示);
+         路由徽标 = 本轮实际路径 + 置信度(悬浮看来源/理由/工作流形态) -->
+    <div v-if="message.role === 'assistant' && message.ts > 0" class="msg-meta">
+      <span v-if="routeLabel" class="msg-route-tag" :title="routeTitle">{{ routeLabel }}</span>
+      {{
+        new Date(message.ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
+      }}
+    </div>
 
     <!-- 执行轨迹混排(图标 + 灰字行式):思考折叠块插入到触发它的进度行之后
          (lead 思考跟「编排」行、思考N 跟「拆解」行、聚合思考跟「聚合」行),

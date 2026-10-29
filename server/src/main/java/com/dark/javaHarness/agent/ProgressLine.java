@@ -13,6 +13,12 @@ public final class ProgressLine {
     /** stage 与 detail 的分隔符 */
     public static final char SEPARATOR = '\u0001';
 
+    /**
+     * 内部控制信号 stage：Agentic ReAct 迭代轮次耗尽（AgentScope ExceedMaxItersEvent）。
+     * 不面向用户展示——ChatService 消费后按需移除，并据此决定是否运行时升级为 Graph 编排。
+     */
+    public static final String STAGE_AGENTIC_EXHAUSTED = "agentic-exhausted";
+
     private ProgressLine() {
     }
 

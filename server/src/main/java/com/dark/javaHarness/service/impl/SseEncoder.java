@@ -56,11 +56,12 @@ final class SseEncoder {
 
     /**
      * 组装 SSE meta 事件单元素块（event+data 同元素，保证成对不被交叉）：{@code event: meta\n data: {json}}。
-     * sources 由调用方按各自求值时机（组装期/错误期）算好传入，本类不做检索。
+     * sources/route 由调用方按各自求值时机（组装期/错误期）算好传入，本类不做检索。
      */
     static Flux<String> metaEvent(String sessionId, boolean newSession, String goalId,
-                                  String status, String error, List<KnowledgeSource> sources) {
-        SseMeta meta = new SseMeta(sessionId, newSession, goalId, status, error, sources);
+                                  String status, String error, List<KnowledgeSource> sources,
+                                  com.dark.javaHarness.domain.dto.RouteInfo route) {
+        SseMeta meta = new SseMeta(sessionId, newSession, goalId, status, error, sources, route);
         try {
             return Flux.just("event: " + SseProtocol.EVENT_META + "\ndata: " + OBJECT_MAPPER.writeValueAsString(meta));
         } catch (Exception e) {

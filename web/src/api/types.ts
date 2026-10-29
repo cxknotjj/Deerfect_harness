@@ -5,11 +5,31 @@
  * SessionCreatedView / SessionAgentView;后端新增字段时旧客户端宽容忽略。
  */
 
-/** 聊天请求体(POST /api/chat/stream;message 必填,sessionId/agentId 可选) */
+/** 执行路径:auto=服务端判定(规则+LLM),agentic/graph=显式覆盖 */
+export type RoutingMode = 'auto' | 'agentic' | 'graph'
+
+/** 聊天请求体(POST /api/chat/stream;message 必填,sessionId/agentId/routing 可选) */
 export interface ChatRequest {
   message: string
   sessionId?: string
   agentId?: number
+  /** 显式执行路径(auto 等同不传:服务端自动判定) */
+  routing?: RoutingMode
+}
+
+/** 路由决策快照(服务端 RouteInfo;流末 meta / 同步响应透出,供 UI 展示与排障) */
+export interface RouteInfo {
+  /** agentic / graph */
+  path: string
+  /** 判定置信度 0~1(override/绑定 Agent 恒 1.0) */
+  confidence: number
+  /** 工作流形态:Graph 路径拆分出的独立工作流 */
+  workstreams: string[]
+  /** 交付物形态:Graph 路径预期产物 */
+  deliverables: string[]
+  reason: string
+  /** 决策来源:OVERRIDE / RULE / LLM / FALLBACK / BOUND_AGENT / RESUME / ESCALATED */
+  source: string
 }
 
 /** 知识库检索命中出处(RAG 引用) */
@@ -30,6 +50,8 @@ export interface ChatResponse {
   sources: KnowledgeSource[] | null
   /** 实际使用的 agent 名(回退/分流可观察,可能为空) */
   agent: string | null
+  /** 本轮路由决策(路径/置信度/工作流;失败场景可能为 null) */
+  route: RouteInfo | null
 }
 
 /** 流式 meta 事件负载(流末发送) */
@@ -40,6 +62,8 @@ export interface SseMeta {
   status: string | null
   error: string | null
   sources: KnowledgeSource[] | null
+  /** 本轮路由决策(路径/置信度/工作流;失败场景可能为 null) */
+  route: RouteInfo | null
 }
 
 /** 进度事件负载(event: progress 的 data JSON) */

@@ -5,9 +5,13 @@ import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.LlmCallLog;
 import com.dark.javaHarness.domain.RouteDecision;
+import com.dark.javaHarness.domain.RoutePlan;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.RouteJudge;
 import com.dark.javaHarness.service.impl.observe.LlmCallRecorder;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Pattern;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -16,14 +20,14 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 
 /**
- * 基于 LLM 的主 Agent 路由判断器。
+ * 两段式路径判断器：规则短路（多工作流措辞 / 短消息）+ 灰区轻量 LLM 判定 + 置信度策略。
  *
- * <p>用一次轻量 LLM 调用判断请求简单/复杂：系统提示词要求模型严格输出
- * JSON（{@code {"route":"simple"}} 或 {@code {"route":"complex"}}），
- * 解析出 route 字段归一化为 {@link RouteDecision}。
+ * <p>LLM 系统提示词按任务形态判断（Agentic = 单工作流；Graph = ≥2 个可独立并行工作流），
+ * 输出富 JSON：{@code route/confidence/workstreams/deliverables/reason}；
+ * route 归一化为 {@link RouteDecision}，Graph 需 ≥2 工作流且置信度 ≥0.8 才保留。
  *
- * <p>兜底策略（TODO ⑤）：调用异常 / 超时 / 返回非 JSON / 解析失败时
- * 一律返回 {@link RouteDecision#SIMPLE}，且不向调用方抛出——宁可简单，不阻塞请求。
+ * <p>兜底策略：调用异常 / 超时 / 返回非 JSON / 解析失败时一律返回 Agentic，
+ * 且不向调用方抛出——宁可轻量，不阻塞请求。
  */
 @Service
 public class LlmRouteJudge implements RouteJudge {
@@ -43,11 +47,28 @@ public class LlmRouteJudge implements RouteJudge {
 
     /** 判定提示词回退默认：与 V22 迁移写入 agent 表 route-judge 行的 prompt 原文一致 */
     private static final String SYSTEM_PROMPT =
-            "你是 Harness 的主路由判断器。判断一条用户请求应该走「简单」还是「复杂」路径。\n"
-            + "只输出一行 JSON，不要任何解释、前后缀。格式严格为："
-            + "{\"route\":\"simple\"} 或 {\"route\":\"complex\"}\n"
-            + "- simple：无需工具、无需拆分子任务，单次回答即可（如问候、闲聊、简短问答、讲笑话、简单解释）。\n"
-            + "- complex：需联网搜索、需执行代码、多步骤处理、需拆分为多个子任务（如调研竞品并输出报告、规划并执行一个完整项目）。";
+            "你是 Harness 的主路径判断器。判断一条用户请求应走「Agentic」还是「Graph 编排」路径。\n"
+            + "Agentic：单一工作流，可由一个 Agent 自主推理-行动、按需多步调用工具。\n"
+            + "Graph：存在至少 2 个可独立并行推进的工作流，或多份独立交付物；只有并行收益大于协调成本时才选。\n"
+            + "不要按消息长短或主观难度判断。";
+
+    /** 无论 agent 表 prompt 是否更新，都追加输出契约，保证模型返回置信度与工作流字段 */
+    private static final String OUTPUT_CONTRACT =
+            "\n\n只输出一行 JSON，不要任何解释、前后缀。格式严格为："
+            + "{\"route\":\"agentic|graph\",\"confidence\":0.0,\"workstreams\":[\"...\"],"
+            + "\"deliverables\":[\"...\"],\"reason\":\"...\"}\n"
+            + "confidence 为 0~1；workstreams 为可独立并行推进的工作流列表；"
+            + "无法判断时 route=agentic、confidence=0。";
+
+    /** 强多工作流信号：命中即规则短路到 Graph（不覆盖显式指定） */
+    private static final Pattern GRAPH_SIGNAL = Pattern.compile(
+            "分别|各写|各生成|各输出|各一份|多份|逐一|逐个|同时调研|同时分析|多个报告|多个方案");
+
+    /** 短消息直接 Agentic 的字符阈值（避免为寒暄/单句问答付判定调用） */
+    private static final int TRIVIAL_MAX_CHARS = 12;
+
+    /** Graph 置信度门槛：低于该值先走 Agentic，由运行时升级兜底 */
+    private static final double GRAPH_CONFIDENCE_THRESHOLD = 0.8;
 
     private final ChatClientRegistry clientRegistry;
     /** LLM 调用观测记录器：judge 调用耗时/token 也落 llm_call_log（agent_name='route-judge'） */
@@ -90,11 +111,44 @@ public class LlmRouteJudge implements RouteJudge {
         }
     }
 
+    /**
+     * 带规则与置信度策略的路径决策：先做强信号规则短路与短消息短路，灰区再调 LLM。
+     * LLM 结果经置信度策略收敛：Graph 需 ≥2 个工作流且置信度 ≥0.8，
+     * 否则先走 Agentic，避免为单工作流支付编排成本。
+     */
     @Override
-    public RouteDecision judge(String message, String sessionId, String turnId) {
+    public RoutePlan plan(String message, String sessionId, String turnId) {
         if (message == null || message.isBlank()) {
-            log.info("[route] message 为空 -> SIMPLE");
-            return RouteDecision.SIMPLE;
+            return RoutePlan.agentic(1.0, "message empty", RoutePlan.Source.RULE);
+        }
+        if (GRAPH_SIGNAL.matcher(message).find()) {
+            RoutePlan plan = RoutePlan.graph(0.9, List.of(), List.of(),
+                    "rule: multi-workstream phrasing", RoutePlan.Source.RULE);
+            log.info("[route] plan={}", plan);
+            return plan;
+        }
+        if (message.trim().length() <= TRIVIAL_MAX_CHARS) {
+            RoutePlan plan = RoutePlan.agentic(0.95, "rule: short single-turn message",
+                    RoutePlan.Source.RULE);
+            log.info("[route] plan={}", plan);
+            return plan;
+        }
+        RoutePlan plan = judgeWithConfidence(message, sessionId, turnId);
+        if (plan.graph() && plan.workstreams().size() < 2) {
+            plan = RoutePlan.agentic(plan.confidence(), "llm: workstreams<2, collapse to agentic",
+                    RoutePlan.Source.FALLBACK);
+        } else if (plan.graph() && plan.confidence() < GRAPH_CONFIDENCE_THRESHOLD) {
+            plan = RoutePlan.agentic(plan.confidence(), "llm: confidence below graph threshold",
+                    RoutePlan.Source.FALLBACK);
+        }
+        log.info("[route] plan={}", plan);
+        return plan;
+    }
+
+    private RoutePlan judgeWithConfidence(String message, String sessionId, String turnId) {
+        if (message == null || message.isBlank()) {
+            log.info("[route] message 为空 -> agentic");
+            return RoutePlan.agentic(1.0, "message empty", RoutePlan.Source.RULE);
         }
         try {
             // 生效配置解析一次（model + prompt）：表驱动优先，回退语义见 settings()
@@ -111,9 +165,9 @@ public class LlmRouteJudge implements RouteJudge {
                     });
             return parse(content);
         } catch (Exception e) {
-            // 判断失败（含重试耗尽或解析失败）不阻塞请求，兜底走简单路径
-            log.warn("[route] 判断失败，兜底 SIMPLE：{}", safeMessage(e));
-            return RouteDecision.SIMPLE;
+            // 判断失败（含重试耗尽或解析失败）不阻塞请求，兜底走 Agentic 路径
+            log.warn("[route] 判断失败，兜底 Agentic：{}", safeMessage(e));
+            return RoutePlan.agentic(0.0, "judge failed: " + safeMessage(e), RoutePlan.Source.FALLBACK);
         }
     }
 
@@ -127,7 +181,7 @@ public class LlmRouteJudge implements RouteJudge {
         // 缺失时 DashScope 返回 400「you must provide a model parameter」（与
         // AgentChatCaller/GeneralAssistantAgent 同款约定）
         return client.prompt()
-                .system(settings.prompt())
+                .system(settings.prompt() + OUTPUT_CONTRACT)
                 .user(message)
                 .options(org.springframework.ai.openai.OpenAiChatOptions.builder()
                         .model(settings.model()))
@@ -160,22 +214,46 @@ public class LlmRouteJudge implements RouteJudge {
                 turnId, null, null, null, LlmCallRecorder.startedAt(start)));
     }
 
-    /** 解析 LLM 返回内容中的 route 字段；非法/缺失一律兜底 SIMPLE。 */
-    private RouteDecision parse(String content) {
+    /** 解析 LLM 返回内容中的 route/confidence/workstreams；非法/缺失一律兜底 Agentic。 */
+    private RoutePlan parse(String content) {
         if (content == null || content.isBlank()) {
-            log.warn("[route] 返回为空，兜底 SIMPLE");
-            return RouteDecision.SIMPLE;
+            log.warn("[route] 返回为空，兜底 Agentic");
+            return RoutePlan.agentic(0.0, "empty judge response", RoutePlan.Source.FALLBACK);
         }
         try {
             JsonNode node = OBJECT_MAPPER.readTree(content);
             String route = node.path("route").asText(null);
+            double confidence = node.path("confidence").asDouble(0.6);
+            List<String> workstreams = stringArray(node, "workstreams");
+            List<String> deliverables = stringArray(node, "deliverables");
+            String reason = node.path("reason").asText("");
             RouteDecision decision = RouteDecision.fromRaw(route);
-            log.info("[route] 解析结果 route='{}' -> {}", route, decision);
-            return decision;
+            RoutePlan plan = new RoutePlan(decision, confidence, workstreams, deliverables,
+                    reason.isBlank() ? "llm decision" : reason, RoutePlan.Source.LLM);
+            log.info("[route] 解析结果 route='{}' confidence={} workstreams={} -> {}",
+                    route, plan.confidence(), plan.workstreams(), plan.decision());
+            return plan;
         } catch (Exception e) {
-            log.warn("[route] 返回非 JSON，兜底 SIMPLE | content='{}'", content.replaceAll("[\\r\\n]+", " "));
-            return RouteDecision.SIMPLE;
+            log.warn("[route] 返回非 JSON，兜底 Agentic | content='{}'",
+                    content.replaceAll("[\\r\\n]+", " "));
+            return RoutePlan.agentic(0.0, "invalid judge json", RoutePlan.Source.FALLBACK);
         }
+    }
+
+    /** JSON 数组字段 → 字符串列表；缺失/非数组返回空列表。 */
+    private static List<String> stringArray(JsonNode node, String field) {
+        JsonNode array = node.path(field);
+        if (!array.isArray()) {
+            return List.of();
+        }
+        List<String> values = new ArrayList<>(array.size());
+        array.forEach(item -> {
+            String text = item.asText("").trim();
+            if (!text.isEmpty()) {
+                values.add(text);
+            }
+        });
+        return values;
     }
 
     private static String safeMessage(Exception e) {

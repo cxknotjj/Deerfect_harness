@@ -346,7 +346,7 @@ svg text{font-family:var(--sans)}
   <div class="prose">
     <p>项目的「算力」即云端模型推理资源（token 与并发），调度体系分五层。</p>
     <h3>3.1 请求级智能分流</h3>
-    <p><code>LlmRouteJudge</code> 以独立轻量 LLM 调用（独立连接池、10 秒读超时、无工具）选择执行路径：<strong>Agentic 路径</strong>由单 Agent 自主执行，避免为轻量请求支付 Lead 拆解 + 多专家 + 聚合的成倍推理成本；<strong>Graph 编排路径</strong>才进入多 Agent 拆解与并行。判定异常兜底 Agentic（内部枚举 <code>SIMPLE</code>，宁可轻量，不烧 token）。判定过程本身可视化（「路由判定中…」→「判定完成」，标签为 <code>SIMPLE</code> / <code>COMPLEX</code>）。</p>
+    <p><code>LlmRouteJudge</code> 以独立轻量 LLM 调用（独立连接池、10 秒读超时、无工具）选择执行路径：<strong>Agentic 路径</strong>由单 Agent 自主执行，避免为轻量请求支付 Lead 拆解 + 多专家 + 聚合的成倍推理成本；<strong>Graph 编排路径</strong>才进入多 Agent 拆解与并行。判定按<strong>任务形态</strong>而非难度：先规则短路（多工作流措辞 → Graph，≤12 字短消息 → Agentic），灰区再由 LLM 返回 <code>route/confidence/workstreams</code>，Graph 需 ≥2 个可独立工作流且置信度 ≥0.8，否则收敛 Agentic；判定异常兜底 Agentic（内部枚举 <code>SIMPLE</code>，宁可轻量，不烧 token）。运行中还有逃生舱（流式路径）：Agentic 迭代耗尽或失败且无输出时升级 Graph，Graph 编排失败则降级单 Agent 重答。判定过程本身可视化（「路由判定中…」→「判定完成」），结果经 <code>meta.route</code> 透出路径、置信度与决策来源；请求可通过 <code>routing</code>（Web 路径下拉 / CLI <code>/routing</code>）显式指定路径。</p>
     <h3>3.2 模型分级路由</h3>
     <p><code>model_provider</code> 表登记各服务商模型端点，<code>agent</code> 表为每个智能体独立指定模型——<strong>重活用强模型、轻活用快模型</strong>：</p>
     <ul>

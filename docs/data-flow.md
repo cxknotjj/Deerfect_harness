@@ -21,8 +21,8 @@
      → 过滤/截断/角色归一化 → ContextAssemblingAdvisor（token 预算控制）
         │
 ③ 主 Agent 前置判断（路由分流）
-     RouteJudge.judge(message) → LlmRouteJudge（一次 LLM 分类，失败兜底 SIMPLE）
-        ├─ SIMPLE  → 路径 A：单次 LLM 调用（GeneralAssistantAgent）
+     RouteJudge.plan(message) → LlmRouteJudge（规则短路 → 灰区 LLM → 置信度策略，失败兜底 Agentic）
+        ├─ SIMPLE  → 路径 A：Agentic（AgentScope ReAct / 回退 GeneralAssistantAgent）
         └─ COMPLEX → 路径 B：多 Agent 编排（MultiAgentGraphAgent + 自研并行引擎）
         │
 ③' Agent 路由（表驱动动态注册）
@@ -45,7 +45,7 @@
 | `POST /api/chat`        | `ChatController.chat()`                                    | `ChatResponse`（JSON）                                    |
 | `POST /api/chat/stream` | `ChatController.stream()` → `ChatService.streamReactive()` | `Flux<String>`（SSE：逐 token `data:` + `[DONE]` + `meta`） |
 
-请求体 `ChatRequest`：`message`（必填）、`sessionId`（可选，空则建档）、`agentId`（可选）。
+请求体 `ChatRequest`：`message`（必填）、`sessionId`（可选，空则建档）、`agentId`（可选）、`routing`（可选，`auto` / `agentic` / `graph` 显式路径覆盖）。
 
 ***
 
@@ -55,8 +55,9 @@
 ChatService.chat(request)
   1. 无 sessionId → sessionService.createSession() 建档
   2. agentId 有值 → sessionService.switchAgent()（会话绑定副作用，失败仅告警）
-  3. resolveAgent(message)                    ← 主 Agent 前置分流（统一判定，agentId 不跳过）
-       └─ routeJudge.judge(message) → COMPLEX → "multi-agent" / 否则 会话绑定 Agent（未绑定/失效回退 general）
+  3. resolveRouting(message, routing)         ← 主 Agent 前置分流（显式 routing 优先；绑定专属 Agent 跳过判定）
+       └─ routeJudge.plan(message) → Graph（≥2 工作流且置信度达标）→ "multi-agent"
+                                    → Agentic → 会话绑定 Agent（未绑定/失效回退 general）
   4. agentService.executeSync(selectedAgent, message, sessionId)
        ├─ general（A）→ GeneralAssistantAgent.execute(goal)（薄适配）
        │     → AgentChatCaller.callWithAssembly()：按 agent 表 model 取 ChatClient（Registry）
@@ -77,14 +78,15 @@ ChatService.streamReactive(request)
   0. streamConnectionLimiter.tryAcquire()     ← 过载保护（超限抛 ConcurrentRequestException → 429）
                                                流终结（complete/error/cancel）doFinally 释放
                                                （resume 入口同口径；上限 app.chat.max-stream-connections，0=不限制）
-  1. resolveAgent(message)                    ← 主 Agent 分流（同步旁路）
+  1. resolveRouting(message, routing)         ← 主 Agent 分流（规则/LLM/显式覆盖，同步旁路）
   2. 无 sessionId → boundedElastic 上 createSession() 建档
   3. agentId 有值 → sessionService.switchAgent()（会话绑定副作用，失败仅告警）
-     agent 选择（统一判定，agentId 不跳过）：
-       resolveAgent → SIMPLE  → executeStreamReactive(会话绑定 Agent, ...)
-                    → COMPLEX → executeStreamReactive(multi-agent, ...)
+     agent 选择（显式 routing 优先；绑定专属 Agent 跳过判定并忽略 graph）：
+       resolveRouting → Agentic  → executeStreamReactive(会话绑定 Agent, ...)
+                      → Graph    → executeStreamReactive(multi-agent, ...)
        └─ AgentService：create(sessionId) → markRunning → 订阅 Agent 流
-       └─ COMPLEX 编排流异常（非客户端断开）→ 降级为会话绑定 Agent 单模型重答一次
+       └─ Agentic 迭代耗尽/失败且尚无正文 → 升级 Graph 重跑（Source.ESCALATED）
+       └─ Graph 编排流异常（非客户端断开）→ 降级为会话绑定 Agent 单模型重答一次
          （先发「降级」进度行；重答失败保留「编排失败 + 重答失败」两段错误；
           app.chat.complex-fallback.enabled 开关，一层兜底不递归）
   4. Flux 管道：data: token… → data: [DONE] → event: meta
@@ -104,19 +106,28 @@ ChatService.streamReactive(request)
 > 只做「分流」，不执行具体任务，保持入口薄；不改对外契约。
 
 ```
-RouteJudge.judge(message)（接口）
-   └─ LlmRouteJudge.judge(message)
-       1. message 为空 → 直接 SIMPLE
-       2. clientRegistry.get("route-judge") 取 ChatClient
-       3. prompt.system(路由提示词).user(message).call()   ← 一次轻量 LLM
-       4. 解析 JSON route：complex → COMPLEX，否则 → SIMPLE
-       兜底（任何失败都 SIMPLE，「宁可简单」）：
-           异常 / 超时 / 空 / 非 JSON → SIMPLE
+RouteJudge.plan(message)（接口）
+   └─ LlmRouteJudge.plan(message)
+       0. 显式 routing=agentic / graph → 直接 OVERRIDE（不询问判定器）
+       1. message 为空            → Agentic（RULE）
+       2. 命中多工作流措辞          → Graph 0.9（RULE：分别/各写/多份/同时调研…）
+       3. 消息 ≤12 字符            → Agentic 0.95（RULE）
+       4. 灰区：一次轻量 LLM 调用，要求输出
+          {"route":"agentic|graph","confidence":0~1,
+           "workstreams":[...],"deliverables":[...],"reason":"..."}
+       5. 置信度策略：Graph 且 workstreams<2 → Agentic（FALLBACK）
+                      Graph 且 confidence<0.8 → Agentic（FALLBACK）
+       兜底（任何失败都 Agentic，「宁可简单」）：
+           异常 / 超时 / 空 / 非 JSON → Agentic，confidence=0
 ```
 
-**提示词**：模型只输出一行 `{"route":"simple"}` 或 `{"route":"complex"}`。
+**提示词**：库中 route-judge 行的 prompt（V42 起为 Agentic/Graph 语义）+ 代码统一追加输出契约；判定按任务形态而非难度。
 
-**分流点**：同步在建档后执行前；流式在 async 流开始前（旁路）。`resolveAgent()` 据此选执行体。
+**分流点**：同步在建档后执行前；流式在 async 流开始前（旁路）。`resolveRouting()` 据此选执行体并写 `routeRef`。
+
+**运行时逃生舱（流式路径）**：Agentic 迭代耗尽（内部控制信号 `agentic-exhausted`，不下发客户端）或执行失败且尚无正文 → 升级 Graph（`Source.ESCALATED`，meta 同步更新）；Graph 编排异常 → 降级会话 Agent 单模型重答一次。
+
+**可观测**：日志 `[route] ... path/confidence/source/reason/agent`；SSE `meta.route` 与同步响应 `route`（RouteInfo），Web 消息头路径徽标。
 
 ***
 
@@ -320,7 +331,7 @@ CLI 解析到 `event: progress` 按阶段分派渲染：`编排/聚合` 转 spin
 
 ```
 LLM 调用出口（五类调用点统一收敛）
-│  ① LlmRouteJudge.judge()          路由判断（阻塞 RestClient，token 取响应 Usage 真实值）
+│  ① LlmRouteJudge.plan()          路由判断（阻塞 RestClient，token 取响应 Usage 真实值）
 │  ② 编排 lead()（OrchestrationNodes）  lead 拆解（经 AgentChatCaller.call）
 │  ③ 编排子任务（OrchestrationNodes）   专家执行（经 AgentChatCaller.call，工具调用不单独记账）
 │  ④ 编排聚合（OrchestrationNodes）     AgentChatCaller.stream（逐 token 收集后估算）

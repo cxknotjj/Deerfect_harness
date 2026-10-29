@@ -73,6 +73,8 @@ public class ChatCli {
      * 可用 /agent <id> 显式切换；/agent off 恢复分流。
      */
     private Long agentId = null;
+    /** 显式路径：null/auto=自动判定，agentic / graph 为显式指定 */
+    private String routing = null;
 
     // 未知字段宽容：与服务端版本错开时（DTO 新增字段）仍可解析
     private static final ObjectMapper MAPPER = tools.jackson.databind.json.JsonMapper.builder()
@@ -142,6 +144,8 @@ public class ChatCli {
             handleNewSession();
         } else if (line.startsWith("/agent")) {
             handleAgentCommand(line);
+        } else if (line.startsWith("/routing")) {
+            handleRoutingCommand(line);
         } else if (line.startsWith("/resume")) {
             handleResumeCommand(line);
         } else if (line.startsWith("/provider")) {
@@ -160,11 +164,12 @@ public class ChatCli {
     private void printHelp() {
         String c = "\033[36m";
         String r = "\033[0m";
-        ui.println("  直接输入文本与 AI 聊天（默认由服务端智能分流：简单→general / 复杂→multi-agent）");
+        ui.println("  直接输入文本与 AI 聊天（默认由服务端智能分流：Agentic 路径 / Graph 编排路径）");
         ui.println("  " + c + "/new" + r + "         新建会话（后续对话使用新上下文，旧会话保留）");
         ui.println("  " + c + "/agent <id>" + r + "  切换到指定 Agent（agent 表主键，并同步当前会话的 agent_id）");
         ui.println("  " + c + "/agent off" + r + "   取消指定，恢复服务端自动分流");
         ui.println("  " + c + "/agent" + r + "       查看当前 Agent");
+        ui.println("  " + c + "/routing" + r + "       查看/设置执行路径：auto | agentic | graph");
         ui.println("  " + c + "/resume" + r + "       断点续跑：恢复当前会话最近一次编排任务（从中断处继续）");
         ui.println("  " + c + "/resume <goalId>" + r + "  断点续跑指定的 goal（goalId 见每回合末尾的会话信息）");
         ui.println("  " + c + "/provider" + r + "      查看模型-服务商映射（model_provider 表全量）");
@@ -234,9 +239,30 @@ public class ChatCli {
         }
     }
 
+    /** 处理 /routing 命令：查看或设置显式执行路径（auto/agentic/graph）。 */
+    private void handleRoutingCommand(String line) {
+        String arg = line.substring("/routing".length()).trim().toLowerCase(java.util.Locale.ROOT);
+        if (arg.isEmpty()) {
+            ui.println("当前执行路径: " + (routing == null ? "auto（服务端判定）" : routing));
+            return;
+        }
+        if ("auto".equals(arg)) {
+            this.routing = null;
+            ui.println("已恢复自动路径判定");
+            return;
+        }
+        if ("agentic".equals(arg) || "graph".equals(arg)) {
+            this.routing = arg;
+            ui.println("已固定执行路径: " + arg + "（/routing auto 恢复自动判定）");
+            return;
+        }
+        ui.println("routing 取值无效，用法: /routing auto | agentic | graph");
+    }
+
     /** 发送一条消息到主服务 /api/chat/stream（SSE 流式）。展示逻辑见 {@link #runTurn}。 */
     private void send(String message) {
-        runTurn((onToken, onProgress) -> api.chatStream(message, sessionId, agentId, onToken, onProgress));
+        runTurn((onToken, onProgress) ->
+                api.chatStream(message, sessionId, agentId, routing, onToken, onProgress));
     }
 
     /**

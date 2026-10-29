@@ -2,6 +2,13 @@
 
 > 日期：2026-08-26
 > 范围：HARNESS_TODO ②（主 Agent 前置判断 / 路由判断器）。仅实现「分流判断」这一薄层，不执行具体任务。
+>
+> **后续演进（2026-10）**：路由判定已升级为「任务形态 + 两段式判定 + 置信度策略」——
+> 规则短路优先（多工作流措辞 → Graph、短消息 → Agentic），灰区由 LLM 返回
+> `route/confidence/workstreams/deliverables/reason`，Graph 需 ≥2 工作流且置信度 ≥0.8；
+> 另增显式 `routing` 开关（API / CLI / Web）与运行时逃生舱（Agentic→Graph 升级、
+> Graph→Agentic 降级）。判定接口统一为 `RouteJudge.plan()`（返回携带置信度与工作流形态的
+> `RoutePlan`），决策经 `meta.route` / `ChatResponse.route` 透出。本文档保留为初版设计记录。
 
 ## 背景与目标
 

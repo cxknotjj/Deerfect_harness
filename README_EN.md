@@ -47,7 +47,7 @@
 
 | | Feature | Description |
 |---|---|---|
-| 🧠 | **Dual Execution Paths** | An upfront LLM judge selects the **Agentic** path (single agent, explicit ReAct loop) or the **Graph orchestration** path (Lead → parallel experts → aggregation); internal route enum stays `SIMPLE` / `COMPLEX` |
+| 🧠 | **Dual Execution Paths** | Routing is decided by **task shape**, not difficulty: rule shortcuts first (multi-workstream phrasing → Graph, very short messages → Agentic), then a lightweight LLM judge returns `route` / `confidence` / `workstreams`. Graph requires ≥2 independent workstreams and confidence ≥0.8; on the streaming path, runtime escape hatches escalate a stalled Agentic run (no output yet) to Graph and fall back to a single agent when orchestration fails. Explicit `routing` (auto / agentic / graph) is exposed via API, Web and CLI; internal route enum stays `SIMPLE` / `COMPLEX` |
 | 🕸️ | **Multi-Agent Orchestration** | Built-in `ParallelOrchestrationEngine` — "Lead decomposition → experts in parallel → aggregation"; subtasks are decomposed by difficulty (at most 4, no padding) |
 | 👨‍👩‍👧‍👦 | **Expert System** | Four expert roles — researcher / coder / analyst / writer — configured from the database; lead assigns each subtask to the right expert |
 | 📺 | **True Streaming** | Token-by-token SSE push with typewriter effect, plus real-time progress events for every orchestration stage (orchestration / decomposition / subtasks / aggregation) |
@@ -186,6 +186,7 @@ The CLI is a pure HTTP client (**listens on no port**) and talks to the main ser
 | Type any text | Chat with the current agent (general by default); multi-turn memory carries over |
 | `/new [name]` | 🆕 Create a session and switch to it (the old one is kept) |
 | `/agent <id>` | 🎭 Switch to an agent (primary key of the `agent` table); `/agent` shows current; `/agent off` restores smart routing |
+| `/routing` | 🧭 Show/set the execution path: `auto` \| `agentic` \| `graph` (sent as `routing` in the chat request) |
 | `/resume <goalId>` | 🔁 Resume an interrupted orchestration from its checkpoint (goalId appears in the session info at the end of each turn) |
 | `/help` / `/exit` | ❓ Help / 🚪 Exit |
 

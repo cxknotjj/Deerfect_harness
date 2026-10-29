@@ -117,6 +117,8 @@ async function streamChat(req: ChatRequest, handlers: StreamHandlers, signal?: A
     status: 'SUCCEEDED',
     error: null,
     sources: null,
+    // mock 无路由判定：以 Agentic 路径占位，与真实响应形状一致
+    route: { path: 'agentic', confidence: 1, workstreams: [], deliverables: [], reason: 'mock', source: 'RULE' },
   }
   handlers.onMeta?.(meta)
 }

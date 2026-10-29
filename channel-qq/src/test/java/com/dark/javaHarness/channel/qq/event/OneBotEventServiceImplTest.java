@@ -119,7 +119,8 @@ class OneBotEventServiceImplTest {
 
     private void stubChatSuccess(String reply) {
         when(chatService.chat(any()))
-                .thenReturn(ChatResponse.success("1", false, null, reply));
+                .thenReturn(ChatResponse.success("1", false, null, reply, null, null,
+                        java.util.Set.of(), null));
     }
 
     @Test
@@ -432,7 +433,8 @@ class OneBotEventServiceImplTest {
         when(bindingMapper.selectOne(any())).thenReturn(binding(34L, "qq:private:" + UID, 5L));
         when(chatService.chat(any())).thenAnswer(inv -> {
             Thread.sleep(2500);
-            return ChatResponse.success("1", false, null, "迟到的回复");
+            return ChatResponse.success("1", false, null, "迟到的回复", null, null,
+                    java.util.Set.of(), null);
         });
         long start = System.currentTimeMillis();
         service.handle(privateMsg(330L, "慢问题"));
@@ -445,7 +447,7 @@ class OneBotEventServiceImplTest {
         when(bindingMapper.selectOne(any())).thenReturn(binding(4L, "qq:private:" + UID, 5L));
         when(chatService.chat(any()))
                 .thenReturn(new ChatResponse("5", false, null, "FAILED", null, "boom", null, null,
-                        java.util.Set.of()));
+                        java.util.Set.of(), null));
         service.handle(privateMsg(40L, "触发失败"));
         verifyNoInteractions(apiClient);
     }

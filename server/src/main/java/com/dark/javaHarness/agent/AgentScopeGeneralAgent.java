@@ -295,6 +295,9 @@ public class AgentScopeGeneralAgent implements Agent {
         } else if (event instanceof ExceedMaxItersEvent) {
             BranchProgressListener.tryEmitSerialized(progress,
                     ProgressLine.encode("agentic", "达到最大迭代轮次，输出当前结果"));
+            // 内部控制信号（不对用户展示）：ReAct 未收敛，ChatService 据此决定是否升级 Graph 编排
+            BranchProgressListener.tryEmitSerialized(progress,
+                    ProgressLine.encode(ProgressLine.STAGE_AGENTIC_EXHAUSTED, "max-iters"));
         }
     }
 

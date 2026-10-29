@@ -15,6 +15,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import SessionList from './components/SessionList.vue'
 import ChatWindow from './components/ChatWindow.vue'
 import AgentSelect from './components/AgentSelect.vue'
+import RoutingSelect from './components/RoutingSelect.vue'
+import type { RoutingMode } from './api/types'
 import TraceView from './components/TraceView.vue'
 import LoginView from './components/LoginView.vue'
 import { api, setUnauthorizedHandler } from './api'
@@ -35,6 +37,9 @@ const {
   remove: removeSession,
 } = useSessions((msg) => showTip(msg, true))
 
+/** 显式执行路径(auto=服务端判定;agentic/graph 随每轮请求下发覆盖) */
+const selectedRouting = ref<RoutingMode>('auto')
+
 const {
   messages,
   streaming,
@@ -49,6 +54,7 @@ const {
   setSessionId: (id) => {
     currentSessionId.value = id
   },
+  getRouting: () => (selectedRouting.value === 'auto' ? undefined : selectedRouting.value),
   onNewSession: () => {
     void loadFirst()
   },
@@ -422,6 +428,7 @@ function downloadSessionLog(): void {
         @placeholder="showTip('功能开发中')"
       >
         <template #controls>
+          <RoutingSelect v-model="selectedRouting" />
           <AgentSelect
             :agents="agents"
             :model-value="selectedAgentId"

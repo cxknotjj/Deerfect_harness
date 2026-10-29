@@ -97,7 +97,15 @@ public class ChatApiClient {
      */
     public ChatResponse chatStream(String message, String sessionId, Long agentId,
                                    Consumer<String> onToken, Consumer<String> onProgress) throws IOException {
-        String json = mapper.writeValueAsString(new ChatRequest(message, sessionId, agentId));
+        return chatStream(message, sessionId, agentId, null, onToken, onProgress);
+    }
+
+    /**
+     * 流式聊天（显式路径）：routing 可空（null=auto），可选 agentic / graph。
+     */
+    public ChatResponse chatStream(String message, String sessionId, Long agentId, String routing,
+                                   Consumer<String> onToken, Consumer<String> onProgress) throws IOException {
+        String json = mapper.writeValueAsString(new ChatRequest(message, sessionId, agentId, routing));
         Request request = new Request.Builder()
                 .url(baseUrl + "/api/chat/stream")
                 .post(RequestBody.create(json, JSON))

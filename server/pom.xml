@@ -75,6 +75,14 @@
                     <groupId>com.github.victools</groupId>
                     <artifactId>jsonschema-module-jackson</artifactId>
                 </exclusion>
+                <!-- AgentScope 自带 networknt json-schema-validator 2.0.0（仅 Jackson 2 API），
+                     会覆盖 MCP SDK 2.1.0 需要的 3.0.6（Jackson 3 API），启动时 mcpSyncServer
+                     调用 Schema.validate(tools.jackson.databind.JsonNode) 报 NoSuchMethodError。
+                     3.0.6 保留 Jackson 2 方法，AgentScope 侧调用仍可解析。 -->
+                <exclusion>
+                    <groupId>com.networknt</groupId>
+                    <artifactId>json-schema-validator</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
         <dependency>
@@ -93,6 +101,10 @@
                 <exclusion>
                     <groupId>com.github.victools</groupId>
                     <artifactId>jsonschema-module-jackson</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.networknt</groupId>
+                    <artifactId>json-schema-validator</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>

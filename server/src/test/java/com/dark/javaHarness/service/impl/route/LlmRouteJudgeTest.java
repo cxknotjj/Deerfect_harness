@@ -10,7 +10,7 @@ import static org.mockito.Mockito.when;
 import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.AgentConfig;
-import com.dark.javaHarness.domain.RouteDecision;
+import com.dark.javaHarness.domain.RoutePlan;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import java.util.List;
 import java.util.Optional;
@@ -68,33 +68,30 @@ class LlmRouteJudgeTest {
         judge = new LlmRouteJudge(clientRegistry, null, null, agentConfigProvider);
     }
 
+    /** 灰区消息（>12 字且不含规则强信号），确保走到 LLM 判定 */
+    private static final String GREY_MESSAGE = "帮我看看这个问题的处理思路";
+
     @Test
-    void judge_whenLlmReturnsComplex_shouldReturnComplex() {
-        stubContent("{\"route\":\"complex\"}");
-        assertEquals(RouteDecision.COMPLEX, judge.judge("调研竞品并输出一份报告", null, null));
+    void plan_whenLlmReturnsGraph_shouldKeepGraph() {
+        stubContent("{\"route\":\"graph\",\"confidence\":0.9,\"workstreams\":[\"竞品A\",\"竞品B\"]}");
+        assertEquals("graph", judge.plan(GREY_MESSAGE, null, null).path());
     }
 
     @Test
-    void judge_whenLlmReturnsSimple_shouldReturnSimple() {
-        stubContent("{\"route\":\"simple\"}");
-        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null, null));
+    void plan_whenLlmReturnsAgentic_shouldReturnAgentic() {
+        stubContent("{\"route\":\"agentic\",\"confidence\":0.9}");
+        assertEquals("agentic", judge.plan(GREY_MESSAGE, null, null).path());
     }
 
     @Test
-    void judge_whenLlmReturnsInvalidJson_shouldFallbackSimple() {
-        stubContent("这不是合法的 JSON");
-        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null, null));
-    }
-
-    @Test
-    void judge_whenLlmReturnsBlank_shouldFallbackSimple() {
+    void plan_whenLlmReturnsBlank_shouldFallbackAgentic() {
         stubContent("");
-        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null, null));
+        assertEquals("agentic", judge.plan(GREY_MESSAGE, null, null).path());
     }
 
-    /** 调用异常兜底 SIMPLE，且失败即丢弃轻量客户端缓存（连接可能已成黑洞，重试需换新连接） */
+    /** 调用异常兜底 Agentic，且失败即丢弃轻量客户端缓存（连接可能已成黑洞，重试需换新连接） */
     @Test
-    void judge_whenCallThrows_shouldFallbackSimpleAndDropPool() {
+    void plan_whenCallThrows_shouldFallbackAgenticAndDropPool() {
         when(clientRegistry.getLightweightByModel(anyString(), any())).thenReturn(chatClient);
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
@@ -104,33 +101,33 @@ class LlmRouteJudgeTest {
         when(requestSpec.call()).thenThrow(new IllegalStateException("llm down"));
         judge = new LlmRouteJudge(clientRegistry, null, null, agentConfigProvider);
 
-        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null, null), "调用异常应兜底 SIMPLE 而不抛出");
+        assertEquals("agentic", judge.plan(GREY_MESSAGE, null, null).path(), "调用异常应兜底 Agentic 而不抛出");
         verify(clientRegistry).invalidateLightweight(ROUTE_MODEL);
     }
 
     /** 判定读超时来自配置（app.chat.timeouts.judge-read-timeout-seconds），透传给轻量客户端取用 */
     @Test
-    void judge_passesConfiguredJudgeTimeout() {
-        stubContent("{\"route\":\"simple\"}");
+    void plan_passesConfiguredJudgeTimeout() {
+        stubContent("{\"route\":\"agentic\"}");
         ChatTimeoutProperties props = new ChatTimeoutProperties();
         props.setJudgeReadTimeoutSeconds(7);
         judge = new LlmRouteJudge(clientRegistry, null, props, agentConfigProvider);
 
-        judge.judge("你好", null, null);
+        judge.plan(GREY_MESSAGE, null, null);
 
         verify(clientRegistry).getLightweightByModel(ROUTE_MODEL, 7);
     }
 
     @Test
-    void judge_whenMessageBlank_shouldReturnSimpleWithoutCall() {
+    void plan_whenMessageBlank_shouldReturnAgenticWithoutCall() {
         judge = new LlmRouteJudge(clientRegistry, null, null, agentConfigProvider);
-        assertEquals(RouteDecision.SIMPLE, judge.judge("  ", null, null));
-        assertEquals(RouteDecision.SIMPLE, judge.judge(null, null, null));
+        assertEquals("agentic", judge.plan("  ", null, null).path());
+        assertEquals("agentic", judge.plan(null, null, null).path());
     }
 
     /** 表驱动：agent 表 route-judge 行命中时，用库中 model/prompt 判定（改库即生效） */
     @Test
-    void judge_whenAgentRowPresent_shouldUseConfiguredModelAndPrompt() {
+    void plan_whenAgentRowPresent_shouldUseConfiguredModelAndPrompt() {
         when(agentConfigProvider.getAgentConfig("route-judge")).thenReturn(Optional.of(
                 new AgentConfig(1L, "test-route-model", "表驱动判定提示词", null)));
         when(clientRegistry.getLightweightByModel(eq("test-route-model"), any())).thenReturn(chatClient);
@@ -141,31 +138,114 @@ class LlmRouteJudgeTest {
         when(requestSpec.advisors(any(Advisor[].class))).thenReturn(requestSpec);
         when(requestSpec.call()).thenReturn(responseSpec);
         when(responseSpec.chatResponse()).thenReturn(new ChatResponse(
-                List.of(new Generation(new AssistantMessage("{\"route\":\"simple\"}")))));
+                List.of(new Generation(new AssistantMessage("{\"route\":\"agentic\"}")))));
         judge = new LlmRouteJudge(clientRegistry, null, null, agentConfigProvider);
 
-        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null, null));
+        assertEquals("agentic", judge.plan(GREY_MESSAGE, null, null).path());
 
         verify(clientRegistry).getLightweightByModel("test-route-model", null);
-        verify(requestSpec).system("表驱动判定提示词");
+        // 表驱动 prompt 原文作为前缀下发，输出契约随后追加（保证富 JSON 形状）
+        verify(requestSpec).system((String) org.mockito.ArgumentMatchers.argThat(
+                (String s) -> s.startsWith("表驱动判定提示词") && s.contains("\"workstreams\"")));
     }
 
-    /** agent 表无 route-judge 行：回退内置常量（行为与表驱动化之前一致） */
+    /** agent 表无 route-judge 行：回退内置常量 */
     @Test
-    void judge_whenAgentRowMissing_shouldFallbackToConstants() {
-        stubContent("{\"route\":\"simple\"}");
+    void plan_whenAgentRowMissing_shouldFallbackToConstants() {
+        stubContent("{\"route\":\"agentic\"}");
 
-        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null, null));
+        assertEquals("agentic", judge.plan(GREY_MESSAGE, null, null).path());
         verify(clientRegistry).getLightweightByModel(ROUTE_MODEL, null);
     }
 
-    /** agent 表查询异常：回退内置常量，判定不阻塞（兜底 SIMPLE 语义不受配置读取影响） */
+    /** agent 表查询异常：回退内置常量，判定不阻塞（兜底语义不受配置读取影响） */
     @Test
-    void judge_whenConfigReadThrows_shouldFallbackToConstants() {
+    void plan_whenConfigReadThrows_shouldFallbackToConstants() {
         when(agentConfigProvider.getAgentConfig("route-judge")).thenThrow(new IllegalStateException("db down"));
-        stubContent("{\"route\":\"simple\"}");
+        stubContent("{\"route\":\"agentic\"}");
 
-        assertEquals(RouteDecision.SIMPLE, judge.judge("你好", null, null));
+        assertEquals("agentic", judge.plan(GREY_MESSAGE, null, null).path());
         verify(clientRegistry).getLightweightByModel(ROUTE_MODEL, null);
+    }
+
+    /** 规则短路：短消息（≤12 字符）直接 Agentic，不付判定调用 */
+    @Test
+    void plan_whenMessageShort_shouldShortCircuitToAgentic() {
+        judge = new LlmRouteJudge(clientRegistry, null, null, agentConfigProvider);
+
+        RoutePlan plan = judge.plan("你好", null, null);
+
+        assertEquals("agentic", plan.path());
+        assertEquals(RoutePlan.Source.RULE, plan.source());
+        assertEquals(0.95, plan.confidence());
+        verify(clientRegistry, org.mockito.Mockito.never()).getLightweightByModel(anyString(), any());
+    }
+
+    /** 规则短路：强多工作流措辞直接 Graph，不付判定调用 */
+    @Test
+    void plan_whenMultiWorkstreamPhrase_shouldShortCircuitToGraph() {
+        judge = new LlmRouteJudge(clientRegistry, null, null, agentConfigProvider);
+
+        RoutePlan plan = judge.plan("帮我同时调研三家竞品的定价策略与用户口碑", null, null);
+
+        assertEquals("graph", plan.path());
+        assertEquals(RoutePlan.Source.RULE, plan.source());
+        assertEquals(0.9, plan.confidence());
+        verify(clientRegistry, org.mockito.Mockito.never()).getLightweightByModel(anyString(), any());
+    }
+
+    /** LLM 判灰区：Graph + 2 个工作流 + 高置信度 → 保持 Graph，字段完整透出 */
+    @Test
+    void plan_whenLlmGraphWithEnoughWorkstreamsAndConfidence_shouldKeepGraph() {
+        stubContent("{\"route\":\"graph\",\"confidence\":0.91,"
+                + "\"workstreams\":[\"竞品定价\",\"用户口碑\"],\"deliverables\":[\"对比报告\"],"
+                + "\"reason\":\"两条独立调研线\"}");
+
+        RoutePlan plan = judge.plan("先梳理一下这几家竞品的情况再给我结论", null, null);
+
+        assertEquals("graph", plan.path());
+        assertEquals(RoutePlan.Source.LLM, plan.source());
+        assertEquals(2, plan.workstreams().size());
+        assertEquals(List.of("对比报告"), plan.deliverables());
+        assertEquals("两条独立调研线", plan.reason());
+        assertEquals(0.91, plan.confidence());
+    }
+
+    /** 置信度策略：Graph 但置信度低于 0.8 → 收敛为 Agentic（编排成本让位于先直答） */
+    @Test
+    void plan_whenGraphConfidenceBelowThreshold_shouldCollapseToAgentic() {
+        stubContent("{\"route\":\"graph\",\"confidence\":0.55,"
+                + "\"workstreams\":[\"A\",\"B\"],\"reason\":\"maybe parallel\"}");
+
+        RoutePlan plan = judge.plan("先梳理一下这几家竞品的情况再给我结论", null, null);
+
+        assertEquals("agentic", plan.path());
+        assertEquals(RoutePlan.Source.FALLBACK, plan.source());
+        assertEquals(0.55, plan.confidence());
+    }
+
+    /** 工作流形态：Graph 但可独立工作流不足 2 个 → 收敛为 Agentic（单工作流无并行收益） */
+    @Test
+    void plan_whenGraphHasSingleWorkstream_shouldCollapseToAgentic() {
+        stubContent("{\"route\":\"graph\",\"confidence\":0.95,"
+                + "\"workstreams\":[\"唯一工作流\"],\"reason\":\"single\"}");
+
+        RoutePlan plan = judge.plan("先梳理一下这几家竞品的情况再给我结论", null, null);
+
+        assertEquals("agentic", plan.path());
+        assertEquals(RoutePlan.Source.FALLBACK, plan.source());
+        assertEquals("llm: workstreams<2, collapse to agentic", plan.reason());
+    }
+
+    /** 非法 JSON 在 plan 路径同样兜底 Agentic，不阻塞请求 */
+    @Test
+    void plan_whenLlmReturnsInvalidJson_shouldFallbackAgentic() {
+        stubContent("not json at all");
+
+        RoutePlan plan = judge.plan("先梳理一下这几家竞品的情况再给我结论", null, null);
+
+        assertEquals("agentic", plan.path());
+        assertEquals(RoutePlan.Source.FALLBACK, plan.source());
+        assertEquals(0.0, plan.confidence());
     }
 }

@@ -356,10 +356,15 @@ AGENT_START → MODEL_CALL_START → TOOL_CALL_START → TOOL_CALL_DELTA → TOO
 - 第二个冲突：AgentScope 自带 `victools:jsonschema-generator/module-jackson:4.38.0` 会将项目
   Spring AI 需要的 **5.0.0** 降级，导致 `ToolDefinitions` 缺 `JacksonSchemaModule`、注解工具 Schema 生成失败；
   已在 `agentscope-core` / 模型扩展上排除这两个 artifact，最终 classpath 为 5.0.0。
+- 第三个冲突（MySQL 可用后暴露）：AgentScope 自带 `com.networknt:json-schema-validator:2.0.0`（仅 Jackson 2 API）
+  会覆盖 MCP SDK 2.1.0 需要的 **3.0.6**（Jackson 3 API），`mcpSyncServer` 初始化时
+  `Schema.validate(tools.jackson.databind.JsonNode)` 报 `NoSuchMethodError`；已在两个 AgentScope
+  artifact 上排除 `json-schema-validator`，最终使用 3.0.6（其保留 Jackson 2 方法，AgentScope
+  `ToolValidator` 的 `SchemaRegistry.getSchema` / `Schema.validate(String, InputFormat)` 仍可解析）。
 - 最终依赖树：`agentscope-core:2.0.4`、`agentscope-extensions-model-openai:2.0.4`、
-  `io.modelcontextprotocol.sdk:mcp:2.1.0`、`com.github.victools:*:5.0.0`。
+  `io.modelcontextprotocol.sdk:mcp:2.1.0`、`com.github.victools:*:5.0.0`、`com.networknt:json-schema-validator:3.0.6`。
 - 测试：`AgentScopeReActPoC` 2 例 + `AgentScopeGeneralAgentTest` 3 例（真实模型/回退/历史+工具桥接）通过；
-  server 全量 686 例通过（排除需 MySQL 的 `JavaHarnessApplicationTests`）。
+  MySQL 可用时 server 全量 697 例通过（含 `JavaHarnessApplicationTests` 上下文加载）。
 
 **仍未验证（生产观察项）**
 

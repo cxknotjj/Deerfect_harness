@@ -153,18 +153,22 @@ IDEA 中直接点测试方法旁的绿色按钮即可；报告输出在 `target/
 
 ### 1. `LlmRouteJudgeTest` —— 主 Agent 前置判断
 
-验证「路径判定」这个核心薄环：LLM 只回一行 JSON，解析结果决定走 Agentic 还是 Graph 编排（内部枚举 `SIMPLE` / `COMPLEX`）。
+验证「路径判定」这个核心薄环：规则短路 → 灰区 LLM 返回富 JSON（`route/confidence/workstreams/deliverables/reason`）→ 置信度策略收敛，最终决定走 Agentic 还是 Graph 编排（内部枚举 `SIMPLE` / `COMPLEX`）。
 
 | 用例 | 验证点 |
 | --- | --- |
-| `judge_whenLlmReturnsComplex_shouldReturnComplex` | 返回 `{"route":"complex"}` → 判定 `COMPLEX`（走 Graph 编排路径） |
-| `judge_whenLlmReturnsSimple_shouldReturnSimple` | 返回 simple → 判定 `SIMPLE`（走 Agentic 路径） |
-| `judge_whenLlmReturnsInvalidJson_shouldFallbackSimple` | 非 JSON 输出 → 兜底 Agentic（`SIMPLE`） |
-| `judge_whenLlmReturnsBlank_shouldFallbackSimple` | 返回为空 → 兜底 Agentic（`SIMPLE`） |
-| `judge_whenCallThrows_shouldFallbackSimple` | LLM 调用抛异常 → 兜底 Agentic（`SIMPLE`），不向上传播 |
-| `judge_whenMessageBlank_shouldReturnSimpleWithoutCall` | 消息为空 → 直接 Agentic（`SIMPLE`），**不发起 LLM 调用** |
+| `plan_whenLlmReturnsGraph_shouldKeepGraph` | 返回 `{"route":"graph",...}` → 判定 Graph 路径 |
+| `plan_whenLlmReturnsAgentic_shouldReturnAgentic` | 返回 `agentic` → 判定 Agentic 路径 |
+| `plan_whenMessageShort_shouldShortCircuitToAgentic` | ≤12 字短消息 → 规则短路 Agentic，**不发起 LLM 调用** |
+| `plan_whenMultiWorkstreamPhrase_shouldShortCircuitToGraph` | 多工作流措辞 → 规则短路 Graph，**不发起 LLM 调用** |
+| `plan_whenLlmGraphWithEnoughWorkstreamsAndConfidence_shouldKeepGraph` | Graph + ≥2 工作流 + 置信度达标 → 保持 Graph，字段完整透出 |
+| `plan_whenGraphConfidenceBelowThreshold_shouldCollapseToAgentic` | Graph 但置信度 <0.8 → 收敛 Agentic（FALLBACK） |
+| `plan_whenGraphHasSingleWorkstream_shouldCollapseToAgentic` | Graph 但工作流 <2 → 收敛 Agentic（FALLBACK） |
+| `plan_whenLlmReturnsInvalidJson_shouldFallbackAgentic` | 非 JSON 输出 → 兜底 Agentic |
+| `plan_whenCallThrows_shouldFallbackAgenticAndDropPool` | LLM 调用抛异常 → 兜底 Agentic，丢弃黑洞连接池 |
+| `plan_whenMessageBlank_shouldReturnAgenticWithoutCall` | 消息为空 → 直接 Agentic，**不发起 LLM 调用** |
 
-**核心设计**：任何失败都兜底 Agentic（`SIMPLE`）——「宁可轻量，不阻塞请求」。
+**核心设计**：任何失败都兜底 Agentic——「宁可轻量，不阻塞请求」；Graph 只在「多工作流 + 高置信度」时启用。
 
 ### 2. `MultiAgentGraphAgentTest` —— Graph 编排路径
 
@@ -218,6 +222,17 @@ mock `ChatClientRegistry` / `ChatClient` 固定 content（lead 固定返回两�
 | 用例 | 验证点 |
 | --- | --- |
 | `streamReactive_shouldMapProgressRowToProgressEvent` | 进度行 → `event: progress` + `data: {"stage":..,"detail":..}`，且**不计入**会话摘要 |
+
+**路由策略与运行时逃生舱：**
+
+| 用例 | 验证点 |
+| --- | --- |
+| `streamReactive_routingGraphOverride_shouldOrchestrateWithoutJudge` | 显式 `routing=graph` → 不询问判定器直接编排，meta 透出 `path=graph` / `source=OVERRIDE` |
+| `streamReactive_routingAgenticOverride_shouldDirectAnswer` | 显式 `routing=agentic` → general 直答，meta 透出 `source=OVERRIDE` |
+| `streamReactive_boundAgentWithGraphOverride_shouldStaySingleAgent` | 绑定专属 Agent 忽略 graph，保持单 Agent（meta `source=BOUND_AGENT`） |
+| `streamReactive_agenticExhaustedWithoutOutput_shouldEscalateToGraph` | Agentic 迭代耗尽且无输出 → 升级 Graph，内部控制信号不下发，meta 更新为 `source=ESCALATED` |
+| `streamReactive_agenticExhaustedWithOutput_shouldNotEscalate` | 已有输出不升级（避免重复回答） |
+| `streamReactive_agenticFailsWithoutOutput_shouldEscalateToGraph` | Agentic 失败且无输出 → 升级 Graph 兜底，不向客户端抛错 |
 
 ### 5. `AgentServiceImplTest` —— Agent 路由与 Goal 生命周期
 
