@@ -87,7 +87,8 @@ public class LlmRouteJudge implements RouteJudge {
         this.recorder = recorder;
         this.timeouts = timeouts;
         this.agentConfigProvider = agentConfigProvider;
-        this.retry = new com.dark.javaHarness.agent.LlmRetry();
+        // 判定失败即兜底 Agentic，重试只会把首字延迟成倍放大（每次尝试同样受 judge 读超时约束）
+        this.retry = new com.dark.javaHarness.agent.LlmRetry(1, 500);
     }
 
     /** 本次判定的生效配置：模型 key + 判定提示词（表驱动，回退默认见各常量注释） */

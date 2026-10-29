@@ -58,8 +58,9 @@ app:
       # 增量）远小于此值。0 = 关闭（首帧回退 stream-idle 口径）；未配置回退 20
       first-frame-timeout-seconds: 20
       # 路由判定读超时（秒）：route-judge 是只发 system+user 的轻量内部调用，
-      # 失败即兜底 SIMPLE，不共用 300s 长回答读超时；未配置回退 10
-      judge-read-timeout-seconds: 10
+      # 失败即兜底 Agentic，不共用 300s 长回答读超时；judge 只尝试一次（不重试），
+      # 该值即首字延迟上限的主要构成；未配置回退 10
+      judge-read-timeout-seconds: 3
     # COMPLEX 编排失败降级：编排自身失败（非客户端断开）时降级为会话绑定 Agent 单模型重答一次
     # （一层兜底不递归；重答失败保留「编排失败 + 重答失败」两段错误信息）
     complex-fallback:

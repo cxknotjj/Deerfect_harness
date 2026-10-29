@@ -391,6 +391,18 @@ public final class AgentChatCaller {
     }
 
     /**
+     * 重试告知：向流内插一条进度行（前端进度轨迹可见），避免重试期间长时间无输出被误认为卡死。
+     * 无 emitter（纯阻塞收集路径）时静默；detail 不含底层错误原文，网络细节只留在服务端日志。
+     */
+    private static void emitRetryNotice(Consumer<String> toolEmitter, int failedAttempt, int maxAttempts) {
+        if (toolEmitter == null) {
+            return;
+        }
+        toolEmitter.accept(ProgressLine.encode(
+                "重试", "模型调用失败，正在重试（第 " + (failedAttempt + 1) + "/" + maxAttempts + " 次）"));
+    }
+
+    /**
      * 流式 ChatClient 调用：请求组装与 {@link #call} 完全一致，但走 stream 通道——
      * 每个 token 到达即回调 {@code onToken}，方法阻塞至流结束并返回完整内容。
      *
@@ -520,6 +532,8 @@ public final class AgentChatCaller {
                 }
                 boolean canRetry = retry.shouldRetry(e, attempt, collected.length() > 0);
                 if (canRetry) {
+                    // 前端告知：重试期间流内无输出，插一条进度行避免被误认为卡死
+                    emitRetryNotice(assembly.toolEmitter(), attempt, retry.maxAttempts());
                     // 首次失败带全量堆栈（排错现场），后续重试紧凑——口径与 LlmRetry 一致
                     if (attempt == 1) {
                         log.warn("[caller] {} 流式调用失败，将重试（attempt {}/{}）：{}", forAgent,

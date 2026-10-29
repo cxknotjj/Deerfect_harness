@@ -168,7 +168,13 @@ class GeneralAssistantAgentTest {
                 .collectList()
                 .block(Duration.ofSeconds(5));
 
-        assertEquals(List.of("重试", "成功"), out, "可重试错误应一次请求内自愈，输出为重试轮内容");
+        // 重试会先下发一条「重试」进度行告知前端，内容行需排除进度行后断言
+        List<String> content = out.stream().filter(row -> !ProgressLine.isProgress(row)).toList();
+        assertEquals(List.of("重试", "成功"), content, "可重试错误应一次请求内自愈，输出为重试轮内容");
+        assertTrue(out.stream().anyMatch(row -> {
+            ProgressLine.StageRow p = ProgressLine.decode(row);
+            return p != null && "重试".equals(p.stage());
+        }), "触发重试时应向前端下发重试进度行");
         verify(requestSpec, times(2)).user(anyString());
     }
 

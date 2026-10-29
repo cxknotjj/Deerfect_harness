@@ -240,6 +240,10 @@ public class GeneralAssistantAgent implements Agent {
                         },
                         () -> collected.length() > 0,
                         (attempt, e) -> {
+                            // 前端告知：重试退避期间流内无输出，插一条进度行避免被误认为卡死
+                            BranchProgressListener.tryEmitSerialized(toolEvents, ProgressLine.encode(
+                                    "重试", "模型调用失败，正在重试（第 " + (attempt + 1) + "/"
+                                            + streamRetry.maxAttempts() + " 次）"));
                             // 被重试丢弃的失败尝试：按尝试粒度落观测行（ctx.error 与阻塞路径同构）
                             ctx.error(attemptStartRef.get(), asException(e), attempt,
                                     streamRetry.maxAttempts());
