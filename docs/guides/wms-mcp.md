@@ -47,7 +47,7 @@ java -jar wms-mcp-adapter/target/wms-mcp-adapter-<version>.jar
 > [!NOTE]
 > 当前 harness 版本的 mcp-config.json 解析仅识别 `url`/`command`/`args`/`enabled` 字段（见 `server/src/main/java/com/dark/javaHarness/tool/McpConfigParser.java`），`headers` 字段的支持以 harness 版本为准——未支持时 token 不会随请求携带，adapter 将拒绝调用（见常见问题）。
 
-**2. agent 表 wms 行**：由 Flyway 迁移 `V25__add_wms_agent.sql` 自动落库（`INSERT IGNORE` 幂等；is_internal=0，web AgentSelect 可见可绑定；tools 列绑定下表 10 个工具名，改库免重启）。前提是 `model_provider` 表已有 `qwen3.8-27b` 行（V1 种子数据自带）；缺该行时迁移不插行，补齐后重跑迁移即可。
+**2. agent 表 wms 行**：由 Flyway 基线 `V1__init_schema.sql` 的种子数据自带（原 V25 迁移并入；is_internal=0，web AgentSelect 可见可绑定；tools 列绑定下表 10 个工具名，改库免重启）。前提是 `model_provider` 表已有 `qwen3.8-27b` 行（同属 V1 种子数据）。
 
 **3. 使用**：QQ / web / CLI 任一渠道选择「仓储专员（wms）」或由编排指派后，即可自然语言查询；每次工具调用落库 `tool_call_log`（含来源 server=wms）。
 

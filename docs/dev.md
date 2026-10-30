@@ -60,7 +60,11 @@ mvn -s .mvn/settings.xml -pl cli -Pcli compile exec:exec
 Test-NetConnection 127.0.0.1 -Port 3306
 ```
 
-- Flyway 随 server 启动自动迁移，当前最高版本为 `V43`；改表只新增迁移文件，不改已发布的。
+- Flyway 随 server 启动自动迁移，当前基线为 `V1`。
+- **迁移压平（2026-10-30）**：原 V1~V43（42 个文件）已合并为单个 `V1__init_schema.sql`
+  （最终 schema + 迁移种子数据），之后结构变更从 V2 重新编号。全新空库直接执行 V1。
+- **存量库升级**：先 `DROP TABLE flyway_schema_history;`，再启动应用——`baseline-on-migrate`
+  会以 V1 为基线跳过 V1，数据不动，但旧版历史记录不复存在（git 里仍有旧迁移可查）。
 
 ## 5. 前端（`web/`）
 
