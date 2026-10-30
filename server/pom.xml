@@ -31,6 +31,24 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
+        <!-- 运行基线观测：Actuator 暴露健康检查与指标端点，Prometheus registry 提供抓取格式。
+             手写指标端点需自行设计直方图分桶与文本序列化，Micrometer 是事实标准且只多两个依赖 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+        <!-- MDC/ThreadLocal 跨 Reactor 边界传播：SSE 链路的判定/生成都在 boundedElastic 上执行，
+             仅靠 Filter 设置的 traceId 到不了异步线程；由 ContextPropagationConfig 注册
+             MDC 访问器并开启自动传播（Boot 默认 LIMITED 模式不开启） -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>context-propagation</artifactId>
+        </dependency>
+
         <!--
  Spring AI：OpenAI 及其他兼容接口（DeepSeek 等）-->
         <dependency>

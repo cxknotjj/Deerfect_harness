@@ -10,6 +10,7 @@ import com.dark.javaHarness.state.OrchestrationCheckpoint;
 import com.dark.javaHarness.state.OrchestrationStage;
 import com.dark.javaHarness.state.persistence.OrchestrationCheckpointStore;
 import com.dark.javaHarness.domain.Goal;
+import com.dark.javaHarness.observability.HarnessMetrics;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -193,6 +194,7 @@ public final class ParallelOrchestrationEngine implements OrchestrationEngine {
                 throw e;
             }
             log.warn("[multi-agent][aggregate] 聚合失败，降级为子任务结果汇总：{}", safe(e));
+            HarnessMetrics.graphFallback("digest");
             if (channels != null) {
                 emit(channels.progress, ProgressLine.encode("聚合", "聚合失败，降级为子任务结果汇总"));
                 emit(channels.tokens, digest);

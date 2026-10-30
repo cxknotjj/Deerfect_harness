@@ -13,6 +13,7 @@ import com.dark.javaHarness.enums.SseProtocol;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.domain.entity.SessionEntity;
 import com.dark.javaHarness.exception.ResumeConflictException;
+import com.dark.javaHarness.observability.HarnessMetrics;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.ChatService;
 import com.dark.javaHarness.service.GoalService;
@@ -155,6 +156,7 @@ public class ChatServiceImpl implements ChatService {
                                                  String sessionId, boolean newSession, long userSentAt,
                                                  String turnId) {
         log.warn("[route] 编排失败（goal={}），降级单模型重答：{}", orchestration.id(), orchestration.summary());
+        HarnessMetrics.graphFallback("to_agentic");
         String fallbackAgent = sessionAgentName(sessionId);
         RouteInfo fallbackRoute = RoutePlan.agentic(1.0, "graph path failed; fallback to single agent",
                 RoutePlan.Source.FALLBACK).toInfo();
@@ -322,6 +324,7 @@ public class ChatServiceImpl implements ChatService {
                                              String turnId, String traceId) {
         return orchestration.onErrorResume(e -> {
             log.warn("[route] 编排失败，降级单模型重答：{}", safeMessage(e));
+            HarnessMetrics.graphFallback("to_agentic");
             return Flux.concat(
                     Flux.just(ProgressLine.encode("编排", "失败，降级为单模型重答")),
                     // 降级重答仍属同一轮同一执行链：turnId/traceId 均沿用入口生成值（轨迹同树）
@@ -434,6 +437,8 @@ public class ChatServiceImpl implements ChatService {
                 : ragPrefetcher.submit(agentName, sessionId, message, KnowledgeRetriever.SOURCE_ENTRY_PREFETCH);
         try {
             RoutePlan plan = forcedPlan != null ? forcedPlan : decidePlan(message, sessionId, turnId, routing);
+            // 路径分布是 Graph 降级率的分母（fallbacks / graph decisions），与判定同点记账
+            HarnessMetrics.routeDecision(plan.graph());
             String resolvedAgent = plan.graph() ? AgentConstants.MULTI_AGENT : sessionAgentName(sessionId);
             if (ragPrefetcher != null) { // 知识库禁用时预取器缺位，判定完成即返回
                 ragPrefetcher.await(prefetch);

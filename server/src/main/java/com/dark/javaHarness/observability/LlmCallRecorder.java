@@ -43,6 +43,9 @@ public class LlmCallRecorder {
 
     /** 异步落库一条 LLM 调用记录；立即返回，内部异常仅 warn */
     public void record(LlmCallLog log1) {
+        // 台账是全部 LLM 调用的唯一汇合点（Agent 与 route-judge 都经此处）：指标在此记账，
+        // 错误率/P95/token 与落库同一口径，不再另设埋点
+        HarnessMetrics.llmCall(log1);
         Mono.fromRunnable(() -> doInsert(log1))
                 .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(v -> { },

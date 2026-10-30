@@ -28,7 +28,29 @@ spring:
 server:
   port: 8080
 
+# 运行基线观测（Actuator + Micrometer）：指标从 /actuator/prometheus 抓取，
+# 健康检查 /actuator/health（probes 供容器编排区分存活/就绪）。
+# 指标清单与 PromQL 见 docs/dev.md「运行观测」；不暴露其他端点（env/heapdump 等含敏感信息）
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
 logging:
+  # 结构化 JSON 日志（logstash 编码）：采集端按字段检索，不再用正则解析文本；
+  # MDC 中的 traceId（TraceIdFilter 写入）随每条日志自动输出。本地想读文本日志时
+  # 启动加 --logging.structured.format.console=（留空即恢复默认 pattern）
+  structured:
+    format:
+      console: logstash
   level:
     root: info
     # 流式链路上 6 个聚合器(ChatClient 观测层/4 个 advisor 层/模型层)对同一次失败

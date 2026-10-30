@@ -1,6 +1,7 @@
 package com.dark.javaHarness.config;
 
 import com.dark.javaHarness.exception.ConcurrentRequestException;
+import com.dark.javaHarness.observability.HarnessMetrics;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -24,23 +25,27 @@ public class StreamConnectionLimiter {
 
     public StreamConnectionLimiter(@Value("${app.chat.max-stream-connections:50}") int maxConnections) {
         this.maxConnections = maxConnections;
+        // 活跃连接数是运行基线指标（harness.sse.active）：gauge 绑定唯一的计数源
+        HarnessMetrics.bindSseActive(this::activeCount);
     }
 
     /**
      * 尝试占有一个流式连接名额：上限内计数放行；超限回退计数并抛出
      * {@link ConcurrentRequestException}（message 含当前活跃数与上限）。
-     * {@code maxConnections <= 0} 时不限制，直通返回。
+     * {@code maxConnections <= 0} 时不受限，但仍计数（指标口径需要真实活跃数）。
      */
     public void tryAcquire() {
-        if (maxConnections <= 0) {
-            return;
-        }
         int current = active.incrementAndGet();
-        if (current > maxConnections) {
+        if (maxConnections > 0 && current > maxConnections) {
             active.decrementAndGet();
             throw new ConcurrentRequestException("当前流式连接数已达上限（活跃 " + (current - 1)
                     + "，上限 " + maxConnections + "），请稍后重试");
         }
+    }
+
+    /** 当前活跃连接数（指标 gauge 的唯一读取入口） */
+    public int activeCount() {
+        return active.get();
     }
 
     /** 释放一个流式连接名额（下限保护：计数不低于 0，多释放无副作用） */
