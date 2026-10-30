@@ -12,7 +12,7 @@
 | ---------- | ------------------------------------ | --------------------- |
 | JDK        | 25（Microsoft build，`D:\env\jdk-25`）  | `JAVA_HOME` 必须指向它     |
 | Maven      | 3.9.4（`D:\apache-maven-3.9.4`）       | 仓库没有 `mvnw`，直接用 `mvn` |
-| Node / npm | v20.18.1 / 10.8.2                    | 只给 `web/` 用；单测/E2E 需 Node ≥ 22.12，见第 5 节 |
+| Node / npm | v22.20.0 / 10.9.3                    | 只给 `web/` 用；经 nvm 安装，见第 5 节 |
 | MySQL      | 8.4.5（`D:\mysql\mysql-8.4.5-winx64`） | 详见第 4 节               |
 
 **所有 Maven 命令必须带** **`-s .mvn/settings.xml`**：该文件把本地仓库指向 `.mvn-repo/`（仓库内），并配置阿里云镜像。漏掉它会把依赖下载到默认 `~/.m2`、走公网 central，构建变慢且与启动脚本行为不一致。
@@ -64,8 +64,10 @@ Test-NetConnection 127.0.0.1 -Port 3306
 
 ## 5. 前端（`web/`）
 
-Node 版本用 `web/.nvmrc`（22）：vite 7 / vitest 5 / jsdom 29 都要求 Node ≥ 20.19，其中 vitest 5
-要求 ≥ 22.12——Node 20.18 跑 `npm test` 会报 `ERR_REQUIRE_ESM`，属于版本不满足而非代码缺陷。
+Node 版本用 `web/.nvmrc`（22，本机 nvm 装的是 22.20.0）：vite 7 / jsdom 29 最低要求 20.19，
+vitest 5 要求 ≥ 22.12——旧 Node 20.18 跑 `npm test` 会报 `ERR_REQUIRE_ESM`，属于版本不满足而非
+代码缺陷。nvm-windows 的 `nvm use` 需要管理员权限；切换失败时 `D:\nodejs` 链接可能被移除，
+重新 `nvm use` 即可重建。
 
 ```bash
 cd web
@@ -78,6 +80,12 @@ npx playwright install chromium   # 首次跑 E2E 前装浏览器
 npm run test:e2e   # Playwright 冒烟 3 条，mock 模式，不需要后端
 ```
 
+本地不想下载 Playwright 的 Chromium 时，可复用系统浏览器（CI 不设该变量，仍用自带 Chromium）：
+
+```powershell
+$env:PLAYWRIGHT_CHANNEL='chrome'; npm run test:e2e   # 系统 Chrome；Edge 用 'msedge'
+```
+
 ## 6. 密钥与环境变量
 
 - 本地密钥放仓库根 `.env.local`（未纳入版本控制），如 `QWEN_API_KEY`、`DEEPSEEK_API_KEY`。
@@ -87,12 +95,11 @@ npm run test:e2e   # Playwright 冒烟 3 条，mock 模式，不需要后端
 ## 7. 已知问题（本机实测）
 
 - **GitHub 推送经常 408 超时**：默认推 Gitee，GitHub 失败不要反复重试。
-- **`npm test`** **起不来**：Node 20.18 + jsdom 29 报 `ERR_REQUIRE_ESM`，属 Node 版本不满足（需 ≥ 22.12，见第 5 节），不是我方代码缺陷。
 - **8080 被占用**：`run-win.bat` 会自动 kill 监听进程；手工排查用 `netstat -aon | findstr :8080`。
 - **MySQL 反复退出**：确认用的是 `--console` 前台模式；后台方式在无服务权限的机器上容易被系统回收。
 - **改了接口却编译不过**：先确认命令带了 `-am` 与 `-s .mvn/settings.xml`。
 
-## 8. CI（GitHub Actions）
+## 8. CI 与镜像发布（GitHub Actions）
 
 [.github/workflows/ci.yml](../.github/workflows/ci.yml) 三个 job，push 到 `master` 与 PR 时触发：
 
@@ -104,6 +111,25 @@ npm run test:e2e   # Playwright 冒烟 3 条，mock 模式，不需要后端
 
 分支保护（required status checks = `backend` / `web` / `e2e`）需仓库管理员在 GitHub
 `Settings → Branches`（或 Gitee 保护分支）勾选，CLI 无法自动配置。
+
+镜像构建 [docker-image.yml](../.github/workflows/docker-image.yml)：仅当 docker/server/pom 等
+路径有变化时触发。`master` 推送 `ghcr.io/cxknotjj/deerfect-harness:sha-<7位>` 与 `latest`，
+`v*` tag 推送同名版本；PR 只构建不推送。镜像仅 linux/amd64，使用 buildx + gha 层缓存。
+镜像名固定 `deerfect-harness`（展示名 DeerFect-harness）：Docker/GHCR 仓库名强制小写，
+所以不能用仓库名 `Deerfect_harness` 原样命名。
+
+- GHCR 包首次推送后默认私有；部署机不登录也能拉取时，在仓库 Packages 设置里改为 Public。
+- 私有包拉取需 `docker login ghcr.io`（用户名 = GitHub 账号，密码 = 勾选 `read:packages` 的 PAT）。
+- 部署机使用 CI 镜像（compose 已支持 `IMAGE_REPO`，不触发本地构建）：
+
+```bash
+IMAGE_REPO=ghcr.io/cxknotjj/deerfect-harness docker compose -f docker/docker-compose.yml pull app
+IMAGE_REPO=ghcr.io/cxknotjj/deerfect-harness IMAGE_TAG=sha-xxxxxxx \
+  docker compose -f docker/docker-compose.yml up -d --no-build
+```
+
+本地仍可用 `docker/build-image.ps1` / `.sh` 构建（tag 为 `sha-<8位>`）；CI 的 tag 是 7 位短 sha，
+回滚以实际 tag 为准。
 
 ## 9. 运行观测（Actuator / 指标 / 日志）
 

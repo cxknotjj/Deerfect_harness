@@ -17,13 +17,13 @@
 ALIAS_LATEST=1 ./docker/build-image.sh 0.1.0
 
 # 手动构建（基础镜像可直连 Docker Hub 时）：
-docker build -f docker/Dockerfile -t java-harness:local .
+docker build -f docker/Dockerfile -t deerfect-harness:local .
 
 # Docker Hub 不可达（国内常见）时，经加速通道覆盖基础镜像：
 docker build \
   --build-arg BUILD_BASE=docker.m.daocloud.io/library/maven:3.9-eclipse-temurin-25 \
   --build-arg RUN_BASE=docker.m.daocloud.io/library/eclipse-temurin:25-jre \
-  -f docker/Dockerfile -t java-harness:local .
+  -f docker/Dockerfile -t deerfect-harness:local .
 ```
 
 多阶段构建：构建阶段在容器内 `mvn package`（沿用 `.mvn/settings.xml` 阿里云镜像，pom 不变时层缓存秒级重建）→ 运行阶段仅 JRE + jar + `skills/knowledge/channel` 运行期资源。
@@ -75,8 +75,9 @@ curl -X POST http://localhost:8080/api/knowledge/sync   # 需真实 QWEN_API_KEY
 
 **镜像版本与回滚（版本策略）**
 
+- **镜像名**：统一 `deerfect-harness`（展示名 DeerFect-harness）；Docker/GHCR 仓库名强制小写，不能用大写或仓库名 `Deerfect_harness`
 - **tag 规则**：每次构建打 `sha-<git短sha>`；正式发布用语义化版本（如 `0.1.0`），可选同时打 `latest`。`latest` 只表示最近一次正式发布，**不能作为回滚依据**
-- **版本可追溯**：`docker inspect --format '{{json .Config.Labels}}' java-harness:sha-xxx` 可看到 `org.opencontainers.image.version` 与 `revision`
+- **版本可追溯**：`docker inspect --format '{{json .Config.Labels}}' deerfect-harness:sha-xxx` 可看到 `org.opencontainers.image.version` 与 `revision`
 - **升级**：构建或拉取新 tag 后 `IMAGE_TAG=<新tag> docker compose -f docker/docker-compose.yml up -d --no-build`
 - **回滚**：目标机保留至少上一个版本的镜像（不要用 `docker image prune -a` 清掉），把 `IMAGE_TAG` 改回旧 tag 后执行同一条 up 命令
 - **数据库注意**：Flyway 只前进不后退，镜像回滚前确认旧版本能跑新库（新增列/表通常兼容；删列/改类型不兼容）
@@ -91,13 +92,13 @@ REG=crpi-udfqmnkb69y8dx8r.cn-hangzhou.personal.cr.aliyuncs.com/java-harness/harn
 TAG=sha-$(git rev-parse --short=8 HEAD)     # 与本地构建出的 tag 一致
 
 # 构建机：推版本 tag（正式发布再补推 latest）
-docker tag java-harness:$TAG $REG:$TAG
+docker tag deerfect-harness:$TAG $REG:$TAG
 docker push $REG:$TAG
-# docker tag java-harness:$TAG $REG:latest && docker push $REG:latest
+# docker tag deerfect-harness:$TAG $REG:latest && docker push $REG:latest
 
 # 部署机：按 tag 拉取并启动
 docker pull $REG:$TAG
-docker tag $REG:$TAG java-harness:$TAG
+docker tag $REG:$TAG deerfect-harness:$TAG
 IMAGE_TAG=$TAG docker compose -f docker/docker-compose.yml up -d --no-build
 ```
 
@@ -111,21 +112,21 @@ IMAGE_TAG=$TAG docker compose -f docker/docker-compose.yml up -d --no-build
 ```bash
 # 构建机：按版本 tag 导出为单文件镜像包（Windows PowerShell / Linux 通用）
 TAG=sha-$(git rev-parse --short=8 HEAD)
-docker save java-harness:$TAG -o java-harness-$TAG.tar
-scp java-harness-$TAG.tar user@服务器IP:/opt/java-harness/
+docker save deerfect-harness:$TAG -o deerfect-harness-$TAG.tar
+scp deerfect-harness-$TAG.tar user@服务器IP:/opt/java-harness/
 ```
 
 ```bash
 # 目标机：导入镜像（.tar / .tar.gz 通用，无需解压）
 TAG=sha-xxxxxxxx                      # 与构建机导出的版本一致
-docker load -i java-harness-$TAG.tar
-# 看到 Loaded image: java-harness:sha-xxxxxxxx 即成功
+docker load -i deerfect-harness-$TAG.tar
+# 看到 Loaded image: deerfect-harness:sha-xxxxxxxx 即成功
 QWEN_API_KEY=sk-你的key \
 IMAGE_TAG=$TAG docker compose -f docker/docker-compose.yml up -d --no-build
 ```
 
 > [!IMPORTANT]
-> - 镜像包是给 `docker load` 读取的 OCI 格式（内含 blobs/、index.json、manifest.json），**不是压缩包——别用解压软件打开它**，`load` 直接读原封的 .tar / .tar.gz；Linux 构建机可 `docker save java-harness:$TAG | gzip > java-harness-$TAG.tar.gz` 减小传输体积，load 同样直接读
+> - 镜像包是给 `docker load` 读取的 OCI 格式（内含 blobs/、index.json、manifest.json），**不是压缩包——别用解压软件打开它**，`load` 直接读原封的 .tar / .tar.gz；Linux 构建机可 `docker save deerfect-harness:$TAG | gzip > deerfect-harness-$TAG.tar.gz` 减小传输体积，load 同样直接读
 > - **回滚依赖镜像包**：目标机保留上一版 tar 或本地镜像，回滚时 load 旧包并 `IMAGE_TAG=<旧tag>` 重启即可（`latest` 不参与回滚判断）
 > - **目标机必须同时拷贝 `docker/docker-compose.yml` 和 `docker/pg-init/`**——compose 把 `pg-init/` 挂载进 pgvector 容器，首次建库时预装 vector 扩展，缺了它知识库起不来；`Dockerfile`/`Dockerfile.dockerignore` 仅重建镜像时需要（整个 `docker/` 目录才几 KB，直接全拷也行）
 > - mysql/pgvector 基础镜像仍在目标机现拉：国内服务器先配 `/etc/docker/daemon.json` 的 `registry-mirrors` 并重启 docker，或同样 save/load 带过去
