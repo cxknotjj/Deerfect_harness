@@ -10,14 +10,20 @@
 **1️⃣ 构建镜像**
 
 ```bash
-# 基础镜像可直连 Docker Hub 时：
-docker build -f docker/Dockerfile -t java-harness .
+# 推荐：构建脚本自动取 git 短 sha 与 pom 版本，镜像 tag = sha-<短sha>（版本信息写入 OCI labels）
+./docker/build-image.sh            # Linux / WSL
+.\docker\build-image.ps1          # Windows PowerShell
+# 正式发布：用语义化版本号打 tag，并额外打 latest
+ALIAS_LATEST=1 ./docker/build-image.sh 0.1.0
+
+# 手动构建（基础镜像可直连 Docker Hub 时）：
+docker build -f docker/Dockerfile -t java-harness:local .
 
 # Docker Hub 不可达（国内常见）时，经加速通道覆盖基础镜像：
 docker build \
-  --build-arg BUILD_BASE=docker.m.daocloud.io/library/maven:3.9-eclipse-temurin-17 \
-  --build-arg RUN_BASE=docker.m.daocloud.io/library/eclipse-temurin:17-jre \
-  -f docker/Dockerfile -t java-harness .
+  --build-arg BUILD_BASE=docker.m.daocloud.io/library/maven:3.9-eclipse-temurin-25 \
+  --build-arg RUN_BASE=docker.m.daocloud.io/library/eclipse-temurin:25-jre \
+  -f docker/Dockerfile -t java-harness:local .
 ```
 
 多阶段构建：构建阶段在容器内 `mvn package`（沿用 `.mvn/settings.xml` 阿里云镜像，pom 不变时层缓存秒级重建）→ 运行阶段仅 JRE + jar + `skills/knowledge/channel` 运行期资源。
@@ -27,6 +33,9 @@ docker build \
 ```bash
 # ① 启动三件套（项目根执行；首次使用先配好 docker/.env，见下方说明）
 docker compose -f docker/docker-compose.yml up -d
+
+# 指定版本（默认 IMAGE_TAG=local）：镜像必须已存在（构建/拉取/load 过），--no-build 确保不重建
+IMAGE_TAG=sha-1c59846 docker compose -f docker/docker-compose.yml up -d --no-build
 
 # ② 看应用日志确认就绪：Flyway 建表 → 出现 Started JavaHarnessApplication 即成功
 #    （logs 是"看日志"不是再启动一次；Ctrl+C 只是退出滚动，容器照常运行）
@@ -64,16 +73,32 @@ curl -X POST http://localhost:8080/api/knowledge/sync   # 需真实 QWEN_API_KEY
 > - 全新 MySQL 由 Flyway 建表 + 种子 agent；旧库存量数据（自调的 agent 行、聊天历史）迁移：`mysqldump -uroot harness --no-create-info --skip-triggers --ignore-table=harness.flyway_schema_history > seed.sql`，再 `docker exec -i harness-mysql mysql -uroot -p<口令> harness < seed.sql`
 > - 知识库/技能/表情/MCP 配置已**默认外挂**（compose volumes：`../knowledge`、`../skills`、`../channel`、`../mcp-config.json`），改宿主机文件免重打镜像：`knowledge/` 改完调 sync 增量摄取（mtime 对比，免重启）；表情映射表改后 `restart app`、新增图片即时生效；`mcp-config.json` 改后 `up -d --force-recreate app`；批量调参写 `docker/config/application.yaml`（只写要改的键，改后 `restart app`，用法见该文件头注释）
 
+**镜像版本与回滚（版本策略）**
+
+- **tag 规则**：每次构建打 `sha-<git短sha>`；正式发布用语义化版本（如 `0.1.0`），可选同时打 `latest`。`latest` 只表示最近一次正式发布，**不能作为回滚依据**
+- **版本可追溯**：`docker inspect --format '{{json .Config.Labels}}' java-harness:sha-xxx` 可看到 `org.opencontainers.image.version` 与 `revision`
+- **升级**：构建或拉取新 tag 后 `IMAGE_TAG=<新tag> docker compose -f docker/docker-compose.yml up -d --no-build`
+- **回滚**：目标机保留至少上一个版本的镜像（不要用 `docker image prune -a` 清掉），把 `IMAGE_TAG` 改回旧 tag 后执行同一条 up 命令
+- **数据库注意**：Flyway 只前进不后退，镜像回滚前确认旧版本能跑新库（新增列/表通常兼容；删列/改类型不兼容）
+- **保留策略建议**：本地与仓库保留最近 3 个 `sha-*` 加全部语义化版本 tag
+
 **4️⃣ 从阿里云镜像仓库拉取（免构建、免传 tar）**
 
 镜像已托管在阿里云个人版 ACR **公开仓库**（国内服务器直连快，无需登录、无需 registry-mirrors），多台部署或频繁更新时比离线 tar 省事：
 
 ```bash
 REG=crpi-udfqmnkb69y8dx8r.cn-hangzhou.personal.cr.aliyuncs.com/java-harness/harness
+TAG=sha-$(git rev-parse --short=8 HEAD)     # 与本地构建出的 tag 一致
 
-docker pull $REG:latest
-docker tag $REG:latest java-harness:latest   # 对齐 compose 的 image: java-harness（也可直接改 compose 的 image: 为仓库地址，省去 tag）
-docker compose -f docker/docker-compose.yml up -d
+# 构建机：推版本 tag（正式发布再补推 latest）
+docker tag java-harness:$TAG $REG:$TAG
+docker push $REG:$TAG
+# docker tag java-harness:$TAG $REG:latest && docker push $REG:latest
+
+# 部署机：按 tag 拉取并启动
+docker pull $REG:$TAG
+docker tag $REG:$TAG java-harness:$TAG
+IMAGE_TAG=$TAG docker compose -f docker/docker-compose.yml up -d --no-build
 ```
 
 > [!TIP]
@@ -84,21 +109,24 @@ docker compose -f docker/docker-compose.yml up -d
 构建机与运行机不同（如构建在 Windows Docker Desktop、运行在 Linux 服务器）时，镜像包内含完整镜像层，目标机无需源码/Maven/JDK：
 
 ```bash
-# 构建机：导出为单文件镜像包（Windows PowerShell / Linux 通用）
-docker save java-harness -o java-harness.tar
-scp java-harness.tar user@服务器IP:/opt/java-harness/
+# 构建机：按版本 tag 导出为单文件镜像包（Windows PowerShell / Linux 通用）
+TAG=sha-$(git rev-parse --short=8 HEAD)
+docker save java-harness:$TAG -o java-harness-$TAG.tar
+scp java-harness-$TAG.tar user@服务器IP:/opt/java-harness/
 ```
 
 ```bash
 # 目标机：导入镜像（.tar / .tar.gz 通用，无需解压）
-docker load -i java-harness.tar
-# 看到 Loaded image: java-harness:latest 即成功，标签与 compose 对上，up 不触发重建
+TAG=sha-xxxxxxxx                      # 与构建机导出的版本一致
+docker load -i java-harness-$TAG.tar
+# 看到 Loaded image: java-harness:sha-xxxxxxxx 即成功
 QWEN_API_KEY=sk-你的key \
-docker compose -f docker/docker-compose.yml up -d
+IMAGE_TAG=$TAG docker compose -f docker/docker-compose.yml up -d --no-build
 ```
 
 > [!IMPORTANT]
-> - 镜像包是给 `docker load` 读取的 OCI 格式（内含 blobs/、index.json、manifest.json），**不是压缩包——别用解压软件打开它**，`load` 直接读原封的 .tar / .tar.gz；Linux 构建机可 `docker save java-harness | gzip > java-harness.tar.gz` 减小传输体积，load 同样直接读
+> - 镜像包是给 `docker load` 读取的 OCI 格式（内含 blobs/、index.json、manifest.json），**不是压缩包——别用解压软件打开它**，`load` 直接读原封的 .tar / .tar.gz；Linux 构建机可 `docker save java-harness:$TAG | gzip > java-harness-$TAG.tar.gz` 减小传输体积，load 同样直接读
+> - **回滚依赖镜像包**：目标机保留上一版 tar 或本地镜像，回滚时 load 旧包并 `IMAGE_TAG=<旧tag>` 重启即可（`latest` 不参与回滚判断）
 > - **目标机必须同时拷贝 `docker/docker-compose.yml` 和 `docker/pg-init/`**——compose 把 `pg-init/` 挂载进 pgvector 容器，首次建库时预装 vector 扩展，缺了它知识库起不来；`Dockerfile`/`Dockerfile.dockerignore` 仅重建镜像时需要（整个 `docker/` 目录才几 KB，直接全拷也行）
 > - mysql/pgvector 基础镜像仍在目标机现拉：国内服务器先配 `/etc/docker/daemon.json` 的 `registry-mirrors` 并重启 docker，或同样 save/load 带过去
 > - compose 默认挂载的项目相对路径（`../knowledge`、`../skills`、`../channel`）目标机项目里天然就有（git 跟踪）；但两样**不进 git** 的需补传：`mcp-config.json`（不传则 up 时 Docker 自动创建同名空目录占位，MCP 读取异常——需删掉目录放真文件）与 `channel/emojis/` 表情图片（不传则表情功能静默失效）

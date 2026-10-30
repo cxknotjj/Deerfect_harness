@@ -1,8 +1,11 @@
 # ============================================================
 # 多阶段构建：Maven + JDK 25 编译 → JRE 25 运行
 # 构建（context 必须是项目根——COPY 依赖 pom.xml/src/skills/knowledge/channel）：
-#   docker build -f docker/Dockerfile -t java-harness .
-#   或直接：docker compose -f docker/docker-compose.yml up -d --build
+#   docker build -f docker/Dockerfile -t java-harness:local .
+#   带版本信息（推荐，与 compose 的 IMAGE_TAG 对齐）：
+#   docker/build-image.ps1  （Windows） / docker/build-image.sh（Linux/WSL）
+# 版本策略：镜像 tag = sha-<git短sha>，APP_VERSION/GIT_SHA 同时写入 OCI labels，
+#           compose 以 IMAGE_TAG 选择要运行的版本（回滚=改回旧 tag 后 up -d --no-build）。
 # 说明：沿用项目 .mvn/settings.xml（阿里云镜像）；本地仓库路径 .mvn-repo 在镜像内新建，
 #       依赖下载落在可缓存的独立层——pom 不变时重建秒级完成
 # ============================================================
@@ -15,6 +18,9 @@
 # 上一阶段，后续 FROM 引用会报 "base name should not be blank"
 ARG BUILD_BASE=maven:3.9-eclipse-temurin-25
 ARG RUN_BASE=eclipse-temurin:25-jre
+# 版本信息（构建脚本注入；直接 docker build 时取默认值）
+ARG APP_VERSION=dev
+ARG GIT_SHA=unknown
 FROM ${BUILD_BASE} AS build
 WORKDIR /build
 
@@ -43,6 +49,13 @@ RUN mvn -s .mvn/settings.xml -B -q -DskipTests -pl server -am package
 FROM ${RUN_BASE}
 WORKDIR /workspace
 ENV TZ=Asia/Shanghai
+
+# 版本信息写入 OCI labels：docker inspect 可追溯版本与提交，无需进容器查
+ARG APP_VERSION=dev
+ARG GIT_SHA=unknown
+LABEL org.opencontainers.image.title="java-harness" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}"
 
 COPY --from=build /build/server/target/javaHarness-server-*.jar /app/app.jar
 # 运行期相对路径资源（相对启动工作目录 /workspace）：

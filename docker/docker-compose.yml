@@ -70,8 +70,11 @@ services:
       args:
         BUILD_BASE: ${BUILD_BASE:-maven:3.9-eclipse-temurin-25}
         RUN_BASE: ${RUN_BASE:-eclipse-temurin:25-jre}
-    # 复用手工 docker build 的同名镜像（否则 compose 默认找 java-harness-app 会强制重建）
-    image: java-harness
+        APP_VERSION: ${APP_VERSION:-dev}
+        GIT_SHA: ${GIT_SHA:-unknown}
+    # 版本策略：默认跑本地 local 标签；升级/回滚只改 IMAGE_TAG（如 sha-1c59846），
+    # 配 `up -d --no-build` 使用已存在的镜像，不触发重建
+    image: java-harness:${IMAGE_TAG:-local}
     container_name: java-harness
     depends_on:
       mysql:
