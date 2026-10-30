@@ -12,7 +12,7 @@
 | ---------- | ------------------------------------ | --------------------- |
 | JDK        | 25（Microsoft build，`D:\env\jdk-25`）  | `JAVA_HOME` 必须指向它     |
 | Maven      | 3.9.4（`D:\apache-maven-3.9.4`）       | 仓库没有 `mvnw`，直接用 `mvn` |
-| Node / npm | v20.18.1 / 10.8.2                    | 只给 `web/` 用           |
+| Node / npm | v20.18.1 / 10.8.2                    | 只给 `web/` 用；单测/E2E 需 Node ≥ 22.12，见第 5 节 |
 | MySQL      | 8.4.5（`D:\mysql\mysql-8.4.5-winx64`） | 详见第 4 节               |
 
 **所有 Maven 命令必须带** **`-s .mvn/settings.xml`**：该文件把本地仓库指向 `.mvn-repo/`（仓库内），并配置阿里云镜像。漏掉它会把依赖下载到默认 `~/.m2`、走公网 central，构建变慢且与启动脚本行为不一致。
@@ -64,12 +64,18 @@ Test-NetConnection 127.0.0.1 -Port 3306
 
 ## 5. 前端（`web/`）
 
+Node 版本用 `web/.nvmrc`（22）：vite 7 / vitest 5 / jsdom 29 都要求 Node ≥ 20.19，其中 vitest 5
+要求 ≥ 22.12——Node 20.18 跑 `npm test` 会报 `ERR_REQUIRE_ESM`，属于版本不满足而非代码缺陷。
+
 ```bash
 cd web
 npm install
 npm run dev        # 5173，proxy 到 8080
 npm run typecheck  # vue-tsc --noEmit
 npm run build      # typecheck + vite build
+npm test           # vitest run（Node ≥ 22.12）
+npx playwright install chromium   # 首次跑 E2E 前装浏览器
+npm run test:e2e   # Playwright 冒烟 3 条，mock 模式，不需要后端
 ```
 
 ## 6. 密钥与环境变量
@@ -81,8 +87,48 @@ npm run build      # typecheck + vite build
 ## 7. 已知问题（本机实测）
 
 - **GitHub 推送经常 408 超时**：默认推 Gitee，GitHub 失败不要反复重试。
-- **`npm test`** **起不来**：Node 20.18 + jsdom 29 报 `ERR_REQUIRE_ESM`，属环境问题；用 `npm run typecheck` 代替验证，或换 Node 22+ 再试。
+- **`npm test`** **起不来**：Node 20.18 + jsdom 29 报 `ERR_REQUIRE_ESM`，属 Node 版本不满足（需 ≥ 22.12，见第 5 节），不是我方代码缺陷。
 - **8080 被占用**：`run-win.bat` 会自动 kill 监听进程；手工排查用 `netstat -aon | findstr :8080`。
 - **MySQL 反复退出**：确认用的是 `--console` 前台模式；后台方式在无服务权限的机器上容易被系统回收。
 - **改了接口却编译不过**：先确认命令带了 `-am` 与 `-s .mvn/settings.xml`。
+
+## 8. CI（GitHub Actions）
+
+[.github/workflows/ci.yml](../.github/workflows/ci.yml) 三个 job，push 到 `master` 与 PR 时触发：
+
+| job       | 内容                                                                                         |
+| --------- | ------------------------------------------------------------------------------------------ |
+| `backend` | temurin 25 + MySQL 8.4 service；`mvn -s .mvn/settings.xml -Dmaven.repo.local=$HOME/.m2/repository -B verify`。上下文测试启动时会跑全量 Flyway 迁移，迁移校验失败即红 |
+| `web`     | Node 22；`npm ci` → `npm run build`（含 vue-tsc 类型检查）→ `npm test`（vitest）                       |
+| `e2e`     | Node 22 + Chromium；`npm run test:e2e`（mock 模式，不需要后端与数据库，失败上传 `playwright-report`）               |
+
+分支保护（required status checks = `backend` / `web` / `e2e`）需仓库管理员在 GitHub
+`Settings → Branches`（或 Gitee 保护分支）勾选，CLI 无法自动配置。
+
+## 9. 运行观测（Actuator / 指标 / 日志）
+
+端点（只暴露这三类，`env` / `heapdump` 等不开放）：
+
+- `GET /actuator/health`、`/actuator/health/liveness`、`/actuator/health/readiness`
+- `GET /actuator/prometheus`（Prometheus 抓取格式）
+
+指标（`HarnessMetrics` 埋点，路径判定/LLM 台账/流控/编排降级四个位置）：
+
+| 指标                                   | 类型      | 说明 / PromQL 示例                                                                    |
+| ------------------------------------ | ------- | --------------------------------------------------------------------------------- |
+| `harness_sse_active`                 | gauge   | 活跃 SSE 连接数                                                                        |
+| `harness_llm_first_token_seconds`    | timer   | 首 token 延迟。P95：`histogram_quantile(0.95, sum by (le) (rate(harness_llm_first_token_seconds_bucket[5m])))` |
+| `harness_llm_duration_seconds`       | timer   | 单次调用耗时；route-judge P95 取 `{agent="route-judge"}`                                   |
+| `harness_llm_calls_total`            | counter | 按 `status=ok/error`；错误率 = `sum(rate(...{status="error"}[5m])) / sum(rate(...[5m]))`      |
+| `harness_graph_fallbacks_total`      | counter | `stage=to_agentic`（编排失败降级单 Agent）/ `digest`（聚合失败降级汇总）                                |
+| `harness_route_decisions_total`      | counter | 按 `path=graph/agentic`；Graph 降级率 = `fallbacks{stage="to_agentic"}` 速率 / `path="graph"` 速率 |
+| `harness_llm_tokens_total`           | counter | 按 `kind=prompt/completion/total`、`model`；每小时用量 `increase(harness_llm_tokens_total{kind="total"}[1h])` |
+
+成本由 token 用量 × 供应商单价换算（单价随供应商调整，不在代码里固化，避免过期价格变成伪指标）。
+
+日志：控制台输出 logstash JSON（`logging.structured.format.console: logstash`），`TraceIdFilter`
+把请求头 `X-Trace-Id`（缺省生成 32 位 hex）写入 MDC 的 `traceId` 并回写响应头；Reactor
+异步链路（route-judge / Agent 流式生成所在的 boundedElastic）经 `ContextPropagationConfig`
+开启自动传播后继承 MDC（模型 SDK 自建线程不在传播范围）。本地想恢复可读文本日志，启动
+参数加 `--logging.structured.format.console=`。
 

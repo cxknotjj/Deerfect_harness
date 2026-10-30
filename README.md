@@ -45,6 +45,7 @@
 - **思考内容透传**：模型的思考 delta 实时折叠展示，lead / 子任务 / 聚合按身份归组——"谁在想什么"一目了然
 - **工具行归属**：每次工具调用的参数摘要与耗时挂在发起它的子 agent 名下，多子任务交错流式也不乱
 - **四张观测表**：LLM 调用（耗时 / token / 重试轮次）、工具调用、RAG 检索、MCP 连接事件全部落库，Web 轨迹页可查
+- **运行指标与结构化日志**：`/actuator/prometheus` 暴露 SSE 活跃连接、首 token / route-judge P95、LLM 错误率、Graph 降级率与 token 用量；日志为 JSON，`traceId` 经 MDC 贯穿请求（见 [docs/dev.md](docs/dev.md#9-运行观测actuator--指标--日志)）
 
 ### 🛡 预算护栏与自愈
 
@@ -70,7 +71,7 @@
 
 ## 快速开始
 
-**1️⃣ 准备**：JDK 25+、Maven 3.8+、MySQL 8.x（Web 控制台另需 Node 20.19+），建一次库（表结构启动时自动创建）：
+**1️⃣ 准备**：JDK 25+、Maven 3.8+、MySQL 8.x（Web 控制台另需 Node 22.12+），建一次库（表结构启动时自动创建）：
 
 ```sql
 CREATE DATABASE IF NOT EXISTS harness DEFAULT CHARACTER SET utf8mb4;
