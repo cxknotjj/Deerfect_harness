@@ -1,7 +1,7 @@
 # ============================================================
 # 多阶段构建：Maven + JDK 25 编译 → JRE 25 运行
 # 构建（context 必须是项目根——COPY 依赖 pom.xml/src/skills/knowledge/channel）：
-#   docker build -f docker/Dockerfile -t java-harness:local .
+#   docker build -f docker/Dockerfile -t deerfect-harness:local .
 #   带版本信息（推荐，与 compose 的 IMAGE_TAG 对齐）：
 #   docker/build-image.ps1  （Windows） / docker/build-image.sh（Linux/WSL）
 # 版本策略：镜像 tag = sha-<git短sha>，APP_VERSION/GIT_SHA 同时写入 OCI labels，
@@ -53,7 +53,7 @@ ENV TZ=Asia/Shanghai
 # 版本信息写入 OCI labels：docker inspect 可追溯版本与提交，无需进容器查
 ARG APP_VERSION=dev
 ARG GIT_SHA=unknown
-LABEL org.opencontainers.image.title="java-harness" \
+LABEL org.opencontainers.image.title="deerfect-harness" \
       org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${GIT_SHA}"
 

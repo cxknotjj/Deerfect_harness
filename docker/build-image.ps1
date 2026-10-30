@@ -37,7 +37,7 @@ function Get-ProjectVersion {
 $sha = Get-GitSha
 $version = Get-ProjectVersion
 $imageTag = if ($Tag) { $Tag } else { "sha-$sha" }
-$image = "java-harness:$imageTag"
+$image = "deerfect-harness:$imageTag"
 
 $buildArgs = @(
     "build",
@@ -55,9 +55,9 @@ Write-Host "Building $image (version=$version, sha=$sha) ..."
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 if ($AliasLatest) {
-    & docker tag $image "java-harness:latest"
+    & docker tag $image "deerfect-harness:latest"
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    Write-Host "Aliased java-harness:latest -> $image"
+    Write-Host "Aliased deerfect-harness:latest -> $image"
 }
 
 Write-Host ""

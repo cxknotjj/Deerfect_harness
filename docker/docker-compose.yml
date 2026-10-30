@@ -73,8 +73,11 @@ services:
         APP_VERSION: ${APP_VERSION:-dev}
         GIT_SHA: ${GIT_SHA:-unknown}
     # 版本策略：默认跑本地 local 标签；升级/回滚只改 IMAGE_TAG（如 sha-1c59846），
-    # 配 `up -d --no-build` 使用已存在的镜像，不触发重建
-    image: java-harness:${IMAGE_TAG:-local}
+    # 配 `up -d --no-build` 使用已存在的镜像，不触发重建。
+    # CI 构建的镜像（GHCR）用 IMAGE_REPO 覆盖仓库名，先 pull 再 up（不触发本地构建）：
+    #   IMAGE_REPO=ghcr.io/cxknotjj/deerfect-harness docker compose -f docker/docker-compose.yml pull app
+    #   IMAGE_REPO=ghcr.io/cxknotjj/deerfect-harness IMAGE_TAG=sha-1c59846 docker compose ... up -d --no-build
+    image: ${IMAGE_REPO:-deerfect-harness}:${IMAGE_TAG:-local}
     container_name: java-harness
     depends_on:
       mysql:

@@ -1,0 +1,104 @@
+# 镜像构建与发布（GHCR）：master 推送 sha-<7位> + latest，v* tag 推送版本号，PR 只构建不推送。
+#
+# 版本策略沿用本地 docker/build-image.*：compose 用 IMAGE_TAG 选择要运行的版本，
+# 回滚 = 改回旧 tag 再 up -d --no-build。镜像名固定 deerfect-harness（Docker 仓库名强制小写，
+# 展示名为 DeerFect-harness），GHCR 路径 ghcr.io/<owner>/deerfect-harness。
+#
+# 首次推送后 GHCR 包默认私有：不需要登录拉取时，在仓库 Packages 设置里把可见性改为 Public；
+# 私有包拉取需 docker login ghcr.io（用户名 = GitHub 账号，密码 = 有 read:packages 的 PAT）。
+
+name: Docker Image
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+    paths:
+      - 'docker/**'
+      - 'server/**'
+      - 'harness-api/**'
+      - 'channel-qq/**'
+      - 'skills/**'
+      - 'knowledge/**'
+      - 'channel/**'
+      - 'pom.xml'
+      - 'cli/pom.xml'
+      - 'wms-mcp-adapter/pom.xml'
+      - '.mvn/settings.xml'
+      - '.github/workflows/docker-image.yml'
+  pull_request:
+    paths:
+      - 'docker/**'
+      - 'server/**'
+      - 'harness-api/**'
+      - 'channel-qq/**'
+      - 'skills/**'
+      - 'knowledge/**'
+      - 'channel/**'
+      - 'pom.xml'
+      - 'cli/pom.xml'
+      - 'wms-mcp-adapter/pom.xml'
+      - '.mvn/settings.xml'
+      - '.github/workflows/docker-image.yml'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: docker-image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  # 与仓库名解耦：镜像固定叫 deerfect-harness（仓库是 Deerfect_harness）
+  IMAGE_NAME: deerfect-harness
+
+jobs:
+  build:
+    name: build-image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # GHCR 要求路径全小写：owner 大小写不敏感，统一转小写
+      - name: Normalize image name
+        id: image
+        run: echo "name=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=sha,format=short
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
+            type=ref,event=tag
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64
+          # PR 只验证 Dockerfile 可构建，不发布镜像（fork PR 无写权限）
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ github.ref_name }}
+            GIT_SHA=${{ github.sha }}
+          cache-from: type=gha
+          # fork PR 无缓存写权限，只在非 PR 事件导出缓存
+          cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,mode=max' || '' }}

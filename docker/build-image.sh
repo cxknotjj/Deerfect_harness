@@ -18,7 +18,7 @@ VERSION=$(awk '/<artifactId>javaHarness<\/artifactId>/{f=1;next}
                f && /<version>/{gsub(/.*<version>|<\/version>.*/,"");print;exit}' pom.xml)
 VERSION=${VERSION:-dev}
 TAG=${1:-sha-${SHA}}
-IMAGE="java-harness:${TAG}"
+IMAGE="deerfect-harness:${TAG}"
 
 ARGS=(build -f docker/Dockerfile -t "$IMAGE"
       --build-arg "APP_VERSION=${VERSION}" --build-arg "GIT_SHA=${SHA}")
@@ -30,8 +30,8 @@ echo "Building ${IMAGE} (version=${VERSION}, sha=${SHA}) ..."
 docker "${ARGS[@]}"
 
 if [ "${ALIAS_LATEST:-0}" = "1" ]; then
-  docker tag "$IMAGE" java-harness:latest
-  echo "Aliased java-harness:latest -> ${IMAGE}"
+  docker tag "$IMAGE" deerfect-harness:latest
+  echo "Aliased deerfect-harness:latest -> ${IMAGE}"
 fi
 
 cat <<EOF
