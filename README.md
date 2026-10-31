@@ -124,7 +124,7 @@ curl -s -X POST http://localhost:8080/api/chat \
 
 ![终端 CLI](./docs/images/cli.png)
 
-**QQ 机器人 · 渐进式分段回复与表情包（NapCat 接入）**
+**QQ 机器人 · 指令交互与表情包（NapCat 接入）**
 
 ![QQ 机器人](./docs/images/qq机器人.jpg)
 

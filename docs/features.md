@@ -16,7 +16,7 @@ Deerfect Harness 是一个基于 Spring AI 的双路径 Agent 平台：**Agentic
 | REST API | 同步聊天、SSE 流式聊天、断点续跑、Agent/Goal/会话管理、观测查询 | [api.md](./guides/api.md) |
 | 终端 CLI | 多轮聊天、新建会话、切换 Agent、断点续跑、流式 Markdown 渲染 | [cli.md](./guides/cli.md) |
 | Web 控制台 | 会话列表、流式打字机、思考折叠、Trace 观测、知识库管理页 | [README](../README.md) |
-| QQ 机器人 | NapCat/OneBot 11、群聊 @ 唤醒、渐进分段回复、拟人延迟、表情包、防刷 | [qq-channel.md](./guides/qq-channel.md) |
+| QQ 机器人 | NapCat/OneBot 11、群聊 @/回复触发、指令交互（/new /reset /history /agent /recall）、引用回复、表情包、防刷 | [qq-channel.md](./guides/qq-channel.md) |
 | MCP Server | 主服务内置 Streamable HTTP MCP 端点，可对外暴露内置工具 | [TECH_STACK.md](./TECH_STACK.md) |
 
 ## 三、双路径执行：Agentic 与 Graph 编排
