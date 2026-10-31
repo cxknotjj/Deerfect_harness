@@ -14,8 +14,7 @@
 # 示例（去掉注释即生效）：
 # napcat:
 #   emoji:
-#     max-per-reply: 3        # 单次回复最多表情张数（0 = 不限制）
-#     probability: 0.5        # 命中后发送概率
+#     probability: 0.5        # 分类触发后发送概率
 # app:
 #   orchestration:
 #     route-policy: ALWAYS_MULTI   # 路由策略（示意，键名以 jar 内 yaml 为准）

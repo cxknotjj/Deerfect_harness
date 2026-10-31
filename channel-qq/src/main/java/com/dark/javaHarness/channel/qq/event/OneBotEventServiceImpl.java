@@ -18,9 +18,12 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -54,6 +57,10 @@ public class OneBotEventServiceImpl implements OneBotEventService {
 
     /** 聊天执行池队列上限：满即拒绝（背压丢弃单条消息，与限频丢弃同语义），防无界堆积 */
     private static final int CHAT_QUEUE_CAPACITY = 100;
+
+    /** LLM 回复末尾的情绪标记（[emoji:happy] 等）；解析后从正文剥离，按分类取表情 */
+    private static final Pattern EMOJI_MARKER =
+            Pattern.compile("\\[emoji:([a-zA-Z]+)\\]", Pattern.CASE_INSENSITIVE);
 
     /** /help 文案（无 LLM 消耗） */
     private static final String HELP_TEXT = """
@@ -391,11 +398,15 @@ public class OneBotEventServiceImpl implements OneBotEventService {
         return new BoundSession(sessionId, true);
     }
 
-    /** 回复发送：整段单条发送（超长按 max-length 截断）；群聊可带 reply 段与 @提问者段；发送后表情钩子 */
+    /**
+     * 回复发送：剥离 LLM 末尾的 [emoji:分类] 标记后，整段单条发送（超长按 max-length 截断）；
+     * 群聊可带 reply 段与 @提问者段；文本发送成功后按分类追加一张表情。
+     */
     private void sendReply(OneBotEvent event, boolean isGroup, String reply) {
         NapCatProperties.Reply replyCfg = props.getReply();
         NapCatProperties.Emoji emojiCfg = props.getEmoji();
-        String text = capLength(reply == null ? "" : reply.trim(), replyCfg.getMaxLength());
+        ParsedReply parsed = stripEmojiMarker(reply);
+        String text = capLength(parsed.text(), replyCfg.getMaxLength());
         List<MessageSegment> segments = new ArrayList<>();
         if (isGroup) {
             if (event.messageId() != null) {
@@ -412,9 +423,13 @@ public class OneBotEventServiceImpl implements OneBotEventService {
                     isGroup ? "group=" + event.groupId() : "user=" + event.userId());
             return;
         }
-        // 表情钩子：文本发送成功后检测；停顿（模拟「找图」）可注入；任何异常只记日志不阻断文本
+        // 表情钩子：仅当 LLM 输出了非 none 的分类标记时追加；停顿（模拟「找图」）可注入；
+        // 任何异常只记日志不阻断文本
+        if (parsed.emojiCategory() == null || "none".equals(parsed.emojiCategory())) {
+            return;
+        }
         try {
-            MessageSegment emoji = emojiReplies.pickFor(text);
+            MessageSegment emoji = emojiReplies.pickByCategory(parsed.emojiCategory());
             if (emoji != null) {
                 if (!pauseHook.pause(Math.max(0, emojiCfg.getSendDelayMs()))) {
                     return; // 停顿被中断（executor 停机）：不再发表情
@@ -424,6 +439,31 @@ public class OneBotEventServiceImpl implements OneBotEventService {
         } catch (Exception e) {
             log.warn("[napcat] 表情发送钩子异常，跳过本次表情（文本回复不受影响）", e);
         }
+    }
+
+    /** 剥离回复中的情绪标记：取最后一个 [emoji:分类]，返回正文与该分类（无标记时分类为 null） */
+    static ParsedReply stripEmojiMarker(String reply) {
+        if (reply == null) {
+            return new ParsedReply("", null);
+        }
+        Matcher m = EMOJI_MARKER.matcher(reply);
+        int start = -1;
+        int end = -1;
+        String category = null;
+        while (m.find()) {
+            category = m.group(1).toLowerCase(Locale.ROOT);
+            start = m.start();
+            end = m.end();
+        }
+        if (start < 0) {
+            return new ParsedReply(reply.trim(), null);
+        }
+        String text = (reply.substring(0, start) + reply.substring(end)).trim();
+        return new ParsedReply(text, category);
+    }
+
+    /** 文本正文与末尾情绪分类（分类 null = 无标记） */
+    record ParsedReply(String text, String emojiCategory) {
     }
 
     /** 超长截断（保留原文换行与空白；max <= 0 = 不限制） */

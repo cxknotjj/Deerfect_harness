@@ -6,25 +6,25 @@ import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * QQ 表情包匹配器：启动时经 Jackson 加载情绪-表情映射表（napcat.emoji.index-file，
- * 表情名 → {path, tags}），按单条 chunk 文本判定是否发表情及发哪张，产出
- * OneBot v11 image 段（{@code base64://} 内联图片内容，跨机/Docker 部署可用）。
+ * QQ 表情包选择器：启动时经 Jackson 加载 表情名 → 图片文件 映射（napcat.emoji.index-file），
+ * 按 LLM 输出的分类标记在同类表情中随机取一张，产出 OneBot v11 image 段
+ * （{@code base64://} 内联图片内容，跨机/Docker 部署可用）。
  *
- * <p>匹配规则：① tag contains 优先——chunk 文本包含某映射项任一 tag 即命中，
- * 多个命中随机取一；② 无 tag 命中且 chunk 以 ~ / ！ / ! 结尾 → 兜底 cheer-emoji；
- * ③ 均未命中不发送。probability &lt; 1.0 时按概率放行（0 = 从不发、1.0 = 必发）。
+ * <p>分类取自表情名前缀：{@code happy} → {@code happy_01}、{@code happy_02}…；多个候选随机取一。
+ * {@code none}/空/未知分类不发送；probability &lt; 1.0 时按概率放行。
  *
  * <p>降级语义（失败隔离，对齐 NapCatApiClient「尽力而为」口径）：模块关闭（零行为，
- * 不读映射文件/目录）、映射文件缺失或 JSON 损坏（WARN + 空映射）、cheer-emoji 不在
- * 映射表（WARN 一次）、图片文件缺失（WARN + 跳过）、任何异常只记日志——
- * {@link #pickFor} 永不抛出，绝不影响文本回复主链路。
+ * 不读映射文件/目录）、映射文件缺失或 JSON 损坏（WARN + 空映射）、图片文件缺失（WARN + 跳过）、
+ * 任何异常只记日志——{@link #pickByCategory} 永不抛出，绝不影响文本回复主链路。
  */
 public class EmojiReplies {
 
@@ -33,14 +33,11 @@ public class EmojiReplies {
     private final NapCatProperties.Emoji cfg;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    /** 表情名 → 映射项；模块关闭/加载失败降级为空映射 */
-    private final Map<String, NapCatProperties.EmojiItem> index;
+    /** 表情名 → 图片文件名（相对 dir）；模块关闭/加载失败降级为空映射 */
+    private final Map<String, String> index;
 
-    /** 随机源（多命中取一 + 概率放行；包内可见：测试注入固定值做确定性断言） */
+    /** 随机源（同类多张取一 + 概率放行；包内可见：测试注入固定值做确定性断言） */
     Random random = new Random();
-
-    /** cheer-emoji 缺失的 WARN 只记一次（每次句尾兜底都告警会刷屏） */
-    private boolean cheerWarned;
 
     public EmojiReplies(NapCatProperties props) {
         this.cfg = props.getEmoji();
@@ -49,16 +46,25 @@ public class EmojiReplies {
     }
 
     /**
-     * 判定单条 chunk 应发表情：命中返回 image 段，未命中/概率未过/文件缺失/任何异常
-     * 返回 null（调用方照常发文本）。内部全量 try-catch，绝不外抛。
+     * 按分类取一张表情：分类匹配表情名前缀（如 happy → happy_01…），多个候选随机取一。
+     * none/空/未知分类/概率未过/文件缺失/任何异常返回 null（调用方照常发文本）。
      */
-    public MessageSegment pickFor(String chunkText) {
-        if (!cfg.isEnabled()) {
+    public MessageSegment pickByCategory(String category) {
+        if (!cfg.isEnabled() || category == null) {
+            return null;
+        }
+        String cat = category.trim().toLowerCase(Locale.ROOT);
+        if (cat.isEmpty() || "none".equals(cat)) {
             return null;
         }
         try {
-            NapCatProperties.EmojiItem item = pickItem(chunkText == null ? "" : chunkText);
-            if (item == null) {
+            List<String> candidates = new ArrayList<>();
+            for (String name : index.keySet()) {
+                if (name.startsWith(cat + "_")) {
+                    candidates.add(name);
+                }
+            }
+            if (candidates.isEmpty()) {
                 return null;
             }
             // 概率放行：p=0 时 nextDouble() >= 0 恒成立 → 从不发送；(0,1) 按概率；p>=1 不摇号必发
@@ -66,45 +72,14 @@ public class EmojiReplies {
             if (p < 1.0 && random.nextDouble() >= p) {
                 return null;
             }
-            return toImageSegment(item);
+            String name = candidates.size() == 1
+                    ? candidates.get(0)
+                    : candidates.get(random.nextInt(candidates.size()));
+            return toImageSegment(index.get(name));
         } catch (Exception e) {
-            log.warn("[napcat] 表情匹配/生成异常，跳过本次表情", e);
+            log.warn("[napcat] 表情选择/生成异常，跳过本次表情", e);
             return null;
         }
-    }
-
-    /**
-     * 匹配一条 chunk：tag contains 优先（多命中随机取一）→ 句尾 ~/！/! 兜底 cheer-emoji
-     * → null（不发送）。cheer-emoji 不在映射表时 WARN 一次并返回 null。
-     */
-    private NapCatProperties.EmojiItem pickItem(String text) {
-        List<NapCatProperties.EmojiItem> hits = new ArrayList<>();
-        for (NapCatProperties.EmojiItem item : index.values()) {
-            if (item.getTags() == null || item.getPath() == null) {
-                continue;
-            }
-            for (String tag : item.getTags()) {
-                if (tag != null && !tag.isEmpty() && text.contains(tag)) {
-                    hits.add(item);
-                    break; // 单项任一 tag 命中即入选
-                }
-            }
-        }
-        if (!hits.isEmpty()) {
-            return hits.size() == 1 ? hits.get(0) : hits.get(random.nextInt(hits.size()));
-        }
-        if (text.endsWith("~") || text.endsWith("！") || text.endsWith("!")) {
-            NapCatProperties.EmojiItem cheer = index.get(cfg.getCheerEmoji());
-            if (cheer == null) {
-                if (!cheerWarned) {
-                    cheerWarned = true;
-                    log.warn("[napcat] cheer-emoji 不在映射表中，句尾兜底表情不可用：{}", cfg.getCheerEmoji());
-                }
-                return null;
-            }
-            return cheer;
-        }
-        return null;
     }
 
     /**
@@ -112,8 +87,12 @@ public class EmojiReplies {
      * 用 base64:// 内联图片内容（OneBot 11 标准）——NapCat 常跑在远端 Docker，file:// 指向
      * 的是 NapCat 自己的文件系统，跨机部署必然 ENOENT；base64 把内容直接塞进请求体，无此问题。
      */
-    private MessageSegment toImageSegment(NapCatProperties.EmojiItem item) {
-        File file = new File(cfg.getDir(), item.getPath());
+    private MessageSegment toImageSegment(String fileName) {
+        if (fileName == null || fileName.isBlank()) {
+            log.warn("[napcat] 表情映射缺少图片文件名，跳过本次表情");
+            return null;
+        }
+        File file = new File(cfg.getDir(), fileName);
         if (!file.isFile()) {
             log.warn("[napcat] 表情文件缺失，跳过本次表情：{}", file.getAbsolutePath());
             return null;
@@ -121,7 +100,7 @@ public class EmojiReplies {
         try {
             byte[] bytes = java.nio.file.Files.readAllBytes(file.toPath());
             return new MessageSegment("image",
-                    Map.of("file", "base64://" + java.util.Base64.getEncoder().encodeToString(bytes)));
+                    Map.of("file", "base64://" + Base64.getEncoder().encodeToString(bytes)));
         } catch (Exception e) {
             log.warn("[napcat] 表情文件读取失败，跳过本次表情：{}", file.getAbsolutePath(), e);
             return null;
@@ -129,15 +108,15 @@ public class EmojiReplies {
     }
 
     /** 启动加载映射表：文件缺失/JSON 损坏只 WARN 并按空映射降级，不影响应用启动 */
-    private Map<String, NapCatProperties.EmojiItem> loadIndex() {
+    private Map<String, String> loadIndex() {
         File file = new File(cfg.getIndexFile());
         if (!file.isFile()) {
             log.warn("[napcat] 表情映射文件缺失，表情模块按空映射降级：{}", cfg.getIndexFile());
             return Map.of();
         }
         try {
-            Map<String, NapCatProperties.EmojiItem> loaded = mapper.readValue(
-                    file, new TypeReference<Map<String, NapCatProperties.EmojiItem>>() {});
+            Map<String, String> loaded = mapper.readValue(
+                    file, new TypeReference<Map<String, String>>() {});
             log.info("[napcat] 表情映射加载完成（{} 条）：{}", loaded.size(), cfg.getIndexFile());
             return loaded;
         } catch (Exception e) {

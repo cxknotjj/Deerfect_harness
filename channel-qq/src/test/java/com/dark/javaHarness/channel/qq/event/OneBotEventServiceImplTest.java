@@ -488,9 +488,9 @@ class OneBotEventServiceImplTest {
         Path index = tempDir.resolve("emoji-index.json");
         Files.writeString(index, """
                 {
-                  "happy_01": { "path": "开心转圈.gif", "tags": ["开心", "激动", "好耶", "太棒了"] },
-                  "sad_02": { "path": "流泪猫猫头.png", "tags": ["伤心", "委屈", "难过", "呜呜"] },
-                  "poke_04": { "path": "戳一戳.gif", "tags": ["在吗", "理我", "戳", "出来"] }
+                  "happy_01": "开心转圈.gif",
+                  "sad_02": "流泪猫猫头.png",
+                  "poke_04": "戳一戳.gif"
                 }
                 """, StandardCharsets.UTF_8);
         props.getEmoji().setEnabled(true);
@@ -498,7 +498,6 @@ class OneBotEventServiceImplTest {
         props.getEmoji().setIndexFile(index.toString());
         props.getEmoji().setProbability(probability);
         props.getEmoji().setSendDelayMs(0);
-        props.getEmoji().setCheerEmoji("happy_01");
         service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient, props);
     }
 
@@ -507,13 +506,13 @@ class OneBotEventServiceImplTest {
         enableEmoji(1.0);
         service.pauseHook = millis -> true; // 注入免真 sleep（send-delay-ms=0，仍会调用钩子）
         when(bindingMapper.selectOne(any())).thenReturn(binding(5L, "qq:private:" + UID, 5L));
-        stubChatSuccess("太激动了！");
+        stubChatSuccess("太激动了！\n[emoji:happy]");
         service.handle(privateMsg(80L, "问"));
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<MessageSegment>> captor = ArgumentCaptor.forClass(List.class);
         verify(apiClient, times(2)).sendPrivateMsg(eq(UID), captor.capture());
         List<List<MessageSegment>> calls = captor.getAllValues();
-        // 发送顺序：整段 text → image（命中 tag「激动」）
+        // 发送顺序：剥离标记后的整段 text → image（happy 分类）
         assertEquals("text", calls.get(0).get(0).type());
         assertEquals("太激动了！", calls.get(0).get(0).text());
         assertEquals("image", calls.get(1).get(0).type());
@@ -526,12 +525,25 @@ class OneBotEventServiceImplTest {
     void handle_emojiProbabilityZero_neverSent() throws IOException {
         enableEmoji(0.0);
         when(bindingMapper.selectOne(any())).thenReturn(binding(7L, "qq:private:" + UID, 5L));
-        stubChatSuccess("好开心呀。");
+        stubChatSuccess("好开心呀。\n[emoji:happy]");
         service.handle(privateMsg(82L, "问"));
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<MessageSegment>> captor = ArgumentCaptor.forClass(List.class);
         verify(apiClient, times(1)).sendPrivateMsg(eq(UID), captor.capture());
         assertEquals("text", captor.getValue().get(0).type());
+        assertEquals("好开心呀。", captor.getValue().get(0).text());
+    }
+
+    @Test
+    void handle_emojiNoneMarker_strippedWithoutImage() throws IOException {
+        enableEmoji(1.0);
+        when(bindingMapper.selectOne(any())).thenReturn(binding(6L, "qq:private:" + UID, 5L));
+        stubChatSuccess("普通回答。\n[emoji:none]");
+        service.handle(privateMsg(81L, "问"));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MessageSegment>> captor = ArgumentCaptor.forClass(List.class);
+        verify(apiClient, times(1)).sendPrivateMsg(eq(UID), captor.capture());
+        assertEquals("普通回答。", captor.getValue().get(0).text());
     }
 
     @Test
@@ -539,7 +551,7 @@ class OneBotEventServiceImplTest {
         enableEmoji(1.0);
         service.pauseHook = millis -> true;
         when(bindingMapper.selectOne(any())).thenReturn(binding(9L, "qq:group:" + GID + ":" + UID, 5L));
-        stubChatSuccess("好开心呀。");
+        stubChatSuccess("好开心呀。\n[emoji:happy]");
         service.handle(groupMsg(90L, true, "群问"));
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<MessageSegment>> captor = ArgumentCaptor.forClass(List.class);
@@ -557,12 +569,12 @@ class OneBotEventServiceImplTest {
         // 表情模块整体异常：钩子吞掉，文本照常发出（整段单条）
         service.emojiReplies = new EmojiReplies(props) {
             @Override
-            public MessageSegment pickFor(String chunkText) {
+            public MessageSegment pickByCategory(String category) {
                 throw new IllegalStateException("表情模块炸了");
             }
         };
         when(bindingMapper.selectOne(any())).thenReturn(binding(8L, "qq:private:" + UID, 5L));
-        stubChatSuccess("第一段。");
+        stubChatSuccess("第一段。\n[emoji:happy]");
         service.handle(privateMsg(83L, "问"));
         verify(apiClient, times(1)).sendPrivateMsg(eq(UID), any());
     }

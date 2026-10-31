@@ -51,8 +51,8 @@ sequenceDiagram
         A->>N: POST /send_group_msg（IO/5xx 重试 1 次）
         A-->>S: ApiResult；retcode=0 → INFO「已发送…（messageId）」
         S->>S: 成功返回 id → SentMessageTracker.record(目标键, id)
-        S->>E: pickFor(text)
-        alt 表情命中（tag 优先 → 句尾 ~/！/! 兜底）
+        S->>E: pickByCategory(category)
+        alt 表情分类命中（[emoji:happy] 等；none/无标记不发）
             S->>S: pauseHook.pause(send-delay-ms)
             S->>A: 发送 image 段（base64:// 内联图片）
         end
@@ -145,10 +145,10 @@ QQ 渠道配置（`napcat.*`）位于 **`application-qq.yaml`**（自 `applicati
 ### 表情钩子（文本发送成功后一次）
 
 1. `enabled=false` → 零行为
-2. tag contains 优先（多命中随机取一）→ 无命中且句尾 `~`/`！`/`!` → cheer-emoji
+2. 解析回复末尾 `[emoji:分类]`（取最后一个；`none`/无标记不发），按分类前缀（如 `happy`）从映射中随机取一张
 3. probability 摇号（1.0 必发）→ `pauseHook.pause(send-delay-ms)`（包内可注入、可被中断）→ 发 image 段（整段回复最多一张）
 
-映射表：`channel/emoji-index.json`（表情名 → {path, tags}，启动加载一次，缺失/损坏空映射降级）；图片放 `channel/emojis/`（不进 git）。
+映射表：`channel/emoji-index.json`（表情名 → 图片文件，表情名前缀即分类；启动加载一次，缺失/损坏空映射降级）；图片放 `channel/emojis/`（不进 git）。
 
 ## 七、持久化与外部交互
 

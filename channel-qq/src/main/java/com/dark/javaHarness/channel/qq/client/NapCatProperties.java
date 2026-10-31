@@ -2,7 +2,6 @@ package com.dark.javaHarness.channel.qq.client;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
-import java.util.List;
 
 /**
  * QQ 渠道（NapCat / OneBot 11）配置（napcat.*）。
@@ -202,7 +201,7 @@ public class NapCatProperties {
 
     /**
      * 表情包发送（napcat.emoji.*）：行为开关与路径配置（数值唯一来源仍是 application-qq.yaml，
-     * 零默认值）；情绪-表情映射表本身不放 yaml，独立为 index-file 指向的 JSON 文件。
+     * 零默认值）；分类-图片映射表本身不放 yaml，独立为 index-file 指向的 JSON 文件。
      * {@code enabled=false} 时整个模块零行为（不读映射文件/目录、不检测、不发送）。
      */
     public static class Emoji {
@@ -213,20 +212,14 @@ public class NapCatProperties {
         /** 表情包根目录（相对启动工作目录，支持绝对路径）；图片由使用者自行放置，不进 git */
         private String dir;
 
-        /** 情绪-表情映射表 JSON 路径（表情名 → {path, tags}）；缺失/损坏按空映射降级 */
+        /** 表情名 → 图片文件 的映射 JSON（表情名前缀即分类，如 happy_01）；缺失/损坏按空映射降级 */
         private String indexFile;
 
-        /** 单次回复最多发送张数；0 = 不限制 */
-        private int maxPerReply;
-
-        /** 命中后发送概率（0.0~1.0）；1.0 = 必发，0 = 从不发送 */
+        /** 触发分类后发送概率（0.0~1.0）；1.0 = 必发，0 = 从不发送 */
         private double probability;
 
         /** 表情发送前停顿毫秒数（模拟「找图」节奏）；0 = 不等待 */
         private long sendDelayMs;
-
-        /** 句尾 ~ / ！ / ! 兜底触发的默认表情名（须为映射表中已有的表情名） */
-        private String cheerEmoji;
 
         public boolean isEnabled() {
             return enabled;
@@ -252,14 +245,6 @@ public class NapCatProperties {
             this.indexFile = indexFile;
         }
 
-        public int getMaxPerReply() {
-            return maxPerReply;
-        }
-
-        public void setMaxPerReply(int maxPerReply) {
-            this.maxPerReply = maxPerReply;
-        }
-
         public double getProbability() {
             return probability;
         }
@@ -274,40 +259,6 @@ public class NapCatProperties {
 
         public void setSendDelayMs(long sendDelayMs) {
             this.sendDelayMs = sendDelayMs;
-        }
-
-        public String getCheerEmoji() {
-            return cheerEmoji;
-        }
-
-        public void setCheerEmoji(String cheerEmoji) {
-            this.cheerEmoji = cheerEmoji;
-        }
-    }
-
-    /** 情绪-表情映射项（index-file JSON 单条结构，Jackson 绑定载体）：path 相对表情根目录 */
-    public static class EmojiItem {
-
-        /** 图片文件名（相对 dir） */
-        private String path;
-
-        /** 触发关键词（chunk 文本 contains 任一 tag 即命中） */
-        private List<String> tags;
-
-        public String getPath() {
-            return path;
-        }
-
-        public void setPath(String path) {
-            this.path = path;
-        }
-
-        public List<String> getTags() {
-            return tags;
-        }
-
-        public void setTags(List<String> tags) {
-            this.tags = tags;
         }
     }
 }

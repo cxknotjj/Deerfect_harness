@@ -31,13 +31,11 @@ napcat:
   reply:
     max-length: 3000      # 回复长度上限（字）：超出部分截断（不再分段发送）
     at-asker: false       # 群聊回复首条是否 @ 提问者（防刷屏）；默认 false
-  # 表情包发送（行为开关只放这里；情绪-表情映射表在 channel/emoji-index.json，不放 yaml）：
-  # 文本回复发送完成后按关键词/句尾符号命中自动追加表情图片，模拟真人甩表情
+  # 表情包发送（行为开关只放这里；分类-图片映射表在 channel/emoji-index.json，不放 yaml）：
+  # LLM 在回复末尾输出 [emoji:分类] 标记，正文剥离标记后发送，再按分类随机追加一张表情
   emoji:
-    enabled: true               # 总开关；false 时整个模块零行为（不读映射文件/目录、不检测、不发送）
+    enabled: true               # 总开关；false 时整个模块零行为（不读映射文件/目录、不选择、不发送）
     dir: channel/emojis         # 表情包根目录（相对启动工作目录，支持绝对路径）；图片需自行放置，不进 git
-    index-file: channel/emoji-index.json  # 情绪-表情映射表 JSON（表情名 → {path, tags}）；缺失/损坏按空映射降级
-    max-per-reply: 1            # 单次回复最多发送张数；0 = 不限制
-    probability: 1.0            # 命中后发送概率（0.0~1.0）；1.0 = 必发，0 = 从不发送
+    index-file: channel/emoji-index.json  # 表情名 → 图片文件 JSON（名前缀即分类，如 happy_01）；缺失/损坏按空映射降级
+    probability: 1.0            # 分类触发后发送概率（0.0~1.0）；1.0 = 必发，0 = 从不发送
     send-delay-ms: 800          # 表情发送前停顿毫秒数（模拟「找图」节奏）；0 = 不等待
-    cheer-emoji: happy_01       # 句尾 ~ / ！ / ! 兜底触发的默认表情名（须为映射表中已有的表情名）
