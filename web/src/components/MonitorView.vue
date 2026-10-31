@@ -7,7 +7,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api } from '../api'
-import type { MonitorSnapshot, MonitorTimerStats } from '../api'
+import type { MonitorComponent, MonitorSnapshot, MonitorTimerStats } from '../api'
 import { useAgents } from '../composables/useAgents'
 
 const hours = ref(24)
@@ -115,6 +115,17 @@ function fmtUptime(seconds: number | null | undefined): string {
 function fmtTimer(stats: MonitorTimerStats | null | undefined): string {
   if (!stats || stats.count === 0) return '暂无样本'
   return `${fmtNumber(stats.count)} 次 · 均值 ${fmtMs(stats.avgMs)} · 最大 ${fmtMs(stats.maxMs)}`
+}
+
+/** 组件状态：未启用（灰）/ 可用（蓝）/ 不可用（橙） */
+function componentLabel(component: MonitorComponent): string {
+  if (!component.enabled) return '未启用'
+  return component.available ? '可用' : '不可用'
+}
+
+function componentClass(component: MonitorComponent): string {
+  if (!component.enabled) return 'status-off'
+  return component.available ? 'status-ok' : 'status-bad'
 }
 
 function fmtTime(value: string | null | undefined): string {
@@ -292,6 +303,34 @@ function channelLabel(key: string | null | undefined): string {
             {{ fmtUptime(data.runtime.uptimeSeconds) }}
           </span>
         </div>
+      </div>
+    </section>
+
+    <section v-if="data" class="panel">
+      <div class="panel-head">
+        <h3>组件状态</h3>
+        <span class="panel-note">NapCat / Docker / MCP · NapCat 探活缓存 30s</span>
+      </div>
+      <div v-if="data.components.length === 0" class="empty">未配置外部组件</div>
+      <div v-else class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>组件</th>
+              <th>状态</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="c in data.components" :key="c.name" class="component-row">
+              <td class="mono">{{ c.name }}</td>
+              <td>
+                <span class="status" :class="componentClass(c)">{{ componentLabel(c) }}</span>
+              </td>
+              <td class="component-detail">{{ c.detail }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
 
@@ -794,6 +833,17 @@ tbody tr:hover td {
 .status-bad {
   color: var(--accent-warm);
   background: var(--accent-warm-soft);
+}
+
+.status-off {
+  color: var(--ink-dim);
+  background: var(--hover-veil);
+}
+
+.component-detail {
+  min-width: 240px;
+  white-space: normal;
+  color: var(--ink-dim);
 }
 
 .channel-badge,

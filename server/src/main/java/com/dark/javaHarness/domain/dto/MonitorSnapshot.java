@@ -15,7 +15,8 @@ public record MonitorSnapshot(
         List<LlmCall> llmCalls,
         List<ToolCall> toolCalls,
         List<Hourly> hourly,
-        RuntimeMetrics runtime) {
+        RuntimeMetrics runtime,
+        List<ComponentStatus> components) {
 
     /** 时间窗汇总：调用/错误、首 token 与耗时（P95 为最近样本近似）、token 用量、工具调用。 */
     public record Summary(long calls, long errors, double errorRate,

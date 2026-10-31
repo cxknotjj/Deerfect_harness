@@ -51,6 +51,12 @@ test.describe('mock 模式冒烟', () => {
     await expect(page.locator('.runtime-item')).toHaveCount(8)
     await expect(page.locator('.runtime-item').first()).toContainText('SSE 活跃连接')
 
+    // 组件状态：NapCat / Docker / MCP server
+    await expect(page.getByRole('heading', { name: '组件状态' })).toBeVisible()
+    await expect(page.locator('.component-row')).toHaveCount(4)
+    await expect(page.locator('.component-row').first()).toContainText('NapCat / QQ')
+    await expect(page.locator('.component-row').first()).toContainText('可用')
+
     // 渠道分布覆盖 QQ / Web / CLI，且可点击筛选
     await expect(page.getByText('渠道分布')).toBeVisible()
     await expect(page.locator('.channel-filter')).toHaveCount(3)

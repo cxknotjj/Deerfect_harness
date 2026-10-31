@@ -370,6 +370,24 @@ async function monitor(hours = 24, agent = '', channel = ''): Promise<MonitorSna
       llmDuration: { count: 6, avgMs: 3349, maxMs: 5489 },
       firstToken: { count: 4, avgMs: 2347, maxMs: 3047 },
     },
+    components: [
+      {
+        name: 'NapCat / QQ', enabled: true, available: true,
+        detail: '可达（http://127.0.0.1:3000）',
+      },
+      {
+        name: 'Docker 沙箱', enabled: true, available: false,
+        detail: '未检测到 Docker，沙箱类工具未启用',
+      },
+      {
+        name: 'MCP · tavily', enabled: true, available: true,
+        detail: '已连接（http），5 个工具',
+      },
+      {
+        name: 'MCP · wms', enabled: true, available: false,
+        detail: '连接/发现失败，该 server 工具面为空',
+      },
+    ],
   }
 }
 

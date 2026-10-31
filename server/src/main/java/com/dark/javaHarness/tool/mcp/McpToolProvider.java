@@ -171,6 +171,26 @@ public class McpToolProvider {
         return List.copyOf(merged);
     }
 
+    /**
+     * 各 MCP server 的连接状态快照：只读缓存，不触发连接（未预热过的 server 为 PENDING）。
+     * 供监控页展示「哪些 server 已连上 / 失败 / 工具数」，不暴露 url（query 可能含 API key）。
+     */
+    public List<McpServerStatus> statuses() {
+        List<McpServerStatus> list = new ArrayList<>();
+        for (ServerSpec spec : specs) {
+            ServerState state = states.get(spec.name());
+            String status = state == null ? "PENDING"
+                    : state.client() != null ? "CONNECTED" : "FAILED";
+            int tools = state == null ? 0 : state.callbacks().size();
+            list.add(new McpServerStatus(spec.name(), spec.transport(), status, tools));
+        }
+        return List.copyOf(list);
+    }
+
+    /** CONNECTED=已连接；FAILED=连接/发现失败；PENDING=尚未预热。 */
+    public record McpServerStatus(String name, String transport, String state, int tools) {
+    }
+
     /** 单 server 回调：懒连接 + 状态缓存（computeIfAbsent 原子互斥——同 server 并发请求只连一次，不同 server 互不阻塞） */
     private List<ToolCallback> callbacksOf(ServerSpec spec) {
         return states.computeIfAbsent(spec.name(), name -> connectAndDiscover(spec)).callbacks();

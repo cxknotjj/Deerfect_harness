@@ -42,10 +42,13 @@ public class MonitorService {
     /** 主库 JdbcTemplate：按类型注入会命中知识库的 vectorJdbcTemplate，故显式从 @Primary DataSource 构建。 */
     private final JdbcTemplate jdbc;
     private final RuntimeMetricsService runtimeMetrics;
+    private final ComponentStatusService componentStatus;
 
-    public MonitorService(DataSource dataSource, RuntimeMetricsService runtimeMetrics) {
+    public MonitorService(DataSource dataSource, RuntimeMetricsService runtimeMetrics,
+                          ComponentStatusService componentStatus) {
         this.jdbc = new JdbcTemplate(dataSource);
         this.runtimeMetrics = runtimeMetrics;
+        this.componentStatus = componentStatus;
     }
 
     /** 查询指定时间窗（小时）、可选 agent 与渠道的运行监控快照。 */
@@ -125,7 +128,7 @@ public class MonitorService {
                 toolTotals[0], toolTotals[1]);
 
         return new MonitorSnapshot(summary, channels, sessions, llmCalls, toolCalls, hourly,
-                runtimeMetrics.snapshot());
+                runtimeMetrics.snapshot(), componentStatus.statuses());
     }
 
     /** 渠道分布：不应用渠道筛选（保证筛选项始终完整），但应用时间窗与 agent 筛选。 */

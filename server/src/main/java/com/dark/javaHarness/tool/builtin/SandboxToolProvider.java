@@ -322,6 +322,23 @@ public class SandboxToolProvider {
         return DockerClientStarter.builder().host(host).port(port).build();
     }
 
+    /** 沙箱运行状态快照：供监控页展示 Docker 是否可用与已注册的工具面。 */
+    public SandboxStatus status() {
+        SandboxService svc = service;
+        boolean ready = svc != null;
+        Future<?> task = initTask;
+        boolean done = task != null && task.isDone();
+        String state = ready ? "READY" : done ? "UNAVAILABLE" : "INITIALIZING";
+        return new SandboxStatus(
+                state,
+                base.size() + readOnly.size() + write.size(),
+                browser.size());
+    }
+
+    /** READY=沙箱服务已就绪；INITIALIZING=Docker 探测中；UNAVAILABLE=Docker 不可达或初始化失败。 */
+    public record SandboxStatus(String state, int baseTools, int browserTools) {
+    }
+
     /** 应用退出时释放沙箱服务与全部容器（base + browser），并关闭初始化线程池 */
     @PreDestroy
     public void shutdown() {

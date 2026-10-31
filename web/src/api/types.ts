@@ -286,6 +286,14 @@ export interface MonitorRuntime {
   firstToken: MonitorTimerStats
 }
 
+/** 组件状态(对齐 ComponentStatus;enabled=配置启用,available=当前可用) */
+export interface MonitorComponent {
+  name: string
+  enabled: boolean
+  available: boolean
+  detail: string
+}
+
 /** 运行监控响应(GET /api/monitor?hours=&agent=&channel=&limit=) */
 export interface MonitorSnapshot {
   summary: MonitorSummary
@@ -295,6 +303,7 @@ export interface MonitorSnapshot {
   toolCalls: MonitorToolCall[]
   hourly: MonitorHourly[]
   runtime: MonitorRuntime
+  components: MonitorComponent[]
 }
 
 /** LLM 调用观测条目(GET /api/llm-calls?sessionId=;对齐 LlmCallLogEntity 序列化) */
