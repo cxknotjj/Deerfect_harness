@@ -181,6 +181,122 @@ export interface KbRetrievalItem {
   createdAt: string | null
 }
 
+/** 运行监控时间窗汇总(GET /api/monitor;全部渠道) */
+export interface MonitorSummary {
+  calls: number
+  errors: number
+  errorRate: number
+  avgTtftMs: number
+  p95TtftMs: number
+  avgDurationMs: number
+  p95DurationMs: number
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  toolCalls: number
+  toolErrors: number
+}
+
+/** 渠道分布条目(对齐 MonitorSnapshot.Channel;channel 为 qq/web/cli/unknown 等原始键) */
+export interface MonitorChannel {
+  channel: string
+  calls: number
+  errors: number
+  totalTokens: number
+  toolCalls: number
+  toolErrors: number
+}
+
+/** 时间窗内活跃会话(对齐 MonitorSnapshot.Session;calls/tokens 为窗口内 LLM 聚合) */
+export interface MonitorSession {
+  sessionId: number
+  channel: string
+  creator: string | null
+  agentName: string | null
+  sessionName: string | null
+  lastActiveAt: string | null
+  calls: number
+  totalTokens: number
+}
+
+/** 运行监控 LLM 调用条目(对齐 MonitorSnapshot.LlmCall) */
+export interface MonitorLlmCall {
+  id: number
+  sessionId: string | null
+  channel: string
+  agentName: string | null
+  model: string | null
+  callKind: string | null
+  status: string | null
+  firstTokenMs: number | null
+  durationMs: number
+  promptTokens: number | null
+  completionTokens: number | null
+  totalTokens: number | null
+  traceId: string | null
+  createdAt: string | null
+}
+
+/** 运行监控工具调用条目(对齐 MonitorSnapshot.ToolCall) */
+export interface MonitorToolCall {
+  id: number
+  sessionId: string | null
+  channel: string
+  agentName: string | null
+  toolName: string | null
+  serverName: string | null
+  status: string | null
+  durationMs: number
+  traceId: string | null
+  createdAt: string | null
+}
+
+/** 运行监控小时桶(对齐 MonitorSnapshot.Hourly) */
+export interface MonitorHourly {
+  bucket: string
+  calls: number
+  tokens: number
+  avgTtftMs: number
+}
+
+/** 计时器累计统计(对齐 RuntimeMetrics.TimerStats) */
+export interface MonitorTimerStats {
+  count: number
+  avgMs: number
+  maxMs: number
+}
+
+/** 进程内 Micrometer 指标(对齐 RuntimeMetrics;/actuator/prometheus 同源,重启清零) */
+export interface MonitorRuntime {
+  uptimeSeconds: number
+  processCpuUsage: number
+  heapUsedBytes: number
+  heapMaxBytes: number
+  liveThreads: number
+  sseActive: number
+  llmCalls: number
+  llmErrors: number
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  routeAgentic: number
+  routeGraph: number
+  graphFallbacks: number
+  llmDuration: MonitorTimerStats
+  firstToken: MonitorTimerStats
+}
+
+/** 运行监控响应(GET /api/monitor?hours=&agent=&channel=&limit=) */
+export interface MonitorSnapshot {
+  summary: MonitorSummary
+  channels: MonitorChannel[]
+  sessions: MonitorSession[]
+  llmCalls: MonitorLlmCall[]
+  toolCalls: MonitorToolCall[]
+  hourly: MonitorHourly[]
+  runtime: MonitorRuntime
+}
+
 /** LLM 调用观测条目(GET /api/llm-calls?sessionId=;对齐 LlmCallLogEntity 序列化) */
 export interface LlmCallItem {
   id: number

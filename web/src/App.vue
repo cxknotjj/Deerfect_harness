@@ -18,6 +18,7 @@ import AgentSelect from './components/AgentSelect.vue'
 import RoutingSelect from './components/RoutingSelect.vue'
 import type { RoutingMode } from './api/types'
 import TraceView from './components/TraceView.vue'
+import MonitorView from './components/MonitorView.vue'
 import LoginView from './components/LoginView.vue'
 import { api, setUnauthorizedHandler } from './api'
 import { useSessions } from './composables/useSessions'
@@ -39,6 +40,9 @@ const {
 
 /** 显式执行路径(auto=服务端判定;agentic/graph 随每轮请求下发覆盖) */
 const selectedRouting = ref<RoutingMode>('auto')
+
+/** 主面板 tab:对话 / 轨迹 / 运行监控 */
+const activeTab = ref<'chat' | 'trace' | 'monitor'>('chat')
 
 const {
   messages,
@@ -177,10 +181,11 @@ async function onCreate(): Promise<void> {
   }
 }
 
-/** 顶栏标题:当前会话名(会话未选中/已删除时回退「新对话」) */
-const currentSessionName = computed(
-  () => sessions.value.find((s) => s.id === currentSessionId.value)?.name ?? '新对话',
-)
+/** 顶栏标题:监控 tab 固定标题;其余为当前会话名(未选中/已删除时回退「新对话」) */
+const currentSessionName = computed(() => {
+  if (activeTab.value === 'monitor') return '运行监控'
+  return sessions.value.find((s) => s.id === currentSessionId.value)?.name ?? '新对话'
+})
 
 /** 当前选中的 agent id(数字,列表下标 + 1;null = 默认 Agent) */
 const selectedAgentId = ref<number | null>(null)
@@ -266,8 +271,7 @@ function toggleTheme(): void {
   document.documentElement.style.colorScheme = theme.value
 }
 
-/** 对话/轨迹 tab(轨迹为占位) */
-const activeTab = ref<'chat' | 'trace'>('chat')
+
 
 /** 下载当前会话纯文本日志:消息按角色拼接(【user】/【assistant】),Blob 触发 a.download */
 function downloadSessionLog(): void {
@@ -413,6 +417,19 @@ function downloadSessionLog(): void {
           </svg>
           轨迹
         </button>
+        <button
+          class="chat-tab"
+          :class="{ 'chat-tab-active': activeTab === 'monitor' }"
+          type="button"
+          role="tab"
+          :aria-selected="activeTab === 'monitor'"
+          @click="activeTab = 'monitor'"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 12h4l2-6 4 12 2-6h6" />
+          </svg>
+          监控
+        </button>
       </div>
 
       <ChatWindow
@@ -437,7 +454,8 @@ function downloadSessionLog(): void {
           />
         </template>
       </ChatWindow>
-      <TraceView v-else :session-id="currentSessionId" />
+      <TraceView v-else-if="activeTab === 'trace'" :session-id="currentSessionId" />
+      <MonitorView v-else />
     </section>
   </div>
 </template>

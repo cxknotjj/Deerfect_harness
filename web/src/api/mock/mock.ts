@@ -9,6 +9,10 @@ import type {
   ChatRequest,
   KbRetrievalItem,
   LlmCallItem,
+  MonitorChannel,
+  MonitorLlmCall,
+  MonitorSnapshot,
+  MonitorToolCall,
   SessionAgentView,
   SessionCreatedView,
   SessionMessagesView,
@@ -207,6 +211,168 @@ async function listKbRetrievals(sessionId: string): Promise<KbRetrievalItem[]> {
   return sample.map((s) => ({ ...s }))
 }
 
+/** 运行监控 mock:覆盖各渠道 TTFT/错误/工具/小时趋势,结构对齐 GET /api/monitor */
+async function monitor(hours = 24, agent = '', channel = ''): Promise<MonitorSnapshot> {
+  const allLlm: MonitorLlmCall[] = [
+    {
+      id: 1349, sessionId: '241', channel: 'qq', agentName: 'nailong', model: 'deepseek-v4.1-flash-1017',
+      callKind: 'STREAM', status: 'OK', firstTokenMs: 2800, durationMs: 3116,
+      promptTokens: 873, completionTokens: 107, totalTokens: 980,
+      traceId: 'b1f0d4c2a9e14c8f', createdAt: '2026-10-31 20:24:43',
+    },
+    {
+      id: 1348, sessionId: '241', channel: 'qq', agentName: 'nailong', model: 'deepseek-v4.1-flash-1017',
+      callKind: 'STREAM', status: 'OK', firstTokenMs: 2363, durationMs: 2637,
+      promptTokens: 861, completionTokens: 96, totalTokens: 957,
+      traceId: '7c2e9a1b4d6f8035', createdAt: '2026-10-31 20:24:23',
+    },
+    {
+      id: 1347, sessionId: '241', channel: 'qq', agentName: 'nailong', model: 'deepseek-v4.1-flash-1017',
+      callKind: 'STREAM', status: 'ERROR', firstTokenMs: null, durationMs: 5489,
+      promptTokens: 902, completionTokens: null, totalTokens: 902,
+      traceId: '4d8a0e6f2b7c1934', createdAt: '2026-10-31 20:14:54',
+    },
+    {
+      id: 1346, sessionId: '221', channel: 'qq', agentName: 'writer', model: 'deepseek-v4.1-flash-1017',
+      callKind: 'STREAM', status: 'OK', firstTokenMs: 3047, durationMs: 3202,
+      promptTokens: 744, completionTokens: 88, totalTokens: 832,
+      traceId: '9a3f5e2d8c1b7046', createdAt: '2026-10-31 20:13:37',
+    },
+    {
+      id: 1345, sessionId: '1', channel: 'cli', agentName: 'general', model: 'deepseek-v4.1-flash-1017',
+      callKind: 'SYNC', status: 'OK', firstTokenMs: null, durationMs: 4210,
+      promptTokens: 512, completionTokens: 64, totalTokens: 576,
+      traceId: 'e1b2c3d4a5f60718', createdAt: '2026-10-31 19:58:12',
+    },
+    {
+      id: 1343, sessionId: '300', channel: 'web', agentName: 'general', model: 'deepseek-v4.1-flash-1017',
+      callKind: 'STREAM', status: 'OK', firstTokenMs: 1180, durationMs: 1440,
+      promptTokens: 486, completionTokens: 73, totalTokens: 559,
+      traceId: 'f2a1b0c9d8e7f605', createdAt: '2026-10-31 19:40:18',
+    },
+  ]
+  const allTools: MonitorToolCall[] = [
+    {
+      id: 296, sessionId: '232', channel: 'qq', agentName: 'researcher', toolName: 'tavily_search',
+      serverName: 'tavily', status: 'OK', durationMs: 16232,
+      traceId: 'd1654b1bb3b643e280e3dd66b856ee58', createdAt: '2026-10-26 20:42:11',
+    },
+    {
+      id: 292, sessionId: '230', channel: 'qq', agentName: 'researcher', toolName: 'fetchUrl',
+      serverName: 'tavily', status: 'OK', durationMs: 1146,
+      traceId: 'a5a72b268ecb441f90850ddc2410bf50', createdAt: '2026-10-25 21:29:13',
+    },
+  ]
+  const agentScopedLlm = agent ? allLlm.filter((x) => x.agentName === agent) : allLlm
+  const agentScopedTools = agent ? allTools.filter((x) => x.agentName === agent) : allTools
+  const filteredLlm = channel ? agentScopedLlm.filter((x) => x.channel === channel) : agentScopedLlm
+  const filteredTools = channel ? agentScopedTools.filter((x) => x.channel === channel) : agentScopedTools
+
+  // 渠道分布:应用 agent 过滤、不应用渠道过滤(保证筛选项完整)
+  const channelMap = new Map<string, MonitorChannel>()
+  function ensureChannel(key: string): MonitorChannel {
+    const existing = channelMap.get(key)
+    if (existing) return existing
+    const created: MonitorChannel = {
+      channel: key, calls: 0, errors: 0, totalTokens: 0, toolCalls: 0, toolErrors: 0,
+    }
+    channelMap.set(key, created)
+    return created
+  }
+  for (const c of agentScopedLlm) {
+    const row = ensureChannel(c.channel)
+    row.calls++
+    if (c.status !== 'OK') row.errors++
+    row.totalTokens += c.totalTokens ?? 0
+  }
+  for (const t of agentScopedTools) {
+    const row = ensureChannel(t.channel)
+    row.toolCalls++
+    if (t.status !== 'OK') row.toolErrors++
+  }
+  const channels = [...channelMap.values()].sort((a, b) => b.calls - a.calls)
+
+  const calls = filteredLlm.length
+  const errors = filteredLlm.filter((x) => x.status !== 'OK').length
+  const totalTokens = filteredLlm.reduce((sum, x) => sum + (x.totalTokens ?? 0), 0)
+  const ttfts = filteredLlm.map((x) => x.firstTokenMs).filter((x): x is number => x != null)
+  const avgTtft = ttfts.length ? Math.round(ttfts.reduce((a, b) => a + b, 0) / ttfts.length) : 0
+  const sessionStats = (sessionId: string): { calls: number; totalTokens: number } => {
+    const rows = filteredLlm.filter((x) => x.sessionId === sessionId)
+    return { calls: rows.length, totalTokens: rows.reduce((sum, x) => sum + (x.totalTokens ?? 0), 0) }
+  }
+  const sessionRows: MonitorSnapshot['sessions'] = [
+    {
+      sessionId: 241, channel: 'qq', creator: 'qq:2322055372', agentName: 'nailong',
+      sessionName: '你是谁啊', lastActiveAt: '2026-10-31 20:24:43', ...sessionStats('241'),
+    },
+    {
+      sessionId: 221, channel: 'qq', creator: 'qq:2322055372', agentName: 'writer',
+      sessionName: '记住：我最喜欢的数字是 7', lastActiveAt: '2026-10-16 22:47:27', ...sessionStats('221'),
+    },
+    {
+      sessionId: 300, channel: 'web', creator: 'anonymous', agentName: 'general',
+      sessionName: '流式渲染验证', lastActiveAt: '2026-10-31 19:40:18', ...sessionStats('300'),
+    },
+    ...sessions.slice(0, 2).map((s): MonitorSnapshot['sessions'][number] => ({
+      sessionId: Number(s.id), channel: 'cli', creator: s.creator ?? 'cli', agentName: 'general',
+      sessionName: s.name, lastActiveAt: '2026-10-31 19:58:12', ...sessionStats(s.id),
+    })),
+  ].filter((s) => (!agent || s.agentName === agent) && (!channel || s.channel === channel))
+  return {
+    summary: {
+      calls,
+      errors,
+      errorRate: calls ? errors / calls : 0,
+      avgTtftMs: avgTtft,
+      p95TtftMs: ttfts.length ? Math.max(...ttfts) : 0,
+      avgDurationMs: calls
+        ? Math.round(filteredLlm.reduce((sum, x) => sum + x.durationMs, 0) / calls)
+        : 0,
+      p95DurationMs: calls ? Math.max(...filteredLlm.map((x) => x.durationMs)) : 0,
+      promptTokens: filteredLlm.reduce((sum, x) => sum + (x.promptTokens ?? 0), 0),
+      completionTokens: filteredLlm.reduce((sum, x) => sum + (x.completionTokens ?? 0), 0),
+      totalTokens,
+      toolCalls: filteredTools.length,
+      toolErrors: filteredTools.filter((x) => x.status !== 'OK').length,
+    },
+    channels,
+    sessions: sessionRows,
+    llmCalls: filteredLlm,
+    toolCalls: filteredTools,
+    hourly: [
+      { bucket: '10-31 11:00', calls: 0, tokens: 0, avgTtftMs: 0 },
+      { bucket: '10-31 12:00', calls: 1, tokens: 832, avgTtftMs: 3047 },
+      { bucket: '10-31 13:00', calls: 0, tokens: 0, avgTtftMs: 0 },
+      { bucket: '10-31 14:00', calls: 1, tokens: 902, avgTtftMs: 0 },
+      { bucket: '10-31 15:00', calls: 0, tokens: 0, avgTtftMs: 0 },
+      { bucket: '10-31 16:00', calls: 0, tokens: 0, avgTtftMs: 0 },
+      { bucket: '10-31 17:00', calls: 0, tokens: 0, avgTtftMs: 0 },
+      { bucket: '10-31 18:00', calls: 0, tokens: 0, avgTtftMs: 0 },
+      { bucket: '10-31 19:00', calls: 2, tokens: 1135, avgTtftMs: 1180 },
+      { bucket: '10-31 20:00', calls: 2, tokens: 1937, avgTtftMs: 2582 },
+    ].slice(-Math.max(1, Math.min(hours, 10))),
+    runtime: {
+      uptimeSeconds: 1830,
+      processCpuUsage: 0.021,
+      heapUsedBytes: 187_000_000,
+      heapMaxBytes: 4_294_967_296,
+      liveThreads: 48,
+      sseActive: 1,
+      llmCalls: 6,
+      llmErrors: 1,
+      promptTokens: 4378,
+      completionTokens: 428,
+      totalTokens: 4806,
+      routeAgentic: 4,
+      routeGraph: 2,
+      graphFallbacks: 0,
+      llmDuration: { count: 6, avgMs: 3349, maxMs: 5489 },
+      firstToken: { count: 4, avgMs: 2347, maxMs: 3047 },
+    },
+  }
+}
+
 /** mock API 实现(与 realApi 同签名) */
 export const mockApi: Api = {
   listAgents,
@@ -218,6 +384,7 @@ export const mockApi: Api = {
   listToolCalls,
   listLlmCalls,
   listKbRetrievals,
+  monitor,
   streamChat,
   // mock 模式无鉴权:enabled=false 让登录门直接放行
   authState: async () => ({ enabled: false, authenticated: true }),

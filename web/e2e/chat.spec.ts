@@ -38,4 +38,27 @@ test.describe('mock 模式冒烟', () => {
     await expect(page.locator('.trace-kind').first()).toHaveText('LLM')
     await expect(page.locator('.trace-chip').first()).toContainText('总耗时')
   })
+
+  test('监控页：全渠道 KPI、渠道分布与调用明细', async ({ page }) => {
+    await page.goto('/')
+    await page.getByRole('tab', { name: '监控' }).click()
+
+    await expect(page.locator('.kpi-grid .kpi').first()).toBeVisible()
+    await expect(page.locator('.kpi-label').first()).toHaveText('LLM 调用')
+
+    // Micrometer 运行时指标（与 /actuator/prometheus 同源）
+    await expect(page.getByText('运行时指标')).toBeVisible()
+    await expect(page.locator('.runtime-item')).toHaveCount(8)
+    await expect(page.locator('.runtime-item').first()).toContainText('SSE 活跃连接')
+
+    // 渠道分布覆盖 QQ / Web / CLI，且可点击筛选
+    await expect(page.getByText('渠道分布')).toBeVisible()
+    await expect(page.locator('.channel-filter')).toHaveCount(3)
+    await expect(page.locator('.channel-filter').first()).toHaveText('QQ')
+
+    // 活跃会话与 LLM 明细表带渠道列
+    await expect(page.getByText('活跃会话')).toBeVisible()
+    await expect(page.locator('.channel-badge').first()).toBeVisible()
+    await expect(page.locator('.llm-call-row').first()).toBeVisible()
+  })
 })

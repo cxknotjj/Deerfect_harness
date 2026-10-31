@@ -12,6 +12,7 @@ import type {
   ChatRequest,
   KbRetrievalItem,
   LlmCallItem,
+  MonitorSnapshot,
   ProgressPayload,
   SessionAgentView,
   SessionCreatedView,
@@ -141,6 +142,14 @@ export function listToolCalls(sessionId: string, limit = 200): Promise<ToolCallI
 /** LLM 调用观测(GET /api/llm-calls?sessionId=;按 id 倒序,上限 200) */
 export function listLlmCalls(sessionId: string, limit = 200): Promise<LlmCallItem[]> {
   return request(`/api/llm-calls?sessionId=${encodeURIComponent(sessionId)}&limit=${limit}`)
+}
+
+/** 运行监控(GET /api/monitor?hours=&agent=&channel=&limit=;agent/channel 省略 = 不过滤) */
+export function monitor(hours = 24, agent = '', channel = '', limit = 50): Promise<MonitorSnapshot> {
+  const params = new URLSearchParams({ hours: String(hours), limit: String(limit) })
+  if (agent) params.set('agent', agent)
+  if (channel) params.set('channel', channel)
+  return request(`/api/monitor?${params.toString()}`)
 }
 
 /** RAG 检索观测(GET /api/kb-retrievals?sessionId=;按 id 倒序,上限 200) */
@@ -322,6 +331,7 @@ export interface Api {
   listToolCalls(sessionId: string): Promise<ToolCallItem[]>
   listLlmCalls(sessionId: string): Promise<LlmCallItem[]>
   listKbRetrievals(sessionId: string): Promise<KbRetrievalItem[]>
+  monitor(hours?: number, agent?: string, channel?: string, limit?: number): Promise<MonitorSnapshot>
   streamChat(req: ChatRequest, handlers: StreamHandlers, signal?: AbortSignal): Promise<void>
   authState(): Promise<AuthStateView>
   login(password: string): Promise<void>
@@ -339,6 +349,7 @@ export const realApi: Api = {
   listToolCalls,
   listLlmCalls,
   listKbRetrievals,
+  monitor,
   streamChat,
   authState,
   login,
