@@ -63,11 +63,8 @@ public class ChatServiceImpl implements ChatService {
     /** 回复后处理器扩展点（渠道无关的通用 SPI，按注册顺序依次调用）；无实现时缺位，行为与改造前一致 */
     private final org.springframework.beans.factory.ObjectProvider<ReplyPostProcessor> replyPostProcessors;
 
-    public ChatServiceImpl(AgentService agentService, SessionService sessionService,
-                           RouteJudge routeJudge, GoalService goalService) {
-        this(agentService, sessionService, routeJudge, goalService, null, null,
-                new com.dark.javaHarness.config.StreamConnectionLimiter(0), true, null);
-    }
+    /** 本轮语音工件库：工具按 turnId 写入，ChatService 只读查一次并透出 voice:&lt;id&gt; flag */
+    private final com.dark.javaHarness.voice.VoiceArtifactStore voiceArtifacts;
 
     /**
      * Spring 装配入口（多构造需显式标注）：knowledgeRetriever 仅知识库启用时非 null；
@@ -83,7 +80,8 @@ public class ChatServiceImpl implements ChatService {
                            com.dark.javaHarness.config.StreamConnectionLimiter streamConnectionLimiter,
                            @org.springframework.beans.factory.annotation.Value("${app.chat.complex-fallback.enabled:true}")
                            boolean complexFallbackEnabled,
-                           org.springframework.beans.factory.ObjectProvider<ReplyPostProcessor> replyPostProcessors) {
+                           org.springframework.beans.factory.ObjectProvider<ReplyPostProcessor> replyPostProcessors,
+                           com.dark.javaHarness.voice.VoiceArtifactStore voiceArtifacts) {
         this.agentService = agentService;
         this.sessionService = sessionService;
         this.routeJudge = routeJudge;
@@ -94,6 +92,7 @@ public class ChatServiceImpl implements ChatService {
         // 预取器不再随本类构造（会话 agent 名解析留守宿主），改为注入共享池 bean（缺位 null）
         this.ragPrefetcher = ragPrefetcherProvider == null ? null : ragPrefetcherProvider.getIfAvailable();
         this.replyPostProcessors = replyPostProcessors;
+        this.voiceArtifacts = voiceArtifacts;
     }
 
     private static final Logger log = LoggerFactory.getLogger(ChatServiceImpl.class);
@@ -144,7 +143,8 @@ public class ChatServiceImpl implements ChatService {
                     routing.plan().toInfo());
         }
         return ChatResponse.success(sessionId, newSession, goal.id(), pr.text(),
-                recentKnowledgeSources(sessionId), resolvedAgent, pr.flags(), routing.plan().toInfo());
+                recentKnowledgeSources(sessionId), resolvedAgent,
+                withVoiceFlag(turnId, pr.flags()), routing.plan().toInfo());
     }
 
     /**
@@ -172,7 +172,8 @@ public class ChatServiceImpl implements ChatService {
                     fallbackAgent, fallbackRoute);
         }
         return ChatResponse.success(sessionId, newSession, retry.id(), pr.text(),
-                recentKnowledgeSources(sessionId), fallbackAgent, pr.flags(), fallbackRoute);
+                recentKnowledgeSources(sessionId), fallbackAgent,
+                withVoiceFlag(turnId, pr.flags()), fallbackRoute);
     }
 
     /**
@@ -227,6 +228,17 @@ public class ChatServiceImpl implements ChatService {
 
     /** 后处理结果载体 */
     private record ReplyProcessing(String text, java.util.Set<String> flags) {
+    }
+
+    /** 本轮有语音工件时追加 voice:&lt;id&gt;：渠道无关，支持语音的渠道消费，其他渠道忽略。 */
+    private java.util.Set<String> withVoiceFlag(String turnId, java.util.Set<String> flags) {
+        return voiceArtifacts.findByTurn(turnId)
+                .map(artifact -> {
+                    java.util.Set<String> merged = new java.util.LinkedHashSet<>(flags);
+                    merged.add("voice:" + artifact.id());
+                    return java.util.Set.copyOf(merged);
+                })
+                .orElse(flags);
     }
 
     /** 写回公共体（sync/stream 两份重复块收编）：user+assistant 双消息落快照 + touch 会话 */

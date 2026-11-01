@@ -21,8 +21,11 @@ public record RuntimeMetrics(
         long routeAgentic,
         long routeGraph,
         long graphFallbacks,
+        long ttsCalls,
+        long ttsErrors,
         TimerStats llmDuration,
-        TimerStats firstToken) {
+        TimerStats firstToken,
+        TimerStats ttsDuration) {
 
     /** 计时器累计：观测次数、均值与最大值（P95 由 Prometheus 直方图查询时计算）。 */
     public record TimerStats(long count, long avgMs, long maxMs) {

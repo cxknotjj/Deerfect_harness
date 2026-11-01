@@ -34,6 +34,7 @@ import com.dark.javaHarness.service.ReplyPostProcessor;
 import com.dark.javaHarness.service.RouteJudge;
 import com.dark.javaHarness.service.SessionService;
 import com.dark.javaHarness.service.impl.route.RagPrefetcher;
+import com.dark.javaHarness.voice.VoiceArtifactStore;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -72,6 +73,8 @@ class ChatServiceImplTest {
     private ObjectProvider<RagPrefetcher> ragPrefetcherProvider;
     @Mock
     private ObjectProvider<ReplyPostProcessor> replyPostProcessors;
+    @Mock
+    private VoiceArtifactStore voiceArtifacts;
 
     private ChatServiceImpl chatService;
 
@@ -83,7 +86,8 @@ class ChatServiceImplTest {
         // 既有用例无「COMPLEX + 失败」组合，不受影响）；回复后处理器 provider 未打桩（无实现语义：
         // 文本原样、flags 空集）
         chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
-                null, ragPrefetcherProvider, new StreamConnectionLimiter(0), true, replyPostProcessors);
+                null, ragPrefetcherProvider, new StreamConnectionLimiter(0), true, replyPostProcessors,
+                voiceArtifacts);
         // 默认判定桩：Agentic（各用例可覆盖为 Graph/绑定 Agent/异常等场景）
         lenient().when(routeJudge.plan(anyString(), any(), any())).thenReturn(agenticPlan());
     }
@@ -221,6 +225,36 @@ class ChatServiceImplTest {
 
         assertEquals("RAW-[[x]]你好", resp.reply(), "无处理器时文本应原样透出");
         assertTrue(resp.flags().isEmpty(), "无处理器时 flags 应为空集: " + resp.flags());
+    }
+
+    /** 本轮工具写入了语音工件：成功响应应透出 voice:<id>（渠道无关，QQ 渠道消费） */
+    @Test
+    void chat_withVoiceArtifact_addsVoiceFlag() {
+        ChatRequest req = new ChatRequest("用语音说", "50", null);
+        when(agentService.executeSync(anyString(), anyString(), anyString(), any()))
+                .thenReturn(succeededGoal("50", "好的"));
+        when(voiceArtifacts.findByTurn(anyString())).thenReturn(Optional.of(
+                new VoiceArtifactStore.VoiceArtifact("abc", "turn", "好的", new byte[]{1}, "mp3", 0L)));
+
+        ChatResponse resp = chatService.chat(req);
+
+        assertTrue(resp.flags().contains("voice:abc"), "应透出语音 flag: " + resp.flags());
+    }
+
+    /** 失败响应不带语音 flag（失败文案走文字，不消费工件） */
+    @Test
+    void chat_failed_doesNotAddVoiceFlag() {
+        ChatRequest req = new ChatRequest("用语音说", "50", null);
+        Goal failed = new Goal("goal-voice", "用语音说", "50");
+        failed.fail("boom");
+        when(agentService.executeSync(anyString(), anyString(), anyString(), any())).thenReturn(failed);
+
+        ChatResponse resp = chatService.chat(req);
+
+        // 失败路径不查语音工件（flags 固定空集），无需打桩 findByTurn
+        verify(voiceArtifacts, never()).findByTurn(anyString());
+        assertEquals(GoalStatus.FAILED.name(), resp.status());
+        assertTrue(resp.flags().isEmpty(), "失败响应不应透出语音 flag: " + resp.flags());
     }
 
     @Test
@@ -423,7 +457,8 @@ class ChatServiceImplTest {
     @Test
     void streamReactive_limiterFull_secondRequestRejected_thenReleasedAfterTermination() {
         chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
-                null, ragPrefetcherProvider, new StreamConnectionLimiter(1), true, replyPostProcessors);
+                null, ragPrefetcherProvider, new StreamConnectionLimiter(1), true, replyPostProcessors,
+                voiceArtifacts);
         ChatRequest req = new ChatRequest("hi", "50", null);
         when(agentService.executeStreamReactive(eq("general"), eq("hi"), eq("50"), any(), any()))
                 .thenReturn(Flux.just("a"));  // 冷流：未订阅不发射，名额保持占用
@@ -765,7 +800,7 @@ class ChatServiceImplTest {
         stubRealPrefetcher();
         chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
                 knowledgeRetriever, ragPrefetcherProvider, new StreamConnectionLimiter(0), true,
-                replyPostProcessors);
+                replyPostProcessors, voiceArtifacts);
         SessionEntity session = new SessionEntity();
         session.setAgentId(1);
         when(sessionService.getSession("42")).thenReturn(session);
@@ -788,7 +823,7 @@ class ChatServiceImplTest {
         stubRealPrefetcher();
         chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
                 knowledgeRetriever, ragPrefetcherProvider, new StreamConnectionLimiter(0), true,
-                replyPostProcessors);
+                replyPostProcessors, voiceArtifacts);
         SessionEntity session = new SessionEntity();
         session.setAgentId(1);
         when(sessionService.getSession("50")).thenReturn(session);
@@ -809,7 +844,7 @@ class ChatServiceImplTest {
         stubRealPrefetcher();
         chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
                 knowledgeRetriever, ragPrefetcherProvider, new StreamConnectionLimiter(0), true,
-                replyPostProcessors);
+                replyPostProcessors, voiceArtifacts);
         SessionEntity session = new SessionEntity();
         session.setAgentId(1);
         when(sessionService.getSession("42")).thenReturn(session);

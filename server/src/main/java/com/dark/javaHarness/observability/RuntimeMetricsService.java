@@ -44,8 +44,11 @@ public class RuntimeMetricsService {
                 sumCounters("harness.route.decisions", "path", "agentic"),
                 sumCounters("harness.route.decisions", "path", "graph"),
                 sumCounters("harness.graph.fallbacks", null, null),
+                sumCounters("harness.tts.calls", null, null),
+                sumCounters("harness.tts.calls", "status", "error"),
                 timerStats("harness.llm.duration"),
-                timerStats("harness.llm.first_token"));
+                timerStats("harness.llm.first_token"),
+                timerStats("harness.tts.duration"));
     }
 
     /** process.uptime 由 Boot 注册为 TimeGauge，缺省回退普通 Gauge。 */
