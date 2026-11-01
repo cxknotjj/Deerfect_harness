@@ -13,6 +13,7 @@
 | 📝 单条回复 | 整段单条发送；超过 `reply.max-length`（默认 3000 字）截断并补 `…`；群聊带引用原消息，`reply.at-asker=true` 时首条 @ 提问者 |
 | 🧵 指令 | `/new` `/reset`（清空绑定、下条重开新会话）、`/help`、`/history [n]`（默认 5 条，不耗 LLM）、`/agent [名]`（查看/切换 Agent，切换需已有会话）、`/recall`（撤回机器人上一条消息） |
 | 😀 表情包 | LLM 在回复末尾输出 `[emoji:分类]`（happy / angry / shock / chill / social / abstract / festive / none）；正文剥离标记后发送，再按分类从 `channel/emoji-index.json` 随机取一张（图片 `base64://` 内联、跨机部署可用）；`probability` / `send-delay-ms` 控频与节奏 |
+| 🔊 语音 | 用户明确要求「用语音说 / 念一下」时，Agent 调用 `text_to_speech` 工具（Edge TTS）合成 mp3；core 在响应 `flags` 中透出 `voice:<id>`，QQ 渠道取工件后以 `record` 段发送。语音成功时本轮不再发文字与表情，工件缺失/发送失败回退文字 |
 | 🧠 会话记忆 | 同一 QQ 用户/群自动延续多轮上下文；`/new` / `/reset` 删除绑定行后下条消息建档新会话；harness 删除会话时同步清理绑定 |
 | 🚦 防刷 | 同用户限频（`rate-limit.per-user-seconds`）+ 私聊白名单（`private-allow-users`，空 = 不限制）；群聊暂无群号白名单 |
 | ⏱️ 聊天超时 | `chat-timeout-seconds` 超时中断并放弃回复（后台任务取消），防 LLM 卡死占满线程池 |
@@ -35,6 +36,7 @@
 
 2. harness 侧 `application-qq.yaml` 的 `napcat:` 块按注释配置（`enabled` / `api-base-url` / `api-token` / `self-id` 等，全部有默认值）；不接入设 `napcat.enabled: false` 即可
 3. 表情包（可选）：图片放 `channel/emojis/`（不进 git，自行放置），在 `channel/emoji-index.json` 登记表情名 → 图片文件（表情名前缀即分类，如 `happy_01` → `happy`）
+4. 语音（可选）：目标 Python 安装 `edge-tts`，并让 `TTS_PYTHON` 指向该解释器（`application-tts.yaml` 默认 `python3.11`）；语音参数在 `app.tts.*`（voice / rate / volume / max-chars / 超时与并发）
 
 > [!NOTE]
 > 跨机部署（NapCat 在远端 Docker、harness 在本机）：`api-base-url` 用 `ssh -L 3000:127.0.0.1:3000` 拉回；上报方向 `httpClients` 填 `http://172.17.0.1:8080/onebot/event`，配合 `ssh -R 8080` 反向隧道 + 远端 socat 转发到本机 harness，完整命令见 [dev.md 3.1](../dev.md#31-qq-机器人联调前提远程-napcat)。

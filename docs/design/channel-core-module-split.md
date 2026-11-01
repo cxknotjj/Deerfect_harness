@@ -74,7 +74,7 @@
 
 ### 规则 ③：新增渠道输出控制必须走 ReplyPostProcessor，不得改 core
 
-渠道要对自己的回复做「清洗 / 打标」（例如 QQ 语音标记 `[[voice]]`），一律走通用 SPI：
+渠道要对自己的回复做「清洗 / 打标」（例如剥离渠道私有控制标记并声明 flag），一律走通用 SPI：
 
 1. 在**渠道侧**新增一个 `ReplyPostProcessor` 实现（`@Component`），负责剥离渠道私有标记并声明 flag；
 2. 若还需新增出参字段，在**契约侧** `ChatResponse`（`harness-api`）上扩展通用字段（如已有的
@@ -97,8 +97,9 @@ public interface ReplyPostProcessor {
 core（`server` 的 `ChatServiceImpl`）用 `ObjectProvider<ReplyPostProcessor>` 收集全部实现，
 在「写回会话记忆」与「构造 `ChatResponse`」之前按序调用；**无实现时零行为**（后处理为空、`flags` 为空集）。
 
-渠道侧示例（`channel-qq` 的 `QqReplyProcessor`）：解析 `[[voice]]` → 剥离文本并声明 `voice` flag；
-core 不认识 `[[voice]]`，只把 `flags` 透出到 `ChatResponse`，由渠道自行决定怎么用。
+渠道可基于该 SPI 定义自己的私有标记；core 不认识渠道私有约定，只把 `flags` 透出到
+`ChatResponse`，由渠道自行决定怎么用。当前 QQ 语音已改为工具直接产生 `voice:<id>` flag，
+不再使用 `[[voice]]` 标记（原 `QqReplyProcessor` 已删除）。
 
 ## 三、`cli` 与 `wms-mcp-adapter` 与本次拆分无关
 

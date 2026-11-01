@@ -51,6 +51,7 @@ mvn -s .mvn/settings.xml -pl cli -Pcli compile exec:exec
 | PgVector      | `127.0.0.1:5432`，库 `postgres` | 可选     | 仅知识库（RAG）；未启用时 `/api/knowledge*` 返回 503                          |
 | Docker daemon | `127.0.0.1:2375`              | 可选     | 沙箱工具；**必须写** **`127.0.0.1`** **不要写** **`localhost`**（IPv6 解析会超时） |
 | NapCat        | `127.0.0.1:3000`              | 可选     | QQ 渠道；远程 NapCat 联调见 3.1；`napcat.enabled=false` 时整链不装配              |
+| Edge TTS      | Python 解释器（`TTS_PYTHON`）    | 可选     | QQ 语音工具；解释器需 `pip install edge-tts`，`app.tts.enabled=false` 时工具直接返回未启用 |
 
 ### 3.1 QQ 机器人联调前提（远程 NapCat）
 
@@ -114,7 +115,7 @@ $env:PLAYWRIGHT_CHANNEL='chrome'; npm run test:e2e   # 系统 Chrome；Edge 用 
 
 ## 6. 密钥与环境变量
 
-- 本地密钥与远程地址放仓库根 `.env.local`（未纳入版本控制），如 `QWEN_API_KEY`、`DEEPSEEK_API_KEY`、`NAPCAT_REMOTE_HOST`（远程 NapCat 服务器地址，见 3.1）。
+- 本地密钥与远程地址放仓库根 `.env.local`（未纳入版本控制），如 `QWEN_API_KEY`、`DEEPSEEK_API_KEY`、`NAPCAT_REMOTE_HOST`（远程 NapCat 服务器地址，见 3.1）、`TTS_PYTHON`（已装 edge-tts 的 Python 解释器路径）。
 - `run-wsl.sh` 会 `source .env.local`；**`run-win.bat`** **不会**，Windows 侧请用 `setx` 设系统环境变量。
 - 不要把密钥写进 yaml、脚本或提交记录。
 

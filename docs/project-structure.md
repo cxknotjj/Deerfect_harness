@@ -119,7 +119,7 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── UserProfileService.java   # 离线批量提炼空闲会话偏好 → 全局画像 Markdown（原子写）
 │   └── UserProfileSectionProviderImpl.java  # 画像段注入 general/lead 的 system prompt
 ├── cli/                          # 已独立为 `cli` 模块（`cli/src/main/java/com/dark/javaHarness/cli`，纯 HTTP 连 8080）
-└── tool/                         # 工具层
+├── tool/                         # 工具层
     ├── WebTools.java             # 网页抓取门面（fetchUrl：抓取 + 30min 内容缓存 + 相关段落裁剪）
     ├── HtmlToMarkdown.java / ContentRelevance.java  # 噪声剔除/主内容 Markdown 化 / 按查询意图裁剪
     ├── SandboxToolProvider.java  # 容器级沙箱工具（Python/Shell/文件 + 浏览器，懒初始化、失败降级）
@@ -131,6 +131,10 @@ server/src/main/java/com/dark/javaHarness/
     ├── ToolObservationDecorator.java / ToolBudgetDecorator.java / ToolLazyLoadDecorator.java / SkillMetaToolDecorator.java  # 默认装饰链四组件（观测100→预算200→懒加载300→元工具400）
     ├── DefaultToolDecorators.java  # 默认装饰链工厂（单一事实来源；新增装饰器=新类+此处登记一行）
     └── TokenEstimator.java       # 全项目统一 token 估算口径
+└── voice/                        # 语音（纯工具：文字 → mp3，不感知渠道）
+    ├── TextToSpeechTools.java    # text_to_speech 工具：合成后按 turnId 写入工件库
+    ├── EdgeTtsClient.java        # Edge TTS 子进程调用（超时杀进程 / 并发信号量 / 临时文件清理）
+    └── InMemoryVoiceArtifactStore.java / TtsProperties.java  # 短 TTL 工件库 / app.tts 配置
 ```
 
 </details>
