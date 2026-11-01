@@ -367,8 +367,11 @@ async function monitor(hours = 24, agent = '', channel = ''): Promise<MonitorSna
       routeAgentic: 4,
       routeGraph: 2,
       graphFallbacks: 0,
+      ttsCalls: 2,
+      ttsErrors: 0,
       llmDuration: { count: 6, avgMs: 3349, maxMs: 5489 },
       firstToken: { count: 4, avgMs: 2347, maxMs: 3047 },
+      ttsDuration: { count: 2, avgMs: 1360, maxMs: 1890 },
     },
     components: [
       {

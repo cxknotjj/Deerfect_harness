@@ -282,8 +282,11 @@ export interface MonitorRuntime {
   routeAgentic: number
   routeGraph: number
   graphFallbacks: number
+  ttsCalls: number
+  ttsErrors: number
   llmDuration: MonitorTimerStats
   firstToken: MonitorTimerStats
+  ttsDuration: MonitorTimerStats
 }
 
 /** 组件状态(对齐 ComponentStatus;enabled=配置启用,available=当前可用) */

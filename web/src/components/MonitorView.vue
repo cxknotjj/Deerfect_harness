@@ -294,6 +294,14 @@ function channelLabel(key: string | null | undefined): string {
           <span class="runtime-note">编排失败降级累计</span>
         </div>
         <div class="runtime-item">
+          <span class="runtime-label">TTS 合成 <code>harness_tts_calls_total</code></span>
+          <strong class="runtime-value">{{ fmtNumber(data.runtime.ttsCalls) }}</strong>
+          <span class="runtime-note" :class="{ 'cell-bad': data.runtime.ttsErrors > 0 }">
+            错误 {{ fmtNumber(data.runtime.ttsErrors) }} · 均值
+            {{ data.runtime.ttsDuration.count > 0 ? fmtMs(data.runtime.ttsDuration.avgMs) : '—' }}
+          </span>
+        </div>
+        <div class="runtime-item">
           <span class="runtime-label">堆内存 / CPU / 运行时长</span>
           <strong class="runtime-value">
             {{ fmtBytes(data.runtime.heapUsedBytes) }} / {{ fmtPercent(data.runtime.processCpuUsage) }}
