@@ -130,11 +130,12 @@ server/src/main/java/com/dark/javaHarness/
     ├── ToolCallbackDecorator.java / ToolDecorationContext.java  # 可插拔装饰器接口与上下文（Ordered 责任链）
     ├── ToolObservationDecorator.java / ToolBudgetDecorator.java / ToolLazyLoadDecorator.java / SkillMetaToolDecorator.java  # 默认装饰链四组件（观测100→预算200→懒加载300→元工具400）
     ├── DefaultToolDecorators.java  # 默认装饰链工厂（单一事实来源；新增装饰器=新类+此处登记一行）
+    ├── builtin/tts/TextToSpeechTools.java  # text_to_speech 工具入口：校验 + 合成 + 写工件
+    ├── builtin/tts/EdgeTtsClient.java      # Edge TTS 子进程调用（超时杀进程 / 并发信号量）
     └── TokenEstimator.java       # 全项目统一 token 估算口径
-└── voice/                        # 语音（纯工具：文字 → mp3，不感知渠道）
-    ├── TextToSpeechTools.java    # text_to_speech 工具：合成后按 turnId 写入工件库
-    ├── EdgeTtsClient.java        # Edge TTS 子进程调用（超时杀进程 / 并发信号量 / 临时文件清理）
-    └── InMemoryVoiceArtifactStore.java / TtsProperties.java  # 短 TTL 工件库 / app.tts 配置
+└── voice/                        # 语音共享能力（工具入口在 tool/builtin/tts）
+    ├── TtsProperties.java        # app.tts 配置（工具与工件库共用）
+    └── InMemoryVoiceArtifactStore.java  # 短 TTL 工件库（core/渠道按接口消费）
 ```
 
 </details>

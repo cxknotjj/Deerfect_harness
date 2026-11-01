@@ -3,10 +3,10 @@ package com.dark.javaHarness.prompt;
 import com.dark.javaHarness.tool.ToolAssignments;
 import com.dark.javaHarness.tool.builtin.SandboxToolProvider;
 import com.dark.javaHarness.tool.builtin.WebTools;
+import com.dark.javaHarness.tool.builtin.tts.EdgeTtsClient;
+import com.dark.javaHarness.tool.builtin.tts.TextToSpeechTools;
 import com.dark.javaHarness.tool.mcp.McpToolProvider;
-import com.dark.javaHarness.voice.EdgeTtsClient;
 import com.dark.javaHarness.voice.InMemoryVoiceArtifactStore;
-import com.dark.javaHarness.voice.TextToSpeechTools;
 import com.dark.javaHarness.voice.TtsProperties;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

@@ -1,5 +1,6 @@
-package com.dark.javaHarness.voice;
+package com.dark.javaHarness.tool.builtin.tts;
 
+import com.dark.javaHarness.voice.TtsProperties;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;

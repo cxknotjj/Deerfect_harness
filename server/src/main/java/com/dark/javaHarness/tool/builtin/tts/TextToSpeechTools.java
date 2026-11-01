@@ -1,7 +1,9 @@
-package com.dark.javaHarness.voice;
+package com.dark.javaHarness.tool.builtin.tts;
 
 import com.dark.javaHarness.observability.HarnessMetrics;
 import com.dark.javaHarness.tool.trace.ToolCallTracer;
+import com.dark.javaHarness.voice.TtsProperties;
+import com.dark.javaHarness.voice.VoiceArtifactStore;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
