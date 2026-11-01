@@ -4,6 +4,10 @@ import com.dark.javaHarness.tool.ToolAssignments;
 import com.dark.javaHarness.tool.builtin.SandboxToolProvider;
 import com.dark.javaHarness.tool.builtin.WebTools;
 import com.dark.javaHarness.tool.mcp.McpToolProvider;
+import com.dark.javaHarness.voice.EdgeTtsClient;
+import com.dark.javaHarness.voice.InMemoryVoiceArtifactStore;
+import com.dark.javaHarness.voice.TextToSpeechTools;
+import com.dark.javaHarness.voice.TtsProperties;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -49,12 +53,19 @@ class ToolLazyManagerTest {
 
     @BeforeEach
     void setUp() {
-        assignments = new ToolAssignments(new WebTools(), sandbox, mcp);
+        assignments = new ToolAssignments(new WebTools(), sandbox, mcp, null, ttsTools());
         lenient().when(sandbox.baseTools()).thenReturn(List.of());
         lenient().when(sandbox.readOnlyFileTools()).thenReturn(List.of());
         lenient().when(sandbox.writeTools()).thenReturn(List.of());
         lenient().when(sandbox.browserTools()).thenReturn(List.of());
         lenient().when(mcp.toolCallbacks()).thenReturn(List.of());
+    }
+
+    /** 真实 TTS 工具对象（禁用状态）：仅用于分配表目录索引 */
+    private static TextToSpeechTools ttsTools() {
+        TtsProperties props = new TtsProperties();
+        props.setEnabled(false);
+        return new TextToSpeechTools(props, new EdgeTtsClient(props), new InMemoryVoiceArtifactStore(props));
     }
 
     /** 带自定义 schema 的 mock 真实回调（描述固定 real-desc-<name> 便于断言） */

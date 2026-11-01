@@ -5,6 +5,7 @@ import com.dark.javaHarness.tool.builtin.DemoTools;
 import com.dark.javaHarness.tool.builtin.SandboxToolProvider;
 import com.dark.javaHarness.tool.builtin.WebTools;
 import com.dark.javaHarness.tool.mcp.McpToolProvider;
+import com.dark.javaHarness.voice.TextToSpeechTools;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -63,6 +64,7 @@ public class ToolAssignments {
             java.util.Map.entry("fetchUrl", "抓取网页正文（jsoup 解析为 Markdown 并提取主内容，可按 query 过滤段落，仅 http/https）"),
             java.util.Map.entry("getCurrentTime", "获取服务器当前本地时间"),
             java.util.Map.entry("add", "计算两个整数相加"),
+            java.util.Map.entry("text_to_speech", "把一段文字合成为语音（用户明确要求语音时使用）"),
             // 沙箱执行类（base 容器）
             java.util.Map.entry("run_ipython_cell", "在沙箱容器内执行 Python 代码并返回输出"),
             java.util.Map.entry("run_shell_command", "在沙箱容器内执行 Shell 命令并返回输出"),
@@ -103,23 +105,21 @@ public class ToolAssignments {
     private final WebTools webTools;
     private final SandboxToolProvider sandbox;
     private final McpToolProvider mcp;
+    private final TextToSpeechTools textToSpeechTools;
     private final DemoTools demoTools = new DemoTools();
     /** agent 表 tools 列读取器（数据驱动分配来源）；null=纯 legacy 路径（测试场景） */
     private final AgentConfigProvider agentConfigProvider;
 
-    /** 兼容构造（既有测试/旧调用链）：无 AgentConfigProvider，forAgent 走纯 legacy switch */
-    public ToolAssignments(WebTools webTools, SandboxToolProvider sandbox, McpToolProvider mcp) {
-        this(webTools, sandbox, mcp, null);
-    }
-
     /** 全参构造（Spring 装配）：agentConfigProvider 非 null 时 forAgent 优先读 agent 表 tools 列 */
     @Autowired
     public ToolAssignments(WebTools webTools, SandboxToolProvider sandbox, McpToolProvider mcp,
-                           AgentConfigProvider agentConfigProvider) {
+                           AgentConfigProvider agentConfigProvider,
+                           TextToSpeechTools textToSpeechTools) {
         this.webTools = webTools;
         this.sandbox = sandbox;
         this.mcp = mcp;
         this.agentConfigProvider = agentConfigProvider;
+        this.textToSpeechTools = textToSpeechTools;
     }
 
     /** 取某专家的工具：tools 列声明优先（数据驱动），无声明回退代码内置（legacy） */
@@ -174,6 +174,7 @@ public class ToolAssignments {
         Map<String, Object> annotatedByToolName = new LinkedHashMap<>();
         indexAnnotated(annotatedByToolName, webTools);
         indexAnnotated(annotatedByToolName, demoTools);
+        indexAnnotated(annotatedByToolName, textToSpeechTools);
         Map<String, ToolCallback> callbackByName = new LinkedHashMap<>();
         indexCallbacks(callbackByName, List.of(sandbox.baseTools(), sandbox.readOnlyFileTools(),
                 sandbox.writeTools(), sandbox.browserTools(), mcp.toolCallbacks()));

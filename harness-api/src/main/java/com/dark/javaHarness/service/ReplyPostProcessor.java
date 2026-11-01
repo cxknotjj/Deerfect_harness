@@ -7,7 +7,7 @@ import java.util.Set;
  * 之前，按注册顺序依次调用所有实现，用其返回的文本落库与出参，并把声明出的标志透出。
  *
  * <p>约定：实现方必须是**无副作用、幂等**的纯文本处理；不得抛异常（core 会捕获并跳过）。
- * 典型用途：渠道剥离自己约定的控制标记（如 QQ 渠道的 [[voice]]）并声明 flag。
+ * 典型用途：剥离渠道约定的控制标记并声明通用 flag（如语音工件 "voice:&lt;id&gt;"）。
  */
 public interface ReplyPostProcessor {
 

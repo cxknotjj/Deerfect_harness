@@ -1,0 +1,16 @@
+# 文字转语音（Edge TTS）配置：仅 QQ 渠道消费，工具本身不感知渠道。
+#
+# python 指向已安装 edge-tts 的解释器（需自行 pip install edge-tts）；
+# 本机可用独立 venv，容器内使用镜像自带 python3。语音名、语速与音量走 Edge TTS 参数。
+# max-chars 控制单条语音长度，避免超长音频撞 QQ 语音时长限制与子进程开销。
+app:
+  tts:
+    enabled: true
+    python: ${TTS_PYTHON:python3.11}
+    voice: ${TTS_VOICE:zh-CN-XiaoxiaoNeural}
+    rate: "+0%"
+    volume: "+0%"
+    max-chars: 200
+    timeout-seconds: 20
+    max-concurrent: 2
+    artifact-ttl-seconds: 120

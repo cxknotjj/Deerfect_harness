@@ -13,6 +13,10 @@ import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.tool.builtin.SandboxToolProvider;
 import com.dark.javaHarness.tool.builtin.WebTools;
 import com.dark.javaHarness.tool.mcp.McpToolProvider;
+import com.dark.javaHarness.voice.EdgeTtsClient;
+import com.dark.javaHarness.voice.InMemoryVoiceArtifactStore;
+import com.dark.javaHarness.voice.TextToSpeechTools;
+import com.dark.javaHarness.voice.TtsProperties;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,6 +49,9 @@ class ToolAssignmentsTest {
 
     private final WebTools webTools = new WebTools();
 
+    /** 真实 TTS 工具对象（禁用状态，不触发合成）：仅用于目录索引/精确名解析断言 */
+    private final TextToSpeechTools textToSpeechTools = ttsTools();
+
     private ToolAssignments assignments;
 
     /** 数据驱动实例：带 AgentConfigProvider，forAgent 优先读 tools 列声明 */
@@ -67,8 +74,14 @@ class ToolAssignmentsTest {
         lenient().when(sandbox.writeTools()).thenReturn(List.of(w1, w2, w3));
         lenient().when(sandbox.browserTools()).thenReturn(List.of(b1, b2, b3));
         lenient().when(mcp.toolCallbacks()).thenReturn(List.of(mcpInteractive));
-        assignments = new ToolAssignments(webTools, sandbox, mcp);
-        dataDriven = new ToolAssignments(webTools, sandbox, mcp, agentConfigProvider);
+        assignments = new ToolAssignments(webTools, sandbox, mcp, null, textToSpeechTools);
+        dataDriven = new ToolAssignments(webTools, sandbox, mcp, agentConfigProvider, textToSpeechTools);
+    }
+
+    private static TextToSpeechTools ttsTools() {
+        TtsProperties props = new TtsProperties();
+        props.setEnabled(false);
+        return new TextToSpeechTools(props, new EdgeTtsClient(props), new InMemoryVoiceArtifactStore(props));
     }
 
     /** 带 toolDefinition 名字的 mock 回调（真实工具名才可验证同名去重语义） */
@@ -220,6 +233,14 @@ class ToolAssignmentsTest {
         when(agentConfigProvider.findAgentTools("custom")).thenReturn(Optional.of("browser_hover"));
         ToolAssignments.ToolSet set = dataDriven.forAgent("custom");
         assertTrue(set.callbacks().contains(mcpHover), "tools 列显式声明的 MCP 工具按名授予");
+    }
+
+    @Test
+    void declaredTools_textToSpeechTool_resolvedByName() {
+        // 精确工具名命中注解工具目录：text_to_speech → 注入整个 TextToSpeechTools 对象
+        when(agentConfigProvider.findAgentTools("voice")).thenReturn(Optional.of("text_to_speech"));
+        ToolAssignments.ToolSet set = dataDriven.forAgent("voice");
+        assertEquals(List.of(textToSpeechTools), set.annotated());
     }
 
     @Test

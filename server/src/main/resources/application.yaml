@@ -8,6 +8,7 @@
 #   application-security.yaml    app.security
 #   application-knowledge.yaml   spring.servlet.multipart / app.knowledge
 #   application-qq.yaml          napcat.*（QQ 渠道）
+#   application-tts.yaml         app.tts（Edge TTS）
 # ============================================================
 
 spring:
@@ -24,6 +25,7 @@ spring:
       - classpath:application-security.yaml
       - classpath:application-knowledge.yaml
       - classpath:application-qq.yaml
+      - classpath:application-tts.yaml
 
 server:
   port: 8080

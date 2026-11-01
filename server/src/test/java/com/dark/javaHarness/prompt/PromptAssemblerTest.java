@@ -17,6 +17,10 @@ import com.dark.javaHarness.tool.builtin.SandboxToolProvider;
 import com.dark.javaHarness.tool.builtin.WebTools;
 import com.dark.javaHarness.tool.mcp.McpToolProvider;
 import com.dark.javaHarness.tool.mcp.ServerTaggedCallback;
+import com.dark.javaHarness.voice.EdgeTtsClient;
+import com.dark.javaHarness.voice.InMemoryVoiceArtifactStore;
+import com.dark.javaHarness.voice.TextToSpeechTools;
+import com.dark.javaHarness.voice.TtsProperties;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -52,9 +56,16 @@ class PromptAssemblerTest {
 
     @BeforeEach
     void setUp() {
-        toolAssignments = new ToolAssignments(new WebTools(), sandbox, mcp);
+        toolAssignments = new ToolAssignments(new WebTools(), sandbox, mcp, null, ttsTools());
         assembler = new PromptAssembler(agentService, toolAssignments);
         stubEmptyToolFaces();
+    }
+
+    /** 真实 TTS 工具对象（禁用状态）：仅用于分配表目录索引 */
+    private static TextToSpeechTools ttsTools() {
+        TtsProperties props = new TtsProperties();
+        props.setEnabled(false);
+        return new TextToSpeechTools(props, new EdgeTtsClient(props), new InMemoryVoiceArtifactStore(props));
     }
 
     /** 沙箱/MCP 工具面默认为空（lenient：用不到该工具组的用例免检） */

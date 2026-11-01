@@ -122,6 +122,28 @@ public final class HarnessMetrics {
                 .increment(value);
     }
 
+    /** 一次 TTS 合成：成功/失败计数、合成耗时与朗读字数（Edge TTS 子进程）。 */
+    public static void ttsCall(boolean ok, long durationMs, int chars) {
+        String status = ok ? "ok" : "error";
+        Counter.builder("harness.tts.calls")
+                .description("TTS 合成次数（错误率 = status=error 占比）")
+                .tag("status", status)
+                .register(REGISTRY)
+                .increment();
+        Timer.builder("harness.tts.duration")
+                .description("TTS 合成耗时")
+                .tag("status", status)
+                .publishPercentileHistogram()
+                .minimumExpectedValue(Duration.ofMillis(50))
+                .maximumExpectedValue(Duration.ofSeconds(120))
+                .register(REGISTRY)
+                .record(durationMs, TimeUnit.MILLISECONDS);
+        Counter.builder("harness.tts.chars")
+                .description("TTS 朗读字数")
+                .register(REGISTRY)
+                .increment(chars);
+    }
+
     private static String label(String value) {
         return value == null || value.isBlank() ? UNKNOWN : value;
     }

@@ -11,7 +11,7 @@ import java.util.List;
  * <p>{@code agent} 为实际使用的 agent 名（回退/分流可观察）：显式 agentId 未命中回退默认、
  * 智能分流结果都从这里透出，调用方无需猜「这条回答是谁生成的」。
  *
- * <p>{@code flags} 为渠道无关的通用标志集合（如 "voice"）：由 core 的
+ * <p>{@code flags} 为渠道无关的通用标志集合（如 "voice:&lt;id&gt;"）：由 core 的
  * {@link com.dark.javaHarness.service.ReplyPostProcessor} 等扩展点声明而来，无实现时为空集。
  *
  * <p>{@code route} 为本轮路由决策快照（路径/置信度/工作流/来源）。
