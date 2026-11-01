@@ -20,19 +20,30 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * skill Markdown 技能库（prompt 动态加载·子项 1）：扫描技能目录的 .md 文件，
- * 解析 front-matter 元数据与正文，按文件 mtime 热重载——放入/修改/删除文件，
- * 下一请求即生效，无需重启。
+ * skill Markdown 技能库（prompt 动态加载·子项 1）：扫描技能目录下的技能子目录，
+ * 解析入口文件的 front-matter 元数据与正文，按入口文件 mtime 热重载——放入/修改/删除
+ * 技能目录，下一请求即生效，无需重启。
  *
- * <p>文件格式（Markdown + 简单 front-matter，逐行 key: value 手写解析不引依赖）：
+ * <p>目录结构（每个技能一个子目录，入口文件二选一）：
+ * <pre>
+ * skills/
+ *   &lt;skill-name&gt;/
+ *     SKILL.md              # 推荐入口
+ *     或 &lt;skill-name&gt;.md    # 同名声目录命名入口
+ *     ...                   # 其他文件视为技能资源，不参与索引
+ * </pre>
+ *
+ * <p>入口文件格式（Markdown + 简单 front-matter，逐行 key: value 手写解析不引依赖）：
  * <pre>
  * ---
- * name: web-research          # 可选，缺省=文件名去 .md
+ * name: web-research          # 可选，缺省=技能子目录名
  * description: 一句话用途      # 可选，缺省=正文首个非空行
  * agents: researcher, general # 可选，缺省=全部 agent 可见
  * ---
  * 正文（完整技能说明，load_skill 返回的就是这段）
  * </pre>
+ *
+ * <p>旧版「skills/ 顶层平铺 .md」已移除：顶层文件不再参与扫描。
  *
  * <p>容错：目录缺失视为空技能面（info 一次）；坏文件/坏 front-matter warn 跳过不抛，
  * 且失败结果按 mtime 缓存（文件不变不重试、不重复刷 warn）。
@@ -62,7 +73,7 @@ public class SkillRepository {
     public SkillRepository(@Value("${app.prompt.skills.dir:skills}") String dir) {
         this.dir = Path.of(dir == null || dir.isBlank() ? "skills" : dir.trim());
         if (!Files.isDirectory(this.dir)) {
-            log.info("[skill] 技能目录不存在（{}），技能面为空——创建目录并放入 .md 文件即可热装配",
+            log.info("[skill] 技能目录不存在（{}），技能面为空——创建目录并为每个技能建子目录（SKILL.md）即可热装配",
                     this.dir.toAbsolutePath());
         }
     }
@@ -89,17 +100,21 @@ public class SkillRepository {
                 .findFirst();
     }
 
-    /** 扫描目录：mtime 变化才重新解析（热重载） */
+    /** 扫描技能目录下的子目录：mtime 变化才重新解析（热重载）；顶层 .md 不再参与扫描 */
     private List<Skill> scan() {
         if (!Files.isDirectory(dir)) {
             return List.of();
         }
         List<Skill> out = new ArrayList<>();
-        try (Stream<Path> files = Files.list(dir)) {
-            files.filter(p -> Files.isRegularFile(p)
-                            && p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".md"))
-                    .forEach(p -> {
-                        Skill skill = load(p);
+        try (Stream<Path> entries = Files.list(dir)) {
+            entries.filter(Files::isDirectory)
+                    .sorted(Comparator.comparing(p -> p.getFileName().toString()))
+                    .forEach(skillDir -> {
+                        Path entry = entryFile(skillDir);
+                        if (entry == null) {
+                            return;
+                        }
+                        Skill skill = load(skillDir, entry);
                         if (skill != null) {
                             out.add(skill);
                         }
@@ -111,21 +126,31 @@ public class SkillRepository {
         return out;
     }
 
-    /** 单文件加载：mtime 未变走缓存（含失败缓存），变化才重新解析 */
-    private Skill load(Path file) {
+    /** 技能入口文件：优先 SKILL.md，其次 `<子目录名>.md`；找不到视为非技能目录 */
+    private static Path entryFile(Path skillDir) {
+        Path standard = skillDir.resolve("SKILL.md");
+        if (Files.isRegularFile(standard)) {
+            return standard;
+        }
+        Path named = skillDir.resolve(skillDir.getFileName().toString() + ".md");
+        return Files.isRegularFile(named) ? named : null;
+    }
+
+    /** 单入口文件加载：mtime 未变走缓存（含失败缓存），变化才重新解析 */
+    private Skill load(Path skillDir, Path entry) {
         long mtime;
         try {
-            mtime = Files.getLastModifiedTime(file).toMillis();
+            mtime = Files.getLastModifiedTime(entry).toMillis();
         } catch (IOException e) {
-            log.warn("[skill] 读取文件时间失败，跳过 {}: {}", file, e.toString());
+            log.warn("[skill] 读取文件时间失败，跳过 {}: {}", entry, e.toString());
             return null;
         }
-        String key = file.getFileName().toString();
+        String key = dir.relativize(entry).toString();
         Cached cached = cache.get(key);
         if (cached != null && cached.mtime() == mtime) {
             return cached.skill();
         }
-        Skill parsed = parse(file);
+        Skill parsed = parse(entry, skillDir.getFileName().toString());
         cache.put(key, new Cached(mtime, parsed));
         if (parsed != null) {
             log.info("[skill] 已加载技能 '{}'（{}）", parsed.name(), key);
@@ -133,9 +158,8 @@ public class SkillRepository {
         return parsed;
     }
 
-    /** 解析单个 .md：front-matter（--- 包围，逐行 key: value）+ 正文；失败返回 null 并 warn */
-    static Skill parse(Path file) {
-        String fallbackName = file.getFileName().toString().replaceAll("(?i)\\.md$", "");
+    /** 解析入口文件：front-matter（--- 包围，逐行 key: value）+ 正文；name 缺省取技能目录名 */
+    static Skill parse(Path file, String fallbackName) {
         try {
             String text = Files.readString(file).stripLeading();
             Map<String, String> meta = new HashMap<>();

@@ -199,7 +199,7 @@
 ## Prompt 动态装配（2026-09 完成）
 
 - [x] **prompt 的动态加载（六子项总览）**：
-  - [x] 1\. skill 的动态装配：`SkillRepository` 扫描 `skills/` 目录 .md（front-matter 声明 name/description/agents，mtime 热重载免重启）+ `SkillManager` 两段式暴露——system prompt 只注入「名称：描述」索引段，模型按需调 `load_skill` 元工具取完整正文；越权防护按 agent 可见技能集服务端硬校验，返回全文按 tool-result-budget 截断
+  - [x] 1\. skill 的动态装配：`SkillRepository` 扫描 `skills/<skill>/` 技能子目录（入口 `SKILL.md` 或 `<skill>.md`，front-matter 声明 name/description/agents，mtime 热重载免重启）+ `SkillManager` 两段式暴露——system prompt 只注入「名称：描述」索引段，模型按需调 `load_skill` 元工具取完整正文；越权防护按 agent 可见技能集服务端硬校验，返回全文按 tool-result-budget 截断
   - [x] 2\. tool 的动态装配：agent 表新增 `tools` 列（V10 迁移），`ToolAssignments` 优先按列声明分配（组名 `web`/`sandbox.base`… 或精确工具名，跨目录查找含 MCP 动态工具），改库即生效免重启；列 NULL/空白回退代码内置分配（legacy 语义不变）
   - [x] 3\. mcp 的动态装配：`McpToolProvider` 重构为多 server——解析 `mcp-config.json`（Claude/Cursor 同款 mcpServers 结构）全量条目（stdio/http 混合、`enabled:false` 跳过），每 server 独立懒连接 + 失败隔离，工具并集按名去重；文件缺失回退 legacy yaml 单 server。附带：流式真实 usage 统计——`OpenAiChatOptions.streamUsage(true)` 让末帧回传真实 usage（prompt/completion token），llm\_call\_log 优先记真实值、无 usage 回退估算；`load_skill` 与 `expand_tool` 同为元工具不占工具次数额度
   - [x] 4\. agent 角色 prompt 的组装（详见下条 Prompt 组装管线）

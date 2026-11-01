@@ -46,7 +46,7 @@ Deerfect Harness 是一个基于 Spring AI 的双路径 Agent 平台：**Agentic
 | 自研工具 | 网页抓取（jsoup 正文提取、Markdown 输出、错误分类与缓存）、时间等本地工具 |
 | MCP 工具 | stdio / Streamable HTTP 多 server，懒连接、按 server 故障隔离，配置见 `mcp-config.json`（[mcp-tools.md](./guides/mcp-tools.md)） |
 | 容器沙箱 | Python / Shell / 文件读写 / 浏览器操作只在 Docker 容器内执行，宿主机零暴露；无 Docker 时该组工具自动禁用 |
-| 技能（Skill） | `skills/` 目录 Markdown + front-matter，按 Agent 可见集注入索引，`load_skill` 按需取正文 |
+| 技能（Skill） | `skills/<skill>/` 目录式技能：入口 `SKILL.md`（或 `<skill>.md`）+ front-matter，按 Agent 可见集注入索引，`load_skill` 按需取正文 |
 | 最小权限 | `general` 收敛为只读探索面；执行 / 写入只授予 `coder` / `analyst` |
 | Schema 延迟加载 | 首轮只暴露工具名称与用途，模型调 `expand_tool` 后再注入完整参数 Schema |
 | 领域适配范例 | 独立 `wms-mcp-adapter`：只读 GET、分页钳制、双侧鉴权、审计字段过滤（[wms-mcp.md](./guides/wms-mcp.md)） |

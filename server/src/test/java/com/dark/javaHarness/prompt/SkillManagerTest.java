@@ -31,8 +31,11 @@ class SkillManagerTest {
         return new SkillManager(new SkillRepository(dir.toString()), true, resultBudgetTokens);
     }
 
+    /** 在技能根目录下建技能子目录并写入 SKILL.md（file 参数取其主干作为子目录名） */
     private void writeSkill(String file, String content) throws Exception {
-        Files.writeString(dir.resolve(file), content);
+        String name = file.replaceAll("(?i)\\.md$", "");
+        Path skillDir = Files.createDirectories(dir.resolve(name));
+        Files.writeString(skillDir.resolve("SKILL.md"), content);
     }
 
     // ================================================================
