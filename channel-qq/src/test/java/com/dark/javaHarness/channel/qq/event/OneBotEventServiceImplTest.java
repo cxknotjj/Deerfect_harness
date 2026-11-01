@@ -25,6 +25,7 @@ import com.dark.javaHarness.channel.qq.persistence.OneBotSessionBindingMapper;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.ChatService;
 import com.dark.javaHarness.service.SessionService;
+import com.dark.javaHarness.voice.VoiceArtifactStore;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -32,6 +33,8 @@ import java.nio.file.Path;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -61,6 +64,8 @@ class OneBotEventServiceImplTest {
     private OneBotSessionBindingMapper bindingMapper;
     @Mock
     private NapCatApiClient apiClient;
+    @Mock
+    private VoiceArtifactStore voiceArtifacts;
 
     @TempDir
     Path tempDir;
@@ -77,7 +82,8 @@ class OneBotEventServiceImplTest {
         props.getGroupTrigger().setPrefix("/ai");
         props.getRateLimit().setPerUserSeconds(0);
         props.getReply().setMaxLength(3000);
-        service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient, props);
+        service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient,
+                props, voiceArtifacts);
     }
 
     private static OneBotEvent privateMsg(long messageId, String text) {
@@ -118,9 +124,12 @@ class OneBotEventServiceImplTest {
     }
 
     private void stubChatSuccess(String reply) {
+        stubChatSuccess(reply, Set.of());
+    }
+
+    private void stubChatSuccess(String reply, Set<String> flags) {
         when(chatService.chat(any()))
-                .thenReturn(ChatResponse.success("1", false, null, reply, null, null,
-                        java.util.Set.of(), null));
+                .thenReturn(ChatResponse.success("1", false, null, reply, null, null, flags, null));
     }
 
     @Test
@@ -256,7 +265,8 @@ class OneBotEventServiceImplTest {
     void handle_groupChat_rateLimitedSecondMessageDropped() {
         // 限频间隔在服务构造时快照：必须先设间隔再重建 service（setUp 默认 0 = 不限频）
         props.getRateLimit().setPerUserSeconds(10);
-        service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient, props);
+        service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient,
+                props, voiceArtifacts);
         when(bindingMapper.selectOne(any())).thenReturn(binding(3L, "qq:group:" + GID + ":" + UID, 5L));
         stubChatSuccess("回");
         service.handle(groupMsg(30L, true, "第一问"));
@@ -302,7 +312,8 @@ class OneBotEventServiceImplTest {
     void handle_privateChat_rateLimitedSecondMessageDropped() {
         // 私聊同样限频（防陌生人刷 LLM token），与群聊同一间隔口径
         props.getRateLimit().setPerUserSeconds(10);
-        service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient, props);
+        service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient,
+                props, voiceArtifacts);
         when(bindingMapper.selectOne(any())).thenReturn(binding(31L, "qq:private:" + UID, 5L));
         stubChatSuccess("回");
         service.handle(privateMsg(300L, "第一问"));
@@ -314,7 +325,8 @@ class OneBotEventServiceImplTest {
     void handle_privateChat_allowlistBlocksStranger() {
         // 白名单非空时名单外私聊直接丢弃（名单内用户不受影响）
         props.setPrivateAllowUsers("999");
-        service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient, props);
+        service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient,
+                props, voiceArtifacts);
         when(bindingMapper.selectOne(any())).thenReturn(binding(32L, "qq:private:999", 5L));
         stubChatSuccess("主人好");
         service.handle(privateMsg(UID, 310L, "陌生人私聊"));
@@ -498,7 +510,8 @@ class OneBotEventServiceImplTest {
         props.getEmoji().setIndexFile(index.toString());
         props.getEmoji().setProbability(probability);
         props.getEmoji().setSendDelayMs(0);
-        service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient, props);
+        service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient,
+                props, voiceArtifacts);
     }
 
     @Test
@@ -577,6 +590,76 @@ class OneBotEventServiceImplTest {
         stubChatSuccess("第一段。\n[emoji:happy]");
         service.handle(privateMsg(83L, "问"));
         verify(apiClient, times(1)).sendPrivateMsg(eq(UID), any());
+    }
+
+    // ==================== 语音发送（core 透出的 voice:<id> flag） ====================
+
+    @Test
+    void handle_voiceFlag_sendsRecordAndSkipsTextAndEmoji() {
+        byte[] audio = "mp3".getBytes(StandardCharsets.UTF_8);
+        when(voiceArtifacts.take("v1")).thenReturn(Optional.of(
+                new VoiceArtifactStore.VoiceArtifact("v1", "turn", "你好", audio, "mp3", 0L)));
+        when(apiClient.sendPrivateMsg(eq(UID), any())).thenReturn(777L);
+        when(bindingMapper.selectOne(any())).thenReturn(binding(90L, "qq:private:" + UID, 5L));
+        stubChatSuccess("你好呀\n[emoji:happy]", Set.of("voice:v1"));
+        service.handle(privateMsg(900L, "用语音说"));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MessageSegment>> captor = ArgumentCaptor.forClass(List.class);
+        verify(apiClient, times(1)).sendPrivateMsg(eq(UID), captor.capture());
+        List<MessageSegment> segments = captor.getValue();
+        assertEquals(1, segments.size(), "语音发送成功时不发文字与表情");
+        assertEquals("record", segments.get(0).type());
+        assertEquals("base64://" + Base64.getEncoder().encodeToString(audio),
+                String.valueOf(segments.get(0).data().get("file")));
+        assertTrue(service.sentMessageTracker.contains(777L), "语音消息应记入 tracker（/recall 可撤回）");
+    }
+
+    @Test
+    void handle_voiceFlag_missingArtifact_fallsBackToText() {
+        when(voiceArtifacts.take("v2")).thenReturn(Optional.empty());
+        when(bindingMapper.selectOne(any())).thenReturn(binding(91L, "qq:private:" + UID, 5L));
+        stubChatSuccess("你好呀", Set.of("voice:v2"));
+        service.handle(privateMsg(901L, "用语音说"));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MessageSegment>> captor = ArgumentCaptor.forClass(List.class);
+        verify(apiClient).sendPrivateMsg(eq(UID), captor.capture());
+        assertEquals("text", captor.getValue().get(0).type());
+        assertEquals("你好呀", captor.getValue().get(0).text());
+    }
+
+    @Test
+    void handle_voiceFlag_sendFailure_fallsBackToText() {
+        byte[] audio = "mp3".getBytes(StandardCharsets.UTF_8);
+        when(voiceArtifacts.take("v3")).thenReturn(Optional.of(
+                new VoiceArtifactStore.VoiceArtifact("v3", "turn", "你好", audio, "mp3", 0L)));
+        // NapCat 发送失败返回 null：语音与回退文字两次发送都应失败返回 null
+        when(apiClient.sendPrivateMsg(eq(UID), any())).thenReturn((Long) null);
+        when(bindingMapper.selectOne(any())).thenReturn(binding(92L, "qq:private:" + UID, 5L));
+        stubChatSuccess("你好呀", Set.of("voice:v3"));
+        service.handle(privateMsg(902L, "用语音说"));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MessageSegment>> captor = ArgumentCaptor.forClass(List.class);
+        verify(apiClient, times(2)).sendPrivateMsg(eq(UID), captor.capture());
+        assertEquals("record", captor.getAllValues().get(0).get(0).type(), "先尝试语音");
+        assertEquals("text", captor.getAllValues().get(1).get(0).type(), "语音失败后回退文字");
+        assertEquals("你好呀", captor.getAllValues().get(1).get(0).text());
+    }
+
+    @Test
+    void handle_voiceFlag_withoutText_failureSendsHint() {
+        // 正文仅剩情绪标记（剥离后为空）且语音工件缺失：发送失败提示而不是空文本
+        when(voiceArtifacts.take("v4")).thenReturn(Optional.empty());
+        when(bindingMapper.selectOne(any())).thenReturn(binding(93L, "qq:private:" + UID, 5L));
+        stubChatSuccess("[emoji:happy]", Set.of("voice:v4"));
+        service.handle(privateMsg(903L, "用语音说"));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MessageSegment>> captor = ArgumentCaptor.forClass(List.class);
+        verify(apiClient).sendPrivateMsg(eq(UID), captor.capture());
+        assertEquals("语音发送失败，请稍后再试", captor.getValue().get(0).text());
     }
 
     // ==================== /recall 撤回（napcat.recall 配置已随分段移除） ====================

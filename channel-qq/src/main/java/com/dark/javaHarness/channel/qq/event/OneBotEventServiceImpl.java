@@ -14,13 +14,16 @@ import com.dark.javaHarness.domain.dto.ChatResponse;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.ChatService;
 import com.dark.javaHarness.service.SessionService;
+import com.dark.javaHarness.voice.VoiceArtifactStore;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -62,6 +65,9 @@ public class OneBotEventServiceImpl implements OneBotEventService {
     private static final Pattern EMOJI_MARKER =
             Pattern.compile("\\[emoji:([a-zA-Z]+)\\]", Pattern.CASE_INSENSITIVE);
 
+    /** 语音 flag 前缀：core 产生的 voice:&lt;artifactId&gt;，仅本渠道消费 */
+    private static final String VOICE_FLAG_PREFIX = "voice:";
+
     /** /help 文案（无 LLM 消耗） */
     private static final String HELP_TEXT = """
             可用指令：
@@ -79,6 +85,8 @@ public class OneBotEventServiceImpl implements OneBotEventService {
     private final OneBotSessionBindingMapper bindingMapper;
     private final NapCatApiClient apiClient;
     private final NapCatProperties props;
+    /** 语音工件库（core 工具按 turnId 写入）：本渠道按 voice:&lt;id&gt; flag 取走音频发送 */
+    private final VoiceArtifactStore voiceArtifacts;
     private final UserRateLimiter rateLimiter;
     private final Set<Long> privateAllowUsers;
     /** 入站文本提取与触发判定（超长类拆分 2026-09-25 拆出） */
@@ -97,13 +105,15 @@ public class OneBotEventServiceImpl implements OneBotEventService {
                                   AgentService agentService,
                                   OneBotSessionBindingMapper bindingMapper,
                                   NapCatApiClient apiClient,
-                                  NapCatProperties props) {
+                                  NapCatProperties props,
+                                  VoiceArtifactStore voiceArtifacts) {
         this.chatService = chatService;
         this.sessionService = sessionService;
         this.agentService = agentService;
         this.bindingMapper = bindingMapper;
         this.apiClient = apiClient;
         this.props = props;
+        this.voiceArtifacts = voiceArtifacts;
         this.emojiReplies = new EmojiReplies(props);
         this.textParser = new EventTextParser(props, sentMessageTracker);
         this.rateLimiter = new UserRateLimiter(props.getRateLimit().getPerUserSeconds() * 1000L);
@@ -177,7 +187,7 @@ public class OneBotEventServiceImpl implements OneBotEventService {
             log.warn("[napcat] 聊天未产出回复（status={}，messageId={}）", resp.status(), event.messageId());
             return;
         }
-        sendReply(event, isGroup, resp.reply());
+        sendReply(event, isGroup, resp.reply(), resp.flags());
     }
 
     /** 聊天调用（带超时）：超时放弃回复且静默，后台任务跑完仅落会话记忆；超时秒数 0 = 不限制 */
@@ -220,7 +230,7 @@ public class OneBotEventServiceImpl implements OneBotEventService {
                 return true;
             }
             case "help" -> {
-                sendReply(event, isGroup, HELP_TEXT);
+                sendReply(event, isGroup, HELP_TEXT, Set.of());
                 return true;
             }
             case "history" -> {
@@ -245,12 +255,12 @@ public class OneBotEventServiceImpl implements OneBotEventService {
     private void handleRecall(OneBotEvent event, boolean isGroup) {
         Long last = sentMessageTracker.lastId(sendTargetKey(event));
         if (last == null) {
-            sendReply(event, isGroup, "没有可撤回的消息。");
+            sendReply(event, isGroup, "没有可撤回的消息。", Set.of());
             return;
         }
         apiClient.deleteMsg(last);
         sentMessageTracker.forget(last);
-        sendReply(event, isGroup, "已撤回。");
+        sendReply(event, isGroup, "已撤回。", Set.of());
     }
 
     /** /reset：删除会话绑定行，下条消息重新建档开启新会话，并回复确认 */
@@ -258,20 +268,20 @@ public class OneBotEventServiceImpl implements OneBotEventService {
         String key = sessionKey(event);
         int deleted = bindingMapper.delete(new QueryWrapper<OneBotSessionBinding>().eq("session_key", key));
         log.info("[napcat] 会话重置 key={}（删除 {} 行绑定）", key, deleted);
-        sendReply(event, "group".equals(event.messageType()), "已开启新对话，之前的记忆已清空。");
+        sendReply(event, "group".equals(event.messageType()), "已开启新对话，之前的记忆已清空。", Set.of());
     }
 
     /** /history [n]：回显当前会话最近 n 条（默认 5），不消耗 LLM */
     private void handleHistory(OneBotEvent event, boolean isGroup, String arg) {
         Long sid = boundSessionId(event);
         if (sid == null) {
-            sendReply(event, isGroup, "我们还没有聊天记录哦。");
+            sendReply(event, isGroup, "我们还没有聊天记录哦。", Set.of());
             return;
         }
         List<com.dark.javaHarness.domain.dto.SessionMessagesView.Item> msgs =
                 sessionService.listMessages(String.valueOf(sid));
         if (msgs == null || msgs.isEmpty()) {
-            sendReply(event, isGroup, "我们还没有聊天记录哦。");
+            sendReply(event, isGroup, "我们还没有聊天记录哦。", Set.of());
             return;
         }
         int n = parsePositiveInt(arg, 5);
@@ -281,14 +291,14 @@ public class OneBotEventServiceImpl implements OneBotEventService {
         for (var it : tail) {
             sb.append('\n').append("user".equals(it.role()) ? "你： " : "我： ").append(truncate(it.content(), 60));
         }
-        sendReply(event, isGroup, sb.toString());
+        sendReply(event, isGroup, sb.toString(), Set.of());
     }
 
     /** /agent：无参列出 Agent；有参按名称切换（需已有会话绑定） */
     private void handleAgent(OneBotEvent event, boolean isGroup, String arg) {
         List<com.dark.javaHarness.domain.dto.AgentItemView> agents = agentService.agentItems();
         if (arg == null || arg.isBlank()) {
-            sendReply(event, isGroup, "可用 Agent：\n" + formatAgentList(agents));
+            sendReply(event, isGroup, "可用 Agent：\n" + formatAgentList(agents), Set.of());
             return;
         }
         Long targetId = agents.stream()
@@ -296,19 +306,19 @@ public class OneBotEventServiceImpl implements OneBotEventService {
                 .map(com.dark.javaHarness.domain.dto.AgentItemView::id)
                 .findFirst().orElse(null);
         if (targetId == null) {
-            sendReply(event, isGroup, "没找到这个 Agent，可用：\n" + formatAgentList(agents));
+            sendReply(event, isGroup, "没找到这个 Agent，可用：\n" + formatAgentList(agents), Set.of());
             return;
         }
         Long sid = boundSessionId(event);
         if (sid == null) {
-            sendReply(event, isGroup, "先和我说句话建立会话，再切换 Agent 吧。");
+            sendReply(event, isGroup, "先和我说句话建立会话，再切换 Agent 吧。", Set.of());
             return;
         }
         try {
             sessionService.switchAgent(String.valueOf(sid), targetId);
-            sendReply(event, isGroup, "已切换到 Agent：" + arg.trim());
+            sendReply(event, isGroup, "已切换到 Agent：" + arg.trim(), Set.of());
         } catch (IllegalArgumentException e) {
-            sendReply(event, isGroup, "切换失败：" + e.getMessage());
+            sendReply(event, isGroup, "切换失败：" + e.getMessage(), Set.of());
         }
     }
 
@@ -399,14 +409,22 @@ public class OneBotEventServiceImpl implements OneBotEventService {
     }
 
     /**
-     * 回复发送：剥离 LLM 末尾的 [emoji:分类] 标记后，整段单条发送（超长按 max-length 截断）；
-     * 群聊可带 reply 段与 @提问者段；文本发送成功后按分类追加一张表情。
+     * 回复发送：有 voice:&lt;id&gt; flag 时先发语音，成功即跳过文字与表情；
+     * 否则剥离 [emoji:分类] 标记后整段单条发送文字（超长按 max-length 截断），
+     * 群聊可带 reply 段与 @提问者段，文本发送成功后按分类追加一张表情。
      */
-    private void sendReply(OneBotEvent event, boolean isGroup, String reply) {
+    private void sendReply(OneBotEvent event, boolean isGroup, String reply, Set<String> flags) {
         NapCatProperties.Reply replyCfg = props.getReply();
         NapCatProperties.Emoji emojiCfg = props.getEmoji();
         ParsedReply parsed = stripEmojiMarker(reply);
         String text = capLength(parsed.text(), replyCfg.getMaxLength());
+        String voiceId = voiceId(flags);
+        if (voiceId != null && sendVoice(event, isGroup, voiceId)) {
+            return; // 语音发送成功：本轮不再发文字与表情
+        }
+        if (voiceId != null && text.isBlank()) {
+            text = "语音发送失败，请稍后再试";
+        }
         List<MessageSegment> segments = new ArrayList<>();
         if (isGroup) {
             if (event.messageId() != null) {
@@ -439,6 +457,37 @@ public class OneBotEventServiceImpl implements OneBotEventService {
         } catch (Exception e) {
             log.warn("[napcat] 表情发送钩子异常，跳过本次表情（文本回复不受影响）", e);
         }
+    }
+
+    /** 从渠道无关 flags 中取 voice:&lt;id&gt;；无该 flag 返回 null。 */
+    private static String voiceId(Set<String> flags) {
+        if (flags == null) {
+            return null;
+        }
+        for (String flag : flags) {
+            if (flag != null && flag.startsWith(VOICE_FLAG_PREFIX)) {
+                String id = flag.substring(VOICE_FLAG_PREFIX.length()).trim();
+                return id.isEmpty() ? null : id;
+            }
+        }
+        return null;
+    }
+
+    /** 取走语音工件并发送 record 段；工件缺失或发送失败返回 false（调用方回退文字）。 */
+    private boolean sendVoice(OneBotEvent event, boolean isGroup, String id) {
+        Optional<VoiceArtifactStore.VoiceArtifact> artifact = voiceArtifacts.take(id);
+        if (artifact.isEmpty()) {
+            log.warn("[napcat] 语音工件缺失，回退文字（id={}）", id);
+            return false;
+        }
+        String file = "base64://" + Base64.getEncoder().encodeToString(artifact.get().audio());
+        Long messageId = sendSegments(event, isGroup,
+                List.of(new MessageSegment("record", Map.of("file", file))));
+        if (messageId == null) {
+            log.warn("[napcat] 语音发送失败，回退文字（id={}）", id);
+            return false;
+        }
+        return true;
     }
 
     /** 剥离回复中的情绪标记：取最后一个 [emoji:分类]，返回正文与该分类（无标记时分类为 null） */

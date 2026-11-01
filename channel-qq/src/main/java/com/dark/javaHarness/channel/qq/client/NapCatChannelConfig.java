@@ -9,6 +9,7 @@ import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.ChatService;
 import com.dark.javaHarness.service.SessionBindingCleaner;
 import com.dark.javaHarness.service.SessionService;
+import com.dark.javaHarness.voice.VoiceArtifactStore;
 import tools.jackson.databind.ObjectMapper;
 import java.util.concurrent.Executor;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -64,8 +65,10 @@ public class NapCatChannelConfig {
                                                  AgentService agentService,
                                                  OneBotSessionBindingMapper bindingMapper,
                                                  NapCatApiClient apiClient,
-                                                 NapCatProperties props) {
-        return new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient, props);
+                                                 NapCatProperties props,
+                                                 VoiceArtifactStore voiceArtifacts) {
+        return new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient,
+                props, voiceArtifacts);
     }
 
     /** core 删会话时的绑定清理端口实现（SessionServiceImpl 经 ObjectProvider 可选注入） */
