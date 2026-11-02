@@ -6,10 +6,13 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dark.javaHarness.tool.TokenEstimator;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.ai.tool.ToolCallback;
@@ -28,7 +31,12 @@ class SkillManagerTest {
     Path dir;
 
     private SkillManager manager(int resultBudgetTokens) {
-        return new SkillManager(new SkillRepository(dir.toString()), true, resultBudgetTokens);
+        return manager(resultBudgetTokens, 0);
+    }
+
+    private SkillManager manager(int resultBudgetTokens, int maxIndexTokens) {
+        return new SkillManager(new SkillRepository(dir.toString(), 0), true,
+                resultBudgetTokens, maxIndexTokens, new SimpleMeterRegistry());
     }
 
     /** 在技能根目录下建技能子目录并写入 SKILL.md（file 参数取其主干作为子目录名） */
@@ -51,6 +59,18 @@ class SkillManagerTest {
         assertTrue(section.contains("- alpha：第一个技能"));
         assertTrue(section.contains("- beta：第二个技能"));
         assertTrue(section.contains("load_skill"));
+        assertFalse(section.contains(SkillManager.INDEX_TRUNCATED_SUFFIX), "默认不限制索引预算");
+    }
+
+    @Test
+    void indexSection_overBudget_truncatedWithMarker() throws Exception {
+        writeSkill("a.md", "---\nname: alpha\ndescription: 第一个技能\n---\n正文A");
+        writeSkill("b.md", "---\nname: beta\ndescription: 第二个技能\n---\n正文B");
+
+        String section = manager(5000, 10).provide("researcher");
+        assertTrue(section.contains(SkillManager.INDEX_TRUNCATED_SUFFIX),
+                "超出索引预算应追加截断提示");
+        assertFalse(section.contains("- beta"), "超出预算的技能不应继续写入索引");
     }
 
     @Test
@@ -74,7 +94,8 @@ class SkillManagerTest {
     @Test
     void disabled_noSectionNoTool() throws Exception {
         writeSkill("a.md", "---\nname: alpha\n---\n正文");
-        SkillManager m = new SkillManager(new SkillRepository(dir.toString()), false, 5000);
+        SkillManager m = new SkillManager(new SkillRepository(dir.toString(), 0), false, 5000, 0,
+                new SimpleMeterRegistry());
         assertNull(m.provide("researcher"));
         assertEquals(Optional.empty(), m.loadSkillTool("researcher"));
     }
@@ -105,7 +126,8 @@ class SkillManagerTest {
     @Test
     void skillNames_disabled_returnsEmpty() throws Exception {
         writeSkill("a.md", "---\nname: alpha\n---\n正文");
-        SkillManager m = new SkillManager(new SkillRepository(dir.toString()), false, 5000);
+        SkillManager m = new SkillManager(new SkillRepository(dir.toString(), 0), false, 5000, 0,
+                new SimpleMeterRegistry());
         assertTrue(m.skillNames("researcher").isEmpty(), "开关关闭返回空表");
     }
 
@@ -119,6 +141,8 @@ class SkillManagerTest {
         ToolCallback cb = manager(5000).loadSkillTool("researcher").orElseThrow();
         assertEquals("load_skill", cb.getToolDefinition().name());
         assertTrue(cb.getToolDefinition().inputSchema().contains("skillName"));
+        assertTrue(cb.getToolDefinition().inputSchema().contains("offset"));
+        assertTrue(cb.getToolDefinition().inputSchema().contains("attachment"));
         assertTrue(cb.getToolDefinition().inputSchema().contains("required"));
     }
 
@@ -135,9 +159,16 @@ class SkillManagerTest {
         writeSkill("a.md", "---\nname: alpha\n---\n正文");
         ToolCallback cb = manager(5000).loadSkillTool("researcher").orElseThrow();
         assertTrue(cb.call("{\"skill_name\":\"alpha\"}").contains("完整说明"), "snake_case 别名兼容");
-        assertTrue(cb.call("{\"toolName\":\"alpha\"}").contains("完整说明"), "toolName 别名兼容（与 expand_tool 同构）");
         assertTrue(cb.call("\"alpha\"").contains("完整说明"), "JSON 裸字符串兜底");
         assertTrue(cb.call("alpha").contains("完整说明"), "非 JSON 裸技能名兜底");
+    }
+
+    @Test
+    void loadSkill_toolNameAliasNoLongerAccepted() throws Exception {
+        writeSkill("a.md", "---\nname: alpha\n---\n正文");
+        ToolCallback cb = manager(5000).loadSkillTool("researcher").orElseThrow();
+        assertTrue(cb.call("{\"toolName\":\"alpha\"}").contains("缺少 skillName"),
+                "toolName 不再被当作技能名接受");
     }
 
     @Test
@@ -186,5 +217,70 @@ class SkillManagerTest {
         String result = cb.call("{\"skillName\":\"small\"}");
         assertFalse(result.contains("…[内容已按上下文预算截断]"), "预算内正文不截断");
         assertTrue(result.endsWith("短正文"));
+    }
+
+    @Test
+    void loadSkill_overlongBody_offsetContinuesToEnd() throws Exception {
+        String body = "x".repeat(500) + "\nSECOND-HALF";
+        writeSkill("big.md", "---\nname: big\n---\n" + body);
+        ToolCallback cb = manager(100).loadSkillTool("researcher").orElseThrow();
+
+        String first = cb.call("{\"skillName\":\"big\"}");
+        assertTrue(first.contains(SkillManager.TRUNCATED_SUFFIX));
+        Matcher matcher = Pattern.compile("offset=(\\d+)").matcher(first);
+        assertTrue(matcher.find(), "截断提示应包含下一段 offset");
+        int next = Integer.parseInt(matcher.group(1));
+        assertTrue(next > 0 && next < body.length());
+
+        String second = cb.call("{\"skillName\":\"big\",\"offset\":" + next + "}");
+        assertTrue(second.contains("SECOND-HALF"), "第二段应包含剩余正文");
+        assertFalse(second.contains(SkillManager.TRUNCATED_SUFFIX), "剩余内容应一次取完");
+    }
+
+    @Test
+    void loadSkill_offsetBeyondEnd_returnsEndMessage() throws Exception {
+        writeSkill("s.md", "---\nname: small\n---\n短正文");
+        ToolCallback cb = manager(5000).loadSkillTool("researcher").orElseThrow();
+        String result = cb.call("{\"skillName\":\"small\",\"offset\":999}");
+        assertTrue(result.contains("已到末尾"), "越界 offset 应返回明确的结束提示");
+    }
+
+    @Test
+    void loadSkill_listsAttachments_andReadsThem() throws Exception {
+        writeSkill("multi.md", "---\nname: multi\n---\n入口正文");
+        Files.writeString(dir.resolve("multi").resolve("helper.md"), "辅助内容");
+
+        ToolCallback cb = manager(5000).loadSkillTool("researcher").orElseThrow();
+        String body = cb.call("{\"skillName\":\"multi\"}");
+        assertTrue(body.contains("helper.md"), "正文返回时应附带附件清单");
+
+        String attachment = cb.call("{\"skillName\":\"multi\",\"attachment\":\"helper.md\"}");
+        assertTrue(attachment.contains("辅助内容"), "attachment 参数应能读取附件正文");
+    }
+
+    @Test
+    void loadSkill_attachmentTraversalRejected() throws Exception {
+        writeSkill("multi.md", "---\nname: multi\n---\n入口正文");
+        Files.writeString(dir.resolve("secret.md"), "机密内容");
+
+        ToolCallback cb = manager(5000).loadSkillTool("researcher").orElseThrow();
+        String result = cb.call("{\"skillName\":\"multi\",\"attachment\":\"../secret.md\"}");
+        assertTrue(result.contains("拒绝读取"), "越界路径应被拒绝");
+        assertFalse(result.contains("机密内容"));
+    }
+
+    @Test
+    void loadSkill_recordsMetricsByAgentAndSkill() throws Exception {
+        writeSkill("big.md", "---\nname: big\n---\n" + "x".repeat(5000));
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        SkillManager m = new SkillManager(new SkillRepository(dir.toString(), 0), true,
+                100, 0, registry);
+        ToolCallback cb = m.loadSkillTool("researcher").orElseThrow();
+        cb.call("{\"skillName\":\"big\"}");
+
+        assertEquals(1.0, registry.get("harness.skill.loads")
+                .tags("agent", "researcher", "skill", "big").counter().count());
+        assertEquals(1.0, registry.get("harness.skill.truncated")
+                .tags("agent", "researcher", "skill", "big").counter().count());
     }
 }
