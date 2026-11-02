@@ -171,7 +171,7 @@ class AgentScopeGeneralAgentTest {
 
         return new AgentScopeGeneralAgent(AGENT, mock(ChatClientRegistry.class), agentService,
                 memoryStore, effectiveAssignments, recorder, budgets, lazyTools, assembler, null, null,
-                timeouts, factory, agentic, fallback);
+                timeouts, factory, agentic, fallback, null);
     }
 
     private static OpenAIChatModel realDeepSeekModel() {

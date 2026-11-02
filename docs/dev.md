@@ -179,6 +179,13 @@ IMAGE_REPO=ghcr.io/cxknotjj/deerfect-harness IMAGE_TAG=sha-xxxxxxx \
 
 成本由 token 用量 × 供应商单价换算（单价随供应商调整，不在代码里固化，避免过期价格变成伪指标）。
 
+### 会话上下文构成快照
+
+- `GET /api/monitor/context?sessionId=...`：返回该会话最近一次真实 LLM 请求发往模型前的输入构成（system 分段 / RAG / 工具 Schema / 历史 user / 历史 assistant / 当前 user）；无快照返回 404。
+- 快照为进程内内存数据：同会话覆盖最近一份，TTL 30 分钟、最多 200 个会话，重启清空；接口只读快照，不重新组装 prompt、不触发 RAG、不访问数据库。
+- 估算口径统一为 `TokenEstimator`，占比之和为 100%；ReAct 轮内动态追加的工具结果不计入（属于 `tool_call_log`），多 Agent 编排只保留最近一次调用的快照并标注实际 agent 名。
+- Web 监控页「活跃会话」的「上下文」按钮调用该接口，展示堆叠占比条与明细表。
+
 日志：控制台输出 logstash JSON（`logging.structured.format.console: logstash`），`TraceIdFilter`
 把请求头 `X-Trace-Id`（缺省生成 32 位 hex）写入 MDC 的 `traceId` 并回写响应头；Reactor
 异步链路（route-judge / Agent 流式生成所在的 boundedElastic）经 `ContextPropagationConfig`

@@ -6,6 +6,7 @@ import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.enums.AgentConstants;
+import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.prompt.SkillManager;
 import com.dark.javaHarness.service.AgentConfigProvider;
@@ -61,6 +62,8 @@ public class AgentRegistry {
     private final AgenticProperties agenticProperties;
     /** AgentScope 模型工厂；null = 未启用 AgentScope 路径 */
     private final AgentScopeModelFactory agentScopeModelFactory;
+    /** 上下文构成快照写入器（Path A advisor / Path B 直写；null = 不记录，测试场景） */
+    private final ContextCompositionRecorder compositionRecorder;
 
     /** 已注册路由表（agentName → 实例）；computeIfAbsent 保证并发惰性注册单次构造 */
     private final ConcurrentHashMap<String, Agent> agents = new ConcurrentHashMap<>();
@@ -90,7 +93,8 @@ public class AgentRegistry {
                          PromptAssembler promptAssembler,
                          SkillManager skillManager) {
         this(provider, agentServiceProvider, clientRegistry, memoryStore, toolAssignments,
-                recorder, budgets, lazyTools, promptAssembler, skillManager, null, null);
+                recorder, budgets, lazyTools, promptAssembler, skillManager, null, null,
+                null, null, null);
     }
 
     /** 全参构造（含 RAG 知识检索）：knowledgeRetriever 仅知识库启用时非 null（ChatAgentConfig 经 ObjectProvider 注入） */
@@ -108,7 +112,7 @@ public class AgentRegistry {
                          ChatTimeoutProperties timeouts) {
         this(provider, agentServiceProvider, clientRegistry, memoryStore, toolAssignments, recorder,
                 budgets, lazyTools, promptAssembler, skillManager, knowledgeRetriever, timeouts,
-                null, null);
+                null, null, null);
     }
 
     /**
@@ -130,7 +134,8 @@ public class AgentRegistry {
                          com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
                          ChatTimeoutProperties timeouts,
                          AgenticProperties agenticProperties,
-                         AgentScopeModelFactory agentScopeModelFactory) {
+                         AgentScopeModelFactory agentScopeModelFactory,
+                         ContextCompositionRecorder compositionRecorder) {
         this.provider = provider;
         this.agentServiceProvider = agentServiceProvider;
         this.clientRegistry = clientRegistry;
@@ -145,6 +150,7 @@ public class AgentRegistry {
         this.timeouts = timeouts;
         this.agenticProperties = agenticProperties;
         this.agentScopeModelFactory = agentScopeModelFactory;
+        this.compositionRecorder = compositionRecorder;
     }
 
     /** 启动注册：注册 agent 表全部对话 Agent 行（is_internal=0），逐行容错；general 行缺失时代码兜底注册。
@@ -219,14 +225,14 @@ public class AgentRegistry {
     private Agent createGeneralAssistant(String agentName) {
         Agent chatClientAgent = new GeneralAssistantAgent(agentName, clientRegistry, memoryStore,
                 agentServiceProvider.getObject(), toolAssignments, recorder, budgets, lazyTools,
-                promptAssembler, skillManager, knowledgeRetriever, timeouts);
+                promptAssembler, skillManager, knowledgeRetriever, timeouts, compositionRecorder);
         if (agenticProperties == null || !agenticProperties.isEnabled() || agentScopeModelFactory == null) {
             return chatClientAgent;
         }
         return new AgentScopeGeneralAgent(agentName, clientRegistry, agentServiceProvider.getObject(),
                 memoryStore, toolAssignments, recorder, budgets, lazyTools, promptAssembler,
                 skillManager, knowledgeRetriever, timeouts, agentScopeModelFactory, agenticProperties,
-                chatClientAgent);
+                chatClientAgent, compositionRecorder);
     }
 
     /** 统一「未知 Agent」文案：含可用列表，不泄漏底层异常。 */

@@ -2,6 +2,7 @@ package com.dark.javaHarness.prompt;
 
 import com.dark.javaHarness.domain.AgentConfig;
 import com.dark.javaHarness.service.AgentService;
+import com.dark.javaHarness.tool.TokenEstimator;
 import com.dark.javaHarness.tool.ToolAssignments;
 import com.dark.javaHarness.tool.mcp.ServerTaggedCallback;
 import java.util.ArrayList;
@@ -40,6 +41,13 @@ public class PromptAssembler {
         public PromptAttachments blankTools() {
             return new PromptAttachments(skills, List.of(), List.of());
         }
+    }
+
+    /**
+     * 单个已渲染段落（上下文构成快照用）：name 为段落名（{@code PromptSection#name()}），
+     * text 为渲染文本，tokens 为 {@link TokenEstimator} 估算值。
+     */
+    public record RenderedSection(String name, String text, int tokens) {
     }
 
     private final AgentService agentService;
@@ -99,13 +107,32 @@ public class PromptAssembler {
      * @param config       上游已查好的 agent 表配置（可空：空则回退查表）
      */
     public String assemble(String agentName, String roleFallback, AgentConfig config) {
+        return assembleSections(agentName, roleFallback, config).stream()
+                .map(RenderedSection::text)
+                .collect(Collectors.joining("\n\n"));
+    }
+
+    /**
+     * 按固定段落次序渲染并逐段计量（上下文构成快照的数据源）：空段跳过，
+     * {@code tokens} 与 {@link #assemble} 的拼接文本同口径（{@link TokenEstimator}）。
+     * {@link #assemble} 复用本方法结果，段落文本与拼接顺序保持一致。
+     */
+    public List<RenderedSection> assembleSections(String agentName, String roleFallback,
+                                                  AgentConfig config) {
         PromptSection.Context ctx = new PromptSection.Context(
                 agentName, resolveRolePrompt(agentName, roleFallback, config), toolNamesOf(agentName));
-        return sections.stream()
+        List<RenderedSection> rendered = new ArrayList<>();
+        for (PromptSection section : sections.stream()
                 .sorted(Comparator.comparingInt(PromptSection::order))
-                .map(section -> section.render(ctx))
-                .filter(text -> text != null && !text.isBlank())
-                .collect(Collectors.joining("\n\n"));
+                .toList()) {
+            String text = section.render(ctx);
+            if (text == null || text.isBlank()) {
+                continue;
+            }
+            rendered.add(new RenderedSection(section.name(), text,
+                    TokenEstimator.estimateTokens(text)));
+        }
+        return List.copyOf(rendered);
     }
 
     /**

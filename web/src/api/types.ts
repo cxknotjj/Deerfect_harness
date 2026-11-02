@@ -309,6 +309,27 @@ export interface MonitorSnapshot {
   components: MonitorComponent[]
 }
 
+/** 上下文构成组成项(对齐 ContextComposition.Part;percent 为占构成之和的百分比) */
+export interface MonitorContextPart {
+  key: string
+  label: string
+  group: string
+  tokens: number
+  percent: number
+}
+
+/** 会话最近一次请求的上下文构成(GET /api/monitor/context?sessionId=;无快照 404) */
+export interface MonitorContextComposition {
+  sessionId: string
+  agentName: string | null
+  model: string | null
+  turnId: string | null
+  /** 采集时刻(epoch 毫秒) */
+  capturedAt: number
+  estimatedTotalTokens: number
+  parts: MonitorContextPart[]
+}
+
 /** LLM 调用观测条目(GET /api/llm-calls?sessionId=;对齐 LlmCallLogEntity 序列化) */
 export interface LlmCallItem {
   id: number

@@ -8,6 +8,7 @@ import com.dark.javaHarness.domain.AgentConfig;
 import com.dark.javaHarness.agent.BudgetLedger;
 import com.dark.javaHarness.agent.BudgetLedger.BudgetExceededException;
 import com.dark.javaHarness.observability.LlmCallObserver;
+import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.prompt.SkillManager;
 import com.dark.javaHarness.service.AgentService;
@@ -89,7 +90,8 @@ public final class AgentChatCaller {
                     LlmRetry retry,
                     ContextBudgetProperties budgets) {
         this(clientRegistry, agentService, toolAssignments, recorder, retry, budgets,
-                new PromptAssembler(agentService, toolAssignments), null, null, null, null, null);
+                new PromptAssembler(agentService, toolAssignments), null, null, null, null, null,
+                null);
     }
 
     /**
@@ -111,7 +113,8 @@ public final class AgentChatCaller {
                     ToolLazyManager lazyTools,
                     SkillManager skillManager,
                     com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
-                    ChatTimeoutProperties timeouts) {
+                    ChatTimeoutProperties timeouts,
+                    ContextCompositionRecorder compositionRecorder) {
         this.agentService = agentService;
         this.observer = new LlmCallObserver(recorder);
         this.retry = retry;
@@ -119,7 +122,9 @@ public final class AgentChatCaller {
         ToolLazyManager lazy = lazyTools != null ? lazyTools : new ToolLazyManager(toolAssignments, false);
         this.specFactory = new AgentRequestSpecFactory(clientRegistry, promptAssembler,
                 toolAssignments, lazy, skillManager, memoryStore, this.budgets,
-                knowledgeRetriever, recorder);
+                knowledgeRetriever, recorder,
+                com.dark.javaHarness.tool.DefaultToolDecorators.defaults(lazy, skillManager,
+                        this.budgets, recorder), compositionRecorder);
         java.time.Duration streamIdleTimeout = ChatClientFactory.resolve(
                 timeouts != null ? timeouts.getStreamIdleTimeoutSeconds() : null,
                 DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS);

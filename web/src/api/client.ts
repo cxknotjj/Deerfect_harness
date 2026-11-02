@@ -12,6 +12,7 @@ import type {
   ChatRequest,
   KbRetrievalItem,
   LlmCallItem,
+  MonitorContextComposition,
   MonitorSnapshot,
   ProgressPayload,
   SessionAgentView,
@@ -150,6 +151,22 @@ export function monitor(hours = 24, agent = '', channel = '', limit = 50): Promi
   if (agent) params.set('agent', agent)
   if (channel) params.set('channel', channel)
   return request(`/api/monitor?${params.toString()}`)
+}
+
+/**
+ * 会话上下文构成(GET /api/monitor/context?sessionId=):
+ * 命中返回快照;无快照(未发消息/过期/淘汰/重启)返回 404 → 返回 null 供页面展示空态。
+ */
+export async function monitorContext(sessionId: string): Promise<MonitorContextComposition | null> {
+  const resp = await fetch(`/api/monitor/context?sessionId=${encodeURIComponent(sessionId)}`, {
+    headers: baseHeaders(),
+  })
+  if (resp.status === 404) return null
+  if (!resp.ok) {
+    if (resp.status === 401) notifyUnauthorized()
+    throw new Error(`HTTP ${resp.status}: ${await resp.text()}`)
+  }
+  return (await resp.json()) as MonitorContextComposition
 }
 
 /** RAG 检索观测(GET /api/kb-retrievals?sessionId=;按 id 倒序,上限 200) */
@@ -332,6 +349,7 @@ export interface Api {
   listLlmCalls(sessionId: string): Promise<LlmCallItem[]>
   listKbRetrievals(sessionId: string): Promise<KbRetrievalItem[]>
   monitor(hours?: number, agent?: string, channel?: string, limit?: number): Promise<MonitorSnapshot>
+  monitorContext(sessionId: string): Promise<MonitorContextComposition | null>
   streamChat(req: ChatRequest, handlers: StreamHandlers, signal?: AbortSignal): Promise<void>
   authState(): Promise<AuthStateView>
   login(password: string): Promise<void>
@@ -350,6 +368,7 @@ export const realApi: Api = {
   listLlmCalls,
   listKbRetrievals,
   monitor,
+  monitorContext,
   streamChat,
   authState,
   login,

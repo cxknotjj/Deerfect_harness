@@ -110,7 +110,7 @@ public class GeneralAssistantAgent implements Agent {
                                  PromptAssembler promptAssembler,
                                  SkillManager skillManager) {
         this(agentName, clientRegistry, memoryStore, agentService, toolAssignments,
-                recorder, budgets, lazyTools, promptAssembler, skillManager, null, null);
+                recorder, budgets, lazyTools, promptAssembler, skillManager, null, null, null);
     }
 
     /**
@@ -130,7 +130,8 @@ public class GeneralAssistantAgent implements Agent {
                                  PromptAssembler promptAssembler,
                                  SkillManager skillManager,
                                  com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
-                                 com.dark.javaHarness.config.ChatTimeoutProperties timeouts) {
+                                 com.dark.javaHarness.config.ChatTimeoutProperties timeouts,
+                                 com.dark.javaHarness.prompt.ContextCompositionRecorder compositionRecorder) {
         this.agentName = agentName;
         this.agentService = agentService;
         ToolLazyManager effectiveLazy = lazyTools != null ? lazyTools : new ToolLazyManager(toolAssignments, false);
@@ -145,7 +146,7 @@ public class GeneralAssistantAgent implements Agent {
         this.streamRetry = new LlmRetry();
         this.chatCaller = new AgentChatCaller(clientRegistry, agentService, toolAssignments, recorder,
                 streamRetry, effectiveBudgets, effectiveAssembler, memoryStore, effectiveLazy,
-                skillManager, knowledgeRetriever, timeouts);
+                skillManager, knowledgeRetriever, timeouts, compositionRecorder);
     }
 
     /** 返回 Agent 名称（用于注册与路由） */

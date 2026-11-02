@@ -406,7 +406,8 @@ class AgentChatCallerTest {
                 new com.dark.javaHarness.config.ChatTimeoutProperties();
         timeouts.setStreamIdleTimeoutSeconds(1);
         AgentChatCaller guarded = new AgentChatCaller(clientRegistry, agentService, null, null,
-                new LlmRetry(), new ContextBudgetProperties(), null, null, null, null, null, timeouts);
+                new LlmRetry(), new ContextBudgetProperties(), null, null, null, null, null, timeouts,
+                null);
         when(spec.stream()).thenReturn(streamSpec);
         when(streamSpec.chatResponse()).thenReturn(Flux.never());
 
@@ -431,7 +432,8 @@ class AgentChatCallerTest {
                 new com.dark.javaHarness.config.ChatTimeoutProperties();
         timeouts.setStreamIdleTimeoutSeconds(30);
         AgentChatCaller guarded = new AgentChatCaller(clientRegistry, agentService, null, null,
-                new LlmRetry(), new ContextBudgetProperties(), null, null, null, null, null, timeouts);
+                new LlmRetry(), new ContextBudgetProperties(), null, null, null, null, null, timeouts,
+                null);
         when(spec.stream()).thenReturn(streamSpec);
         when(streamSpec.chatResponse()).thenReturn(fluxOf("a", "b", "c"));
 

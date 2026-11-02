@@ -466,7 +466,7 @@ class MultiAgentGraphAgentTest {
      */
     private MultiAgentGraphAgent agentWithPackProvider(AgentConfigProvider provider) {
         return new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
-                null, null, null, null, null, null, null, null, null, null, provider);
+                null, null, null, null, null, null, null, null, null, null, provider, null);
     }
 
     /** 无 toolPacks（现状唯一形态：lead 无工具可分配，产物不含包）→ 包解析零触发（回归） */

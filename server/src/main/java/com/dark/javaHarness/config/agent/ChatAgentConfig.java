@@ -88,11 +88,12 @@ public class ChatAgentConfig {
                                        ObjectProvider<com.dark.javaHarness.knowledge.KnowledgeRetriever> knowledgeRetriever,
                                        com.dark.javaHarness.config.ChatTimeoutProperties timeouts,
                                        com.dark.javaHarness.config.AgenticProperties agenticProperties,
-                                       com.dark.javaHarness.agent.agentic.AgentScopeModelFactory agentScopeModelFactory) {
+                                       com.dark.javaHarness.agent.agentic.AgentScopeModelFactory agentScopeModelFactory,
+                                       com.dark.javaHarness.prompt.ContextCompositionRecorder compositionRecorder) {
         AgentRegistry agentRegistry = new AgentRegistry(agentConfigProvider, agentService, registry,
                 memoryStore, toolAssignments, recorder, budgets, toolLazyManager,
                 promptAssembler, skillManager, knowledgeRetriever.getIfAvailable(), timeouts,
-                agenticProperties, agentScopeModelFactory);
+                agenticProperties, agentScopeModelFactory, compositionRecorder);
         agentRegistry.register(multiAgent);
         agentRegistry.init();
         return agentRegistry;
@@ -122,10 +123,11 @@ public class ChatAgentConfig {
                                            ObjectProvider<com.dark.javaHarness.knowledge.KnowledgeRetriever> knowledgeRetriever,
                                            ObjectProvider<com.dark.javaHarness.service.impl.route.RagPrefetcher> ragPrefetcher,
                                            com.dark.javaHarness.config.ChatTimeoutProperties timeouts,
-                                           AgentConfigProvider agentConfigProvider) {
+                                           AgentConfigProvider agentConfigProvider,
+                                           com.dark.javaHarness.prompt.ContextCompositionRecorder compositionRecorder) {
         return new MultiAgentGraphAgent(AgentConstants.MULTI_AGENT, registry, agentService,
                 toolAssignments, recorder, checkpointStore, budgets, memoryStore,
                 toolLazyManager, promptAssembler, skillManager, knowledgeRetriever.getIfAvailable(),
-                timeouts, ragPrefetcher.getIfAvailable(), agentConfigProvider);
+                timeouts, ragPrefetcher.getIfAvailable(), agentConfigProvider, compositionRecorder);
     }
 }

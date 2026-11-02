@@ -10,6 +10,7 @@ import type {
   KbRetrievalItem,
   LlmCallItem,
   MonitorChannel,
+  MonitorContextComposition,
   MonitorLlmCall,
   MonitorSnapshot,
   MonitorToolCall,
@@ -394,6 +395,32 @@ async function monitor(hours = 24, agent = '', channel = ''): Promise<MonitorSna
   }
 }
 
+/** 会话上下文构成 mock:固定样例(对齐 ContextComposition 形状);未知会话返回 null 演示空态 */
+async function monitorContext(sessionId: string): Promise<MonitorContextComposition | null> {
+  if (!sessionId || sessionId === 'missing') return null
+  return {
+    sessionId,
+    agentName: 'general',
+    model: 'deepseek-v4.1-flash-1017',
+    turnId: 'turn-mock-001',
+    capturedAt: Date.now(),
+    estimatedTotalTokens: 2602,
+    parts: [
+      { key: 'system.role', label: '角色提示词', group: 'system', tokens: 620, percent: 23.8 },
+      { key: 'system.toolIndex', label: '工具索引', group: 'system', tokens: 310, percent: 11.9 },
+      { key: 'system.discipline', label: '工具纪律', group: 'system', tokens: 120, percent: 4.6 },
+      { key: 'system.output', label: '输出约定', group: 'system', tokens: 30, percent: 1.2 },
+      { key: 'system.skillIndex', label: '技能索引', group: 'system', tokens: 90, percent: 3.5 },
+      { key: 'system.other', label: '系统拼接', group: 'system', tokens: 12, percent: 0.5 },
+      { key: 'retrieval.rag', label: 'RAG 知识块', group: 'retrieval', tokens: 240, percent: 9.2 },
+      { key: 'tools.schema', label: '工具 Schema', group: 'tools', tokens: 480, percent: 18.4 },
+      { key: 'conversation.history.user', label: '历史 user 消息', group: 'conversation', tokens: 300, percent: 11.5 },
+      { key: 'conversation.history.assistant', label: '历史 assistant 消息', group: 'conversation', tokens: 260, percent: 10.0 },
+      { key: 'conversation.currentUser', label: '当前 user 消息', group: 'conversation', tokens: 140, percent: 5.4 },
+    ],
+  }
+}
+
 /** mock API 实现(与 realApi 同签名) */
 export const mockApi: Api = {
   listAgents,
@@ -406,6 +433,7 @@ export const mockApi: Api = {
   listLlmCalls,
   listKbRetrievals,
   monitor,
+  monitorContext,
   streamChat,
   // mock 模式无鉴权:enabled=false 让登录门直接放行
   authState: async () => ({ enabled: false, authenticated: true }),

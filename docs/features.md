@@ -78,6 +78,7 @@ Deerfect Harness 是一个基于 Spring AI 的双路径 Agent 平台：**Agentic
 
 - **四张观测表**：LLM 调用、工具调用、RAG 检索、MCP 连接事件，全部异步落库。
 - **查询接口**：`/api/llm-calls`、`/api/tool-calls`、`/api/kb-retrievals`，Web Trace 页可视化。
+- **会话上下文构成**：Web 监控页按会话查看最近一次请求的 system 分段 / RAG / 工具 Schema / 历史 / 当前消息占比（`GET /api/monitor/context`，内存快照 TTL 30 分钟）；估算口径 `TokenEstimator`，不含轮内动态工具结果，多 Agent 只保留最近一次调用。
 - **链路标识**：`turnId` / `traceId` / `parent_span` 贯通路由、子任务与聚合。
 - **保留期治理**：观测数据默认保留 90 天，每日凌晨低峰分批清理。
 - **轻量追踪**：自建 span 关系；Micrometer / OpenTelemetry 尚未接入。

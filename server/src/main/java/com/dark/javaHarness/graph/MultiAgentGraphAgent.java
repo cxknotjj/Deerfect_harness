@@ -10,6 +10,7 @@ import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.Goal;
+import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.prompt.SkillManager;
 import com.dark.javaHarness.prompt.ToolLazyManager;
@@ -148,7 +149,7 @@ public class MultiAgentGraphAgent implements Agent {
                                 ContextBudgetProperties budgets,
                                 SessionService memoryStore) {
         this(agentName, clientRegistry, agentService, toolAssignments, recorder,
-                checkpointStore, budgets, memoryStore, null, null, null, null, null);
+                checkpointStore, budgets, memoryStore, null, null, null, null, null, null);
     }
 
     /**
@@ -170,7 +171,7 @@ public class MultiAgentGraphAgent implements Agent {
                                 ChatTimeoutProperties timeouts) {
         this(agentName, clientRegistry, agentService, toolAssignments, recorder,
                 checkpointStore, budgets, memoryStore, lazyTools, promptAssembler,
-                skillManager, knowledgeRetriever, timeouts, null, null);
+                skillManager, knowledgeRetriever, timeouts, null, null, null);
     }
 
     /**
@@ -193,7 +194,7 @@ public class MultiAgentGraphAgent implements Agent {
                                 com.dark.javaHarness.service.impl.route.RagPrefetcher ragPrefetcher) {
         this(agentName, clientRegistry, agentService, toolAssignments, recorder,
                 checkpointStore, budgets, memoryStore, lazyTools, promptAssembler,
-                skillManager, knowledgeRetriever, timeouts, ragPrefetcher, null);
+                skillManager, knowledgeRetriever, timeouts, ragPrefetcher, null, null);
     }
 
     /**
@@ -223,7 +224,8 @@ public class MultiAgentGraphAgent implements Agent {
                                 com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
                                 ChatTimeoutProperties timeouts,
                                 com.dark.javaHarness.service.impl.route.RagPrefetcher ragPrefetcher,
-                                com.dark.javaHarness.service.AgentConfigProvider agentConfigProvider) {
+                                com.dark.javaHarness.service.AgentConfigProvider agentConfigProvider,
+                                ContextCompositionRecorder compositionRecorder) {
         ToolLazyManager lazy = lazyTools != null ? lazyTools : new ToolLazyManager(toolAssignments, false);
         this.agentName = agentName;
         // 工具索引段与延迟加载同源：开启时索引段追加 expand_tool 使用引导（与轻量态工具面对齐）
@@ -231,7 +233,7 @@ public class MultiAgentGraphAgent implements Agent {
                 : new PromptAssembler(agentService, toolAssignments, List.of(), List.of(), lazy.isEnabled());
         AgentChatCaller chatCaller = new AgentChatCaller(clientRegistry, agentService, toolAssignments, recorder,
                 new LlmRetry(), budgets, assembler, memoryStore, lazy, skillManager,
-                knowledgeRetriever, timeouts);
+                knowledgeRetriever, timeouts, compositionRecorder);
         this.budgets = budgets != null ? budgets : new ContextBudgetProperties();
         this.orchestrationBudget = new OrchestrationBudget(this.budgets);
         this.nodes = new OrchestrationNodes(chatCaller, assembler, this.budgets, this.orchestrationBudget,

@@ -328,4 +328,29 @@ class PromptAssemblerTest {
         assertTrue(blanked.tools().isEmpty());
         assertTrue(blanked.mcpTools().isEmpty());
     }
+
+    /** 分段计量：段名/次序与 assemble 拼接文本一致，tokens 与 TokenEstimator 同口径 */
+    @Test
+    void assembleSections_namesOrderAndTokensMatchAssembleOutput() {
+        when(agentService.getAgentConfig("general")).thenReturn(Optional.empty());
+        ToolCallback readOnlyCb = callbackNamed("fs_read_file");
+        when(sandbox.readOnlyFileTools()).thenReturn(List.of(readOnlyCb));
+        PromptAssembler withExtras = new PromptAssembler(agentService, toolAssignments,
+                List.of(agentName -> "SKILL：demo"), List.of(agentName -> "【用户偏好画像】"), false);
+
+        List<PromptAssembler.RenderedSection> sections =
+                withExtras.assembleSections("general", "兜底角色", null);
+
+        assertEquals(List.of("角色", "用户偏好画像", "工具索引", "工具纪律", "输出约定", "skill"),
+                sections.stream().map(PromptAssembler.RenderedSection::name).toList(),
+                "段名按固定次序渲染");
+        for (PromptAssembler.RenderedSection section : sections) {
+            assertEquals(com.dark.javaHarness.tool.TokenEstimator.estimateTokens(section.text()),
+                    section.tokens(), "tokens 与 TokenEstimator 同口径：" + section.name());
+        }
+        String joined = sections.stream().map(PromptAssembler.RenderedSection::text)
+                .collect(java.util.stream.Collectors.joining("\n\n"));
+        assertEquals(joined, withExtras.assemble("general", "兜底角色", null),
+                "assemble 复用分段结果，输出保持一致");
+    }
 }

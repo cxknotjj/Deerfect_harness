@@ -48,10 +48,11 @@ class LlmRequestLogAdvisorChainTest {
         ChatClientRegistry registry = mock(ChatClientRegistry.class);
         when(registry.get(any())).thenReturn(client);
         PromptAssembler assembler = mock(PromptAssembler.class);
-        when(assembler.assemble(anyString(), anyString(), any())).thenReturn("SYS");
+        when(assembler.assembleSections(anyString(), anyString(), any()))
+                .thenReturn(List.of(new PromptAssembler.RenderedSection("角色", "SYS", 1)));
 
         AgentRequestSpecFactory factory = new AgentRequestSpecFactory(registry, assembler,
-                null, null, null, null, new ContextBudgetProperties(), null, null, List.of());
+                null, null, null, null, new ContextBudgetProperties(), null, null, List.of(), null);
 
         Logger logger = (Logger) LoggerFactory.getLogger(com.dark.javaHarness.observability.LlmRequestLogAdvisor.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();

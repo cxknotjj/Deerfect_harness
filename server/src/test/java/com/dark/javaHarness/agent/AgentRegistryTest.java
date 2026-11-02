@@ -239,7 +239,7 @@ class AgentRegistryTest {
                 memoryStore, toolAssignments, mock(LlmCallRecorder.class), new ContextBudgetProperties(),
                 null, mock(PromptAssembler.class), mock(SkillManager.class),
                 mock(KnowledgeRetriever.class), mock(ChatTimeoutProperties.class),
-                new AgenticProperties(), mock(AgentScopeModelFactory.class));
+                new AgenticProperties(), mock(AgentScopeModelFactory.class), null);
 
         registry.init();
 

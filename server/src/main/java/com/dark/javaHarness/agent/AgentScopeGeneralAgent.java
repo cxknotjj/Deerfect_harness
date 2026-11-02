@@ -12,8 +12,10 @@ import com.dark.javaHarness.domain.AgentConfig;
 import com.dark.javaHarness.domain.Goal;
 import com.dark.javaHarness.observability.LlmCallObserver;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
+import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.prompt.SkillManager;
+import com.dark.javaHarness.prompt.SystemAssembly;
 import com.dark.javaHarness.prompt.ToolLazyManager;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.SessionService;
@@ -93,6 +95,8 @@ public class AgentScopeGeneralAgent implements Agent {
     private final LlmCallObserver observer;
     /** ChatClient 路径回退实例（初始化失败时使用；null = 不回退） */
     private final Agent fallback;
+    /** 上下文构成快照写入器（null = 不记录，单测场景） */
+    private final ContextCompositionRecorder compositionRecorder;
 
     public AgentScopeGeneralAgent(String agentName,
                                   ChatClientRegistry clientRegistry,
@@ -108,7 +112,8 @@ public class AgentScopeGeneralAgent implements Agent {
                                   ChatTimeoutProperties timeouts,
                                   AgentScopeModelFactory modelFactory,
                                   AgenticProperties agentic,
-                                  Agent fallback) {
+                                  Agent fallback,
+                                  ContextCompositionRecorder compositionRecorder) {
         this.agentName = agentName;
         this.agentService = agentService;
         this.memoryStore = memoryStore;
@@ -118,6 +123,7 @@ public class AgentScopeGeneralAgent implements Agent {
         this.agentic = agentic;
         this.modelFactory = modelFactory;
         this.fallback = fallback;
+        this.compositionRecorder = compositionRecorder;
         this.specFactory = new AgentRequestSpecFactory(clientRegistry, promptAssembler, toolAssignments,
                 lazyTools, skillManager, memoryStore, budgets, knowledgeRetriever, recorder);
         this.observer = new LlmCallObserver(recorder);
@@ -174,7 +180,7 @@ public class AgentScopeGeneralAgent implements Agent {
         int maxAttempts = Math.max(1, agentic.getMaxAttempts());
 
         // 1) system（PromptAssembler + RAG）与历史（MySQL → 预算裁剪）复用 ChatClient 路径的组装面
-        String system = specFactory.assembleSystem(config, sessionId, agentName,
+        SystemAssembly system = specFactory.assembleSystem(config, sessionId, agentName,
                 DEFAULT_SYSTEM_PROMPT, goal.objective(), trace);
         List<org.springframework.ai.chat.messages.Message> history = specFactory.loadHistory(sessionId);
         List<org.springframework.ai.chat.messages.Message> trimmed = history == null ? List.of()
@@ -192,9 +198,17 @@ public class AgentScopeGeneralAgent implements Agent {
 
         // 3) 模型与 ReAct 执行体
         Model model = modelFactory.build(config);
-        ReActAgent agent = buildAgent(model, system, toolkit, config);
+        ReActAgent agent = buildAgent(model, system.text(), toolkit, config);
         List<Msg> messages = toAgentScopeMessages(trimmed);
         messages.add(new UserMessage(goal.objective()));
+        // 上下文构成快照（Path B）：不经 advisor，直接取裁剪后的历史 + 当前 user + system/工具口径
+        if (compositionRecorder != null && sessionId != null && !sessionId.isBlank()) {
+            List<org.springframework.ai.chat.messages.Message> finalMessages = new ArrayList<>(trimmed);
+            finalMessages.add(new org.springframework.ai.chat.messages.UserMessage(goal.objective()));
+            compositionRecorder.record(sessionId, agentName, modelFactory.modelName(config),
+                    trace.turnId(), system, AgentRequestSpecFactory.toolSchemaTokens(tools),
+                    finalMessages);
+        }
         RuntimeContext runtime = runtimeContext(sessionId, trace);
 
         // 4) 事件映射与观测

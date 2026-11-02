@@ -7,7 +7,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api } from '../api'
-import type { MonitorComponent, MonitorSnapshot, MonitorTimerStats } from '../api'
+import type { MonitorComponent, MonitorContextComposition, MonitorSnapshot, MonitorTimerStats } from '../api'
 import { useAgents } from '../composables/useAgents'
 
 const hours = ref(24)
@@ -19,6 +19,46 @@ const error = ref('')
 const data = ref<MonitorSnapshot | null>(null)
 let fetchSeq = 0
 let timer: number | undefined
+
+// 上下文构成面板：当前查看会话 + 快照/加载/错误态（再次点击同一会话即刷新）
+const contextSessionId = ref('')
+const contextData = ref<MonitorContextComposition | null>(null)
+const contextLoading = ref(false)
+const contextError = ref('')
+let contextSeq = 0
+
+async function loadContext(sessionId: string): Promise<void> {
+  const sid = String(sessionId)
+  const seq = ++contextSeq
+  contextSessionId.value = sid
+  contextLoading.value = true
+  contextError.value = ''
+  try {
+    const resp = await api.monitorContext(sid)
+    if (seq !== contextSeq) return
+    contextData.value = resp
+  } catch (e) {
+    if (seq === contextSeq) {
+      contextData.value = null
+      contextError.value = `上下文快照加载失败：${e instanceof Error ? e.message : String(e)}`
+    }
+  } finally {
+    if (seq === contextSeq) contextLoading.value = false
+  }
+}
+
+/** 分组 → 堆叠条/色点样式类（system / retrieval / tools / conversation） */
+function ctxGroupClass(group: string): string {
+  return `ctx-${group}`
+}
+
+/** epoch 毫秒 → 月-日 时:分:秒 */
+function fmtClock(ms: number): string {
+  if (!ms) return '—'
+  const d = new Date(ms)
+  const pad = (v: number): string => String(v).padStart(2, '0')
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
 
 const { agents, load: loadAgents } = useAgents((msg) => {
   error.value = msg
@@ -419,6 +459,7 @@ function channelLabel(key: string | null | undefined): string {
               <th>最近活跃</th>
               <th>调用</th>
               <th>Tokens</th>
+              <th>上下文</th>
             </tr>
           </thead>
           <tbody>
@@ -430,10 +471,70 @@ function channelLabel(key: string | null | undefined): string {
               <td class="mono">{{ fmtTime(s.lastActiveAt) }}</td>
               <td class="mono">{{ fmtNumber(s.calls) }}</td>
               <td class="mono">{{ fmtNumber(s.totalTokens) }}</td>
+              <td>
+                <button
+                  type="button"
+                  class="ctx-btn"
+                  :class="{ active: contextSessionId === String(s.sessionId) }"
+                  @click="loadContext(String(s.sessionId))"
+                >上下文</button>
+              </td>
             </tr>
           </tbody>
         </table>
       </div>
+    </section>
+
+    <section v-if="contextSessionId" class="panel" aria-label="上下文构成">
+      <div class="panel-head">
+        <h3>上下文构成</h3>
+        <span class="panel-note">估算口径 TokenEstimator · 不含轮内动态工具结果</span>
+      </div>
+      <div v-if="contextLoading" class="empty">加载中…</div>
+      <div v-else-if="contextError" class="monitor-error" role="alert">{{ contextError }}</div>
+      <div v-else-if="!contextData" class="empty">该会话暂无最近请求快照（先发一条消息再试）</div>
+      <template v-else>
+        <div class="ctx-meta">
+          <span>会话 <code>{{ contextData.sessionId }}</code></span>
+          <span>Agent <code>{{ contextData.agentName ?? '—' }}</code></span>
+          <span>模型 <code>{{ contextData.model ?? '—' }}</code></span>
+          <span>轮次 <code>{{ contextData.turnId ?? '—' }}</code></span>
+          <span>采集 {{ fmtClock(contextData.capturedAt) }}</span>
+          <span>估算合计 <strong>{{ fmtNumber(contextData.estimatedTotalTokens) }}</strong> tokens</span>
+        </div>
+        <div class="ctx-bar" role="img" aria-label="上下文构成占比">
+          <span
+            v-for="p in contextData.parts"
+            :key="p.key"
+            class="ctx-seg"
+            :class="ctxGroupClass(p.group)"
+            :style="{ width: `${p.percent}%` }"
+            :title="`${p.label} · ${fmtNumber(p.tokens)} tokens · ${p.percent.toFixed(1)}%`"
+          ></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>组成项</th>
+                <th>分组</th>
+                <th>Tokens</th>
+                <th>占比</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="p in contextData.parts" :key="p.key">
+                <td>{{ p.label }}</td>
+                <td class="mono">
+                  <span class="ctx-dot" :class="ctxGroupClass(p.group)"></span>{{ p.group }}
+                </td>
+                <td class="mono">{{ fmtNumber(p.tokens) }}</td>
+                <td class="mono">{{ p.percent.toFixed(1) }}%</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
     </section>
 
     <section v-if="data" class="panel">
@@ -882,6 +983,83 @@ tbody tr:hover td {
 
 .cell-bad {
   color: var(--accent-warm);
+}
+
+.ctx-btn {
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--grid-line);
+  border-radius: var(--radius-ctl);
+  background: var(--bg-panel);
+  color: var(--blueprint);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.ctx-btn:hover {
+  border-color: var(--accent);
+}
+
+.ctx-btn.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.ctx-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-bottom: 10px;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+.ctx-meta code,
+.ctx-meta strong {
+  font-family: var(--font-mono);
+  color: var(--blueprint);
+}
+
+.ctx-bar {
+  display: flex;
+  width: 100%;
+  height: 20px;
+  margin-bottom: 12px;
+  border: 1px solid var(--grid-line);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg-inset);
+}
+
+.ctx-seg {
+  height: 100%;
+  transition: width 0.2s var(--ease-out-quart);
+}
+
+.ctx-system {
+  background: var(--blueprint);
+}
+
+.ctx-retrieval {
+  background: var(--accent-warm);
+}
+
+.ctx-tools {
+  background: var(--accent);
+}
+
+.ctx-conversation {
+  background: var(--ink-dim);
+}
+
+.ctx-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 2px;
 }
 
 .empty {

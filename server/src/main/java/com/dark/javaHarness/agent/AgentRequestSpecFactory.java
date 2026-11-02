@@ -1,17 +1,21 @@
 package com.dark.javaHarness.agent;
 
 import com.dark.javaHarness.advisor.ContextAssemblingAdvisor;
+import com.dark.javaHarness.advisor.ContextCompositionAdvisor;
 import com.dark.javaHarness.observability.LlmRequestLogAdvisor;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.AgentConfig;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
+import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.prompt.SkillManager;
+import com.dark.javaHarness.prompt.SystemAssembly;
 import com.dark.javaHarness.prompt.ToolLazyManager;
 import com.dark.javaHarness.service.SessionService;
 import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.tool.DefaultToolDecorators;
+import com.dark.javaHarness.tool.TokenEstimator;
 import com.dark.javaHarness.tool.ToolAssignments;
 import com.dark.javaHarness.tool.ToolCallbackDecorator;
 import com.dark.javaHarness.tool.ToolDecorationContext;
@@ -30,6 +34,7 @@ import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.definition.ToolDefinition;
 
 /**
  * ChatClient 请求规格组装工厂：路径 A（{@link GeneralAssistantAgent}）与路径 B
@@ -89,6 +94,8 @@ final class AgentRequestSpecFactory {
     private final KnowledgeRetriever knowledgeRetriever;
     /** 可插拔工具装饰链（按 Order 升序应用；默认链见 {@link DefaultToolDecorators#defaults}） */
     private final List<ToolCallbackDecorator> decorators;
+    /** 上下文构成快照写入器（null = 不记录，单测/旧构造链场景） */
+    private final ContextCompositionRecorder compositionRecorder;
 
     AgentRequestSpecFactory(ChatClientRegistry clientRegistry,
                             PromptAssembler promptAssembler,
@@ -99,7 +106,7 @@ final class AgentRequestSpecFactory {
                             ContextBudgetProperties budgets) {
         this(clientRegistry, promptAssembler, toolAssignments, lazyTools, skillManager,
                 memoryStore, budgets, null, null,
-                DefaultToolDecorators.defaults(lazyTools, skillManager, budgets, null));
+                DefaultToolDecorators.defaults(lazyTools, skillManager, budgets, null), null);
     }
 
     AgentRequestSpecFactory(ChatClientRegistry clientRegistry,
@@ -112,7 +119,7 @@ final class AgentRequestSpecFactory {
                             KnowledgeRetriever knowledgeRetriever) {
         this(clientRegistry, promptAssembler, toolAssignments, lazyTools, skillManager,
                 memoryStore, budgets, knowledgeRetriever, null,
-                DefaultToolDecorators.defaults(lazyTools, skillManager, budgets, null));
+                DefaultToolDecorators.defaults(lazyTools, skillManager, budgets, null), null);
     }
 
     /** recorder 为工具调用观测记录器（tool_call_log 落库面），null 时不落库（单测场景） */
@@ -127,12 +134,13 @@ final class AgentRequestSpecFactory {
                             LlmCallRecorder recorder) {
         this(clientRegistry, promptAssembler, toolAssignments, lazyTools, skillManager,
                 memoryStore, budgets, knowledgeRetriever, recorder,
-                DefaultToolDecorators.defaults(lazyTools, skillManager, budgets, recorder));
+                DefaultToolDecorators.defaults(lazyTools, skillManager, budgets, recorder), null);
     }
 
     /**
      * 全参构造：decorators 为可插拔工具装饰链（按 Order 升序应用，
-     * 默认链见 {@link DefaultToolDecorators#defaults}）
+     * 默认链见 {@link DefaultToolDecorators#defaults}）；
+     * compositionRecorder 为上下文构成快照写入器（null = 不记录，单测场景）。
      */
     AgentRequestSpecFactory(ChatClientRegistry clientRegistry,
                             PromptAssembler promptAssembler,
@@ -143,7 +151,8 @@ final class AgentRequestSpecFactory {
                             ContextBudgetProperties budgets,
                             KnowledgeRetriever knowledgeRetriever,
                             LlmCallRecorder recorder,
-                            List<ToolCallbackDecorator> decorators) {
+                            List<ToolCallbackDecorator> decorators,
+                            ContextCompositionRecorder compositionRecorder) {
         this.clientRegistry = clientRegistry;
         this.promptAssembler = promptAssembler;
         this.toolAssignments = toolAssignments;
@@ -151,6 +160,7 @@ final class AgentRequestSpecFactory {
         this.budgets = budgets;
         this.knowledgeRetriever = knowledgeRetriever;
         this.decorators = decorators;
+        this.compositionRecorder = compositionRecorder;
     }
 
     /** 组装请求（取客户端 → system 按段组装 → 记忆只读注入 → 请求级 advisor → 选项 → 工具注入）。
@@ -165,9 +175,9 @@ final class AgentRequestSpecFactory {
         String model = config != null ? config.model() : null;
         ChatClient client = clientRegistry.get(modelProviderId);
         // system 经 PromptAssembler 按段组装，RAG 命中时追加知识段（与 AgentScope 路径共用）
-        String system = assembleSystem(config, sessionId, forAgent, fallbackSystem, user, trace);
+        SystemAssembly system = assembleSystem(config, sessionId, forAgent, fallbackSystem, user, trace);
         ChatClient.ChatClientRequestSpec spec = client.prompt()
-                .system(system)
+                .system(system.text())
                 .user(user);
         // 记忆注入（只读，注入条件由调用方判定）：手动加载历史拼进请求消息，不挂
         // MessageChatMemoryAdvisor——该 advisor 会自动写回（before 写 user、after 写 assistant），
@@ -222,11 +232,17 @@ final class AgentRequestSpecFactory {
             spec.toolContext(toolContext);
         }
         // 专家工具分配 + 装饰链（AgentScope 路径复用同一解析面，保证预算/观测/懒加载一致）
-        if (assembly.disableTools()) {
-            return spec;
+        List<ToolCallback> tools = assembly.disableTools()
+                ? List.of()
+                : resolveTools(forAgent, sessionId, assembly.toolEmitter(), false,
+                        assembly.extraToolNames());
+        // 上下文构成快照（Path A）：挂在 advisor 链最内层，看到 ContextAssembling/PromptBudget
+        // 裁剪后的最终消息；无 sessionId（route-judge 等）不注册
+        if (compositionRecorder != null && sessionId != null && !sessionId.isBlank()) {
+            spec.advisors(new ContextCompositionAdvisor(forAgent, sessionId, model,
+                    trace != null ? trace.turnId() : null, system, toolSchemaTokens(tools),
+                    compositionRecorder));
         }
-        List<ToolCallback> tools = resolveTools(forAgent, sessionId, assembly.toolEmitter(),
-                false, assembly.extraToolNames());
         if (!tools.isEmpty()) {
             spec.toolCallbacks(tools.toArray(new ToolCallback[0]));
         }
@@ -234,17 +250,34 @@ final class AgentRequestSpecFactory {
     }
 
     /**
+     * 工具 Schema 估算（名称 + 描述 + 参数 JSON）：上下文构成快照的 tools.schema 口径，
+     * Path A / Path B 共用；按序列化文本近似，长 Schema 的误差会放大。
+     */
+    static int toolSchemaTokens(List<ToolCallback> tools) {
+        int tokens = 0;
+        for (ToolCallback tool : tools) {
+            ToolDefinition definition = tool.getToolDefinition();
+            tokens += TokenEstimator.estimateTokens(definition.name())
+                    + TokenEstimator.estimateTokens(definition.description())
+                    + TokenEstimator.estimateTokens(definition.inputSchema());
+        }
+        return tokens;
+    }
+
+    /**
      * 系统提示词组装（角色段 + 工具/技能/画像段 + RAG 知识段）：路径 A（ChatClient）与
      * AgentScope ReAct 路径共用，避免两套 system 口径漂移。
      */
-    String assembleSystem(AgentConfig config, String sessionId, String forAgent,
-                          String fallbackSystem, String user, CallTrace trace) {
+    SystemAssembly assembleSystem(AgentConfig config, String sessionId, String forAgent,
+                                  String fallbackSystem, String user, CallTrace trace) {
         // system 经 PromptAssembler 按段组装：角色段（表 prompt > 兜底指令 > 默认）+ 索引/纪律/约定等段；
-        // 兜底角色指令收敛为角色段兜底，不再拼进 user。
-        // 知识检索（RAG）：按当前 user 文本检索知识库，命中则追加【出处N】知识段——
-        // retriever 为 null（禁用/单测）或无命中时原样，退化现状；aggregator 角色策略跳过；
-        // 多库隔离：agent 表 knowledge 列（config 携带）解析为绑定库列表，null/空 = 未绑定不检索
-        String system = promptAssembler.assemble(forAgent, fallbackSystem, config);
+        // 兜底角色指令收敛为角色段兜底，不再拼进 user。逐段结果一并返回，供上下文构成快照计量。
+        List<PromptAssembler.RenderedSection> sections = promptAssembler.assembleSections(
+                forAgent, fallbackSystem, config);
+        String system = sections.stream()
+                .map(PromptAssembler.RenderedSection::text)
+                .collect(java.util.stream.Collectors.joining("\n\n"));
+        int ragTokens = 0;
         if (knowledgeRetriever != null) {
             // 执行期现查（source=inline_query）：turnId/traceId 经 build 的 trace 参数归因落
             // kb_retrieval_log（预取行无轨迹，执行期行可挂到具体轮次与执行链）
@@ -255,9 +288,10 @@ final class AgentRequestSpecFactory {
                     trace != null ? trace.traceId() : null);
             if (knowledgeBlock != null && !knowledgeBlock.isBlank()) {
                 system = system + "\n\n" + knowledgeBlock;
+                ragTokens = TokenEstimator.estimateTokens(knowledgeBlock);
             }
         }
-        return system;
+        return new SystemAssembly(system, sections, ragTokens);
     }
 
     /** 会话历史原始快照（未裁剪）：ChatClient 路径交给 ContextAssemblingAdvisor，AgentScope 路径自行裁剪。 */
