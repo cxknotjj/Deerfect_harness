@@ -27,11 +27,14 @@ app:
       enabled: true
     # skill 动态装配（Markdown 技能库）：扫描 dir 下的技能子目录（入口 SKILL.md 或 <目录名>.md，
     # front-matter 声明 name/description/agents），system 注入「名称+描述」索引段，模型经 load_skill
-    # 元工具按需取完整正文；入口文件按 mtime 热重载（放入/修改下一请求生效，免重启）；
+    # 元工具按需取完整正文；入口文件按 mtime+size 热重载（放入/修改下一请求生效，免重启）；
+    # scan-cache-ms：单请求内索引段/名单/load_skill 共用一次目录扫描的短 TTL，0=每次重新扫描
     # 关闭后 skill 段为空、load_skill 不注册
     skills:
       enabled: true
       dir: skills
+      scan-cache-ms: 200
+      max-index-tokens: 0           # 索引段 token 上限，0=不限制；超出时截断并追加提示
   # 用户偏好画像（跨对话长期记忆）：后台定时扫描空闲会话，LLM 提炼偏好并合并进
   # 全局画像文件（Markdown 条目，全文注入 general/lead 的 system prompt 画像段）；
   # 关闭后画像服务与注入点均不装配，prompt 无画像段
