@@ -1,14 +1,15 @@
 /**
  * 输入区(卡片式):左上角 ⊕ 附件占位 + 无边框 textarea(Enter 发送、Shift+Enter 换行、
  * 输入法组词中的 Enter 不发送)+ 底部控制行(左侧 Workspace 权限占位,右侧 controls 插槽
- * 放 Agent 选择 + 状态灯 + 圆形发送键)。
+ * 放 Agent 选择 + 上下文构成圆环 + 圆形发送键)。
  * streaming 时发送键变圆形停止键(触发 stop),并禁止再次发送(输入仍可继续);
- * 状态灯随 disabled(即 streaming)点亮呼吸。placeholder 事件上报占位点击(label)。
+ * 上下文构成圆环随 streaming 呼吸。placeholder 事件上报占位点击(label)。
  */
 <script setup lang="ts">
 import { ref } from 'vue'
+import ContextUsageRing from './ContextUsageRing.vue'
 
-const props = defineProps<{ disabled: boolean }>()
+const props = defineProps<{ disabled: boolean; sessionId: string }>()
 const emit = defineEmits<{ send: [text: string]; stop: []; placeholder: [label: string] }>()
 
 const text = ref('')
@@ -59,7 +60,7 @@ function submit(): void {
       </div>
       <div class="composer-controls-right">
         <slot name="controls" />
-        <span class="composer-dot" :class="{ live: disabled }" aria-hidden="true"></span>
+        <ContextUsageRing :session-id="sessionId" :streaming="disabled" />
         <button
           v-if="!disabled"
           class="composer-send"

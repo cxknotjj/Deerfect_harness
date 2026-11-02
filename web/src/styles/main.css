@@ -38,6 +38,14 @@
   --thumb-hover: #33404f;                  /* 滚动条 thumb hover(原硬编码收编为 token) */
   --on-accent: #ffffff;                    /* 蓝底白字(同日间) */
 
+  /* 上下文构成圆环（输入区右下的浅灰圆底 + slate 渐变弧；日间切到参考图原色） */
+  --usage-btn-bg: rgba(255, 255, 255, 0.08);
+  --usage-btn-hover: rgba(255, 255, 255, 0.14);
+  --usage-ring-track: rgba(255, 255, 255, 0.18);
+  --usage-ring-from: #8e96a6;
+  --usage-ring-to: #c2c9d4;
+  --usage-bar-track: rgba(255, 255, 255, 0.14);
+
   /* 几何 */
   --radius-ctl: 8px;     /* 按钮/下拉/会话块等控件 */
   --radius-bubble: 12px; /* 消息气泡 */
@@ -813,14 +821,6 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .composer-shield:hover { color: var(--ink); background: var(--hover-veil); }
 .composer-shield-chevron { font-size: 10px; opacity: 0.8; }
 /* 发送键左侧状态灯:空心圆,流式时转 accent 并呼吸(复用 dot-breathe) */
-.composer-dot {
-  flex-shrink: 0;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 1.5px solid var(--ink-dim);
-}
-.composer-dot.live { border-color: var(--accent); animation: dot-breathe 1.6s ease-in-out infinite; }
 .composer-send {
   flex-shrink: 0;
   width: 36px;
@@ -999,7 +999,6 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   .app-shell.app-streaming .session-item-active .status-dot {
     animation: none;
   }
-  .composer-dot.live { animation: none; }
   .msg-row-streaming .md-body > :last-child::after,
   .msg-row-streaming .md-body:empty::after {
     animation: none;
@@ -1050,6 +1049,14 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   --menu-shadow: 0 8px 28px rgba(31, 42, 64, 0.14), 0 2px 8px rgba(31, 42, 64, 0.08);
   --mask-veil: rgba(31, 42, 64, 0.28); /* 窄屏抽屉遮罩:日间用浅灰蓝 */
   --bg-user: #e8effd;      /* 用户气泡:DS 浅蓝 */
+
+  /* 上下文构成圆环：对齐参考图的浅灰圆底、灰色轨道与 slate 渐变弧 */
+  --usage-btn-bg: #f0f0f0;
+  --usage-btn-hover: #e8e8e8;
+  --usage-ring-track: #dedede;
+  --usage-ring-from: #8e96a6;
+  --usage-ring-to: #aab1bd;
+  --usage-bar-track: #e5e7eb;
 }
 
 /* ---------- 窄屏抽屉式侧栏与 Composer 收缩(≤768px) ----------

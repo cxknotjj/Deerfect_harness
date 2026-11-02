@@ -145,6 +145,7 @@ function onRetry(): void {
     <footer class="composer-wrap">
       <Composer
         :disabled="streaming"
+        :session-id="sessionId"
         @send="emit('send', $event)"
         @stop="emit('stop')"
         @placeholder="emit('placeholder', $event)"
