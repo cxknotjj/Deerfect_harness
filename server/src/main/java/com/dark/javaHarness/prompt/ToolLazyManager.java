@@ -1,11 +1,10 @@
 package com.dark.javaHarness.prompt;
 
 import com.dark.javaHarness.tool.ToolAssignments;
+import com.dark.javaHarness.tool.ToolInputs;
 import com.dark.javaHarness.tool.budget.ToolCallBudget;
 import com.dark.javaHarness.tool.trace.ToolCallTracer;
 
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -50,8 +49,6 @@ public class ToolLazyManager {
     static final String EXPAND_INPUT_SCHEMA =
             "{\"type\":\"object\",\"properties\":{\"toolName\":{\"type\":\"string\","
                     + "\"description\":\"要展开的工具名\"}},\"required\":[\"toolName\"]}";
-
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     /** 工具用途元数据来源（可 null：单测/防御场景，描述回退真实 ToolDefinition） */
     private final ToolAssignments toolAssignments;
@@ -219,7 +216,7 @@ public class ToolLazyManager {
         }
 
         private String doExpand(String toolInput) {
-            String toolName = extractToolName(toolInput);
+            String toolName = ToolInputs.text(toolInput, "toolName", "tool_name");
             if (toolName == null) {
                 return "expand_tool 调用失败：缺少 toolName 参数（string 类型，值为要展开的工具名），请修正后重试。";
             }
@@ -248,34 +245,5 @@ public class ToolLazyManager {
                     + "现在即可按上述参数说明正式调用。";
         }
 
-        /** 从工具入参 JSON 提取 toolName（兼容 tool_name 别名、字符串入参与非 JSON 裸名兜底） */
-        private String extractToolName(String toolInput) {
-            if (toolInput == null || toolInput.isBlank()) {
-                return null;
-            }
-            try {
-                JsonNode root = MAPPER.readTree(toolInput);
-                if (root.isObject()) {
-                    for (String key : new String[]{"toolName", "tool_name"}) {
-                        JsonNode v = root.path(key);
-                        if (v.isValueNode() && !v.asText().isBlank()) {
-                            return v.asText().trim();
-                        }
-                    }
-                    return null;
-                }
-                if (root.isTextual() && !root.asText().isBlank()) {
-                    return root.asText().trim();
-                }
-                return null;
-            } catch (Exception ignored) {
-                // 非 JSON 入参兜底：去引号后当作裸工具名
-                String bare = toolInput.trim();
-                if (bare.length() >= 2 && bare.startsWith("\"") && bare.endsWith("\"")) {
-                    bare = bare.substring(1, bare.length() - 1).trim();
-                }
-                return bare.isEmpty() ? null : bare;
-            }
-        }
     }
 }

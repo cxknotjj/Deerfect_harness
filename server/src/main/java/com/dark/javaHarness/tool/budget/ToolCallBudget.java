@@ -127,30 +127,9 @@ public final class ToolCallBudget {
             }
             // 截断目标 = 剩余预算 - 截断标记自身占用
             int target = Math.max(0, remaining - SUFFIX_TOKENS);
-            String trimmed = target == 0 ? "" : truncateByTokens(out, target);
+            String trimmed = target == 0 ? "" : TokenEstimator.truncateToTokens(out, target);
             usedTokens.addAndGet(TokenEstimator.estimateTokens(trimmed) + SUFFIX_TOKENS);
             return trimmed + TRUNCATED_SUFFIX;
-        }
-
-        /** 二分查找最大前缀长度，使估算 token 数 ≤ limit（估算对长度单调）；收尾防劈 UTF-16 代理对 */
-        private static String truncateByTokens(String text, int limit) {
-            int lo = 0;
-            int hi = text.length();
-            while (lo < hi) {
-                int mid = (lo + hi + 1) >>> 1;
-                if (TokenEstimator.estimateTokens(text.substring(0, mid)) <= limit) {
-                    lo = mid;
-                } else {
-                    hi = mid - 1;
-                }
-            }
-            // 截断点恰落在高低代理之间时回退一位（孤立代理会产生坏字符，见 TextSanitizer）
-            if (lo > 0 && lo < text.length()
-                    && Character.isHighSurrogate(text.charAt(lo - 1))
-                    && Character.isLowSurrogate(text.charAt(lo))) {
-                lo--;
-            }
-            return text.substring(0, lo);
         }
     }
 }

@@ -24,4 +24,30 @@ public final class TokenEstimator {
         int other = text.length() - tokens;
         return tokens + (other + 3) / 4;
     }
+
+    /**
+     * 截取最大前缀，使估算 token 数 ≤ limit（估算对长度单调，二分查找）；
+     * 截断点恰落在 UTF-16 代理对之间时回退一位，避免孤立代理产生坏字符。
+     */
+    public static String truncateToTokens(String text, int limit) {
+        if (text == null || text.isEmpty() || limit <= 0) {
+            return "";
+        }
+        int lo = 0;
+        int hi = text.length();
+        while (lo < hi) {
+            int mid = (lo + hi + 1) >>> 1;
+            if (estimateTokens(text.substring(0, mid)) <= limit) {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        if (lo > 0 && lo < text.length()
+                && Character.isHighSurrogate(text.charAt(lo - 1))
+                && Character.isLowSurrogate(text.charAt(lo))) {
+            lo--;
+        }
+        return text.substring(0, lo);
+    }
 }
