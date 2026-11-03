@@ -32,6 +32,7 @@ import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.GoalService;
 import com.dark.javaHarness.service.ReplyPostProcessor;
 import com.dark.javaHarness.service.RouteJudge;
+import com.dark.javaHarness.service.SessionMessageEntry;
 import com.dark.javaHarness.service.SessionService;
 import com.dark.javaHarness.service.impl.route.RagPrefetcher;
 import com.dark.javaHarness.voice.VoiceArtifactStore;
@@ -143,14 +144,12 @@ class ChatServiceImplTest {
 
         chatService.chat(req);
 
-        ArgumentCaptor<UserMessage> userCapture = ArgumentCaptor.forClass(UserMessage.class);
-        ArgumentCaptor<AssistantMessage> assistantCapture = ArgumentCaptor.forClass(AssistantMessage.class);
-        verify(sessionService).saveContext(anyString(), userCapture.capture(), anyLong());
-        verify(sessionService).saveContext(anyString(), assistantCapture.capture(), anyLong());
+        List<SessionMessageEntry> entries = capturedBatch("7");
         verify(sessionService).touchSession(eq("7"), eq("帮我写首诗"));
 
-        assertEquals("帮我写首诗", userCapture.getValue().getText());
-        assertEquals("风急天高猿啸哀", assistantCapture.getValue().getText());
+        assertEquals("帮我写首诗", batchText(entries, false));
+        assertEquals("风急天高猿啸哀", batchText(entries, true));
+        assertEquals(2, entries.size(), "一轮只应产生 user+assistant 一条批量写入");
     }
 
     @Test
@@ -163,7 +162,7 @@ class ChatServiceImplTest {
         ChatResponse resp = chatService.chat(req);
 
         assertEquals(GoalStatus.FAILED.name(), resp.status());
-        verify(sessionService, never()).saveContext(anyString(), any(), any());
+        verify(sessionService, never()).saveContextBatch(anyString(), any());
     }
 
     /** 注入回复后处理器：出参应为清洗后文本，并透出处理器声明的通用 flag */
@@ -182,9 +181,7 @@ class ChatServiceImplTest {
         assertEquals("RAW-你好", resp.reply(), "出参应为清洗后文本");
         assertTrue(resp.flags().contains("stub"), "应透出处理器声明的 flag: " + resp.flags());
         // 核心不变量：清洗后文本既出参、又写回会话记忆，两处必须一致
-        ArgumentCaptor<AssistantMessage> assistantCapture = ArgumentCaptor.forClass(AssistantMessage.class);
-        verify(sessionService).saveContext(eq("50"), assistantCapture.capture(), anyLong());
-        assertEquals("RAW-你好", assistantCapture.getValue().getText(),
+        assertEquals("RAW-你好", batchText(capturedBatch("50"), true),
                 "写回会话记忆的 assistant 文本应为清洗后文本");
     }
 
@@ -208,9 +205,7 @@ class ChatServiceImplTest {
         assertEquals("RAW-重答结果", resp.reply(), "降级重答出参应为清洗后文本");
         assertTrue(resp.flags().contains("stub"), "应透出处理器声明的 flag: " + resp.flags());
         // 降级重答成功后的写回同样要落清洗后文本（出参/写回两处一致）
-        ArgumentCaptor<AssistantMessage> assistantCapture = ArgumentCaptor.forClass(AssistantMessage.class);
-        verify(sessionService).saveContext(eq("50"), assistantCapture.capture(), anyLong());
-        assertEquals("RAW-重答结果", assistantCapture.getValue().getText(),
+        assertEquals("RAW-重答结果", batchText(capturedBatch("50"), true),
                 "降级重答写回会话记忆的 assistant 文本应为清洗后文本");
     }
 
@@ -278,6 +273,31 @@ class ChatServiceImplTest {
         assertTrue(metaData.contains("\"status\":\"SUCCEEDED\""), "meta 应包含 status=SUCCEEDED");
     }
 
+    /** 后处理器抛异常应透出（不再静默跳过）：否则出参与写回会带着未清洗内容 */
+    @Test
+    void chat_replyPostProcessorThrows_shouldPropagate() {
+        ChatRequest req = new ChatRequest("你好", "50", null);
+        when(routeJudge.plan(eq("你好"), any(), any())).thenReturn(agenticPlan());
+        when(agentService.executeSync(anyString(), eq("你好"), eq("50"), any(), any(), any()))
+                .thenReturn(succeededGoal("50", "回答"));
+        when(replyPostProcessors.orderedStream()).thenReturn(java.util.stream.Stream.of(raw -> {
+            throw new IllegalStateException("processor boom");
+        }));
+
+        assertThrows(IllegalStateException.class, () -> chatService.chat(req));
+        verify(sessionService, never()).saveContextBatch(anyString(), any());
+    }
+
+    /** 会话 Agent 解析失败（DB 异常）应上抛：不再静默回退 general，避免专属 Agent 的会话跑错 Agent */
+    @Test
+    void chat_sessionLookupFails_shouldPropagateInsteadOfFallingBack() {
+        ChatRequest req = new ChatRequest("hi", "50", null);
+        when(sessionService.getSession("50")).thenThrow(new IllegalStateException("db down"));
+
+        assertThrows(IllegalStateException.class, () -> chatService.chat(req));
+        verify(agentService, never()).executeSync(anyString(), anyString(), anyString(), any(), any(), any());
+    }
+
     @Test
     void streamReactive_success_shouldWriteBackContext() {
         ChatRequest req = new ChatRequest("hi", "50", null);
@@ -286,14 +306,11 @@ class ChatServiceImplTest {
 
         chatService.streamReactive(req).collectList().block();
 
-        ArgumentCaptor<UserMessage> userCapture = ArgumentCaptor.forClass(UserMessage.class);
-        ArgumentCaptor<AssistantMessage> assistantCapture = ArgumentCaptor.forClass(AssistantMessage.class);
-        verify(sessionService).saveContext(eq("50"), userCapture.capture(), anyLong());
-        verify(sessionService).saveContext(eq("50"), assistantCapture.capture(), anyLong());
+        List<SessionMessageEntry> entries = capturedBatch("50");
         verify(sessionService).touchSession(eq("50"), eq("hi"));
-        assertEquals("hi", userCapture.getValue().getText(), "写回 user 应与原始提问一致");
-        assertEquals("ab", assistantCapture.getValue().getText(), "写回 assistant 应为完整回复");
-        assertNotNull(userCapture.getValue(), "user 消息应带真实发送时刻（ts 由 3 参重载写入快照）");
+        assertEquals("hi", batchText(entries, false), "写回 user 应与原始提问一致");
+        assertEquals("ab", batchText(entries, true), "写回 assistant 应为完整回复");
+        assertNotNull(entries.get(0).ts(), "user 消息应带真实发送时刻（批量条目携带 ts）");
     }
 
     @Test
@@ -304,7 +321,7 @@ class ChatServiceImplTest {
 
         chatService.streamReactive(req).collectList().block();
 
-        verify(sessionService, never()).saveContext(anyString(), any(), any());
+        verify(sessionService, never()).saveContextBatch(anyString(), any());
         verify(sessionService, never()).touchSession(anyString(), anyString());
     }
 
@@ -514,7 +531,7 @@ class ChatServiceImplTest {
         assertTrue(resp.error().contains("重答失败: 重答同样超时"),
                 "应保留重答失败原因: " + resp.error());
         // 重答失败不得写回会话记忆
-        verify(sessionService, never()).saveContext(anyString(), any(), any());
+        verify(sessionService, never()).saveContextBatch(anyString(), any());
         verify(sessionService, never()).touchSession(anyString(), anyString());
     }
 
@@ -537,7 +554,7 @@ class ChatServiceImplTest {
         assertTrue(lines.stream().anyMatch(l -> l.startsWith("event: meta") && l.contains("\"status\":\"SUCCEEDED\"")),
                 "重答成功 meta 应为 SUCCEEDED: " + lines);
         // 成功后写回会话记忆（user + assistant 共 2 条）
-        verify(sessionService, times(2)).saveContext(eq("50"), any(), any());
+        verify(sessionService).saveContextBatch(eq("50"), any());
     }
 
     /** 流式路径：重答也失败 → error 事件与 meta FAILED，错误信息保留「编排失败 + 重答失败」两段 */
@@ -558,7 +575,7 @@ class ChatServiceImplTest {
                 "error 事件应保留两段错误: " + lines);
         assertTrue(lines.stream().anyMatch(l -> l.startsWith("event: meta") && l.contains("\"status\":\"FAILED\"")),
                 "重答失败 meta 应为 FAILED: " + lines);
-        verify(sessionService, never()).saveContext(anyString(), any(), any());
+        verify(sessionService, never()).saveContextBatch(anyString(), any());
         verify(sessionService, never()).touchSession(anyString(), anyString());
     }
 
@@ -726,7 +743,7 @@ class ChatServiceImplTest {
         assertTrue(lines.stream().noneMatch(l -> !l.startsWith("data:") && !l.startsWith("event:")),
                 "流中不得出现脱前缀的物理断行, 实际输出: " + lines);
         // 写回记忆仍为 user+assistant 两条（转义只发生在传输层，不污染存储原文）
-        verify(sessionService, times(2)).saveContext(eq("50"), any(), any());
+        verify(sessionService).saveContextBatch(eq("50"), any());
     }
 
     /* ---------------- resume（断点续跑） ---------------- */
@@ -783,7 +800,7 @@ class ChatServiceImplTest {
         assertTrue(meta.contains("\"goalId\":\"g-ok\""), "meta 应带 goalId（CLI 供 /resume 复用）");
         assertTrue(meta.contains("\"status\":\"SUCCEEDED\""));
         // 成功后写回会话记忆（user=objective + assistant=续跑完整回复，共 2 条）
-        verify(sessionService, times(2)).saveContext(eq("s9"), any(), any());
+        verify(sessionService).saveContextBatch(eq("s9"), any());
     }
 
     /* ---------------- RouteJudge 与 RAG 预取并行汇合 ---------------- */
@@ -946,5 +963,23 @@ class ChatServiceImplTest {
         assertTrue(lines.stream().anyMatch(l -> l.startsWith("event: error")), "失败应透出 error 事件: " + lines);
         String meta = lines.stream().filter(l -> l.startsWith("event: meta")).findFirst().orElseThrow();
         assertTrue(meta.contains("\"path\":\"agentic\""), "meta 应保持 agentic: " + meta);
+    }
+
+    /** 捕获一轮批量写回的条目（user+assistant 一次落盘）；同时断言该轮写回恰好发生一次 */
+    @SuppressWarnings("unchecked")
+    private List<SessionMessageEntry> capturedBatch(String sessionId) {
+        ArgumentCaptor<List<SessionMessageEntry>> captor = ArgumentCaptor.forClass(List.class);
+        verify(sessionService).saveContextBatch(eq(sessionId), captor.capture());
+        return captor.getValue();
+    }
+
+    /** 从批量条目里按角色取消息文本（同角色多条时取第一条） */
+    private static String batchText(List<SessionMessageEntry> entries, boolean assistant) {
+        return entries.stream()
+                .filter(e -> (e.message() instanceof AssistantMessage) == assistant)
+                .map(e -> e.message().getText())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(
+                        "批量写回缺少 " + (assistant ? "assistant" : "user") + " 消息"));
     }
 }

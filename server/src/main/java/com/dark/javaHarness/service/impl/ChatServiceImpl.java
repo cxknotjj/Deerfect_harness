@@ -1,33 +1,43 @@
 package com.dark.javaHarness.service.impl;
 
 import com.dark.javaHarness.agent.ProgressLine;
+import com.dark.javaHarness.config.StreamConnectionLimiter;
 import com.dark.javaHarness.domain.Goal;
 import com.dark.javaHarness.domain.RoutePlan;
 import com.dark.javaHarness.domain.dto.ChatRequest;
 import com.dark.javaHarness.domain.dto.ChatResponse;
 import com.dark.javaHarness.domain.dto.KnowledgeSource;
 import com.dark.javaHarness.domain.dto.RouteInfo;
+import com.dark.javaHarness.domain.entity.SessionEntity;
 import com.dark.javaHarness.enums.AgentConstants;
 import com.dark.javaHarness.enums.GoalStatus;
 import com.dark.javaHarness.enums.SseProtocol;
-import com.dark.javaHarness.knowledge.KnowledgeRetriever;
-import com.dark.javaHarness.domain.entity.SessionEntity;
 import com.dark.javaHarness.exception.ResumeConflictException;
+import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.observability.HarnessMetrics;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.ChatService;
 import com.dark.javaHarness.service.GoalService;
 import com.dark.javaHarness.service.ReplyPostProcessor;
 import com.dark.javaHarness.service.RouteJudge;
+import com.dark.javaHarness.service.SessionMessageEntry;
 import com.dark.javaHarness.service.SessionService;
 import com.dark.javaHarness.service.impl.route.RagPrefetcher;
+import com.dark.javaHarness.voice.VoiceArtifactStore;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -49,10 +59,10 @@ public class ChatServiceImpl implements ChatService {
     private final RouteJudge routeJudge;
     private final GoalService goalService;
     /** 知识检索器（RAG 出处透出源）；null 时 meta.sources 恒空（知识库禁用场景，Demo 规模 pragmatic 方案） */
-    private final com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever;
+    private final KnowledgeRetriever knowledgeRetriever;
 
     /** 流式连接限流器（stream/resume 入口过载保护，超限 429） */
-    private final com.dark.javaHarness.config.StreamConnectionLimiter streamConnectionLimiter;
+    private final StreamConnectionLimiter streamConnectionLimiter;
 
     /** COMPLEX 编排失败降级开关（app.chat.complex-fallback.enabled）：开启时编排失败降级为会话 Agent 单模型重答一次 */
     private final boolean complexFallbackEnabled;
@@ -61,10 +71,10 @@ public class ChatServiceImpl implements ChatService {
     private final RagPrefetcher ragPrefetcher;
 
     /** 回复后处理器扩展点（渠道无关的通用 SPI，按注册顺序依次调用）；无实现时缺位，行为与改造前一致 */
-    private final org.springframework.beans.factory.ObjectProvider<ReplyPostProcessor> replyPostProcessors;
+    private final ObjectProvider<ReplyPostProcessor> replyPostProcessors;
 
     /** 本轮语音工件库：工具按 turnId 写入，ChatService 只读查一次并透出 voice:&lt;id&gt; flag */
-    private final com.dark.javaHarness.voice.VoiceArtifactStore voiceArtifacts;
+    private final VoiceArtifactStore voiceArtifacts;
 
     /**
      * Spring 装配入口（多构造需显式标注）：knowledgeRetriever 仅知识库启用时非 null；
@@ -72,16 +82,16 @@ public class ChatServiceImpl implements ChatService {
      * null 安全解析——bean 缺位（知识库禁用）即为 null，消费点零行为；
      * replyPostProcessors 收集所有 ReplyPostProcessor 实现（无实现时缺位，后处理零行为）。
      */
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public ChatServiceImpl(AgentService agentService, SessionService sessionService,
                            RouteJudge routeJudge, GoalService goalService,
-                           com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
-                           org.springframework.beans.factory.ObjectProvider<RagPrefetcher> ragPrefetcherProvider,
-                           com.dark.javaHarness.config.StreamConnectionLimiter streamConnectionLimiter,
-                           @org.springframework.beans.factory.annotation.Value("${app.chat.complex-fallback.enabled:true}")
+                           KnowledgeRetriever knowledgeRetriever,
+                           ObjectProvider<RagPrefetcher> ragPrefetcherProvider,
+                           StreamConnectionLimiter streamConnectionLimiter,
+                           @Value("${app.chat.complex-fallback.enabled:true}")
                            boolean complexFallbackEnabled,
-                           org.springframework.beans.factory.ObjectProvider<ReplyPostProcessor> replyPostProcessors,
-                           com.dark.javaHarness.voice.VoiceArtifactStore voiceArtifacts) {
+                           ObjectProvider<ReplyPostProcessor> replyPostProcessors,
+                           VoiceArtifactStore voiceArtifacts) {
         this.agentService = agentService;
         this.sessionService = sessionService;
         this.routeJudge = routeJudge;
@@ -202,50 +212,47 @@ public class ChatServiceImpl implements ChatService {
         }
     }
 
-    /** 应用所有回复后处理器（无实现时原样返回、flags 为空，行为与改造前一致） */
+    /**
+     * 应用所有回复后处理器（无实现时原样返回、flags 为空）。
+     *
+     * <p>处理器异常直接上抛（优化审查 2026-11-03）：实现都在本仓库内，逐个 catch 后继续会把
+     * 实现缺陷变成「静默少做一步后处理」——出参与写回都带着未清洗的内容。
+     */
     private ReplyProcessing applyReplyPostProcessors(String raw) {
         String text = raw == null ? "" : raw;
-        java.util.Set<String> flags = new java.util.LinkedHashSet<>();
-        if (replyPostProcessors != null) {
-            java.util.stream.Stream<ReplyPostProcessor> stream = replyPostProcessors.orderedStream();
-            if (stream != null) {
-                for (ReplyPostProcessor p : stream.toList()) {
-                    try {
-                        ReplyPostProcessor.Processed r = p.process(text);
-                        if (r != null) {
-                            text = r.text() == null ? "" : r.text();
-                            if (r.flags() != null) {
-                                flags.addAll(r.flags());
-                            }
-                        }
-                    } catch (Exception e) {
-                        log.warn("[chat] 回复后处理器异常，跳过：{}", e.getMessage());
-                    }
+        Set<String> flags = new LinkedHashSet<>();
+        for (ReplyPostProcessor p : replyPostProcessors.orderedStream().toList()) {
+            ReplyPostProcessor.Processed r = p.process(text);
+            if (r != null) {
+                text = r.text() == null ? "" : r.text();
+                if (r.flags() != null) {
+                    flags.addAll(r.flags());
                 }
             }
         }
-        return new ReplyProcessing(text, java.util.Set.copyOf(flags));
+        return new ReplyProcessing(text, Set.copyOf(flags));
     }
 
     /** 后处理结果载体 */
-    private record ReplyProcessing(String text, java.util.Set<String> flags) {
+    private record ReplyProcessing(String text, Set<String> flags) {
     }
 
     /** 本轮有语音工件时追加 voice:&lt;id&gt;：渠道无关，支持语音的渠道消费，其他渠道忽略。 */
-    private java.util.Set<String> withVoiceFlag(String turnId, java.util.Set<String> flags) {
+    private Set<String> withVoiceFlag(String turnId, Set<String> flags) {
         return voiceArtifacts.findByTurn(turnId)
                 .map(artifact -> {
-                    java.util.Set<String> merged = new java.util.LinkedHashSet<>(flags);
+                    Set<String> merged = new LinkedHashSet<>(flags);
                     merged.add("voice:" + artifact.id());
-                    return java.util.Set.copyOf(merged);
+                    return Set.copyOf(merged);
                 })
                 .orElse(flags);
     }
 
-    /** 写回公共体（sync/stream 两份重复块收编）：user+assistant 双消息落快照 + touch 会话 */
+    /** 写回公共体（sync/stream 共用）：一轮 user+assistant 一次批量落快照（一次锁/一次序列化）+ touch 会话 */
     private void writeBackBoth(String sessionId, String message, String assistantReply, long userSentAt) {
-        sessionService.saveContext(sessionId, new UserMessage(message), userSentAt);
-        sessionService.saveContext(sessionId, new AssistantMessage(assistantReply), System.currentTimeMillis());
+        sessionService.saveContextBatch(sessionId, List.of(
+                new SessionMessageEntry(new UserMessage(message), userSentAt),
+                new SessionMessageEntry(new AssistantMessage(assistantReply), System.currentTimeMillis())));
         sessionService.touchSession(sessionId, message);
     }
 
@@ -270,7 +277,12 @@ public class ChatServiceImpl implements ChatService {
             streamConnectionLimiter.release();
             throw e;
         }
-        return flux.doFinally(sig -> streamConnectionLimiter.release());
+        return flux
+                // 释放点放在终止信号传播之前（doOnTerminate/doOnCancel 互斥，不会重复释放）：
+                // doFinally 在 onComplete 之后才执行，客户端拿到终止信号立刻重连会撞上尚未
+                // 归还的名额（实测稳定复现 429）
+                .doOnTerminate(streamConnectionLimiter::release)
+                .doOnCancel(streamConnectionLimiter::release);
     }
 
     /** 实际流式编排（限流包裹层内）：无 sessionId 时在 boundedElastic 上自动建档 */
@@ -298,8 +310,8 @@ public class ChatServiceImpl implements ChatService {
             // 请求显式指定 agentId（绑定成功，含 general）同样跳过判定
             String boundAgent = sessionAgentName(ctx.sid());
             boolean useJudge = AgentConstants.DEFAULT_AGENT.equals(boundAgent);
-            java.util.concurrent.atomic.AtomicReference<RouteInfo> routeRef =
-                    new java.util.concurrent.atomic.AtomicReference<>();
+            AtomicReference<RouteInfo> routeRef =
+                    new AtomicReference<>();
             // 首帧先行：进度行在订阅时立即发出（judge 是同步阻塞调用，挪入 boundedElastic 防止
             // 「连接已建立却零字节」窗口被外部掐断；专属/显式 Agent 无判定环节，首帧直出行「直答」）
             boolean judgeThisTurn = useJudge && !explicitAgent;
@@ -375,12 +387,17 @@ public class ChatServiceImpl implements ChatService {
                     "resume from orchestration checkpoint", RoutePlan.Source.RESUME).toInfo();
             flux = toSseBody(SseEncoder.withAgentProgress(AgentConstants.MULTI_AGENT, agentService.resumeStreamReactive(goal)),
                 goal.sessionId(), false, goal.objective(), goal.id(),
-                new java.util.concurrent.atomic.AtomicReference<>(resumeRoute));
+                new AtomicReference<>(resumeRoute));
         } catch (RuntimeException e) {
             streamConnectionLimiter.release();
             throw e;
         }
-        return flux.doFinally(sig -> streamConnectionLimiter.release());
+        return flux
+                // 释放点放在终止信号传播之前（doOnTerminate/doOnCancel 互斥，不会重复释放）：
+                // doFinally 在 onComplete 之后才执行，客户端拿到终止信号立刻重连会撞上尚未
+                // 归还的名额（实测稳定复现 429）
+                .doOnTerminate(streamConnectionLimiter::release)
+                .doOnCancel(streamConnectionLimiter::release);
     }
 
     /**
@@ -391,7 +408,7 @@ public class ChatServiceImpl implements ChatService {
      */
     private Flux<String> toSseBody(Flux<String> agentTokens, String sessionId, boolean newSession,
                                    String userMessage, String goalId,
-                                   java.util.concurrent.atomic.AtomicReference<RouteInfo> routeRef) {
+                                   AtomicReference<RouteInfo> routeRef) {
         // 发送时刻在组装期捕获（请求到达即记录，写回 user 消息快照用——历史回显真实发送时间）
         long userSentAt = System.currentTimeMillis();
         // doOnNext 收集完整回复，流正常结束后由 doOnComplete 统一写回会话记忆（保持多轮记忆语义）
@@ -439,14 +456,11 @@ public class ChatServiceImpl implements ChatService {
 
     /**
      * 预取提交 + 路径判定并行 + 汇合的收敛入口：sync/stream 共用。
-     * 会话 agent 名由入口解析后显式传入（kb 绑定解析内聚预取器，null/空白不入池）。
+     * agentName 由入口解析后显式传入（kb 绑定解析内聚预取器，null/空白不入池），
+     * 判定结果也直接复用它——不再二次查会话绑定（同一值，省一轮 session+agent 查询）。
+     *
+     * @param forcedPlan 非空时跳过判定（显式指定 Agent 的 agentic 链路），入口 RAG 预取照常提交/汇合
      */
-    private RoutingOutcome resolveRouteWithPrefetch(String agentName, String message, String sessionId,
-                                                    String turnId, String routing) {
-        return resolveRouteWithPrefetch(agentName, message, sessionId, turnId, routing, null);
-    }
-
-    /** forcedPlan 非空时跳过判定（显式指定 Agent 的 agentic 链路），入口 RAG 预取照常提交/汇合。 */
     private RoutingOutcome resolveRouteWithPrefetch(String agentName, String message, String sessionId,
                                                     String turnId, String routing, RoutePlan forcedPlan) {
         Future<?> prefetch = ragPrefetcher == null ? null
@@ -455,7 +469,7 @@ public class ChatServiceImpl implements ChatService {
             RoutePlan plan = forcedPlan != null ? forcedPlan : decidePlan(message, sessionId, turnId, routing);
             // 路径分布是 Graph 降级率的分母（fallbacks / graph decisions），与判定同点记账
             HarnessMetrics.routeDecision(plan.graph());
-            String resolvedAgent = plan.graph() ? AgentConstants.MULTI_AGENT : sessionAgentName(sessionId);
+            String resolvedAgent = plan.graph() ? AgentConstants.MULTI_AGENT : agentName;
             if (ragPrefetcher != null) { // 知识库禁用时预取器缺位，判定完成即返回
                 ragPrefetcher.await(prefetch);
             }
@@ -495,7 +509,8 @@ public class ChatServiceImpl implements ChatService {
                     RoutePlan.Source.BOUND_AGENT);
             return new RoutingOutcome(plan, boundAgent);
         }
-        return resolveRouteWithPrefetch(boundAgent, request.message(), sessionId, turnId, request.routing());
+        return resolveRouteWithPrefetch(boundAgent, request.message(), sessionId, turnId,
+                request.routing(), null);
     }
 
     /**
@@ -503,7 +518,7 @@ public class ChatServiceImpl implements ChatService {
      * 判定器内部已兜底 Agentic，此处不再重复防御）。
      */
     private RoutePlan decidePlan(String message, String sessionId, String turnId, String routing) {
-        String mode = routing == null ? "auto" : routing.trim().toLowerCase(java.util.Locale.ROOT);
+        String mode = routing == null ? "auto" : routing.trim().toLowerCase(Locale.ROOT);
         if ("agentic".equals(mode)) {
             return RoutePlan.agentic(1.0, "routing override: agentic", RoutePlan.Source.OVERRIDE);
         }
@@ -519,7 +534,7 @@ public class ChatServiceImpl implements ChatService {
 
     /** 置信度展示（两位小数，便于进度行/日志阅读）。 */
     private static String formatConfidence(double confidence) {
-        return String.format(java.util.Locale.ROOT, "%.2f", confidence);
+        return String.format(Locale.ROOT, "%.2f", confidence);
     }
 
     /** 路径决策 + 实际执行 Agent 的绑定结果。 */
@@ -528,23 +543,22 @@ public class ChatServiceImpl implements ChatService {
 
     /**
      * 解析会话绑定的 Agent 名（session.agent_id → agent 表 agent_name）。
-     * 会话不存在/未绑定/查询失败/agent 行已删时回退默认 general。
+     * 会话不存在/未绑定/agent 行已删时回退默认 general。
+     *
+     * <p>查询失败（DB 不可用）向上抛而不是回退 general（优化审查 2026-11-03）：绑定了
+     * wms 专员的会话静默跑通用 Agent，用户拿到的是「看起来正常但查不到数据」的回答，
+     * 比请求失败更难定位。
      */
     private String sessionAgentName(String sessionId) {
         if (sessionId == null || sessionId.isBlank()) {
             return AgentConstants.DEFAULT_AGENT;
         }
-        try {
-            SessionEntity session = sessionService.getSession(sessionId);
-            if (session == null || session.getAgentId() == null) {
-                return AgentConstants.DEFAULT_AGENT;
-            }
-            return agentService.findAgentNameById(session.getAgentId().longValue())
-                    .orElse(AgentConstants.DEFAULT_AGENT);
-        } catch (Exception e) {
-            log.warn("[route] 会话 Agent 解析失败，回退默认 sid={}: {}", sessionId, safeMessage(e));
+        SessionEntity session = sessionService.getSession(sessionId);
+        if (session == null || session.getAgentId() == null) {
             return AgentConstants.DEFAULT_AGENT;
         }
+        return agentService.findAgentNameById(session.getAgentId().longValue())
+                .orElse(AgentConstants.DEFAULT_AGENT);
     }
 
     /** 异常信息取安全短文案（message 为空时退回类名，避免日志出现 "null"） */
