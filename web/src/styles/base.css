@@ -1,0 +1,19 @@
+/* ------------------------------------------------------------
+   基础控件（通用按钮与禁用态）
+   自 main.css 按域拆出（原第 107-121 行）
+   ------------------------------------------------------------ */
+
+/* ---------- 通用按钮 ---------- */
+.btn {
+  padding: 6px 12px;
+  border-radius: var(--radius-ctl);
+  font-size: 13px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, opacity 0.15s;
+}
+.btn-primary { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.btn-primary:disabled { opacity: 0.4; }
+.btn-ghost { border: 1px solid var(--grid-line); color: var(--ink-dim); }
+.btn-ghost:hover:not(:disabled) { border-color: var(--ink-dim); color: var(--ink); }
+.btn-stop { border: 1px solid var(--accent-warm); color: var(--accent-warm); }
+.btn-stop:hover { background: var(--accent-warm-soft); }

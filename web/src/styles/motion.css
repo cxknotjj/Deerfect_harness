@@ -1,0 +1,91 @@
+/* ------------------------------------------------------------
+   交互动效与动效降级（prefers-reduced-motion）
+   自 main.css 按域拆出（原第 939-1025 行）
+   ------------------------------------------------------------ */
+
+/* ---------- 会话交互动效 ----------
+   原则(animate 规范):每个动画都有理由——确认动作、软化状态切换、标示进行中;
+   只动 transform/opacity 走 GPU;时长 120-400ms,统一 --ease-out-quart;
+   prefers-reduced-motion 全量降级(见文末块) */
+
+/* 消息入场:仅最后一行(新消息插入时才挂载),fade + 上浮确认「已发出/已到达」;
+   历史回显与会话切换时同样只有末行动画,长列表不被拖慢 */
+.msg-row:last-child { animation: msg-in 0.24s var(--ease-out-quart); }
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* 执行进度行:到达时同款入场;streaming 中最后一行的 ▤ 标呼吸——「当前阶段进行中」 */
+.msg-progress-item { animation: msg-in 0.24s var(--ease-out-quart); }
+.msg-row-streaming .msg-progress > .msg-progress-item:last-of-type::before {
+  animation: dot-breathe 1.6s ease-in-out infinite;
+}
+
+/* 思考折叠块展开:v-if 重插时重放,fade + 轻微下滑软化硬切;收起瞬时(退出快于入场) */
+.msg-thinking-body { animation: thinking-in 0.26s var(--ease-out-quart); }
+@keyframes thinking-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* 空会话占位:logo → 标题 → 副文案 → 快捷提问逐级入场(唯一签名时刻);
+   backwards 保证延迟期间不可见, chips 按 nth-child 递进错拍 */
+.chat-empty > * { animation: rise-in 0.4s var(--ease-out-quart) backwards; }
+.chat-empty > :nth-child(2) { animation-delay: 70ms; }
+.chat-empty > :nth-child(3) { animation-delay: 140ms; }
+.chat-empty > :nth-child(4) { animation-delay: 210ms; }
+.chat-empty-suggest .suggest-chip { animation: rise-in 0.35s var(--ease-out-quart) backwards; }
+.chat-empty-suggest .suggest-chip:nth-child(1) { animation-delay: 280ms; }
+.chat-empty-suggest .suggest-chip:nth-child(2) { animation-delay: 320ms; }
+.chat-empty-suggest .suggest-chip:nth-child(3) { animation-delay: 360ms; }
+.chat-empty-suggest .suggest-chip:nth-child(4) { animation-delay: 400ms; }
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- 动效降级:呼吸灯与光标闪烁降为常亮 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  body, .chat-header, .composer-wrap, .msg-bubble-user {
+    transition: none;
+  }
+  .chat-header .icon-btn {
+    animation: none;
+  }
+  .session-list,
+  .app-shell.sidebar-collapsed .session-list,
+  .app-shell.drawer-open .session-list,
+  .drawer-mask,
+  .app-shell.drawer-open .drawer-mask,
+  .chat-header .icon-btn {
+    transition: none;
+    animation: none;
+  }
+  .app-shell.app-streaming .agent-select .status-dot,
+  .app-shell.app-streaming .session-item-active .status-dot {
+    animation: none;
+  }
+  .msg-row-streaming .md-body > :last-child::after,
+  .msg-row-streaming .md-body:empty::after {
+    animation: none;
+  }
+  .agent-select [class*='agent-menu'] {
+    animation: none; /* 下拉滑入动画一并降级(原清单遗漏) */
+  }
+  /* 会话交互动效降级:入场/展开/错拍动画去掉,微交互 transition 复位 */
+  .msg-row:last-child,
+  .msg-progress-item,
+  .msg-row-streaming .msg-progress > .msg-progress-item:last-of-type::before,
+  .msg-thinking-body,
+  .chat-empty > *,
+  .chat-empty-suggest .suggest-chip {
+    animation: none;
+  }
+  .composer,
+  .composer-send,
+  .chat-tab,
+  .suggest-chip {
+    transition: none;
+  }
+}
