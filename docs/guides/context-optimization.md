@@ -218,3 +218,15 @@ input 注入账本（AtomicLong 累计 + AtomicBoolean 估算标记，Replace �
 - 真实部分跳过（lead + 前序子任务累计超限 → 后续子任务跳过、前序结果保留进聚合）：`MultiAgentGraphAgentTest.execute_partialBudgetExhaustion_skipsOnlyRemainingSubtasks`（限并发=1 使跳过数确定）
 - caller 门控/记账：发起前超限零 HTTP、usage 帧真实入账、无 usage 估算兜底、流式与同步同口径 → `AgentChatCallerTest.call_ledgerPreCheckOverBudget_zeroHttp` / `call_realUsageFrame_recordsActualTokens` / `stream_reportsRealUsageToLedger` / `stream_ledgerPreCheckOverBudget_zeroHttp`
 - 档位映射：lead/final/expert 三档捕获 `ChatOptions.maxTokens` 断言；0 时不写入 → `AgentChatCallerTest.call_maxTokens*`
+
+## 六、裁剪后的历史召回（2026-11-03）
+
+预算裁剪不再等于永久丢失：
+
+- 写回快照时每条消息带稳定 ID；`session_messages` 快照超条数/字符上限被移除的消息与单条截断尾部，
+  先写入 `session_message_archive`（与快照更新同事务）。
+- `ContextAssemblingAdvisor` 裁剪时把被丢消息的条数与 ID 示例追加到 system，提示模型「窗口外还有历史」。
+- `general` / `lead` 分配 `recall_history` 工具：按关键词或精确消息 ID 检索本会话归档；`sessionId`
+  由 ToolContext 服务端注入，结果再经 `ToolCallBudget` 做 token 预算。
+- 边界：单跳检索，无引用图/多跳展开，未做摘要与向量化；归档行不参与上下文预算的自动回填，
+  只有模型显式调用工具时才占用预算。

@@ -29,6 +29,7 @@
 | [data-flow.md](./data-flow.md) | 数据流详解（路由 / 组装 / 调用 / 记账 / 观测） |
 | [project-structure.md](./project-structure.md) | 服务端目录树（[EN](./project-structure_EN.md)） |
 | [TECH_STACK.md](./TECH_STACK.md) | 技术栈明细与扩展方向 |
+| [design/super-agent-ideas-adopted.md](./design/super-agent-ideas-adopted.md) | Super-agent 文章中已在本项目落地的思想对照（Fast/Slow Path / 投机执行 / Inline & Spill / 链式召回 / 状态分离 / 多信道 / 事件入口 / Watchdog） |
 | [HARNESS_TODO.md](./HARNESS_TODO.md) | 落地 TODO / 路线图（未完成 + 已完成存档） |
 | [design/](./design/) | 设计文档存档（流式改造 / 路由判定 / 多 Agent 图等，按日期） |
 

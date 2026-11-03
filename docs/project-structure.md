@@ -10,7 +10,7 @@
 |---|---|---|
 | `harness-api` | 渠道与 core 共用的契约层：端口接口、DTO、共享枚举、`ReplyPostProcessor` SPI | 无同反应堆依赖 |
 | `server` | Spring Boot 主服务、core 实现与 fat jar 宿主 | compile → `harness-api`；runtime → `channel-qq` |
-| `channel-qq` | QQ 渠道（NapCat/OneBot 11）：客户端/事件/回复/持久化 | compile → `harness-api` |
+| `channel-qq` | QQ 渠道（NapCat/OneBot 11）：客户端/事件/回复/持久化；事件准入 `ChannelEventPolicy` + 语义层端口 | compile → `harness-api` |
 | `cli` | 终端客户端，纯 HTTP + SSE | compile → `harness-api` |
 | `wms-mcp-adapter` | 领域 MCP 适配范例 | 独立 |
 
@@ -40,6 +40,7 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── AgentConfigProvider.java  # 从 agent 表读取运行配置（路由映射）
 │   ├── ProviderAdminService.java # model_provider 映射管理（新增即热刷新注册表）
 │   └── impl/                     # AgentServiceImpl / ChatServiceImpl / SessionServiceImpl / ProviderAdminServiceImpl / SseEncoder 等
+│       ├── SessionHistoryArchiveService.java  # 会话归档检索（recall_history 数据源，按会话过滤）
 │       └── route/                # LlmRouteJudge（主 Agent 路由判定）/ RagPrefetcher（RAG 入口预取）
 ├── advisor/                      # Spring AI Advisor 拦截器（Agent 流程横切管理）
 │   ├── ContextAssemblingAdvisor.java  # 上下文组装：过滤/token 预算截断/role 归一化
@@ -59,20 +60,20 @@ server/src/main/java/com/dark/javaHarness/
 │       ├── ChatClientRegistry.java   # 模型名 → ChatClient 注册表（支持热刷新）
 │       └── ThinkingSwitchChatModel.java  # 按 model_provider.disable_thinking 注入思考开关
 ├── prompt/                       # Prompt 组装管线（两路径统一）
-│   ├── PromptAssembler.java      # 五段式 system prompt 组装（角色/工具索引/纪律/输出约定/skill）
+│   ├── PromptAssembler.java      # 分段式 system prompt 组装（角色/画像/工具索引/纪律/输出约定/信道规范/skill）
 │   ├── MemoryPolicy.java         # 会话记忆按角色注入矩阵
 │   ├── SkillManager.java / SkillRepository.java  # Markdown 技能库动态装配（按需注入 system）
 │   ├── ToolLazyManager.java      # 工具 Schema 两段式延迟加载（轻量索引 → expand_tool 展开）
 │   └── PromptSection.java / SkillSectionProvider.java  # 段模型与 skill 扩展点
 ├── mapper/                       # 数据访问层：MyBatis-Plus Mapper
-│   └── AgentMapper / GoalMapper / SessionMapper / SessionMessageMapper / ModelProviderMapper
+│   └── AgentMapper / GoalMapper / SessionMapper / SessionMessageMapper / SessionMessageArchiveMapper / ModelProviderMapper
 │       / LlmCallLogMapper / ToolCallLogMapper / KbRetrievalLogMapper / McpServerLogMapper / KbDocumentMapper
 │       （OneBot 会话绑定 Mapper 在 channel-qq 模块）
 ├── domain/                       # 领域模型（父包）
 │   ├── RouteDecision.java        # 路由决策枚举（SIMPLE / COMPLEX）
 │   ├── LlmCallLog.java           # 一次 LLM 调用的观测记录（耗时/token/成败）
 │   ├── KbRetrievalLog / McpServerLog / ToolCallLog  # 其余观测记录
-│   └── entity/                   # 数据库实体（agent / goal / session_message / model_provider / 各观测日志表）
+│   └── entity/                   # 数据库实体（agent / goal / session_message / session_message_archive / model_provider / 各观测日志表）
 ├── enums/                        # 共享常量：AgentConstants（GoalStatus / SseProtocol 已迁 harness-api）
 ├── exception/                    # 全局异常处理（@RestControllerAdvice，统一 {code, message}）
 ├── agent/                        # Agent 抽象、编排与 LLM 调用
@@ -105,7 +106,8 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── LlmCallRecorder / KbRetrievalRecorder / McpServerRecorder  # 三表异步落库
 │   ├── LlmCallObserver / LlmRequestLogAdvisor  # 调用侧口径与请求发起观测
 │   ├── ObserveQueryService / ObserveQueryServiceImpl  # 三表查询收口（controller 不直连 mapper）
-│   └── ObservabilityLogCleaner  # 观测表保留期清理
+│   ├── ObservabilityLogCleaner  # 观测表保留期清理
+│   └── StaleGoalWatchdog       # Goal 停滞看门狗（RUNNING 无进展 → FAILED，默认关闭）
 ├── validation/                   # 纯规则（无状态、不查库）
 │   ├── FileNameRules.java        # 上传文件名/大小/kb 命名
 │   └── ProviderRules.java        # provider/apiUrl/模型名格式
@@ -130,6 +132,7 @@ server/src/main/java/com/dark/javaHarness/
     ├── ToolCallbackDecorator.java / ToolDecorationContext.java  # 可插拔装饰器接口与上下文（Ordered 责任链）
     ├── ToolObservationDecorator.java / ToolBudgetDecorator.java / ToolLazyLoadDecorator.java / SkillMetaToolDecorator.java  # 默认装饰链四组件（观测100→预算200→懒加载300→元工具400）
     ├── DefaultToolDecorators.java  # 默认装饰链工厂（单一事实来源；新增装饰器=新类+此处登记一行）
+    ├── builtin/history/RecallHistoryTools.java  # recall_history：按关键词/消息 ID 检索会话归档
     ├── builtin/tts/TextToSpeechTools.java  # text_to_speech 工具入口：校验 + 合成 + 写工件
     ├── builtin/tts/EdgeTtsClient.java      # Edge TTS 子进程调用（超时杀进程 / 并发信号量）
     └── TokenEstimator.java       # 全项目统一 token 估算口径

@@ -422,26 +422,31 @@ LLM 调用出口（五类调用点统一收敛）
 
 > 两路径统一的 system prompt 组装管线（`PromptAssembler`）+ 会话记忆按角色注入（`MemoryPolicy`）
 > + 思考开关动态注入（`ThinkingSwitchChatModel`）。一次 LLM 请求的上下文 = 四部分：
-> system（五段式）+ 工具 schema（三层装饰后）+ messages（记忆 + 当前输入）+ options（模型参数）。
+> system（分段式）+ 工具 schema（三层装饰后）+ messages（记忆 + 当前输入）+ options（模型参数）。
 
 ```
 AgentChatCaller.buildSpec()（统一出口）
 │
-① system prompt：PromptAssembler.assemble(agentName, roleFallback)
-   五段式（按 order 排序、空段跳过、空行分隔）：
+① system prompt：PromptAssembler.assembleSections(agentName, roleFallback, config, channel)
+   分段式（按 order 排序、空段跳过、空行分隔）：
      1 角色段   → agent 表行 prompt > 调用方兜底 roleFallback（lead/aggregator 兜底词、
                   子任务专家 persona）> 默认「执行任务的 AI 助手」
-     2 工具索引段 → ToolAssignments 用途元数据（名称：用途，仅本 agent 分配面）；
+     2 用户偏好画像段 → UserProfileSectionProvider（general/lead）
+     3 工具索引段 → ToolAssignments 用途元数据（名称：用途，仅本 agent 分配面）；
                   lazy 开启时追加 expand_tool 使用引导（与 5c 第三层联动）
-     3 工具纪律段 → 网络类合计 ≤8 次 / 同 URL 只抓一次 / 材料够立即停止（提示词软约束，
+     4 工具纪律段 → 网络类合计 ≤8 次 / 同 URL 只抓一次 / 材料够立即停止（提示词软约束，
                   真正兜底是 5c 第二层 8 次硬上限）
-     4 输出约定段 → 「直接给出完成结果」
-     5 skill 段  → SkillSectionProvider 扩展点（当前无实现输出空，预留子项 1）
+     5 输出约定段 → 「直接给出完成结果」
+     6 信道规范段 → channel=qq：IM 短答（≤100 词、只问决策）；cli/web/api：结构化完整交付；
+                  空渠道不注入（channel 经 ChatRequest → Goal → CallTrace 贯通）
+     7 skill 段  → SkillSectionProvider 扩展点
 │
 ② messages：MemoryPolicy 按角色注入会话记忆（同一 memoryStore，经 ContextAssemblingAdvisor
    同预算裁剪，与路径 A general 完全同口径）
      - 注入：路径 A general / 编排 lead（拆解需要理解多轮指代）
      - 不注入：aggregator（忠实汇总子任务结果，不掺对话）、子任务专家、route-judge
+     - 历史引用：被预算裁掉的消息 ID 由 advisor 汇总成一行「历史引用」追加进 system，
+       提示模型调用 recall_history 检索归档（见 5j）
      - 无会话 ID 自动跳过（无记忆场景零开销）
 │
 ③ options：模型参数注入
@@ -524,7 +529,14 @@ AgentChatCaller.buildSpec()（统一出口）
 **单实例假设**：启动清理 `failAllRunning`（RUNNING → FAILED）与本地线程池都基于单实例
 部署；水平扩展需先解除该假设（见 TODO「多实例水平扩展」）。
 
-**测试**：`AgentServiceImplTest`（10 并发 submit 全 SUCCEEDED / 队列满拒绝兜底落 FAILED / LinkageError 逃逸回写 FAILED）。
+**Goal 进展心跳与停滞看门狗（2026-11-03）**：
+- `goal.last_progress_at`（V4）：`markRunning` 初始化；流式行流按 30 秒节流刷新；编排检查点
+  （`LEAD_DONE` / `SUBTASKS_DONE`）保存时同步刷新（`OrchestrationCheckpointStore`）。
+- `StaleGoalWatchdog`（`app.watchdog.enabled`，默认关闭）：定时扫描 RUNNING 且
+  `last_progress_at` 为空或早于 `stagnant-minutes` 的目标，条件更新（WHERE status=RUNNING）
+  为 FAILED 并写原因；只标失败、不自动重投（重投见 TODO P2）。
+
+**测试**：`AgentServiceImplTest`（10 并发 submit 全 SUCCEEDED / 队列满拒绝兜底落 FAILED / LinkageError 逃逸回写 FAILED）、`StaleGoalWatchdogTest`。
 
 ***
 
@@ -594,6 +606,39 @@ sequenceDiagram
 
 ***
 
+## 5j. 会话历史归档与链式召回（最小版，2026-11-03）
+
+> 目标：上下文窗口裁剪不再等价于永久丢失。快照 item 带稳定 ID；写回裁剪时把移除项转归档；
+> 请求组装时向模型提示「窗口外还有历史」；模型经 recall_history 按需取回。
+
+```
+写回（SessionServiceImpl.saveContext，@Transactional）
+  session_messages 快照 JSON items
+    ├─ 存量 item 补稳定 ID（m-<uuid>），新消息写入 ID + role + content + ts
+    ├─ trimSnapshot：超条数/字符上限 → 移除项收集
+    │     └─ session_message_archive（part=full；单条超限截断尾部 part=tail）
+    └─ 快照 JSON 更新（归档与快照同事务，失败一起回滚）
+
+请求组装（AgentRequestSpecFactory → ContextAssemblingAdvisor）
+  loadContext → Message metadata(messageId)
+  → trimToBudget 收集被丢消息 ID
+  → 从 system 追加一行「历史引用：更早 N 条已归档，ID 示例 m-xxx，可用 recall_history」
+
+工具调用（general / lead，V5 分配）
+  recall_history(query | messageId, limit)
+  → ToolContext.sessionId（服务端注入，模型不可见）
+  → SessionHistoryArchiveService：WHERE session_id=? + messageId/正文 LIKE
+      LEFT(content, 2000) + LIMIT ≤10
+  → ToolCallBudget 结果 token 预算
+```
+
+**边界**：无 Trigger/Thread/Worker 引用图与多跳展开，未做摘要与向量化；归档检索按关键词/精确 ID。
+
+**测试**：`SessionServiceImplTest`（ID 补齐/裁剪归档）、`ContextAssemblingAdvisorTest`（引用行）、
+`RecallHistoryToolsTest` + `SessionHistoryArchiveServiceTest`（会话隔离/条数钳制）。
+
+***
+
 ## 6. 错误处理
 
 | 环节             | 处理                                        |
@@ -652,7 +697,7 @@ sequenceDiagram
 | 上下文组装      | `ContextAssemblingAdvisor`                           |
 | 主 Agent 判断 | `RouteJudge` / `LlmRouteJudge` / `RouteDecision`     |
 | Agent 注册/路由 | `AgentRegistry`（表驱动自动注册 + 惰性热注册）+ `AgentConfigProvider`（`is_internal` 过滤） |
-| Prompt 组装  | `PromptAssembler`（五段式）+ `MemoryPolicy`（角色记忆矩阵）+ `SkillSectionProvider`（扩展点） |
+| Prompt 组装  | `PromptAssembler`（分段式，含信道规范段）+ `MemoryPolicy`（角色记忆矩阵）+ `SkillSectionProvider`（扩展点） |
 | 思考开关       | `ThinkingSwitchChatModel`（按 `model_provider.disable_thinking` 注入 `enable_thinking`） |
 | 路径 A（简单）   | `GeneralAssistantAgent`（薄适配：装配差异声明 + 响应式流终结钩子，执行委托 `AgentChatCaller`） |
 | 路径 B（复杂）   | `MultiAgentGraphAgent`（自研引擎：lead→并行→aggregate） |
@@ -660,11 +705,14 @@ sequenceDiagram
 | 统一出口       | `ChatController` 同步 + SSE                            |
 | 兜底         | `AgentService` → general                             |
 | 工具治理       | `ToolCallTracer`（进度行）+ `ToolCallBudget`（次数/结果 token 预算）+ `ToolLazyManager`（两段式延迟加载）+ `ToolAssignments`（专家分配硬边界） |
+| 会话归档/召回 | `SessionMessageArchiveMapper`（裁剪转归档）+ `SessionHistoryArchiveService` + `RecallHistoryTools`（`recall_history`） |
+| QQ 事件准入 | `ChannelEventPolicy`（程序层规则）+ `SemanticTriggerJudge` / `LlmSemanticTriggerJudge`（语义层，默认关闭） |
+| Goal 停滞看门狗 | `StaleGoalWatchdog`（`app.watchdog.enabled`，默认关闭） |
 | 沙箱工具面      | `SandboxToolProvider`（agentscope-runtime 容器）        |
 | MCP 工具        | `McpServerTools`（Server，3 工具→/mcp）+ `McpToolProvider`（Client，懒连接发现）+ `ToolAssignments` |
 | 调用观测（LLM/工具/RAG 检索） | `LlmCallRecorder` 等（异步落库）+ `ObserveQueryService`（三表查询收口）+ 观测三接口（`/api/llm-calls`、`/api/tool-calls`、`/api/kb-retrievals`）   |
 | 执行通道线程池 | `GoalExecutorConfig`（`goalExecutor` 后台 Goal 池 + `applicationTaskExecutor` MVC 异步槽位） |
 | CLI 渲染     | `TerminalRenderer`（流式增量直出 + 着色行整行重绘升级 + spinner 原位刷新 + 工具行）   |
 
-> 更新日期：2026-08-28 / 5e MCP 接入、分配表与组件映射更新：2026-08-29 / 5f Prompt 动态装配、5g Agent 表驱动注册、6a 流式背书取消与 5c/5d/6 口径更新：2026-09-04 / 5h Goal 执行通道线程池治理、6 队列满与 Error 逃逸兜底、CLI 增量直出口径与组件映射更新：2026-09-06 / 观测查询收口 ObserveQueryService、QQ 绑定持久化收编 channel/qq/persistence 与组件映射更新：2026-10-04。
+> 更新日期：2026-08-28 / 5e MCP 接入、分配表与组件映射更新：2026-08-29 / 5f Prompt 动态装配、5g Agent 表驱动注册、6a 流式背书取消与 5c/5d/6 口径更新：2026-09-04 / 5h Goal 执行通道线程池治理、6 队列满与 Error 逃逸兜底、CLI 增量直出口径与组件映射更新：2026-09-06 / 观测查询收口 ObserveQueryService、QQ 绑定持久化收编 channel/qq/persistence 与组件映射更新：2026-10-04 / 5j 会话归档与链式召回、Goal 进展心跳与停滞看门狗、信道规范段与 QQ 事件准入更新：2026-11-03。
 
