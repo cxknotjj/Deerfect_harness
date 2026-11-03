@@ -1,10 +1,12 @@
 package com.dark.javaHarness.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
@@ -43,5 +45,36 @@ class GoalServiceImplTest {
         ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<Object>> captor =
                 ArgumentCaptor.forClass((Class) com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper.class);
         verify(mapper).update(isNull(), any());
+    }
+
+    @Test
+    void touchProgress_issuesRunningOnlyUpdate() {
+        GoalMapper mapper = mock(GoalMapper.class);
+        GoalServiceImpl service = new GoalServiceImpl(mapper);
+
+        service.touchProgress("goal-1");
+
+        verify(mapper).update(isNull(), any());
+    }
+
+    @Test
+    void failStagnant_issuesConditionalUpdateAndReturnsAffectedRows() {
+        GoalMapper mapper = mock(GoalMapper.class);
+        when(mapper.update(isNull(), any())).thenReturn(3);
+        GoalServiceImpl service = new GoalServiceImpl(mapper);
+
+        int n = service.failStagnant(
+                java.time.LocalDateTime.of(2026, 11, 2, 23, 30), "执行停滞：超过 30 分钟无进展");
+
+        assertEquals(3, n);
+        verify(mapper).update(isNull(), any());
+    }
+
+    @Test
+    void capSummary_truncatesLongReason() {
+        String longReason = "x".repeat(GoalServiceImpl.SUMMARY_MAX_CHARS + 10);
+        String capped = GoalServiceImpl.capSummary(longReason);
+        assertEquals(GoalServiceImpl.SUMMARY_MAX_CHARS + "…（超长截断）".length(), capped.length());
+        assertTrue(capped.endsWith("…（超长截断）"));
     }
 }

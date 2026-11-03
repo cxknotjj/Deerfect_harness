@@ -5,6 +5,7 @@ import com.dark.javaHarness.domain.entity.GoalEntity;
 import com.dark.javaHarness.enums.GoalStatus;
 import com.dark.javaHarness.mapper.GoalMapper;
 import com.dark.javaHarness.service.GoalService;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -27,9 +28,9 @@ public class GoalServiceImpl implements GoalService {
 
     /** 创建目标（带会话记忆与轨迹标识），初始状态 PENDING；标识值由调用方生成传入 */
     @Override
-    public Goal create(String objective, String sessionId, String turnId, String traceId) {
+    public Goal create(String objective, String sessionId, String turnId, String traceId, String channel) {
         // UUID 保证重启/并发下主键唯一，避免内存序号与库中已有数据冲突
-        Goal goal = new Goal("goal-" + UUID.randomUUID(), objective, sessionId, turnId, traceId);
+        Goal goal = new Goal("goal-" + UUID.randomUUID(), objective, sessionId, turnId, traceId, channel);
         goalMapper.insert(toEntity(goal));
         return goal;
     }
@@ -72,9 +73,39 @@ public class GoalServiceImpl implements GoalService {
                         .set(GoalEntity::getFinishedAt, java.time.LocalDateTime.now()));
     }
 
+    /** 刷新进展时间：仅 RUNNING 目标生效，避免已结束目标被心跳改写 */
+    @Override
+    public void touchProgress(String goalId) {
+        goalMapper.update(null,
+                com.baomidou.mybatisplus.core.toolkit.Wrappers.<GoalEntity>lambdaUpdate()
+                        .eq(GoalEntity::getId, goalId)
+                        .eq(GoalEntity::getStatus, GoalStatus.RUNNING.name())
+                        .set(GoalEntity::getLastProgressAt, LocalDateTime.now()));
+    }
+
+    /** 停滞目标批量失败：last_progress_at 为空或早于 cutoff 的 RUNNING 目标 */
+    @Override
+    public int failStagnant(LocalDateTime cutoff, String reason) {
+        return goalMapper.update(null,
+                com.baomidou.mybatisplus.core.toolkit.Wrappers.<GoalEntity>lambdaUpdate()
+                        .eq(GoalEntity::getStatus, GoalStatus.RUNNING.name())
+                        .and(w -> w.isNull(GoalEntity::getLastProgressAt)
+                                .or()
+                                .lt(GoalEntity::getLastProgressAt, cutoff))
+                        .set(GoalEntity::getStatus, GoalStatus.FAILED.name())
+                        .set(GoalEntity::getSummary, capSummary(reason))
+                        .set(GoalEntity::getFinishedAt, LocalDateTime.now()));
+    }
+
     /** summary 列（TEXT 64KB）写入口径：超长截断防 updateById 失败连锁取消编排（e2e 实测）。
      *  goal.summary 仅为元数据，完整回答仍由 ChatService 落 session_messages，不受影响 */
     static final int SUMMARY_MAX_CHARS = 20000;
+
+    /** 摘要超长截断（写入列前统一口径） */
+    static String capSummary(String summary) {
+        return summary != null && summary.length() > SUMMARY_MAX_CHARS
+                ? summary.substring(0, SUMMARY_MAX_CHARS) + "…（超长截断）" : summary;
+    }
 
     private GoalEntity toEntity(Goal g) {
         GoalEntity e = new GoalEntity();
@@ -82,11 +113,11 @@ public class GoalServiceImpl implements GoalService {
         e.setObjective(g.objective());
         e.setSessionId(g.sessionId());
         e.setStatus(g.status().name());
-        String summary = g.summary();
-        e.setSummary(summary != null && summary.length() > SUMMARY_MAX_CHARS
-                ? summary.substring(0, SUMMARY_MAX_CHARS) + "…（超长截断）" : summary);
+        e.setSummary(capSummary(g.summary()));
         e.setCreatedAt(g.createdAt());
         e.setFinishedAt(g.finishedAt());
+        e.setLastProgressAt(g.lastProgressAt());
+        e.setChannel(g.channel());
         return e;
     }
 
@@ -97,6 +128,6 @@ public class GoalServiceImpl implements GoalService {
         // 轨迹标识不入 goal 表，恢复为 null（resume 场景的调用链归属由编排侧处理）
         return new Goal(e.getId(), e.getObjective(), e.getSessionId(),
                 GoalStatus.valueOf(e.getStatus()), e.getCreatedAt(), e.getFinishedAt(), e.getSummary(),
-                null, null);
+                null, null, e.getChannel(), e.getLastProgressAt());
     }
 }

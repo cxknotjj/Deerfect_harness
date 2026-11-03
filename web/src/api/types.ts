@@ -15,6 +15,8 @@ export interface ChatRequest {
   agentId?: number
   /** 显式执行路径(auto 等同不传:服务端自动判定) */
   routing?: RoutingMode
+  /** 消息来源渠道:server 据此生成 system prompt 的信道规范段(Web 端固定 web) */
+  channel?: string
 }
 
 /** 路由决策快照(服务端 RouteInfo;流末 meta / 同步响应透出,供 UI 展示与排障) */

@@ -53,7 +53,9 @@ class ToolLazyManagerTest {
 
     @BeforeEach
     void setUp() {
-        assignments = new ToolAssignments(new WebTools(), sandbox, mcp, null, ttsTools());
+        assignments = new ToolAssignments(new WebTools(), sandbox, mcp, null, ttsTools(),
+                new com.dark.javaHarness.tool.builtin.history.RecallHistoryTools(
+                        org.mockito.Mockito.mock(com.dark.javaHarness.service.impl.SessionHistoryArchiveService.class)));
         lenient().when(sandbox.baseTools()).thenReturn(List.of());
         lenient().when(sandbox.readOnlyFileTools()).thenReturn(List.of());
         lenient().when(sandbox.writeTools()).thenReturn(List.of());

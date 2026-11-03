@@ -14,6 +14,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -33,6 +34,12 @@ import reactor.core.scheduler.Schedulers;
 public class AgentServiceImpl implements AgentService {
 
     private static final Logger log = LoggerFactory.getLogger(AgentServiceImpl.class);
+
+    /**
+     * 流式执行期间刷新 Goal 进展心跳的间隔（毫秒）：按 token 逐帧写库频率过高，
+     * 节流到 30 秒一次；Watchdog 的停滞阈值远大于该间隔。
+     */
+    private static final long PROGRESS_TOUCH_INTERVAL_MS = 30_000;
 
     private final GoalService goalService;
     private final AgentConfigProvider agentConfigProvider;
@@ -55,7 +62,7 @@ public class AgentServiceImpl implements AgentService {
     @Override
     public Goal submit(String agentName, String objective) {
         Agent agent = requireAgent(agentName);
-        Goal goal = goalService.create(objective, null, null, newTraceId());
+        Goal goal = goalService.create(objective, null, null, newTraceId(), null);
         try {
             goalExecutor.execute(() -> run(goal, agent));
         } catch (RejectedExecutionException e) {
@@ -77,17 +84,24 @@ public class AgentServiceImpl implements AgentService {
     /** 同步执行（带会话记忆与轮次标识）：阻塞直至完成并返回完整结果；traceId 在创建 Goal 时生成 */
     @Override
     public Goal executeSync(String agentName, String objective, String sessionId, String turnId) {
-        return executeSync(agentName, objective, sessionId, turnId, null);
+        return executeSync(agentName, objective, sessionId, turnId, null, null);
     }
 
     /**
      * 同步执行（显式指定调用链标识）：traceId 非空时复用（编排失败降级重答沿用编排链
-     * trace，保证一次执行链在轨迹中同树），为空则本方法内生成。
+     * trace，保证一次执行链在轨迹中同树），为空则本方法内生成；渠道为空。
      */
     @Override
     public Goal executeSync(String agentName, String objective, String sessionId, String turnId, String traceId) {
+        return executeSync(agentName, objective, sessionId, turnId, traceId, null);
+    }
+
+    /** 同步执行（完整参数）：渠道随 Goal 传入 prompt 的信道规范段 */
+    @Override
+    public Goal executeSync(String agentName, String objective, String sessionId, String turnId,
+                            String traceId, String channel) {
         Agent agent = requireAgent(agentName);
-        Goal goal = goalService.create(objective, sessionId, turnId, reuseOrNewTrace(traceId));
+        Goal goal = goalService.create(objective, sessionId, turnId, reuseOrNewTrace(traceId), channel);
         run(goal, agent);
         return goal;
     }
@@ -99,15 +113,22 @@ public class AgentServiceImpl implements AgentService {
      */
     @Override
     public Flux<String> executeStreamReactive(String agentName, String objective, String sessionId, String turnId) {
-        return executeStreamReactive(agentName, objective, sessionId, turnId, null);
+        return executeStreamReactive(agentName, objective, sessionId, turnId, null, null);
     }
 
-    /** 流式执行（显式指定调用链标识）：traceId 语义同 {@link #executeSync(String, String, String, String, String)} */
+    /** 流式执行（显式指定调用链标识）：traceId 语义同 {@link #executeSync}；渠道为空 */
     @Override
     public Flux<String> executeStreamReactive(String agentName, String objective, String sessionId,
                                               String turnId, String traceId) {
+        return executeStreamReactive(agentName, objective, sessionId, turnId, traceId, null);
+    }
+
+    /** 流式执行（完整参数）：渠道随 Goal 传入 prompt 的信道规范段 */
+    @Override
+    public Flux<String> executeStreamReactive(String agentName, String objective, String sessionId,
+                                              String turnId, String traceId, String channel) {
         Agent agent = requireAgent(agentName);
-        Goal goal = goalService.create(objective, sessionId, turnId, reuseOrNewTrace(traceId));
+        Goal goal = goalService.create(objective, sessionId, turnId, reuseOrNewTrace(traceId), channel);
         Flux<String> stream = streamWithLifecycle(goal, agent);
         // 仅编排路径在流首下发 goal 进度行：goalId 尽早到达 CLI（客户端断开前也能记录，/resume 免记 ID）
         return AgentConstants.MULTI_AGENT.equals(agentName)
@@ -146,8 +167,19 @@ public class AgentServiceImpl implements AgentService {
         goal.markRunning();
         goalService.update(goal);
         StringBuilder full = new StringBuilder();
+        AtomicLong lastProgressTouch = new AtomicLong(System.currentTimeMillis());
         return streamSupplier.get()
-                .doOnNext(full::append)
+                .doOnNext(row -> {
+                    full.append(row);
+                    // 进度心跳：行流持续期间按固定间隔刷新 last_progress_at（仅 RUNNING 生效）
+                    long now = System.currentTimeMillis();
+                    long last = lastProgressTouch.get();
+                    if (now - last >= PROGRESS_TOUCH_INTERVAL_MS
+                            && lastProgressTouch.compareAndSet(last, now)) {
+                        goal.touchProgress();
+                        goalService.touchProgress(goal.id());
+                    }
+                })
                 .doOnComplete(() -> {
                     String summary = full.toString();
                     goal.succeed(summary);

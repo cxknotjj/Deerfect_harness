@@ -12,28 +12,28 @@ import java.util.UUID;
  *
  * <p>纯内存构造（UUID + 字段引用），观测零主链路影响。
  */
-public record CallTrace(String turnId, String traceId, String parentSpan, String spanId) {
+public record CallTrace(String turnId, String traceId, String parentSpan, String spanId, String channel) {
 
     /** 无轨迹场景兜底（调用方暂无 Goal 上下文） */
-    static final CallTrace NONE = new CallTrace(null, null, null, null);
+    static final CallTrace NONE = new CallTrace(null, null, null, null, null);
 
     /** 生成 span_id（32 位 hex UUID）：每次调用发起前调用一次，无锁无 IO */
     public static String newSpanId() {
         return UUID.randomUUID().toString().replace("-", "");
     }
 
-    /** 从 Goal 取轮次/调用链标识构造（路径 A 直答与 fallback 重答为根调用，parentSpan 恒 null） */
+    /** 从 Goal 取轮次/调用链/渠道标识构造（路径 A 直答与 fallback 重答为根调用，parentSpan 恒 null） */
     static CallTrace fromGoal(com.dark.javaHarness.domain.Goal goal) {
-        return new CallTrace(goal.turnId(), goal.traceId(), null, null);
+        return new CallTrace(goal.turnId(), goal.traceId(), null, null, goal.channel());
     }
 
     /** 编排派生调用：同一执行链（Goal 的 turn/trace）+ 指定父调用 span（lead 的 spanId） */
     static CallTrace derived(com.dark.javaHarness.domain.Goal goal, String parentSpan) {
-        return new CallTrace(goal.turnId(), goal.traceId(), parentSpan, null);
+        return new CallTrace(goal.turnId(), goal.traceId(), parentSpan, null, goal.channel());
     }
 
     /** 携带预生成 spanId（发起点检测到非 null 时沿用，不再重复生成） */
     CallTrace withSpan(String spanId) {
-        return new CallTrace(turnId, traceId, parentSpan, spanId);
+        return new CallTrace(turnId, traceId, parentSpan, spanId, channel);
     }
 }

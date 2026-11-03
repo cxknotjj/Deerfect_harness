@@ -56,7 +56,9 @@ class PromptAssemblerTest {
 
     @BeforeEach
     void setUp() {
-        toolAssignments = new ToolAssignments(new WebTools(), sandbox, mcp, null, ttsTools());
+        toolAssignments = new ToolAssignments(new WebTools(), sandbox, mcp, null, ttsTools(),
+                new com.dark.javaHarness.tool.builtin.history.RecallHistoryTools(
+                        org.mockito.Mockito.mock(com.dark.javaHarness.service.impl.SessionHistoryArchiveService.class)));
         assembler = new PromptAssembler(agentService, toolAssignments);
         stubEmptyToolFaces();
     }
@@ -352,5 +354,19 @@ class PromptAssemblerTest {
                 .collect(java.util.stream.Collectors.joining("\n\n"));
         assertEquals(joined, withExtras.assemble("general", "兜底角色", null),
                 "assemble 复用分段结果，输出保持一致");
+    }
+
+    /** 信道规范段：仅已知渠道注入，IM 限制长度、CLI/API 允许结构化交付 */
+    @Test
+    void assemble_channelSectionOnlyForKnownChannel() {
+        String im = assembler.assemble("general", null, null, "qq");
+        assertTrue(im.contains("信道规范"), "IM 渠道应注入信道规范段");
+        assertTrue(im.contains("100 词"), "IM 段应限制回复长度");
+
+        String api = assembler.assemble("general", null, null, "cli");
+        assertTrue(api.contains("结构化"), "CLI 渠道应允许结构化完整交付");
+
+        assertFalse(assembler.assemble("general", null, null, null).contains("信道规范"),
+                "空渠道不应注入信道段");
     }
 }

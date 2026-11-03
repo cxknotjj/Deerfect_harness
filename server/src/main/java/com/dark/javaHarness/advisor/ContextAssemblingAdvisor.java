@@ -1,5 +1,6 @@
 package com.dark.javaHarness.advisor;
 
+import com.dark.javaHarness.domain.ChatMessageMetadata;
 import com.dark.javaHarness.tool.TokenEstimator;
 import java.util.ArrayList;
 import java.util.List;
@@ -161,7 +162,8 @@ public class ContextAssemblingAdvisor implements CallAdvisor, StreamAdvisor {
             return messages;
         }
         List<Message> out = new ArrayList<>(messages);
-        // 从最旧逐步丢弃（Skip system，予以保留）
+        // 从最旧逐步丢弃（Skip system，予以保留）；记录被丢消息的 ID，供归档引用提示
+        List<String> droppedIds = new ArrayList<>();
         while (out.size() > 1 && total > tokenBudget) {
             int dropIdx = -1;
             for (int i = 0; i < out.size(); i++) {
@@ -173,11 +175,37 @@ public class ContextAssemblingAdvisor implements CallAdvisor, StreamAdvisor {
             if (dropIdx < 0) {
                 break; // 全为 system，无法再丢
             }
+            String messageId = messageId(out.get(dropIdx));
+            if (messageId != null) {
+                droppedIds.add(messageId);
+            }
             total -= estimateTokens(out.get(dropIdx));
             out.remove(dropIdx);
         }
+        if (!droppedIds.isEmpty()) {
+            // 窗口外还有历史：告诉模型归档入口，否则它不会主动召回
+            String ref = "【历史引用】更早 " + droppedIds.size()
+                    + " 条消息已移出当前窗口并归档（消息 ID 示例：" + droppedIds.get(0)
+                    + "），可用 recall_history 工具按关键词或消息 ID 检索。";
+            appendReferenceToSystem(out, ref);
+        }
         log.info("[context-assembler] 裁剪后消息数={}, 估算token={}/{}", out.size(), total, tokenBudget);
         return out;
+    }
+
+    /** 消息 ID（快照读取时写入 metadata）；缺失（旧快照/非会话消息）返回 null */
+    private static String messageId(Message message) {
+        Object value = message.getMetadata().get(ChatMessageMetadata.MESSAGE_ID);
+        return value instanceof String s && !s.isBlank() ? s : null;
+    }
+
+    /** 归档引用追加到 system 消息（保持单条 system，避免 role 归一化被二次破坏） */
+    private static void appendReferenceToSystem(List<Message> messages, String ref) {
+        if (!messages.isEmpty() && messages.get(0) instanceof SystemMessage system) {
+            messages.set(0, new SystemMessage(system.getText() + "\n\n" + ref));
+            return;
+        }
+        messages.add(0, new SystemMessage(ref));
     }
 
     /** token 估算统一走 {@link TokenEstimator}（全项目唯一口径，与观测/工具预算可比对） */

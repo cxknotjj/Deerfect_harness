@@ -13,12 +13,12 @@ import com.dark.javaHarness.domain.dto.ChatRequest;
 import com.dark.javaHarness.domain.dto.ChatResponse;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.ChatService;
+import com.dark.javaHarness.service.SemanticTriggerJudge;
 import com.dark.javaHarness.service.SessionService;
 import com.dark.javaHarness.voice.VoiceArtifactStore;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -87,10 +87,13 @@ public class OneBotEventServiceImpl implements OneBotEventService {
     private final NapCatProperties props;
     /** 语音工件库（core 工具按 turnId 写入）：本渠道按 voice:&lt;id&gt; flag 取走音频发送 */
     private final VoiceArtifactStore voiceArtifacts;
+    /** 语义层触发判断（Slow Path，可 null：core 未提供实现时候选事件一律忽略） */
+    private final SemanticTriggerJudge semanticJudge;
     private final UserRateLimiter rateLimiter;
-    private final Set<Long> privateAllowUsers;
     /** 入站文本提取与触发判定（超长类拆分 2026-09-25 拆出） */
     private final EventTextParser textParser;
+    /** 程序层事件准入策略（规则表 → 响应/候选/忽略） */
+    private final ChannelEventPolicy eventPolicy;
     /** 聊天执行池：有界队列 + Abort 拒绝 + @PreDestroy 关闭（优化审查 2026-09-25 收口项） */
     private final ThreadPoolExecutor chatExecutor;
 
@@ -106,7 +109,8 @@ public class OneBotEventServiceImpl implements OneBotEventService {
                                   OneBotSessionBindingMapper bindingMapper,
                                   NapCatApiClient apiClient,
                                   NapCatProperties props,
-                                  VoiceArtifactStore voiceArtifacts) {
+                                  VoiceArtifactStore voiceArtifacts,
+                                  SemanticTriggerJudge semanticJudge) {
         this.chatService = chatService;
         this.sessionService = sessionService;
         this.agentService = agentService;
@@ -114,10 +118,11 @@ public class OneBotEventServiceImpl implements OneBotEventService {
         this.apiClient = apiClient;
         this.props = props;
         this.voiceArtifacts = voiceArtifacts;
+        this.semanticJudge = semanticJudge;
         this.emojiReplies = new EmojiReplies(props);
         this.textParser = new EventTextParser(props, sentMessageTracker);
+        this.eventPolicy = new ChannelEventPolicy(props, textParser);
         this.rateLimiter = new UserRateLimiter(props.getRateLimit().getPerUserSeconds() * 1000L);
-        this.privateAllowUsers = parseAllowUsers(props.getPrivateAllowUsers());
         this.chatExecutor = new ThreadPoolExecutor(8, 8, 60, TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>(CHAT_QUEUE_CAPACITY),
                 r -> {
@@ -148,14 +153,21 @@ public class OneBotEventServiceImpl implements OneBotEventService {
         if (Objects.equals(event.userId(), selfIdAsLong())) {
             return;
         }
-        boolean isGroup = "group".equals(event.messageType());
-        // 私聊白名单：名单非空时名单外用户直接丢弃（防陌生人刷 LLM token）
-        if (!isGroup && !privateAllowUsers.isEmpty() && !privateAllowUsers.contains(event.userId())) {
-            log.debug("[napcat] 私聊白名单外丢弃 uid={}", event.userId());
+        // 程序层准入（Fast Path）：规则表决定 响应/候选/忽略；未配置规则时等价既有语义
+        ChannelEventPolicy.Evaluation evaluation = eventPolicy.evaluate(event);
+        if (evaluation.decision() == ChannelEventPolicy.Decision.IGNORE) {
+            log.debug("[napcat] 事件被策略忽略 uid={} gid={}", event.userId(), event.groupId());
             return;
         }
-        String text = isGroup ? textParser.extractGroupText(event) : textParser.extractPrivateText(event);
+        String text = evaluation.text();
         if (text == null || text.isBlank()) {
+            return;
+        }
+        boolean isGroup = "group".equals(event.messageType());
+        // 候选事件（CANDIDATE）交给语义层（Slow Path）：未启用/无实现/判断失败一律保持安静
+        if (evaluation.decision() == ChannelEventPolicy.Decision.CANDIDATE
+                && !semanticApproves(event, text)) {
+            log.debug("[napcat] 候选事件未通过语义层，保持安静 uid={} gid={}", event.userId(), event.groupId());
             return;
         }
         // 同用户限频（群聊防风控 + 私聊防刷）：间隔内的消息直接丢弃
@@ -190,10 +202,23 @@ public class OneBotEventServiceImpl implements OneBotEventService {
         sendReply(event, isGroup, resp.reply(), resp.flags());
     }
 
+    /** 语义层判断：开关关闭/无实现/异常/超时一律按「不响应」处理（渠道侧静默） */
+    private boolean semanticApproves(OneBotEvent event, String text) {
+        if (!props.getSemanticTrigger().isEnabled() || semanticJudge == null) {
+            return false;
+        }
+        try {
+            return semanticJudge.shouldRespond("qq", sessionKey(event), text);
+        } catch (Exception e) {
+            log.warn("[napcat] 语义层判断失败，保持安静：{}", e.getMessage());
+            return false;
+        }
+    }
+
     /** 聊天调用（带超时）：超时放弃回复且静默，后台任务跑完仅落会话记忆；超时秒数 0 = 不限制 */
     private ChatResponse chatWithTimeout(OneBotEvent event, String text, long sessionId, Long agentIdOverride)
             throws InterruptedException {
-        ChatRequest request = new ChatRequest(text, String.valueOf(sessionId), agentIdOverride);
+        ChatRequest request = new ChatRequest(text, String.valueOf(sessionId), agentIdOverride, null, "qq");
         int timeoutSeconds = props.getChatTimeoutSeconds();
         if (timeoutSeconds <= 0) {
             return chatService.chat(request);
@@ -360,26 +385,6 @@ public class OneBotEventServiceImpl implements OneBotEventService {
         }
         String flat = s.replaceAll("\\s+", " ").trim();
         return flat.length() <= max ? flat : flat.substring(0, max) + "…";
-    }
-
-    /** 解析私聊白名单 CSV → Set&lt;Long&gt;（空串/空白 = 不限制；非法项记 warn 跳过） */
-    private static Set<Long> parseAllowUsers(String csv) {
-        if (csv == null || csv.isBlank()) {
-            return Set.of();
-        }
-        Set<Long> ids = new HashSet<>();
-        for (String token : csv.split(",")) {
-            String t = token.trim();
-            if (t.isEmpty()) {
-                continue;
-            }
-            try {
-                ids.add(Long.parseLong(t));
-            } catch (NumberFormatException e) {
-                log.warn("[napcat] 私聊白名单非法项忽略：{}", t);
-            }
-        }
-        return ids;
     }
 
     /** 会话绑定结果：sessionId + 是否本次新建（created=true 表示首次建档落库） */

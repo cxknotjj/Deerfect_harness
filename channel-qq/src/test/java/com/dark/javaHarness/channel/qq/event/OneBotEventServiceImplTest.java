@@ -83,7 +83,7 @@ class OneBotEventServiceImplTest {
         props.getRateLimit().setPerUserSeconds(0);
         props.getReply().setMaxLength(3000);
         service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient,
-                props, voiceArtifacts);
+                props, voiceArtifacts, null);
     }
 
     private static OneBotEvent privateMsg(long messageId, String text) {
@@ -167,7 +167,7 @@ class OneBotEventServiceImplTest {
         assertEquals(7L, rowCaptor.getValue().getSessionId());
         assertEquals("qq:private:" + UID, rowCaptor.getValue().getSessionKey());
         assertEquals(String.valueOf(UID), rowCaptor.getValue().getQqUserId());
-        verify(chatService).chat(new ChatRequest("在吗", "7", null));
+        verify(chatService).chat(new ChatRequest("在吗", "7", null, null, "qq"));
     }
 
     @Test
@@ -224,7 +224,7 @@ class OneBotEventServiceImplTest {
         when(bindingMapper.selectOne(any())).thenReturn(binding(2L, "qq:group:" + GID + ":" + UID, 9L));
         stubChatSuccess("群答");
         service.handle(groupMsg(21L, true, "群友提问"));
-        verify(chatService).chat(new ChatRequest("群友提问", "9", null));
+        verify(chatService).chat(new ChatRequest("群友提问", "9", null, null, "qq"));
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<MessageSegment>> segCaptor = ArgumentCaptor.forClass(List.class);
         verify(apiClient).sendGroupMsg(eq(GID), segCaptor.capture());
@@ -266,7 +266,7 @@ class OneBotEventServiceImplTest {
         // 限频间隔在服务构造时快照：必须先设间隔再重建 service（setUp 默认 0 = 不限频）
         props.getRateLimit().setPerUserSeconds(10);
         service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient,
-                props, voiceArtifacts);
+                props, voiceArtifacts, null);
         when(bindingMapper.selectOne(any())).thenReturn(binding(3L, "qq:group:" + GID + ":" + UID, 5L));
         stubChatSuccess("回");
         service.handle(groupMsg(30L, true, "第一问"));
@@ -281,7 +281,44 @@ class OneBotEventServiceImplTest {
         when(bindingMapper.selectOne(any())).thenReturn(binding(40L, "qq:group:" + GID + ":" + UID, 9L));
         stubChatSuccess("收到");
         service.handle(groupReplyMsg(600L, 500L, "接着刚才的说"));
-        verify(chatService).chat(new ChatRequest("接着刚才的说", "9", null));
+        verify(chatService).chat(new ChatRequest("接着刚才的说", "9", null, null, "qq"));
+    }
+
+    @Test
+    void handle_candidateWithSemanticJudge_respondsWithoutAt() {
+        props.getSemanticTrigger().setEnabled(true);
+        NapCatProperties.EventPolicy.Rule rule = new NapCatProperties.EventPolicy.Rule();
+        rule.setSource("group");
+        rule.setGroups(String.valueOf(GID));
+        rule.setUsers(String.valueOf(UID));
+        rule.setTrigger("any");
+        rule.setDecision("candidate");
+        props.getEventPolicy().setRules(List.of(rule));
+        service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient,
+                props, voiceArtifacts, (channel, key, msg) -> true);
+        when(bindingMapper.selectOne(any())).thenReturn(binding(41L, "qq:group:" + GID + ":" + UID, 9L));
+        stubChatSuccess("收到");
+
+        service.handle(groupMsg(610L, false, "这个接口报错了"));
+
+        verify(chatService).chat(new ChatRequest("这个接口报错了", "9", null, null, "qq"));
+    }
+
+    @Test
+    void handle_candidateRejectedBySemanticJudge_staysSilent() {
+        props.getSemanticTrigger().setEnabled(true);
+        NapCatProperties.EventPolicy.Rule rule = new NapCatProperties.EventPolicy.Rule();
+        rule.setSource("group");
+        rule.setGroups(String.valueOf(GID));
+        rule.setTrigger("any");
+        rule.setDecision("candidate");
+        props.getEventPolicy().setRules(List.of(rule));
+        service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient,
+                props, voiceArtifacts, (channel, key, msg) -> false);
+
+        service.handle(groupMsg(611L, false, "随便聊聊"));
+
+        verifyNoInteractions(chatService, apiClient);
     }
 
     @Test
@@ -313,7 +350,7 @@ class OneBotEventServiceImplTest {
         // 私聊同样限频（防陌生人刷 LLM token），与群聊同一间隔口径
         props.getRateLimit().setPerUserSeconds(10);
         service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient,
-                props, voiceArtifacts);
+                props, voiceArtifacts, null);
         when(bindingMapper.selectOne(any())).thenReturn(binding(31L, "qq:private:" + UID, 5L));
         stubChatSuccess("回");
         service.handle(privateMsg(300L, "第一问"));
@@ -326,7 +363,7 @@ class OneBotEventServiceImplTest {
         // 白名单非空时名单外私聊直接丢弃（名单内用户不受影响）
         props.setPrivateAllowUsers("999");
         service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient,
-                props, voiceArtifacts);
+                props, voiceArtifacts, null);
         when(bindingMapper.selectOne(any())).thenReturn(binding(32L, "qq:private:999", 5L));
         stubChatSuccess("主人好");
         service.handle(privateMsg(UID, 310L, "陌生人私聊"));
@@ -435,7 +472,7 @@ class OneBotEventServiceImplTest {
         when(bindingMapper.selectOne(any())).thenReturn(binding(42L, "qq:private:" + UID, 5L));
         stubChatSuccess("嗯");
         service.handle(privateMsg(402L, "/foo bar"));
-        verify(chatService).chat(new ChatRequest("/foo bar", "5", null));
+        verify(chatService).chat(new ChatRequest("/foo bar", "5", null, null, "qq"));
     }
 
     @Test
@@ -511,7 +548,7 @@ class OneBotEventServiceImplTest {
         props.getEmoji().setProbability(probability);
         props.getEmoji().setSendDelayMs(0);
         service = new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient,
-                props, voiceArtifacts);
+                props, voiceArtifacts, null);
     }
 
     @Test

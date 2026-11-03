@@ -315,7 +315,7 @@ public final class AgentChatCaller {
                            boolean disableTools, String model, long start, Advisor... extraAdvisors) {
         AgentRequestSpecFactory.Assembly assembly = assembler.assemblyForRole(forAgent, sessionId, toolEmitter, disableTools);
         String spanId = CallTrace.newSpanId();
-        CallTrace eff = new CallTrace(null, null, null, spanId);
+        CallTrace eff = new CallTrace(null, null, null, spanId, null);
         CallContext ctx = new CallContext(observer, sessionId, forAgent, model,
                 attachmentsFor(forAgent, assembly), null, null, spanId, null);
         java.util.concurrent.atomic.AtomicReference<Usage> usageRef =

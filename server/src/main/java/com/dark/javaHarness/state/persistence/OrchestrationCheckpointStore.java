@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dark.javaHarness.state.OrchestrationCheckpoint;
 import com.dark.javaHarness.state.OrchestrationStage;
 import com.dark.javaHarness.mapper.OrchestrationCheckpointMapper;
+import com.dark.javaHarness.service.GoalService;
 import tools.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -25,6 +26,8 @@ public class OrchestrationCheckpointStore {
 
     private final OrchestrationCheckpointMapper mapper;
     private final ObjectMapper objectMapper;
+    /** 阶段推进即代表有进展：检查点落库后同步刷新 Goal 心跳（Watchdog 判据） */
+    private final GoalService goalService;
 
     public void save(String goalId, OrchestrationStage stage, Map<String, Object> state) {
         OrchestrationCheckpointEntity entity = new OrchestrationCheckpointEntity();
@@ -34,6 +37,7 @@ public class OrchestrationCheckpointStore {
         entity.setStateJson(writeJson(state));
         entity.setCreatedAt(LocalDateTime.now());
         mapper.insert(entity);
+        goalService.touchProgress(goalId);
     }
 
     public List<OrchestrationCheckpoint> list(String goalId) {

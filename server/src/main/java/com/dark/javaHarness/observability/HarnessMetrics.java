@@ -144,6 +144,17 @@ public final class HarnessMetrics {
                 .increment(chars);
     }
 
+    /** Watchdog 判定为停滞并标记失败的 Goal 数（按扫描批次累加）。 */
+    public static void goalWatchdogStale(int count) {
+        if (count <= 0) {
+            return;
+        }
+        Counter.builder("harness.goal.watchdog.stale")
+                .description("Watchdog 标记为停滞失败的 Goal 数")
+                .register(REGISTRY)
+                .increment(count);
+    }
+
     private static String label(String value) {
         return value == null || value.isBlank() ? UNKNOWN : value;
     }

@@ -207,7 +207,7 @@ export function useChat(hooks: ChatHooks) {
       await api.streamChat(
         // 无选中会话时不带 sessionId:后端可能新建并经 meta 回传;
         // routing 仅在显式指定时携带(auto 省略,由服务端规则+LLM 判定)
-        { message: text, sessionId: hooks.getSessionId() || undefined, routing: hooks.getRouting?.() },
+        { message: text, sessionId: hooks.getSessionId() || undefined, routing: hooks.getRouting?.(), channel: 'web' },
         {
           onProgress: (p) => {
             routeProgress(assistant, p)

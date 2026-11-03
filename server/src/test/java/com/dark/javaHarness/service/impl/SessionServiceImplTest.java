@@ -16,10 +16,13 @@ import static org.mockito.Mockito.when;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
+import com.dark.javaHarness.domain.ChatMessageMetadata;
 import com.dark.javaHarness.domain.dto.SessionMessagesView;
 import com.dark.javaHarness.domain.entity.SessionEntity;
+import com.dark.javaHarness.domain.entity.SessionMessageArchiveEntity;
 import com.dark.javaHarness.domain.entity.SessionMessageEntity;
 import com.dark.javaHarness.mapper.SessionMapper;
+import com.dark.javaHarness.mapper.SessionMessageArchiveMapper;
 import com.dark.javaHarness.mapper.SessionMessageMapper;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.SessionBindingCleaner;
@@ -50,6 +53,8 @@ class SessionServiceImplTest {
     @Mock
     private SessionMessageMapper messageMapper;
     @Mock
+    private SessionMessageArchiveMapper archiveMapper;
+    @Mock
     private AgentConfigProvider agentConfigProvider;
     @Mock
     private SessionBindingCleaner bindingCleaner;
@@ -61,7 +66,7 @@ class SessionServiceImplTest {
     @BeforeEach
     void setUp() {
         lenient().when(bindingCleanerProvider.getIfAvailable()).thenReturn(bindingCleaner);
-        sessionService = new SessionServiceImpl(sessionMapper, messageMapper,
+        sessionService = new SessionServiceImpl(sessionMapper, messageMapper, archiveMapper,
                 new ObjectMapper(), agentConfigProvider, bindingCleanerProvider, 200);
     }
 
@@ -155,6 +160,58 @@ class SessionServiceImplTest {
         assertNull(items.get(1).ts(), "旧快照无 ts 应为 null");
     }
 
+    /** saveContext 写入稳定消息 ID（裁剪归档的定位符） */
+    @Test
+    void saveContext_writesStableMessageId() {
+        when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
+        when(messageMapper.selectOne(any())).thenReturn(null);
+
+        sessionService.saveContext("9", new UserMessage("你好"));
+
+        ArgumentCaptor<SessionMessageEntity> captor = ArgumentCaptor.forClass(SessionMessageEntity.class);
+        verify(messageMapper).insert(captor.capture());
+        assertTrue(captor.getValue().getContent().contains("\"id\":\"m-"),
+                "快照 item 应携带稳定消息 ID");
+    }
+
+    /** loadContext 还原消息 ID 到 metadata（上下文裁剪据此生成归档引用） */
+    @Test
+    void loadContext_restoresMessageIdMetadata() {
+        SessionMessageEntity row = new SessionMessageEntity();
+        row.setContent("[{\"id\":\"m-old\",\"role\":\"user\",\"content\":\"你好\"}]");
+        when(messageMapper.selectOne(any())).thenReturn(row);
+
+        List<Message> messages = sessionService.loadContext("9");
+
+        assertEquals("m-old", messages.get(0).getMetadata().get(ChatMessageMetadata.MESSAGE_ID));
+    }
+
+    /** 快照裁剪移除旧消息时先落归档：ID/角色/内容可回溯 */
+    @Test
+    void saveContext_trimmedMessagesAreArchived() {
+        SessionMessageEntity existing = new SessionMessageEntity();
+        existing.setId(1L);
+        existing.setSessionId("9");
+        existing.setContent("""
+                [{"role":"user","content":"old1"},{"role":"assistant","content":"old2"}]""");
+        SessionServiceImpl svc = new SessionServiceImpl(sessionMapper, messageMapper, archiveMapper,
+                new ObjectMapper(), agentConfigProvider, bindingCleanerProvider, 2);
+        when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
+        when(messageMapper.selectOne(any())).thenReturn(existing);
+
+        svc.saveContext("9", new UserMessage("new"));
+
+        ArgumentCaptor<SessionMessageArchiveEntity> captor =
+                ArgumentCaptor.forClass(SessionMessageArchiveEntity.class);
+        verify(archiveMapper, times(2)).insert(captor.capture());
+        List<SessionMessageArchiveEntity> archived = captor.getAllValues();
+        assertEquals(2, archived.size(), "旧 user + 为配对丢弃的 assistant 均应归档");
+        assertEquals("9", archived.get(0).getSessionId());
+        assertTrue(archived.get(0).getMessageId().startsWith("m-"), "归档应带补齐后的稳定 ID");
+        assertEquals("old1", archived.get(0).getContent());
+        assertEquals("full", archived.get(0).getPart());
+    }
+
     /** loadContext 兼容带 ts 的快照：忽略 ts 键，仅还原 role/content（上下文还原不受影响） */
     @Test
     void loadContext_ignoresTsKey() {
@@ -233,7 +290,7 @@ class SessionServiceImplTest {
     @SuppressWarnings("unchecked")
     void saveContext_serializeFailure_retriesOnce() throws Exception {
         ObjectMapper mapper = org.mockito.Mockito.mock(ObjectMapper.class);
-        SessionServiceImpl svc = new SessionServiceImpl(sessionMapper, messageMapper,
+        SessionServiceImpl svc = new SessionServiceImpl(sessionMapper, messageMapper, archiveMapper,
                 mapper, agentConfigProvider, bindingCleanerProvider, 200);
         when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
         when(messageMapper.selectOne(any())).thenReturn(null);
@@ -251,7 +308,7 @@ class SessionServiceImplTest {
     @Test
     void saveContext_serializeTwiceFails_skipsWriteQuietly() throws Exception {
         ObjectMapper mapper = org.mockito.Mockito.mock(ObjectMapper.class);
-        SessionServiceImpl svc = new SessionServiceImpl(sessionMapper, messageMapper,
+        SessionServiceImpl svc = new SessionServiceImpl(sessionMapper, messageMapper, archiveMapper,
                 mapper, agentConfigProvider, bindingCleanerProvider, 200);
         when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
         when(messageMapper.selectOne(any())).thenReturn(null);
@@ -369,7 +426,7 @@ class SessionServiceImplTest {
         existing.setSessionId("9");
         existing.setContent("""
                 [{"role":"user","content":"old1"},{"role":"assistant","content":"old2"}]""");
-        SessionServiceImpl svc = new SessionServiceImpl(sessionMapper, messageMapper,
+        SessionServiceImpl svc = new SessionServiceImpl(sessionMapper, messageMapper, archiveMapper,
                 new ObjectMapper(), agentConfigProvider, bindingCleanerProvider, 2);
         when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
         when(messageMapper.selectOne(any())).thenReturn(existing);

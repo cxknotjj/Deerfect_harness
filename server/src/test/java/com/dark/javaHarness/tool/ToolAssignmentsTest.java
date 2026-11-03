@@ -10,8 +10,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.service.AgentConfigProvider;
+import com.dark.javaHarness.service.impl.SessionHistoryArchiveService;
 import com.dark.javaHarness.tool.builtin.SandboxToolProvider;
 import com.dark.javaHarness.tool.builtin.WebTools;
+import com.dark.javaHarness.tool.builtin.history.RecallHistoryTools;
 import com.dark.javaHarness.tool.builtin.tts.EdgeTtsClient;
 import com.dark.javaHarness.tool.builtin.tts.TextToSpeechTools;
 import com.dark.javaHarness.tool.mcp.McpToolProvider;
@@ -74,8 +76,9 @@ class ToolAssignmentsTest {
         lenient().when(sandbox.writeTools()).thenReturn(List.of(w1, w2, w3));
         lenient().when(sandbox.browserTools()).thenReturn(List.of(b1, b2, b3));
         lenient().when(mcp.toolCallbacks()).thenReturn(List.of(mcpInteractive));
-        assignments = new ToolAssignments(webTools, sandbox, mcp, null, textToSpeechTools);
-        dataDriven = new ToolAssignments(webTools, sandbox, mcp, agentConfigProvider, textToSpeechTools);
+        RecallHistoryTools recallTools = new RecallHistoryTools(mock(SessionHistoryArchiveService.class));
+        assignments = new ToolAssignments(webTools, sandbox, mcp, null, textToSpeechTools, recallTools);
+        dataDriven = new ToolAssignments(webTools, sandbox, mcp, agentConfigProvider, textToSpeechTools, recallTools);
     }
 
     private static TextToSpeechTools ttsTools() {

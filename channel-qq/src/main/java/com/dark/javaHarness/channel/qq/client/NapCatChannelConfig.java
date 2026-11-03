@@ -7,6 +7,7 @@ import com.dark.javaHarness.channel.qq.persistence.OneBotSessionBindingCleaner;
 import com.dark.javaHarness.channel.qq.persistence.OneBotSessionBindingMapper;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.ChatService;
+import com.dark.javaHarness.service.SemanticTriggerJudge;
 import com.dark.javaHarness.service.SessionBindingCleaner;
 import com.dark.javaHarness.service.SessionService;
 import com.dark.javaHarness.voice.VoiceArtifactStore;
@@ -66,9 +67,10 @@ public class NapCatChannelConfig {
                                                  OneBotSessionBindingMapper bindingMapper,
                                                  NapCatApiClient apiClient,
                                                  NapCatProperties props,
-                                                 VoiceArtifactStore voiceArtifacts) {
+                                                 VoiceArtifactStore voiceArtifacts,
+                                                 org.springframework.beans.factory.ObjectProvider<SemanticTriggerJudge> semanticJudge) {
         return new OneBotEventServiceImpl(chatService, sessionService, agentService, bindingMapper, apiClient,
-                props, voiceArtifacts);
+                props, voiceArtifacts, semanticJudge.getIfAvailable());
     }
 
     /** core 删会话时的绑定清理端口实现（SessionServiceImpl 经 ObjectProvider 可选注入） */

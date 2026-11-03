@@ -35,4 +35,10 @@ public class GoalEntity {
 
     /** 完成时间（成功或失败时设置） */
     private LocalDateTime finishedAt;
+
+    /** 最近进展时间（RUNNING 期间由执行链路刷新，Watchdog 停滞判定依据） */
+    private LocalDateTime lastProgressAt;
+
+    /** 消息来源渠道（qq/cli/web/api；空 = 不注入信道规范段） */
+    private String channel;
 }

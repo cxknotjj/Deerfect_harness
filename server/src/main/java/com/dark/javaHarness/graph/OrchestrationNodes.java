@@ -112,7 +112,8 @@ public class OrchestrationNodes {
         String turnId = state.value(MultiAgentGraphAgent.K_TURN_ID, String.class).orElse(null);
         String traceId = state.value(MultiAgentGraphAgent.K_TRACE_ID, String.class).orElse(null);
         String leadSpanId = CallTrace.newSpanId();
-        CallTrace leadTrace = new CallTrace(turnId, traceId, null, leadSpanId);
+        String channel = state.value(MultiAgentGraphAgent.K_CHANNEL, String.class).orElse(null);
+        CallTrace leadTrace = new CallTrace(turnId, traceId, null, leadSpanId, channel);
         // 思考透传（agent 表 thinking 列显示口径）：lead 行 thinking=1 且流式旁路可用时，
         // reasoningContent delta 编码为「思考 · lead」进度行经旁路 sink 合入（不节流，与聚合同口径）
         Consumer<String> reasoningTap = null;
@@ -242,7 +243,8 @@ public class OrchestrationNodes {
         // 轨迹贯通：派生调用挂同一执行链（turn/trace），parent_span=lead 的 span_id
         CallTrace trace = new CallTrace(state.value(MultiAgentGraphAgent.K_TURN_ID, String.class).orElse(null),
                 state.value(MultiAgentGraphAgent.K_TRACE_ID, String.class).orElse(null),
-                state.value(MultiAgentGraphAgent.K_LEAD_SPAN, String.class).orElse(null), null);
+                state.value(MultiAgentGraphAgent.K_LEAD_SPAN, String.class).orElse(null), null,
+                state.value(MultiAgentGraphAgent.K_CHANNEL, String.class).orElse(null));
         // 子任务墙钟超时（app.context.subtask-wall-clock-seconds，0 = 不限制）：把断连令牌包装为
         // 「断连 OR 超时」供给——独立包装、绝不置位共享 AtomicBoolean（超时不是客户端断开，
         // 置位会连坐短路同批并行子任务与聚合）；超时命中时 caller 在 token 边界抛
@@ -351,7 +353,8 @@ public class OrchestrationNodes {
         // 轨迹贯通：聚合为派生调用（parent_span=lead 的 span_id），与子任务同树
         CallTrace trace = new CallTrace(state.value(MultiAgentGraphAgent.K_TURN_ID, String.class).orElse(null),
                 state.value(MultiAgentGraphAgent.K_TRACE_ID, String.class).orElse(null),
-                state.value(MultiAgentGraphAgent.K_LEAD_SPAN, String.class).orElse(null), null);
+                state.value(MultiAgentGraphAgent.K_LEAD_SPAN, String.class).orElse(null), null,
+                state.value(MultiAgentGraphAgent.K_CHANNEL, String.class).orElse(null));
         List<String> results = new ArrayList<>();
         int skipped = 0;
         int timedOut = 0;

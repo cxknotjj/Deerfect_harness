@@ -19,7 +19,7 @@ public interface PromptSection {
     /** 渲染段文本；返回 null 或空白表示空段（组装时跳过） */
     String render(Context context);
 
-    /** 一次组装中各段共享的渲染上下文 */
-    record Context(String agentName, String rolePrompt, List<String> toolNames) {
+    /** 一次组装中各段共享的渲染上下文（channel 为空 = 不注入信道规范段） */
+    record Context(String agentName, String rolePrompt, List<String> toolNames, String channel) {
     }
 }

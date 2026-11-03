@@ -3,10 +3,13 @@ package com.dark.javaHarness.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dark.javaHarness.domain.ChatMessageMetadata;
 import com.dark.javaHarness.domain.dto.SessionMessagesView;
 import com.dark.javaHarness.domain.entity.SessionEntity;
+import com.dark.javaHarness.domain.entity.SessionMessageArchiveEntity;
 import com.dark.javaHarness.domain.entity.SessionMessageEntity;
 import com.dark.javaHarness.mapper.SessionMapper;
+import com.dark.javaHarness.mapper.SessionMessageArchiveMapper;
 import com.dark.javaHarness.mapper.SessionMessageMapper;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.SessionBindingCleaner;
@@ -19,6 +22,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -62,6 +66,8 @@ public class SessionServiceImpl implements SessionService {
 
     private final SessionMapper sessionMapper;
     private final SessionMessageMapper messageMapper;
+    /** 快照裁剪转归档（recall_history 数据源） */
+    private final SessionMessageArchiveMapper archiveMapper;
     private final ObjectMapper objectMapper;
     /** agent 表读取器：switchAgent 校验目标 agentId 存在性 */
     private final AgentConfigProvider agentConfigProvider;
@@ -72,6 +78,7 @@ public class SessionServiceImpl implements SessionService {
 
     public SessionServiceImpl(SessionMapper sessionMapper,
                               SessionMessageMapper messageMapper,
+                              SessionMessageArchiveMapper archiveMapper,
                               ObjectMapper objectMapper,
                               AgentConfigProvider agentConfigProvider,
                               ObjectProvider<SessionBindingCleaner> bindingCleaner,
@@ -79,6 +86,7 @@ public class SessionServiceImpl implements SessionService {
                               int snapshotMaxMessages) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
+        this.archiveMapper = archiveMapper;
         this.objectMapper = objectMapper;
         this.agentConfigProvider = agentConfigProvider;
         this.bindingCleaner = bindingCleaner;
@@ -108,7 +116,7 @@ public class SessionServiceImpl implements SessionService {
         List<Map<String, String>> items = readSnapshot(sessionId);
         List<Message> messages = new ArrayList<>(items.size());
         for (Map<String, String> item : items) {
-            messages.add(toMessage(item.get("role"), item.get("content")));
+            messages.add(toMessage(item.get("role"), item.get("content"), item.get("id")));
         }
         return messages;
     }
@@ -196,7 +204,10 @@ public class SessionServiceImpl implements SessionService {
         // 读取已有上下文，追加本条消息
         SessionMessageEntity existing = latestSnapshotRow(sessionId);
         List<Map<String, String>> items = new ArrayList<>(parseSnapshotItems(existing));
+        // 存量 item 无 id：在此轮写回时补齐，保证后续裁剪归档有稳定定位符
+        items.forEach(SessionServiceImpl::ensureMessageId);
         Map<String, String> item = new LinkedHashMap<>();
+        item.put("id", newMessageId());
         item.put("role", roleOf(message));
         item.put("content", message.getText());
         if (ts != null) {
@@ -204,12 +215,14 @@ public class SessionServiceImpl implements SessionService {
             item.put("ts", String.valueOf(ts));
         }
         items.add(item);
-        trimSnapshot(items);
+        TrimResult trimmed = trimSnapshot(items);
 
         String json = serializeWithRetry(sessionId, items);
         if (json == null) {
             return; // 两次序列化均失败：本轮上下文副本丢失（回复已送达），仅记错误日志
         }
+        // 先归档再写快照：同事务内任一失败一起回滚，不产生「快照已丢、归档没落」的半写
+        archiveTrimmed(sessionId, trimmed);
         if (existing != null) {
             UpdateWrapper<SessionMessageEntity> uw = new UpdateWrapper<>();
             uw.eq("id", existing.getId())
@@ -239,9 +252,13 @@ public class SessionServiceImpl implements SessionService {
      * 单条仍超限则按码点截断正文。保证写入始终在列容量内（MEDIUMTEXT），
      * 避免长会话把上下文撑爆后整轮写回失败、静默丢历史。
      */
-    private void trimSnapshot(List<Map<String, String>> items) {
+    private TrimResult trimSnapshot(List<Map<String, String>> items) {
+        List<Map<String, String>> removed = new ArrayList<>();
+        List<Map<String, String>> tails = new ArrayList<>();
         if (snapshotMaxMessages > 0 && items.size() > snapshotMaxMessages) {
-            items.subList(0, items.size() - snapshotMaxMessages).clear();
+            List<Map<String, String>> dropped = items.subList(0, items.size() - snapshotMaxMessages);
+            removed.addAll(dropped);
+            dropped.clear();
         }
         long chars = 0;
         for (Map<String, String> it : items) {
@@ -249,8 +266,9 @@ public class SessionServiceImpl implements SessionService {
             chars += content == null ? 0 : content.length();
         }
         while (items.size() > 1 && chars > SNAPSHOT_MAX_CHARS) {
-            Map<String, String> removed = items.remove(0);
-            String content = removed.get("content");
+            Map<String, String> dropped = items.remove(0);
+            removed.add(dropped);
+            String content = dropped.get("content");
             chars -= content == null ? 0 : content.length();
         }
         if (chars > SNAPSHOT_MAX_CHARS && !items.isEmpty()) {
@@ -262,6 +280,15 @@ public class SessionServiceImpl implements SessionService {
                 int codePoints = content.codePointCount(0, content.length());
                 if (codePoints > SNAPSHOT_MAX_CHARS) {
                     int end = content.offsetByCodePoints(0, SNAPSHOT_MAX_CHARS);
+                    // 截断尾部先归档，避免单条超限时原文后半段永久丢失
+                    Map<String, String> tail = new LinkedHashMap<>();
+                    tail.put("id", only.get("id"));
+                    tail.put("role", only.get("role"));
+                    tail.put("content", content.substring(end));
+                    if (only.get("ts") != null) {
+                        tail.put("ts", only.get("ts"));
+                    }
+                    tails.add(tail);
                     only.put("content", content.substring(0, end));
                 }
             }
@@ -269,8 +296,50 @@ public class SessionServiceImpl implements SessionService {
         // 配对保护：上下文尽量不以 assistant 开头（严格交替校验的模型会 400，且保留半个问答对无意义）；
         // 保留至少一条，避免极端情况下把快照清空
         while (items.size() > 1 && "assistant".equals(items.get(0).get("role"))) {
-            items.remove(0);
+            removed.add(items.remove(0));
         }
+        return new TrimResult(removed, tails);
+    }
+
+    /** 快照裁剪结果：整条被移除的消息 + 单条超限截断的尾部（两者都先落归档） */
+    private record TrimResult(List<Map<String, String>> removed, List<Map<String, String>> tails) {
+    }
+
+    /** 裁剪结果落归档（与快照写回同事务） */
+    private void archiveTrimmed(String sessionId, TrimResult trimmed) {
+        LocalDateTime now = LocalDateTime.now();
+        for (Map<String, String> item : trimmed.removed()) {
+            insertArchive(sessionId, item, "full", now);
+        }
+        for (Map<String, String> item : trimmed.tails()) {
+            insertArchive(sessionId, item, "tail", now);
+        }
+    }
+
+    private void insertArchive(String sessionId, Map<String, String> item, String part, LocalDateTime now) {
+        SessionMessageArchiveEntity row = new SessionMessageArchiveEntity();
+        row.setSessionId(sessionId);
+        row.setMessageId(item.get("id"));
+        row.setRole(item.get("role"));
+        row.setContent(item.get("content"));
+        row.setPart(part);
+        row.setTs(parseTs(item.get("ts")));
+        row.setTenantId(DEFAULT_TENANT);
+        row.setArchivedAt(now);
+        archiveMapper.insert(row);
+    }
+
+    /** 为快照 item 补齐稳定消息 ID（存量快照在下次写回时补全） */
+    private static void ensureMessageId(Map<String, String> item) {
+        String id = item.get("id");
+        if (id == null || id.isBlank()) {
+            item.put("id", newMessageId());
+        }
+    }
+
+    /** 消息 ID：m-<32 位 hex>，写入快照 JSON 并随 Message metadata 读取 */
+    private static String newMessageId() {
+        return "m-" + UUID.randomUUID().toString().replace("-", "");
     }
 
     /** 序列化重试一次： transient 失败自愈，连续失败返回 null（调用方跳过写回并已记日志） */
@@ -420,9 +489,17 @@ public class SessionServiceImpl implements SessionService {
         }
     }
 
-    /** 由 role 字符串还原 Spring AI Message（会话快照只存 user/assistant，未知角色按 user 还原） */
-    private Message toMessage(String role, String content) {
-        return "assistant".equals(role) ? new AssistantMessage(content) : new UserMessage(content);
+    /**
+     * 由 role 字符串还原 Spring AI Message（会话快照只存 user/assistant，未知角色按 user 还原）；
+     * 消息 ID 放进 metadata，供上下文裁剪生成归档引用、recall_history 定位。
+     */
+    private Message toMessage(String role, String content, String messageId) {
+        Map<String, Object> metadata = messageId == null || messageId.isBlank()
+                ? Map.of()
+                : Map.of(ChatMessageMetadata.MESSAGE_ID, messageId);
+        return "assistant".equals(role)
+                ? AssistantMessage.builder().content(content).properties(metadata).build()
+                : UserMessage.builder().text(content).metadata(metadata).build();
     }
 
     /** 由 Spring AI Message 得到 role 字符串（system 角色提示词不入库：每次请求现组装，落库会造成角色错位） */

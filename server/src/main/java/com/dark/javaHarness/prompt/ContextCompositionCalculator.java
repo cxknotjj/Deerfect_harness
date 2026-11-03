@@ -24,6 +24,7 @@ public final class ContextCompositionCalculator {
             "工具索引", new SectionSpec("system.toolIndex", "工具索引"),
             "工具纪律", new SectionSpec("system.discipline", "工具纪律"),
             "输出约定", new SectionSpec("system.output", "输出约定"),
+            "信道规范", new SectionSpec("system.channel", "信道规范"),
             "skill", new SectionSpec("system.skillIndex", "技能索引"));
 
     private ContextCompositionCalculator() {

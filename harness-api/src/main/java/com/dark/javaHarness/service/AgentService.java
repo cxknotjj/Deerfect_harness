@@ -30,6 +30,10 @@ public interface AgentService {
      */
     Goal executeSync(String agentName, String objective, String sessionId, String turnId, String traceId);
 
+    /** 同步执行并显式指定来源渠道（qq/cli/web/api；空 = 不注入信道规范段）。 */
+    Goal executeSync(String agentName, String objective, String sessionId, String turnId,
+                     String traceId, String channel);
+
     /**
      * 创建一个目标并响应式流式执行：返回一个逐 token 产出的 {@link Flux}。
      * Flux 订阅后异步执行（内部切到 boundedElastic 隔离阻塞 DB 与 Agent 执行），
@@ -41,6 +45,10 @@ public interface AgentService {
     /** 流式执行并显式指定调用链标识 traceId，语义同 {@link #executeSync(String, String, String, String, String)} */
     Flux<String> executeStreamReactive(String agentName, String objective, String sessionId,
                                        String turnId, String traceId);
+
+    /** 流式执行并显式指定来源渠道（qq/cli/web/api；空 = 不注入信道规范段）。 */
+    Flux<String> executeStreamReactive(String agentName, String objective, String sessionId,
+                                       String turnId, String traceId, String channel);
 
     /**
      * 复杂编排断点续跑：复用既有 goal（id 即检查点 threadId），从上次检查点继续执行。

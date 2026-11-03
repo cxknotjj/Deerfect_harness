@@ -1,6 +1,7 @@
 package com.dark.javaHarness.service;
 
 import com.dark.javaHarness.domain.Goal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -14,7 +15,7 @@ public interface GoalService {
      * turnId 由聊天入口生成（/submit 直发为 null）；traceId 由 AgentService
      * 创建执行链时生成——两者随 Goal 供执行链与观测贯通读取。
      */
-    Goal create(String objective, String sessionId, String turnId, String traceId);
+    Goal create(String objective, String sessionId, String turnId, String traceId, String channel);
 
     /** 按 id 查询目标 */
     Optional<Goal> get(String id);
@@ -35,4 +36,19 @@ public interface GoalService {
      * @return 清理的目标数量
      */
     int failAllRunning(String reason);
+
+    /**
+     * 刷新目标进展时间：仅当目标仍为 RUNNING 时更新，避免覆盖已结束状态。
+     * 执行链路在阶段推进或节流心跳时调用，供 Watchdog 判断是否停滞。
+     */
+    void touchProgress(String goalId);
+
+    /**
+     * 将停滞的 RUNNING 目标批量标记为 FAILED：
+     * {@code last_progress_at} 为空或早于 cutoff 的目标视为无进展。
+     * 条件更新（WHERE status=RUNNING）保证不覆盖已结束目标。
+     *
+     * @return 本次标记失败的目标数量
+     */
+    int failStagnant(LocalDateTime cutoff, String reason);
 }

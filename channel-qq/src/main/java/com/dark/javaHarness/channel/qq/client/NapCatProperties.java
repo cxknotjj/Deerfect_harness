@@ -1,5 +1,7 @@
 package com.dark.javaHarness.channel.qq.client;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -43,6 +45,8 @@ public class NapCatProperties {
     private final RateLimit rateLimit = new RateLimit();
     private final Reply reply = new Reply();
     private final Emoji emoji = new Emoji();
+    private final EventPolicy eventPolicy = new EventPolicy();
+    private final SemanticTrigger semanticTrigger = new SemanticTrigger();
 
     public boolean isEnabled() {
         return enabled;
@@ -122,6 +126,108 @@ public class NapCatProperties {
 
     public Emoji getEmoji() {
         return emoji;
+    }
+
+    public EventPolicy getEventPolicy() {
+        return eventPolicy;
+    }
+
+    public SemanticTrigger getSemanticTrigger() {
+        return semanticTrigger;
+    }
+
+    /**
+     * 语义层触发判断（Slow Path）：开启后 event-policy 标记为 candidate 的事件
+     * 交由 core 的 SemanticTriggerJudge 判断是否响应；关闭时候选一律忽略（既有行为）。
+     */
+    public static class SemanticTrigger {
+
+        private boolean enabled;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+    }
+
+    /**
+     * 程序层事件准入策略（Fast Path）：规则按声明顺序首条匹配，决定 响应 / 候选 / 忽略。
+     * rules 为空时按既有 privateAllowUsers + groupTrigger 语义兜底（默认行为零变化）。
+     * 候选（CANDIDATE）事件交由语义层判断，见 napcat.semantic-trigger。
+     */
+    public static class EventPolicy {
+
+        private List<Rule> rules = new ArrayList<>();
+
+        public List<Rule> getRules() {
+            return rules;
+        }
+
+        public void setRules(List<Rule> rules) {
+            this.rules = rules == null ? new ArrayList<>() : rules;
+        }
+
+        /** 单条规则：字段留空 = 不限制；trigger 取值 any/at/reply/prefix/all */
+        public static class Rule {
+
+            /** 来源：private / group / any（留空 = any） */
+            private String source;
+
+            /** 群号（CSV，留空 = 不限群） */
+            private String groups;
+
+            /** 用户 QQ 号（CSV，留空 = 不限用户） */
+            private String users;
+
+            /** 触发方式：any / at / reply / prefix / all（留空 = any） */
+            private String trigger;
+
+            /** 决策：respond / candidate / ignore */
+            private String decision;
+
+            public String getSource() {
+                return source;
+            }
+
+            public void setSource(String source) {
+                this.source = source;
+            }
+
+            public String getGroups() {
+                return groups;
+            }
+
+            public void setGroups(String groups) {
+                this.groups = groups;
+            }
+
+            public String getUsers() {
+                return users;
+            }
+
+            public void setUsers(String users) {
+                this.users = users;
+            }
+
+            public String getTrigger() {
+                return trigger;
+            }
+
+            public void setTrigger(String trigger) {
+                this.trigger = trigger;
+            }
+
+            public String getDecision() {
+                return decision;
+            }
+
+            public void setDecision(String decision) {
+                this.decision = decision;
+            }
+        }
     }
 
     /** 群聊触发方式：at=仅@机器人 | prefix=命令前缀 | all=全部响应 */

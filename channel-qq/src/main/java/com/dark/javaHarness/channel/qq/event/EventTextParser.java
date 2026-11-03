@@ -19,52 +19,27 @@ final class EventTextParser {
         this.sentTracker = sentTracker;
     }
 
-    /** 私聊全文响应；正文取 message 数组 text 段，数组缺失兜底 raw_message */
-    String extractPrivateText(OneBotEvent event) {
+    /** 入站正文提取：message 数组 text 段优先，数组缺失兜底 raw_message；空正文返回 null */
+    String extractText(OneBotEvent event) {
         String joined = joinTextSegments(event.message());
-        if (!joined.isBlank()) {
-            return joined.trim();
-        }
-        return event.rawMessage() == null ? null : event.rawMessage().trim();
+        String text = joined.isBlank() ? nullToEmpty(event.rawMessage()).trim() : joined.trim();
+        return text.isBlank() ? null : text;
     }
 
-    /**
-     * 群聊触发判断：at=仅@机器人（message 数组 at 段为准，raw_message CQ 码兜底）；
-     * prefix=命令前缀；all=全部响应。返回 null 表示不触发。
-     */
-    String extractGroupText(OneBotEvent event) {
-        String mode = props.getGroupTrigger().getMode();
-        String joined = joinTextSegments(event.message());
-        String selfId = props.getSelfId();
-        switch (mode == null ? "at" : mode) {
-            case "at" -> {
-                boolean atMe = atSelf(event, selfId);
-                boolean replyMe = props.getGroupTrigger().isReplyToBot() && replyToSelf(event);
-                if (!atMe && !replyMe) {
-                    return null;
-                }
-                return joined.isBlank() ? null : joined.trim();
-            }
-            case "prefix" -> {
-                String base = joined.isBlank() ? nullToEmpty(event.rawMessage()).trim() : joined.trim();
-                String prefix = nullToEmpty(props.getGroupTrigger().getPrefix());
-                if (base.isBlank()) {
-                    return null;
-                }
-                if (!prefix.isBlank()) {
-                    if (!base.startsWith(prefix)) {
-                        return null;
-                    }
-                    base = base.substring(prefix.length()).trim();
-                }
-                return base.isBlank() ? null : base;
-            }
-            default -> {
-                // all：全量响应
-                String base = joined.isBlank() ? nullToEmpty(event.rawMessage()).trim() : joined.trim();
-                return base.isBlank() ? null : base;
-            }
+    /** 命令前缀是否命中（前缀未配置视为命中，与既有 prefix 模式语义一致） */
+    boolean prefixMatched(String text) {
+        String prefix = nullToEmpty(props.getGroupTrigger().getPrefix());
+        return prefix.isBlank() || (text != null && text.startsWith(prefix));
+    }
+
+    /** 剥离命令前缀（未配置前缀原样返回） */
+    String stripPrefix(String text) {
+        String prefix = nullToEmpty(props.getGroupTrigger().getPrefix());
+        if (prefix.isBlank() || text == null) {
+            return text;
         }
+        String stripped = text.substring(prefix.length()).trim();
+        return stripped.isBlank() ? null : stripped;
     }
 
     /** @ 触发判据：message 数组 at 段 data.qq == self-id；数组缺失时兜底 raw_message CQ 码 */

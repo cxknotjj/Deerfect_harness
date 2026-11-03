@@ -18,6 +18,7 @@ import com.dark.javaHarness.tool.DefaultToolDecorators;
 import com.dark.javaHarness.tool.TokenEstimator;
 import com.dark.javaHarness.tool.ToolAssignments;
 import com.dark.javaHarness.tool.ToolCallbackDecorator;
+import com.dark.javaHarness.tool.ToolContextKeys;
 import com.dark.javaHarness.tool.ToolDecorationContext;
 import com.dark.javaHarness.tool.trace.ToolCallTracer;
 import java.util.ArrayList;
@@ -215,11 +216,13 @@ final class AgentRequestSpecFactory {
             }
             spec.options(options);
         }
-        // 工具侧轨迹关联（Task 4）：parentSpan 键取本调用的 spanId（工具行的 parent_span
-        // 指向触发它的 LLM 调用 span），turnId/traceId 与该调用一致；全空不塞（Map 留空）
-        if (trace != null
-                && (trace.turnId() != null || trace.traceId() != null || trace.spanId() != null)) {
-            Map<String, Object> toolContext = new HashMap<>(4);
+        // 工具上下文（Task 4 + 会话范围）：轨迹标识供 tool_call_log 关联；sessionId 供
+        // recall_history 等工具做服务端会话过滤（不作为模型可见参数）。全空不塞（Map 留空）
+        Map<String, Object> toolContext = new HashMap<>(5);
+        if (sessionId != null && !sessionId.isBlank()) {
+            toolContext.put(ToolContextKeys.SESSION_ID, sessionId);
+        }
+        if (trace != null) {
             if (trace.turnId() != null) {
                 toolContext.put(ToolCallTracer.CTX_TURN_ID, trace.turnId());
             }
@@ -229,6 +232,8 @@ final class AgentRequestSpecFactory {
             if (trace.spanId() != null) {
                 toolContext.put(ToolCallTracer.CTX_PARENT_SPAN, trace.spanId());
             }
+        }
+        if (!toolContext.isEmpty()) {
             spec.toolContext(toolContext);
         }
         // 专家工具分配 + 装饰链（AgentScope 路径复用同一解析面，保证预算/观测/懒加载一致）
@@ -273,7 +278,7 @@ final class AgentRequestSpecFactory {
         // system 经 PromptAssembler 按段组装：角色段（表 prompt > 兜底指令 > 默认）+ 索引/纪律/约定等段；
         // 兜底角色指令收敛为角色段兜底，不再拼进 user。逐段结果一并返回，供上下文构成快照计量。
         List<PromptAssembler.RenderedSection> sections = promptAssembler.assembleSections(
-                forAgent, fallbackSystem, config);
+                forAgent, fallbackSystem, config, trace == null ? null : trace.channel());
         String system = sections.stream()
                 .map(PromptAssembler.RenderedSection::text)
                 .collect(java.util.stream.Collectors.joining("\n\n"));

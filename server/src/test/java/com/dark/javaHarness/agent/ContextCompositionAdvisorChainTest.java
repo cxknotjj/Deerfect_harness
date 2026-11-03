@@ -45,7 +45,7 @@ class ContextCompositionAdvisorChainTest {
         ChatClientRegistry registry = mock(ChatClientRegistry.class);
         when(registry.get(any())).thenReturn(ChatClient.builder(model).build());
         PromptAssembler assembler = mock(PromptAssembler.class);
-        when(assembler.assembleSections(anyString(), anyString(), any()))
+        when(assembler.assembleSections(anyString(), anyString(), any(), any()))
                 .thenReturn(List.of(new PromptAssembler.RenderedSection("角色", "SYS", 1)));
 
         ContextCompositionStore store = new ContextCompositionStore();
@@ -57,7 +57,7 @@ class ContextCompositionAdvisorChainTest {
                 new AgentRequestSpecFactory.Assembly(null, false, false, false, 0, null);
         ChatClient.ChatClientRequestSpec spec = factory.build(
                 null, "s1", "general", "FALLBACK", "hello", assembly,
-                new CallTrace("t1", null, null, null));
+                new CallTrace("t1", null, null, null, null));
         spec.stream().chatResponse().collectList().block();
 
         ContextComposition composition = store.get("s1").orElseThrow(

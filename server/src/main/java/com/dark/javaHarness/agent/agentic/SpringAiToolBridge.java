@@ -1,5 +1,6 @@
 package com.dark.javaHarness.agent.agentic;
 
+import com.dark.javaHarness.tool.ToolContextKeys;
 import com.dark.javaHarness.tool.trace.ToolCallTracer;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -69,8 +70,9 @@ public final class SpringAiToolBridge extends ToolBase {
 
     /** 把 AgentScope per-call 上下文中的轨迹标识转成 Spring AI ToolContext（缺失键不放入）。 */
     private static ToolContext toolContext(RuntimeContext runtime) {
-        Map<String, Object> map = new HashMap<>(4);
+        Map<String, Object> map = new HashMap<>(5);
         if (runtime != null) {
+            putIfPresent(map, ToolContextKeys.SESSION_ID, runtime.getSessionId());
             putIfPresent(map, ToolCallTracer.CTX_TURN_ID, runtime.get(ToolCallTracer.CTX_TURN_ID));
             putIfPresent(map, ToolCallTracer.CTX_TRACE_ID, runtime.get(ToolCallTracer.CTX_TRACE_ID));
             putIfPresent(map, ToolCallTracer.CTX_PARENT_SPAN, runtime.get(ToolCallTracer.CTX_PARENT_SPAN));

@@ -341,6 +341,9 @@ public final class ParallelOrchestrationEngine implements OrchestrationEngine {
         if (goal.traceId() != null) {
             input.put(MultiAgentGraphAgent.K_TRACE_ID, goal.traceId());
         }
+        if (goal.channel() != null && !goal.channel().isBlank()) {
+            input.put(MultiAgentGraphAgent.K_CHANNEL, goal.channel());
+        }
         budget.putLedger(input);
         return new OrchestrationState(goal.id(), input);
     }

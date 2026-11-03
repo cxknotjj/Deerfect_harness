@@ -73,7 +73,7 @@ public class ChatApiClient {
      * @throws IOException 网络错误，或非 2xx 响应（消息含 HTTP 状态码与响应体）
      */
     public ChatResponse chat(String message, String sessionId) throws IOException {
-        String json = mapper.writeValueAsString(new ChatRequest(message, sessionId, null));
+        String json = mapper.writeValueAsString(new ChatRequest(message, sessionId, null, null, "cli"));
         Request request = new Request.Builder()
                 .url(baseUrl + "/api/chat")
                 .post(RequestBody.create(json, JSON))
@@ -105,7 +105,7 @@ public class ChatApiClient {
      */
     public ChatResponse chatStream(String message, String sessionId, Long agentId, String routing,
                                    Consumer<String> onToken, Consumer<String> onProgress) throws IOException {
-        String json = mapper.writeValueAsString(new ChatRequest(message, sessionId, agentId, routing));
+        String json = mapper.writeValueAsString(new ChatRequest(message, sessionId, agentId, routing, "cli"));
         Request request = new Request.Builder()
                 .url(baseUrl + "/api/chat/stream")
                 .post(RequestBody.create(json, JSON))

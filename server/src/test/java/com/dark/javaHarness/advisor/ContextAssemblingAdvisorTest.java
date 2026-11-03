@@ -4,7 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.dark.javaHarness.domain.ChatMessageMetadata;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -82,6 +85,28 @@ class ContextAssemblingAdvisorTest {
         assertFalse(result.stream().anyMatch(m -> m.getText().equals(longText(BIG_TEXT))),
                 "超预算的最旧长消息应被丢弃");
         assertTrue(result.stream().anyMatch(m -> m instanceof SystemMessage), "system 应保留");
+    }
+
+    @Test
+    void assemble_trimmedHistoryWithIds_addsArchiveReference() {
+        ContextAssemblingAdvisor small = new ContextAssemblingAdvisor(100);
+        UserMessage old = UserMessage.builder()
+                .text(longText(BIG_TEXT))
+                .metadata(Map.of(ChatMessageMetadata.MESSAGE_ID, "m-old"))
+                .build();
+
+        List<Message> result = small.assemble(List.of(
+                new SystemMessage("system-prompt"),
+                old,
+                new AssistantMessage("short-answer")));
+
+        String systemText = result.stream()
+                .filter(SystemMessage.class::isInstance)
+                .map(Message::getText)
+                .collect(Collectors.joining());
+        assertTrue(systemText.contains("历史引用"), "被裁掉的历史应追加归档引用");
+        assertTrue(systemText.contains("m-old"), "引用应带消息 ID 示例");
+        assertEquals(2, result.size(), "引用应合并进 system，不新增独立消息");
     }
 
     @Test

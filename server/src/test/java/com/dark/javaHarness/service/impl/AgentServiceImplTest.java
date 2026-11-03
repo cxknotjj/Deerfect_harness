@@ -88,7 +88,7 @@ class AgentServiceImplTest {
 
     private Goal stubGoal(String agentName, String sessionId) {
         Goal g = new Goal("goal-x", "hi", sessionId);
-        when(goalService.create(any(), any(), any(), any())).thenReturn(g);
+        when(goalService.create(any(), any(), any(), any(), any())).thenReturn(g);
         return g;
     }
 
@@ -160,7 +160,7 @@ class AgentServiceImplTest {
         assertEquals(GoalStatus.SUCCEEDED, goal.status(), "续跑成功后 goal 应标记 SUCCEEDED");
         // 复用传入 goal：不新建 goal（仅 markRunning + 完成共 2 次 update）
         org.mockito.Mockito.verify(goalService, org.mockito.Mockito.never())
-                .create(any(), any(), any(), any());
+                .create(any(), any(), any(), any(), any());
         org.mockito.Mockito.verify(goalService, org.mockito.Mockito.times(2)).update(goal);
     }
 
@@ -207,7 +207,7 @@ class AgentServiceImplTest {
                 () -> agentService.executeSync("ghost", "hi"));
 
         assertTrue(ex.getMessage().contains("未知 Agent"), "应透传注册表的未知 Agent 文案");
-        org.mockito.Mockito.verify(goalService, org.mockito.Mockito.never()).create(anyString(), anyString(), anyString(), anyString());
+        org.mockito.Mockito.verify(goalService, org.mockito.Mockito.never()).create(anyString(), anyString(), anyString(), anyString(), anyString());
     }
 
     /** agentNames 委托 registry 动态路由表：表驱动注册结果即 /agent 可切换列表 */
@@ -272,7 +272,7 @@ class AgentServiceImplTest {
                 return "done";
             });
             when(agentRegistry.require("general")).thenReturn(agent);
-            when(goalService.create(anyString(), any(), any(), any()))
+            when(goalService.create(anyString(), any(), any(), any(), any()))
                     .thenAnswer(inv -> new Goal("goal-" + UUID.randomUUID(), inv.getArgument(0, String.class)));
             AgentServiceImpl svc = new AgentServiceImpl(goalService, agentConfigProvider, agentRegistry, executor);
 
@@ -319,7 +319,7 @@ class AgentServiceImplTest {
                 return "done";
             });
             when(agentRegistry.require("general")).thenReturn(agent);
-            when(goalService.create(anyString(), any(), any(), any()))
+            when(goalService.create(anyString(), any(), any(), any(), any()))
                     .thenAnswer(inv -> new Goal("goal-reject", inv.getArgument(0, String.class)));
             AgentServiceImpl svc = new AgentServiceImpl(goalService, agentConfigProvider, agentRegistry, executor);
 
@@ -342,7 +342,7 @@ class AgentServiceImplTest {
         Agent agent = mock(Agent.class);
         when(agent.execute(any())).thenThrow(new LinkageError("类加载失败"));
         when(agentRegistry.require("general")).thenReturn(agent);
-        when(goalService.create(anyString(), any(), any(), any()))
+        when(goalService.create(anyString(), any(), any(), any(), any()))
                 .thenAnswer(inv -> new Goal("goal-error", inv.getArgument(0, String.class)));
 
         Goal goal = agentService.submit("general", "obj"); // setUp 注入 Runnable::run，同步执行

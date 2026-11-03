@@ -83,7 +83,8 @@ public class PromptAssembler {
         this.profileProviders = profileProviders == null ? List.of() : List.copyOf(profileProviders);
         this.lazyToolsEnabled = lazyToolsEnabled;
         this.sections = List.of(new RoleSection(), new ProfileSection(), new ToolIndexSection(),
-                new ToolDisciplineSection(), new OutputConventionSection(), new SkillSection());
+                new ToolDisciplineSection(), new OutputConventionSection(), new ChannelSection(),
+                new SkillSection());
     }
 
     /**
@@ -107,7 +108,12 @@ public class PromptAssembler {
      * @param config       上游已查好的 agent 表配置（可空：空则回退查表）
      */
     public String assemble(String agentName, String roleFallback, AgentConfig config) {
-        return assembleSections(agentName, roleFallback, config).stream()
+        return assemble(agentName, roleFallback, config, null);
+    }
+
+    /** 组装 system prompt（携带来源渠道）：信道规范段按 channel 生成，空渠道不注入 */
+    public String assemble(String agentName, String roleFallback, AgentConfig config, String channel) {
+        return assembleSections(agentName, roleFallback, config, channel).stream()
                 .map(RenderedSection::text)
                 .collect(Collectors.joining("\n\n"));
     }
@@ -119,8 +125,15 @@ public class PromptAssembler {
      */
     public List<RenderedSection> assembleSections(String agentName, String roleFallback,
                                                   AgentConfig config) {
+        return assembleSections(agentName, roleFallback, config, null);
+    }
+
+    /** 按固定段落次序渲染（携带来源渠道，供信道规范段生成内容） */
+    public List<RenderedSection> assembleSections(String agentName, String roleFallback,
+                                                  AgentConfig config, String channel) {
         PromptSection.Context ctx = new PromptSection.Context(
-                agentName, resolveRolePrompt(agentName, roleFallback, config), toolNamesOf(agentName));
+                agentName, resolveRolePrompt(agentName, roleFallback, config),
+                toolNamesOf(agentName), channel);
         List<RenderedSection> rendered = new ArrayList<>();
         for (PromptSection section : sections.stream()
                 .sorted(Comparator.comparingInt(PromptSection::order))
@@ -341,6 +354,33 @@ public class PromptAssembler {
         @Override
         public String render(PromptSection.Context context) {
             return "输出约定：直接给出完成结果。";
+        }
+    }
+
+    /** 信道规范段：按来源渠道约束输出形态（IM 短答；CLI/API 结构化完整交付；空渠道不注入） */
+    private class ChannelSection implements PromptSection {
+
+        @Override
+        public String name() {
+            return "信道规范";
+        }
+
+        @Override
+        public int order() {
+            return 450;
+        }
+
+        @Override
+        public String render(PromptSection.Context context) {
+            String channel = context.channel() == null ? "" : context.channel().trim().toLowerCase();
+            return switch (channel) {
+                case "qq" -> "信道规范：当前为即时通讯（IM）对话。单次回复不超过 100 词；"
+                        + "只问直接问题、给简短结论，不罗列推理过程与工具细节；"
+                        + "需要用户决策或验收时才发送消息。";
+                case "cli", "web", "api" -> "信道规范：当前为异步客户端/API 交付。"
+                        + "可以给出结构化、信息完整的最终结果（标题/要点/结论），不必压缩长度。";
+                default -> null;
+            };
         }
     }
 

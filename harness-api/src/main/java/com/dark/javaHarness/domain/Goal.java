@@ -17,10 +17,14 @@ public class Goal {
     private final String turnId;
     /** 调用链标识：一次 Agent 执行链（创建 Goal 时由 AgentService 生成） */
     private final String traceId;
+    /** 消息来源渠道（qq/cli/web/api；空 = 不注入信道规范段） */
+    private final String channel;
     private GoalStatus status;
     private final LocalDateTime createdAt;
     private LocalDateTime finishedAt;
     private String summary;
+    /** 最近进展时间：进入 RUNNING 时初始化，执行链路按阶段/节流刷新 */
+    private LocalDateTime lastProgressAt;
 
     /** 构造目标（无会话记忆） */
     public Goal(String id, String objective) {
@@ -32,29 +36,44 @@ public class Goal {
         this(id, objective, sessionId, null, null);
     }
 
-    /** 构造目标（带会话记忆与轨迹标识），初始状态 PENDING */
+    /** 构造目标（带会话记忆与轨迹标识），初始状态 PENDING；渠道为空 */
     public Goal(String id, String objective, String sessionId, String turnId, String traceId) {
-        this(id, objective, sessionId, GoalStatus.PENDING, LocalDateTime.now(), null, null, turnId, traceId);
+        this(id, objective, sessionId, turnId, traceId, null);
+    }
+
+    /** 构造目标（带会话记忆、轨迹标识与来源渠道），初始状态 PENDING */
+    public Goal(String id, String objective, String sessionId, String turnId, String traceId,
+                String channel) {
+        this(id, objective, sessionId, GoalStatus.PENDING, LocalDateTime.now(), null, null,
+                turnId, traceId, channel, null);
     }
 
     /** 从持久化数据恢复完整状态（轨迹标识不入 goal 表，恢复为 null） */
     public Goal(String id, String objective, String sessionId,
                 GoalStatus status, LocalDateTime createdAt, LocalDateTime finishedAt, String summary,
-                String turnId, String traceId) {
+                String turnId, String traceId, String channel, LocalDateTime lastProgressAt) {
         this.id = id;
         this.objective = objective;
         this.sessionId = sessionId;
         this.turnId = turnId;
         this.traceId = traceId;
+        this.channel = channel;
         this.status = status;
         this.createdAt = createdAt;
         this.finishedAt = finishedAt;
         this.summary = summary;
+        this.lastProgressAt = lastProgressAt;
     }
 
-    /** 标记目标进入执行中状态 */
+    /** 标记目标进入执行中状态，并初始化进展时间 */
     public void markRunning() {
         this.status = GoalStatus.RUNNING;
+        this.lastProgressAt = LocalDateTime.now();
+    }
+
+    /** 刷新进展时间（执行链路在阶段推进或节流心跳时调用） */
+    public void touchProgress() {
+        this.lastProgressAt = LocalDateTime.now();
     }
 
     /** 标记目标成功并留存摘要 */
@@ -96,6 +115,11 @@ public class Goal {
         return traceId;
     }
 
+    /** 消息来源渠道（空 = 不注入信道规范段） */
+    public String channel() {
+        return channel;
+    }
+
     /** 当前生命周期状态 */
     public GoalStatus status() {
         return status;
@@ -114,5 +138,10 @@ public class Goal {
     /** 执行摘要（成功时结果 / 失败时原因） */
     public String summary() {
         return summary;
+    }
+
+    /** 最近进展时间（未进入 RUNNING 时为 null） */
+    public LocalDateTime lastProgressAt() {
+        return lastProgressAt;
     }
 }

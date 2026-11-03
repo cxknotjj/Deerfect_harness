@@ -63,6 +63,8 @@ public class MultiAgentGraphAgent implements Agent {
     /** 轨迹键：轮次/调用链标识（引擎从 Goal 注入；编排内 5 次调用共用） */
     public static final String K_TURN_ID = "turnId";
     public static final String K_TRACE_ID = "traceId";
+    /** 来源渠道键：system prompt 的信道规范段据此生成（Goal 注入；旧检查点缺键按空处理） */
+    public static final String K_CHANNEL = "channel";
     /** 轨迹键：lead 调用的 span_id（lead 节点发起调用前生成写入；subtask/aggregate 读出作 parent_span） */
     public static final String K_LEAD_SPAN = "leadSpanId";
     public static final String K_SUBTASK_COUNT = "subtaskCount";
