@@ -31,23 +31,41 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── HarnessController.java    # 管理接口（agents / submit / goals / sessions / 会话绑定 Agent）
 │   ├── ProviderAdminController.java  # 模型映射管理（/api/providers 查看与热刷新新增）
 │   ├── KnowledgeAdminController.java # 知识库管理（文档列表/上传/删除/增量同步）
+│   ├── MonitorController.java    # 运行监控（/api/monitor 汇总快照）
+│   ├── SkillController.java      # 技能只读校验（扫描结果/索引）
+│   ├── ContextCompositionController.java # 上下文构成快照查询
 │   ├── LlmCallController.java    # LLM 调用观测查询（/api/llm-calls）
 │   ├── ToolCallController.java   # 工具调用观测查询（/api/tool-calls）
 │   └── KbRetrievalController.java # RAG 检索观测查询（/api/kb-retrievals）
 ├── service/                      # 业务层（接口 + impl/ 实现）
 │   ├── GoalService.java          # 目标台账（AgentService/SessionService/ChatService/SessionBindingCleaner 端口已迁 harness-api）
 │   ├── RouteJudge.java           # 主 Agent 路由判断（Agentic / Graph 路径决策）
-│   ├── AgentConfigProvider.java  # 从 agent 表读取运行配置（路由映射）
+│   ├── AgentConfigProvider.java  # 从 agent 表读取运行配置（路由映射；配置读失败与「未配置」语义分离）
 │   ├── ProviderAdminService.java # model_provider 映射管理（新增即热刷新注册表）
-│   └── impl/                     # AgentServiceImpl / ChatServiceImpl / SessionServiceImpl / ProviderAdminServiceImpl / SseEncoder 等
+│   └── impl/                     # AgentServiceImpl / ChatServiceImpl / SessionServiceImpl / GoalServiceImpl / ProviderAdminServiceImpl / SseEncoder 等
 │       ├── SessionHistoryArchiveService.java  # 会话归档检索（recall_history 数据源，按会话过滤）
-│       └── route/                # LlmRouteJudge（主 Agent 路由判定）/ RagPrefetcher（RAG 入口预取）
+│       └── route/                # LlmRouteJudge（主 Agent 路由判定）/ RagPrefetcher（RAG 入口预取）/ LlmSemanticTriggerJudge（渠道路由语义判定）
 ├── advisor/                      # Spring AI Advisor 拦截器（Agent 流程横切管理）
 │   ├── ContextAssemblingAdvisor.java  # 上下文组装：过滤/token 预算截断/role 归一化
-│   └── PromptBudgetAdvisor.java  # Prompt 分段预算（历史/user/工具结果三段裁剪）
+│   ├── PromptBudgetAdvisor.java  # Prompt 分段预算（历史/user/工具结果三段裁剪）
+│   └── ContextCompositionAdvisor.java # 上下文构成快照采集（请求结束后记账）
 ├── config/                       # 应用配置
 │   ├── GoalExecutorConfig.java   # 执行线程池：goal-exec- 后台 Goal 池 + mvc-async- MVC 异步槽位
+│   ├── StreamConnectionLimiter.java  # 流式连接数限流（超限 429；终止信号传播前归还名额）
+│   ├── ChatTimeoutProperties.java    # 模型调用超时（首帧/空闲/读超时）
+│   ├── AgenticProperties.java    # AgentScope 路径开关（回退开关/最大迭代/重试）
+│   ├── OpenAiClients.java        # OpenAI 兼容客户端构建（连接池与超时）
 │   ├── ContextBudgetProperties.java  # 上下文预算统一配置（app.context.*，yaml 为唯一数值源）
+│   ├── logging/                  # 日志与 MDC 传播
+│   │   ├── TraceIdFilter.java    # 请求级 traceId 写入 MDC
+│   │   ├── ContextPropagationConfig.java # 响应式上下文（MDC）跨线程传播
+│   │   ├── ClientAbortLogFilter.java # 客户端断连噪声降级
+│   │   └── LogNoiseConfig.java   # 第三方库日志降噪（TurboFilter）
+│   ├── security/                 # API 鉴权（双通道）
+│   │   ├── SecurityConfig.java   # 过滤器链装配
+│   │   ├── ApiTokenFilter.java   # X-API-Token 常量时间比较 + 登录 Cookie 校验
+│   │   ├── LoginStateStore.java  # 内存登录态（滑动续期/失败锁定）
+│   │   └── AuthController.java   # /api/auth/login|logout
 │   ├── knowledge/                # RAG 知识库装配
 │   │   ├── KnowledgeProperties.java  # RAG 知识库配置载体（app.knowledge.*）
 │   │   └── KnowledgeConfig.java      # 知识库装配：向量库数据源/嵌入模型/PgVectorStore（条件装配+懒连接）
@@ -61,21 +79,31 @@ server/src/main/java/com/dark/javaHarness/
 │       └── ThinkingSwitchChatModel.java  # 按 model_provider.disable_thinking 注入思考开关
 ├── prompt/                       # Prompt 组装管线（两路径统一）
 │   ├── PromptAssembler.java      # 分段式 system prompt 组装（角色/画像/工具索引/纪律/输出约定/信道规范/skill）
+│   ├── SystemAssembly.java       # system 段组装结果（文本 + 各段 token，快照与请求共用）
 │   ├── MemoryPolicy.java         # 会话记忆按角色注入矩阵
 │   ├── SkillManager.java / SkillRepository.java  # Markdown 技能库动态装配（按需注入 system）
 │   ├── ToolLazyManager.java      # 工具 Schema 两段式延迟加载（轻量索引 → expand_tool 展开）
+│   ├── ContextCompositionCalculator.java / ContextCompositionRecorder.java / ContextCompositionStore.java  # 上下文构成快照：占比计算 / 写入 / 短 TTL 存储
 │   └── PromptSection.java / SkillSectionProvider.java  # 段模型与 skill 扩展点
 ├── mapper/                       # 数据访问层：MyBatis-Plus Mapper
 │   └── AgentMapper / GoalMapper / SessionMapper / SessionMessageMapper / SessionMessageArchiveMapper / ModelProviderMapper
 │       / LlmCallLogMapper / ToolCallLogMapper / KbRetrievalLogMapper / McpServerLogMapper / KbDocumentMapper
+│       / OrchestrationCheckpointMapper
 │       （OneBot 会话绑定 Mapper 在 channel-qq 模块）
 ├── domain/                       # 领域模型（父包）
 │   ├── RouteDecision.java        # 路由决策枚举（SIMPLE / COMPLEX）
+│   ├── RoutePlan.java            # 路径判定结果（agentic/graph + 置信度 + 来源）
 │   ├── LlmCallLog.java           # 一次 LLM 调用的观测记录（耗时/token/成败）
 │   ├── KbRetrievalLog / McpServerLog / ToolCallLog  # 其余观测记录
-│   └── entity/                   # 数据库实体（agent / goal / session_message / session_message_archive / model_provider / 各观测日志表）
+│   └── entity/                   # 数据库实体：AgentEntity / GoalEntity / SessionEntity / SessionMessageEntity
+│                                 #   / SessionMessageArchiveEntity / ModelProviderEntity / KbDocumentEntity
+│                                 #   / LlmCallLogEntity / ToolCallLogEntity / KbRetrievalLogEntity / McpServerLogEntity
+│   └── dto/                      # 接口 DTO：ChatRequest/ChatResponse/RouteInfo/SseMeta/MonitorSnapshot/RuntimeMetrics
+│                                 #   / ComponentStatus/ContextComposition/…
 ├── enums/                        # 共享常量：AgentConstants（GoalStatus / SseProtocol 已迁 harness-api）
-├── exception/                    # 全局异常处理（@RestControllerAdvice，统一 {code, message}）
+├── exception/                    # 全局异常处理与领域异常
+│   ├── GlobalExceptionHandler.java   # @RestControllerAdvice，统一 {code, message}
+│   └── ConcurrentRequestException / ResumeConflictException / ModelAuthException / ModelQuotaException
 ├── agent/                        # Agent 抽象、编排与 LLM 调用
 │   ├── Agent.java / AgentRegistry.java    # Agent 接口与注册表
 │   ├── AgentScopeGeneralAgent.java # Agentic 路径：AgentScope ReAct 显式推理-行动循环
@@ -85,6 +113,11 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── GeneralAssistantAgent.java  # Agentic 路径回退：ChatClient 单模型对话（真·逐 token stream）
 │   ├── AgentChatCaller.java        # LLM 调用生命周期编排门面（call/stream 重试循环、取消拦截、观测记录）
 │   ├── AgentChatPipeline.java      # 流管道核（streamAttempt/streamCore/tokenStream + watchdog 空闲超时/流帧记账/空响应防御）
+│   ├── AggregateStreamGuard.java   # 聚合流式护栏（失败自愈与必发策略）
+│   ├── BudgetLedger.java           # 编排预算账本契约（roundtrip 增量记账 + 熔断异常）
+│   ├── CallCancellation.java       # 取消词汇表（取消异常的单一构造口径）
+│   ├── LlmErrorClassifier.java     # 模型错误分类纯函数（账户级硬错误/未知名工具调用）
+│   ├── SubtaskResults.java         # 子任务结局常量（graph 与 agent 共用，避免 agent 反向依赖 graph）
 │   ├── CallContext.java            # 观测值对象（llm_call_log 落库参数收敛，call/stream 两通道共用）
 │   ├── CallSpecAssembler.java      # 角色装配策略（MemoryPolicy 记忆判定/maxTokens 档位/观测名单计算）
 │   ├── AgentRequestSpecFactory.java  # 双路径共用请求组装工厂（system/记忆注入/工具装饰/输出档位）
@@ -94,6 +127,7 @@ server/src/main/java/com/dark/javaHarness/
 ├── graph/                        # Graph 编排路径（Lead → 专家并行 → 聚合）
 │   ├── MultiAgentGraphAgent.java   # Graph 编排门面（执行/流式/续跑入口；引擎见 engine/ParallelOrchestrationEngine）
 │   ├── OrchestrationNodes.java     # 编排三节点实现（lead/subtask/aggregate + predict* 桥接 + 流式聚合护栏）
+│   ├── OrchestrationPrompts.java   # 编排各环节兜底提示词（lead/aggregator/子任务 persona）
 │   ├── LeadOutputParser.java       # lead 拆解 JSON 解析（子任务数 + 专家指派白名单）
 │   ├── OrchestrationBudget.java    # 编排预算账本（AtomicLong 共享记账 + 降级说明）
 │   ├── MultiAgentStreamPipeline.java  # 编排流式管道（进度行 → SSE 事件装配）
@@ -106,6 +140,8 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── LlmCallRecorder / KbRetrievalRecorder / McpServerRecorder  # 三表异步落库
 │   ├── LlmCallObserver / LlmRequestLogAdvisor  # 调用侧口径与请求发起观测
 │   ├── ObserveQueryService / ObserveQueryServiceImpl  # 三表查询收口（controller 不直连 mapper）
+│   ├── HarnessMetrics            # 指标埋点（路径判定 / LLM 台账 / 流控 / 编排降级）
+│   ├── MonitorService / ComponentStatusService / RuntimeMetricsService  # 运行监控聚合（模型、工具、组件状态、JVM 指标）
 │   ├── ObservabilityLogCleaner  # 观测表保留期清理
 │   └── StaleGoalWatchdog       # Goal 停滞看门狗（RUNNING 无进展 → FAILED，默认关闭）
 ├── validation/                   # 纯规则（无状态、不查库）
@@ -114,7 +150,10 @@ server/src/main/java/com/dark/javaHarness/
 ├── knowledge/                    # RAG 知识库
 │   ├── KnowledgeDocumentScanner.java  # 知识目录扫描（.md/.txt、front-matter 标题、坏文件跳过）
 │   ├── MarkdownChunker.java      # 段落感知切分（~700 字符 + 重叠，纯函数）
-│   ├── KnowledgeService(Impl).java  # 增量摄取（mtime 比对删旧写新）/ 删除 / 分页 / 检索
+│   ├── KnowledgeService.java / KnowledgeServiceImpl.java  # 增量摄取（mtime+kb 比对删旧写新）/ 删除 / 分页 / 检索（向量 + BM25 + RRF）
+│   ├── KnowledgeBm25Index.java   # BM25 内存索引（懒重建，混合检索第二路）
+│   ├── KnowledgeDirectoryWatcher.java # 知识目录监听（去抖后触发增量 sync）
+│   ├── KnowledgeSyncView.java    # 增量同步结果（扫描/更新/跳过/chunk 数）
 │   └── KnowledgeRetriever.java   # 检索注入器：user 文本→top-k 命中→【出处N】知识段（预算截断）
 ├── channel/qq/                   # 已整体迁出为独立模块 `channel-qq`（NapCat/OneBot 11，napcat.enabled 条件装配，单向依赖 core 端口）
 ├── memory/                       # 用户画像（跨会话长期记忆）
@@ -128,10 +167,14 @@ server/src/main/java/com/dark/javaHarness/
     ├── McpToolProvider.java / McpConfigParser.java  # MCP 工具接入（多 server 懒连接、失败隔离）/ mcp-config.json 解析
     ├── McpServerTools.java       # 内置 MCP Server 暴露的演示工具（Streamable-HTTP /mcp）
     ├── ToolAssignments.java      # 工具分配表：按专家分配工具集（双通道注入，最小权限）
+    ├── ToolInputs.java / TextSanitizer.java / ToolContextKeys.java  # 工具入参解析 / 工具结果文本清洗 / ToolContext 键常量
+    ├── mcp/ServerTaggedCallback.java  # MCP 来源标注（观测按 server 维度拆分）
     ├── ToolCallBudget.java / ToolCallTracer.java    # 工具次数/结果硬预算 / 调用起止进度行（装饰内核）
     ├── ToolCallbackDecorator.java / ToolDecorationContext.java  # 可插拔装饰器接口与上下文（Ordered 责任链）
     ├── ToolObservationDecorator.java / ToolBudgetDecorator.java / ToolLazyLoadDecorator.java / SkillMetaToolDecorator.java  # 默认装饰链四组件（观测100→预算200→懒加载300→元工具400）
     ├── DefaultToolDecorators.java  # 默认装饰链工厂（单一事实来源；新增装饰器=新类+此处登记一行）
+    ├── builtin/SandboxToolkit.java  # 沙箱工具包（Python/Shell/文件/浏览器回调集合）
+    ├── builtin/DemoTools.java     # 内置演示工具（@Tool 注解通道样例）
     ├── builtin/history/RecallHistoryTools.java  # recall_history：按关键词/消息 ID 检索会话归档
     ├── builtin/tts/TextToSpeechTools.java  # text_to_speech 工具入口：校验 + 合成 + 写工件
     ├── builtin/tts/EdgeTtsClient.java      # Edge TTS 子进程调用（超时杀进程 / 并发信号量）
