@@ -1,6 +1,5 @@
 package com.dark.javaHarness.graph;
 
-import com.dark.javaHarness.graph.engine.OrchestrationState;
 import com.dark.javaHarness.advisor.PromptBudgetAdvisor;
 import com.dark.javaHarness.agent.AgentChatCaller;
 import com.dark.javaHarness.agent.AggregateStreamGuard;
@@ -10,14 +9,22 @@ import com.dark.javaHarness.agent.CallTrace;
 import com.dark.javaHarness.agent.ProgressLine;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.enums.AgentConstants;
+import com.dark.javaHarness.graph.engine.OrchestrationState;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.prompt.PromptAssembler;
+import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.impl.route.RagPrefetcher;
+import com.dark.javaHarness.tool.trace.ToolCallTracer;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,29 +60,14 @@ public class OrchestrationNodes {
      * 工具包定义读取器（agent 表 is_internal=0 且 tools 列非空的包行，包工具并入请求工具面 +
      * 包纪律段拼入 user 文本）；可 null=包解析零行为（单测场景，对齐 ragPrefetcher 先例）。
      */
-    private final com.dark.javaHarness.service.AgentConfigProvider agentConfigProvider;
-
-    OrchestrationNodes(AgentChatCaller chatCaller,
-                       PromptAssembler promptAssembler,
-                       ContextBudgetProperties budgets,
-                       OrchestrationBudget orchestrationBudget) {
-        this(chatCaller, promptAssembler, budgets, orchestrationBudget, null, null);
-    }
-
-    OrchestrationNodes(AgentChatCaller chatCaller,
-                       PromptAssembler promptAssembler,
-                       ContextBudgetProperties budgets,
-                       OrchestrationBudget orchestrationBudget,
-                       RagPrefetcher ragPrefetcher) {
-        this(chatCaller, promptAssembler, budgets, orchestrationBudget, ragPrefetcher, null);
-    }
+    private final AgentConfigProvider agentConfigProvider;
 
     OrchestrationNodes(AgentChatCaller chatCaller,
                        PromptAssembler promptAssembler,
                        ContextBudgetProperties budgets,
                        OrchestrationBudget orchestrationBudget,
                        RagPrefetcher ragPrefetcher,
-                       com.dark.javaHarness.service.AgentConfigProvider agentConfigProvider) {
+                       AgentConfigProvider agentConfigProvider) {
         this.chatCaller = chatCaller;
         this.promptAssembler = promptAssembler;
         this.budgets = budgets;
@@ -207,7 +199,7 @@ public class OrchestrationNodes {
      * 及时看到前序消耗，配合 subtask-concurrency 错峰使「部分跳过」成为常态而非偶发。
      */
     public Map<String, Object> subtask(OrchestrationState state, int idx,
-                                       java.util.function.Consumer<String> toolEmitter,
+                                       Consumer<String> toolEmitter,
                                        AtomicBoolean cancelled,
                                        BranchProgressListener progress) {
         String task = state.value(MultiAgentGraphAgent.K_SUBTASK_PREFIX + idx, String.class).orElse(null);
@@ -251,7 +243,7 @@ public class OrchestrationNodes {
         // CancellationException，节点捕获后与真实断连区分（真实断连原样上抛保持现状）
         int wallClock = budgets.getSubtaskWallClockSeconds();
         long deadlineNanos = wallClock > 0 ? System.nanoTime() + wallClock * 1_000_000_000L : 0L;
-        java.util.function.BooleanSupplier cancelSignal =
+        BooleanSupplier cancelSignal =
                 (cancelled == null && deadlineNanos == 0) ? null
                         : deadlineNanos == 0 ? cancelled::get
                         : cancelled == null ? () -> System.nanoTime() >= deadlineNanos
@@ -290,7 +282,7 @@ public class OrchestrationNodes {
             updates.put(MultiAgentGraphAgent.K_RESULT_PREFIX + idx, MultiAgentGraphAgent.SKIPPED_RESULT);
             recordOutcome(progress, idx, MultiAgentGraphAgent.SKIPPED_RESULT);
             return updates;
-        } catch (java.util.concurrent.CancellationException e) {
+        } catch (CancellationException e) {
             // 超时命中判定：deadline 已过且共享断连令牌未置位——真实客户端断开（令牌置位）
             // 原样上抛（图终止、不写占位，现状不变）；超时写占位结果，聚合注入超时说明
             if (deadlineNanos == 0 || System.nanoTime() < deadlineNanos
@@ -447,8 +439,8 @@ public class OrchestrationNodes {
             return row;
         }
         String base = r.stage();
-        if (com.dark.javaHarness.tool.trace.ToolCallTracer.STAGE_TOOL.equals(base)
-                || com.dark.javaHarness.tool.trace.ToolCallTracer.STAGE_TOOL_DONE.equals(base)) {
+        if (ToolCallTracer.STAGE_TOOL.equals(base)
+                || ToolCallTracer.STAGE_TOOL_DONE.equals(base)) {
             return ProgressLine.encode(base + attribution, r.detail());
         }
         return row;
@@ -465,8 +457,9 @@ public class OrchestrationNodes {
     private String predictLead(String sessionId, String objective, AtomicBoolean cancelled,
                                BudgetLedger budgetLedger, CallTrace trace, Consumer<String> reasoningTap) {
         return chatCaller.call(sessionId, ROLE_LEAD, OrchestrationPrompts.LEAD_FALLBACK_PROMPT, "拆解目标：" + objective,
-                null, new PromptBudgetAdvisor[]{PromptBudgetAdvisor.tail(budgets.getLeadBudget())},
-                cancelled == null ? null : cancelled::get, budgetLedger, trace, null, reasoningTap);
+                new AgentChatCaller.CallOptions(null,
+                        List.of(PromptBudgetAdvisor.tail(budgets.getLeadBudget())),
+                        cancelled == null ? null : cancelled::get, budgetLedger, trace, null, reasoningTap));
     }
 
     /** lead 拆解前日志埋点便于诊断专家指派（raw 输出统一记审计） */
@@ -509,8 +502,8 @@ public class OrchestrationNodes {
      * （多包按声明顺序），包工具名单经 caller 新重载并入请求工具面。
      */
     private String predictSubtask(String sessionId, String task, String brief, String expert,
-                                  java.util.function.Consumer<String> toolEmitter,
-                                  java.util.function.BooleanSupplier cancelSignal,
+                                  Consumer<String> toolEmitter,
+                                  BooleanSupplier cancelSignal,
                                   BudgetLedger budgetLedger, CallTrace trace,
                                   PackResolution packs, Consumer<String> reasoningTap) {
         // 未指派（lead 输出旧格式或漏 agent 字段）→ 回退 general：通用兜底且持有全量工具
@@ -523,9 +516,10 @@ public class OrchestrationNodes {
         if (packs != null && packs.disciplineText() != null) {
             user = user + packs.disciplineText();
         }
-        return chatCaller.call(sessionId, resolved, persona, user, toolEmitter,
-                new PromptBudgetAdvisor[0], cancelSignal, budgetLedger, trace,
-                packs == null ? null : packs.extraToolNames(), reasoningTap);
+        return chatCaller.call(sessionId, resolved, persona, user,
+                new AgentChatCaller.CallOptions(toolEmitter, List.of(),
+                        cancelSignal, budgetLedger, trace,
+                        packs == null ? null : packs.extraToolNames(), reasoningTap));
     }
 
     /**
@@ -549,7 +543,7 @@ public class OrchestrationNodes {
             return PackResolution.NONE;
         }
         // lead 可分配白名单：其自身 tools 列原文的精确名 token 集合（列 NULL/行缺失/查询异常 → 空集）
-        java.util.Set<String> assignableTokens = new java.util.HashSet<>();
+        Set<String> assignableTokens = new HashSet<>();
         agentConfigProvider.findAgentTools(ROLE_LEAD).ifPresent(csv -> {
             for (String raw : csv.split(",")) {
                 String token = raw.trim();
@@ -559,14 +553,14 @@ public class OrchestrationNodes {
             }
         });
         List<String> toolNames = new ArrayList<>();
-        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        Set<String> seen = new LinkedHashSet<>();
         StringBuilder discipline = new StringBuilder();
         for (String raw : packsCsv.split(",")) {
             String packName = raw.trim();
             if (packName.isEmpty()) {
                 continue;
             }
-            com.dark.javaHarness.service.AgentConfigProvider.ToolPackDef pack =
+            AgentConfigProvider.ToolPackDef pack =
                     agentConfigProvider.findToolPack(packName).orElse(null);
             if (pack == null) {
                 log.warn("[multi-agent][subtask] 工具包 '{}' 无有效定义（is_internal=0 且 tools 列非空的包行），跳过",
@@ -613,8 +607,8 @@ public class OrchestrationNodes {
     private String predictAggregate(String sessionId, String user, AtomicBoolean cancelled,
                                     BudgetLedger budgetLedger, CallTrace trace) {
         return chatCaller.call(sessionId, ROLE_AGGREGATOR, OrchestrationPrompts.AGGREGATOR_FALLBACK_PROMPT, user,
-                null, new PromptBudgetAdvisor[]{aggregateBudgetAdvisor()},
-                cancelled == null ? null : cancelled::get, budgetLedger, trace);
+                new AgentChatCaller.CallOptions(null, List.of(aggregateBudgetAdvisor()),
+                        cancelled == null ? null : cancelled::get, budgetLedger, trace, null, null));
     }
 
     /** 聚合预算 advisor：按「【子任务N】」节边界等份额截断（禁止先到先得挤掉后面的子任务） */

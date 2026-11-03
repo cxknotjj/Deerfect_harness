@@ -3,6 +3,7 @@ package com.dark.javaHarness.agent;
 import com.dark.javaHarness.advisor.PromptBudgetAdvisor;
 import com.dark.javaHarness.agent.BranchProgressListener;
 import com.dark.javaHarness.agent.BudgetLedger;
+import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
@@ -115,10 +116,9 @@ public final class AggregateStreamGuard {
                     contentSent.set(true);
                     BranchProgressListener.tryEmitSerialized(liveTokens, token);
                 },
-                null,
-                new PromptBudgetAdvisor[]{aggregateAdvisor.get()},
-                cancelled == null ? null : cancelled::get,
-                budgetLedger, trace, reasoningTap);
+                new AgentChatCaller.CallOptions(null, List.of(aggregateAdvisor.get()),
+                        cancelled == null ? null : cancelled::get,
+                        budgetLedger, trace, null, reasoningTap));
     }
 
     private static boolean isCancelled(AtomicBoolean cancelled) {

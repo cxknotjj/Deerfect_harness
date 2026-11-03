@@ -166,8 +166,8 @@ class AgentChatCallerRetryTest {
         });
 
         assertThrows(CancellationException.class,
-                () -> callerWithClient(c).call("s", "coder", "sys", "任务", null,
-                        new Advisor[0], cancelled::get),
+                () -> callerWithClient(c).call("s", "coder", "sys", "任务",
+                        new AgentChatCaller.CallOptions(null, List.of(), cancelled::get, null, null, null, null)),
                 "执行中置位应在 token 边界中止并抛取消异常");
         assertEquals(1, calls.get(), "取消中止后不得重试");
     }

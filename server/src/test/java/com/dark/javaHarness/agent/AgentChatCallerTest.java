@@ -134,7 +134,7 @@ class AgentChatCallerTest {
                 .thenReturn(Flux.error(new IllegalStateException("No ToolCallback found for tool name: researcher")))
                 .thenReturn(fluxOf("调研完成：4399 公司……"));
 
-        String out = caller.call("s1", "researcher", "兜底提示", "任务内容", null);
+        String out = caller.call("s1", "researcher", "兜底提示", "任务内容");
 
         assertEquals("调研完成：4399 公司……", out, "幻觉工具调用应降级为无工具重试并返回文本结果");
         // 两次调用（原样 + 去工具）
@@ -146,7 +146,7 @@ class AgentChatCallerTest {
         when(streamSpec.chatResponse()).thenReturn(Flux.error(new IllegalStateException("无关异常")));
 
         assertThrows(IllegalStateException.class,
-                () -> caller.call("s1", "researcher", "兜底提示", "任务内容", null));
+                () -> caller.call("s1", "researcher", "兜底提示", "任务内容"));
     }
 
     @Test
@@ -167,7 +167,7 @@ class AgentChatCallerTest {
         // call() 改为流式背书：全部 token 收集后拼接返回
         when(streamSpec.chatResponse()).thenReturn(fluxOf("你好", "，", "世界"));
 
-        String out = caller.call("s1", "researcher", "兜底提示", "任务内容", null);
+        String out = caller.call("s1", "researcher", "兜底提示", "任务内容");
 
         assertEquals("你好，世界", out);
     }
@@ -179,7 +179,7 @@ class AgentChatCallerTest {
                 fluxOf("部分", "回答"),
                 Flux.just(new ChatResponse(List.of()))));
 
-        String out = caller.call("s1", "researcher", "兜底提示", "任务内容", null);
+        String out = caller.call("s1", "researcher", "兜底提示", "任务内容");
 
         assertEquals("部分回答", out, "usage 空帧应被跳过，内容完整");
     }
@@ -196,7 +196,7 @@ class AgentChatCallerTest {
                 }));
 
         assertThrows(CancellationException.class,
-                () -> caller.call("s1", "researcher", "兜底提示", "任务内容", null, new Advisor[0], cancelled::get),
+                () -> caller.call("s1", "researcher", "兜底提示", "任务内容", new AgentChatCaller.CallOptions(null, List.of(), cancelled::get, null, null, null, null)),
                 "执行中置位应在 token 边界中止并抛取消异常");
 
         // 取消不是可重试错误：仅一次流式尝试（prompt 只被组装一次）
@@ -209,7 +209,7 @@ class AgentChatCallerTest {
         AtomicBoolean cancelled = new AtomicBoolean(true);
 
         assertThrows(CancellationException.class,
-                () -> caller.call("s1", "researcher", "兜底提示", "任务内容", null, new Advisor[0], cancelled::get),
+                () -> caller.call("s1", "researcher", "兜底提示", "任务内容", new AgentChatCaller.CallOptions(null, List.of(), cancelled::get, null, null, null, null)),
                 "置位后调用应直接抛取消异常");
 
         // 零 HTTP 请求：未触达客户端
@@ -223,7 +223,7 @@ class AgentChatCallerTest {
 
         assertThrows(CancellationException.class,
                 () -> caller.stream("s1", "researcher", "兜底提示", "任务内容",
-                        token -> { }, null, new Advisor[0], cancelled::get),
+                        token -> { }, new AgentChatCaller.CallOptions(null, List.of(), cancelled::get, null, null, null, null)),
                 "置位后流式调用应直接抛取消异常");
 
         verify(client, never()).prompt();
@@ -251,9 +251,9 @@ class AgentChatCallerTest {
                 .thenReturn(Optional.of(new AgentConfig(1L, "m1", "系统提示词", null)));
         when(streamSpec.chatResponse()).thenReturn(fluxOf("ok"));
 
-        tiered.call("s1", "lead", "兜底", "任务", null);
-        tiered.call("s1", "aggregator", "兜底", "任务", null);
-        tiered.call("s1", "researcher", "兜底", "任务", null);
+        tiered.call("s1", "lead", "兜底", "任务");
+        tiered.call("s1", "aggregator", "兜底", "任务");
+        tiered.call("s1", "researcher", "兜底", "任务");
 
         ArgumentCaptor<OpenAiChatOptions.Builder> captor =
                 ArgumentCaptor.forClass(OpenAiChatOptions.Builder.class);
@@ -268,7 +268,7 @@ class AgentChatCallerTest {
     void call_maxTokensZero_notSet() {
         when(streamSpec.chatResponse()).thenReturn(fluxOf("ok"));
 
-        caller.call("s1", "researcher", "兜底", "任务", null);
+        caller.call("s1", "researcher", "兜底", "任务");
 
         ArgumentCaptor<OpenAiChatOptions.Builder> captor =
                 ArgumentCaptor.forClass(OpenAiChatOptions.Builder.class);
@@ -284,7 +284,7 @@ class AgentChatCallerTest {
         when(streamSpec.chatResponse()).thenReturn(fluxOf("你好", "世界"));
         LedgerStub ledger = new LedgerStub(0);
 
-        caller.call("s1", "researcher", "兜底", "任务", null, new Advisor[0], null, ledger);
+        caller.call("s1", "researcher", "兜底", "任务", new AgentChatCaller.CallOptions(null, List.of(), null, ledger, null, null, null));
 
         assertEquals(1, ledger.records.size(), "成功调用结束应入账一次");
         assertTrue(ledger.records.get(0)[0] > 0, "估算 token 应大于 0");
@@ -297,7 +297,7 @@ class AgentChatCallerTest {
         when(streamSpec.chatResponse()).thenReturn(fluxWithUsage(150, "回答"));
         LedgerStub ledger = new LedgerStub(0);
 
-        String out = caller.call("s1", "researcher", "兜底", "任务", null, new Advisor[0], null, ledger);
+        String out = caller.call("s1", "researcher", "兜底", "任务", new AgentChatCaller.CallOptions(null, List.of(), null, ledger, null, null, null));
 
         assertEquals("回答", out);
         assertEquals(1, ledger.records.size());
@@ -311,7 +311,7 @@ class AgentChatCallerTest {
         LedgerStub ledger = new LedgerStub(100, 100); // 前序调用已耗尽预算
 
         assertThrows(BudgetLedger.BudgetExceededException.class,
-                () -> caller.call("s1", "researcher", "兜底", "任务", null, new Advisor[0], null, ledger),
+                () -> caller.call("s1", "researcher", "兜底", "任务", new AgentChatCaller.CallOptions(null, List.of(), null, ledger, null, null, null)),
                 "超限后调用应被熔断拒绝");
 
         verify(client, never()).prompt();
@@ -332,7 +332,7 @@ class AgentChatCallerTest {
         LedgerStub ledger = new LedgerStub(100);
 
         assertThrows(BudgetLedger.BudgetExceededException.class,
-                () -> caller.call("s1", "researcher", "兜底", "任务", null, new Advisor[0], null, ledger),
+                () -> caller.call("s1", "researcher", "兜底", "任务", new AgentChatCaller.CallOptions(null, List.of(), null, ledger, null, null, null)),
                 "usage 帧累计入账达上限应断流");
 
         assertEquals(2, ledger.records.size(), "熔断前每轮增量应已入账");
@@ -345,7 +345,7 @@ class AgentChatCallerTest {
         when(streamSpec.chatResponse()).thenReturn(fluxWithUsage(150, "ok"));
 
         assertEquals("ok", caller.call("s1", "researcher", "兜底", "任务",
-                null, new Advisor[0], null, null));
+                AgentChatCaller.CallOptions.none()));
     }
 
     /* ---------------- 流式路径账本上报（I1：stream 与 call 同口径） ---------------- */
@@ -358,7 +358,7 @@ class AgentChatCallerTest {
         StringBuilder collected = new StringBuilder();
 
         caller.stream("s1", "researcher", "兜底", "任务",
-                collected::append, null, new Advisor[0], null, ledger);
+                collected::append, new AgentChatCaller.CallOptions(null, List.of(), null, ledger, null, null, null));
 
         assertEquals("聚合结果", collected.toString());
         assertEquals(1, ledger.records.size());
@@ -372,7 +372,7 @@ class AgentChatCallerTest {
         LedgerStub ledger = new LedgerStub(0);
 
         caller.stream("s1", "researcher", "兜底", "任务",
-                token -> { }, null, new Advisor[0], null, ledger);
+                token -> { }, new AgentChatCaller.CallOptions(null, List.of(), null, ledger, null, null, null));
 
         assertEquals(1, ledger.records.size());
         assertTrue(ledger.records.get(0)[0] > 0, "估算 token 应大于 0");
@@ -387,7 +387,7 @@ class AgentChatCallerTest {
 
         assertThrows(BudgetLedger.BudgetExceededException.class,
                 () -> caller.stream("s1", "researcher", "兜底", "任务",
-                        token -> { }, null, new Advisor[0], null, ledger),
+                        token -> { }, new AgentChatCaller.CallOptions(null, List.of(), null, ledger, null, null, null)),
                 "超限后流式调用应被熔断拒绝");
 
         verify(client, never()).prompt();
@@ -475,8 +475,7 @@ class AgentChatCallerTest {
         when(streamSpec.chatResponse()).thenReturn(Flux.fromArray(frames));
 
         List<String> tapped = new ArrayList<>();
-        String content = caller.call("s1", "researcher", "sys", "u", null, new Advisor[0],
-                null, null, CallTrace.NONE, null, tapped::add);
+        String content = caller.call("s1", "researcher", "sys", "u", new AgentChatCaller.CallOptions(null, List.of(), null, null, CallTrace.NONE, null, tapped::add));
 
         assertEquals(List.of("先想第一步", "再想第二步"), tapped, "思考 delta 应逐帧回调 tap");
         assertEquals("最终答案", content, "返回内容不得混入思考文本");
@@ -490,8 +489,7 @@ class AgentChatCallerTest {
         when(streamSpec.chatResponse()).thenReturn(fluxOf("a", "b"));
 
         List<String> tapped = new ArrayList<>();
-        String content = caller.call("s1", "researcher", "sys", "u", null, new Advisor[0],
-                null, null, CallTrace.NONE, null, tapped::add);
+        String content = caller.call("s1", "researcher", "sys", "u", new AgentChatCaller.CallOptions(null, List.of(), null, null, CallTrace.NONE, null, tapped::add));
 
         assertEquals("ab", content);
         assertTrue(tapped.isEmpty(), "无 reasoningContent 帧时 tap 不应被回调");
