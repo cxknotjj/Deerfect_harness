@@ -189,7 +189,7 @@ public class ChatClientRegistry {
         if (modelProviderId != null) {
             ChatClient c = clients.get(modelProviderId);
             if (c != null) {
-                log.info("[registry] 命中已注册客户端: modelProviderId={}", modelProviderId);
+                log.debug("[registry] 命中已注册客户端: modelProviderId={}", modelProviderId);
                 return c;
             }
             log.info("[registry] modelProviderId={} 未命中注册表，回退默认 DashScope 客户端", modelProviderId);

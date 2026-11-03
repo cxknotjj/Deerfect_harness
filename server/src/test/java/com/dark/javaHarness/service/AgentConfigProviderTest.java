@@ -1,7 +1,10 @@
 package com.dark.javaHarness.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
@@ -98,6 +101,37 @@ class AgentConfigProviderTest {
         when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(null);
 
         assertTrue(provider.getAgentConfig("nonexistent").isEmpty());
+    }
+
+    /** 查询失败应上抛：返回 empty 会让上层按「未配置」回退默认模型，事后无法从响应里察觉 */
+    @Test
+    void getAgentConfig_queryError_shouldPropagate() {
+        provider = newProvider();
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new RuntimeException("db down"));
+
+        assertThrows(RuntimeException.class, () -> provider.getAgentConfig("general"));
+    }
+
+    /** 同一 agent 连续读取走缓存：命中后不再查 agent / model_provider 两张表（编排内 10+ 次读取只落 2 条查询） */
+    @Test
+    void getAgentConfig_repeated_shouldQueryTablesOnce() {
+        provider = newProvider();
+        AgentEntity row = new AgentEntity();
+        row.setAgentName("writer");
+        row.setModelProviderId(7L);
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(row);
+        ModelProviderEntity mp = new ModelProviderEntity();
+        mp.setId(7L);
+        mp.setModel("gpt-4o");
+        when(modelProviderMapper.selectById(7L)).thenReturn(mp);
+
+        provider.getAgentConfig("writer");
+        provider.getAgentConfig("writer");
+        provider.getAgentConfig("writer");
+
+        verify(agentMapper, times(1)).selectOne(org.mockito.ArgumentMatchers.any());
+        verify(modelProviderMapper, times(1)).selectById(7L);
     }
 
     @Test
@@ -237,13 +271,14 @@ class AgentConfigProviderTest {
         assertTrue(provider.findToolPack("no-such-pack").isEmpty(), "无该行 → 非包");
     }
 
+    /** 查询失败应上抛：静默返回 empty 会让该包的工具与纪律段整段消失，Agent 降级作答 */
     @Test
-    void findToolPack_queryError_shouldReturnEmptyNotThrow() {
+    void findToolPack_queryError_shouldPropagate() {
         provider = newProvider();
         when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any()))
                 .thenThrow(new RuntimeException("db down"));
 
-        assertTrue(provider.findToolPack("wms").isEmpty(), "查询异常应返回 empty 而非抛出");
+        assertThrows(RuntimeException.class, () -> provider.findToolPack("wms"));
     }
 
     @Test
@@ -264,16 +299,18 @@ class AgentConfigProviderTest {
     /** thinking 列三态读取（显示口径）：1=透传 true；0/NULL=不透传 false */
     @Test
     void getAgentConfig_thinkingThreeStates() {
+        // 每个状态用一个新实例：getAgentConfig 带进程内缓存，同实例重复读会命中首次结果
         provider = newProvider();
-
         when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(agentRow(1));
         assertTrue(provider.getAgentConfig("general").orElseThrow().thinking(),
                 "thinking=1 应映射为 true（透传显示）");
 
+        provider = newProvider();
         when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(agentRow(0));
         assertTrue(!provider.getAgentConfig("general").orElseThrow().thinking(),
                 "thinking=0 应映射为 false（不透传）");
 
+        provider = newProvider();
         when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(agentRow(null));
         assertTrue(!provider.getAgentConfig("general").orElseThrow().thinking(),
                 "thinking=NULL 应映射为 false（不透传）");
