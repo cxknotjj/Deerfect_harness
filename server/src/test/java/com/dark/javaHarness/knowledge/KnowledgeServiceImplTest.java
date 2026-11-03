@@ -68,7 +68,7 @@ class KnowledgeServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        service = new KnowledgeServiceImpl(storeProvider, bm25Provider, scanner, mapper, new KnowledgeProperties());
+        service = new KnowledgeServiceImpl(storeProvider, bm25Provider, scanner, mapper, new KnowledgeProperties(), null);
     }
 
     private KnowledgeDocumentScanner.KbFile file(String name, String kb, long mtime, String text) {
@@ -86,11 +86,19 @@ class KnowledgeServiceImplTest {
         return row;
     }
 
+    /**
+     * 桩台账：sync 一次性载入全量行后按 doc_name 建索引（增量判据与孤儿清理共用这一份）。
+     * 无参或 null 表示空台账。
+     */
+    private void stubLedger(KbDocumentEntity... rows) {
+        when(mapper.selectList(any())).thenReturn(rows == null ? List.of() : List.of(rows));
+    }
+
     @Test
     void sync_newFile_addsChunksAndInsertsRow() {
         when(storeProvider.getIfAvailable()).thenReturn(store);
         when(scanner.scan()).thenReturn(List.of(file("a.md", "default", 100L, "短正文")));
-        when(mapper.selectOne(any())).thenReturn(null);
+        stubLedger(null);
 
         KnowledgeSyncView view = service.sync();
 
@@ -99,11 +107,27 @@ class KnowledgeServiceImplTest {
         verify(mapper).insert(any(KbDocumentEntity.class));
     }
 
+    /** 多文档增量 sync 只查一次台账（N+1 回归护栏）：循环内不再逐文档 selectOne */
+    @Test
+    void sync_multipleFiles_queriesLedgerOnce() {
+        when(storeProvider.getIfAvailable()).thenReturn(store);
+        when(scanner.scan()).thenReturn(List.of(
+                file("a.md", "default", 100L, "短正文"),
+                file("b.md", "default", 100L, "短正文")));
+        stubLedger();
+
+        service.sync();
+
+        verify(mapper, times(1)).selectList(any());
+        verify(mapper, never()).selectOne(any());
+        verify(store, times(2)).add(anyList());
+    }
+
     @Test
     void sync_unchangedMtimeAndKb_skippedWithoutEmbedding() {
         when(storeProvider.getIfAvailable()).thenReturn(store);
         when(scanner.scan()).thenReturn(List.of(file("a.md", "default", 100L, "短正文")));
-        when(mapper.selectOne(any())).thenReturn(row("a.md", "default", 100L, 1, 1));
+        stubLedger(row("a.md", "default", 100L, 1, 1));
 
         KnowledgeSyncView view = service.sync();
 
@@ -118,7 +142,7 @@ class KnowledgeServiceImplTest {
         // V13 迁移后存量行 kb=NULL（chunk 无 kb 元数据）：kb 不一致 → 重摄取自愈补齐
         when(storeProvider.getIfAvailable()).thenReturn(store);
         when(scanner.scan()).thenReturn(List.of(file("a.md", "default", 100L, "短正文")));
-        when(mapper.selectOne(any())).thenReturn(row("a.md", null, 100L, 1, 1));
+        stubLedger(row("a.md", null, 100L, 1, 1));
 
         KnowledgeSyncView view = service.sync();
 
@@ -132,7 +156,7 @@ class KnowledgeServiceImplTest {
     void sync_changedMtime_deletesOldChunksThenReEmbeds() {
         when(storeProvider.getIfAvailable()).thenReturn(store);
         when(scanner.scan()).thenReturn(List.of(file("a.md", "default", 200L, "新正文")));
-        when(mapper.selectOne(any())).thenReturn(row("a.md", "default", 100L, 2, 1));
+        stubLedger(row("a.md", "default", 100L, 2, 1));
 
         KnowledgeSyncView view = service.sync();
 
@@ -146,7 +170,7 @@ class KnowledgeServiceImplTest {
     void sync_subdirFile_writesKbMetadataAndLedgesIt() {
         when(storeProvider.getIfAvailable()).thenReturn(store);
         when(scanner.scan()).thenReturn(List.of(file("java/spring.md", "java", 100L, "短正文")));
-        when(mapper.selectOne(any())).thenReturn(null);
+        stubLedger(null);
         ArgumentCaptor<List<Document>> docsCaptor = ArgumentCaptor.forClass(List.class);
         ArgumentCaptor<KbDocumentEntity> rowCaptor = ArgumentCaptor.forClass(KbDocumentEntity.class);
 
@@ -174,7 +198,7 @@ class KnowledgeServiceImplTest {
     void sync_storeWriteFailure_wrapsAsIllegalState() {
         when(storeProvider.getIfAvailable()).thenReturn(store);
         when(scanner.scan()).thenReturn(List.of(file("a.md", "default", 100L, "短正文")));
-        when(mapper.selectOne(any())).thenReturn(null);
+        stubLedger(null);
         org.mockito.Mockito.doThrow(new RuntimeException("pg down")).when(store).add(anyList());
 
         IllegalStateException ex = assertThrows(IllegalStateException.class, service::sync);
@@ -187,10 +211,10 @@ class KnowledgeServiceImplTest {
         // embed-batch-size=2：5 chunk → 3 次 add（2+2+1），规避 DashScope 单请求 10 条硬上限
         KnowledgeProperties props = new KnowledgeProperties();
         props.setEmbedBatchSize(2);
-        KnowledgeServiceImpl batched = new KnowledgeServiceImpl(storeProvider, bm25Provider, scanner, mapper, props);
+        KnowledgeServiceImpl batched = new KnowledgeServiceImpl(storeProvider, bm25Provider, scanner, mapper, props, null);
         when(storeProvider.getIfAvailable()).thenReturn(store);
         when(scanner.scan()).thenReturn(List.of(file("a.md", "default", 100L, "字".repeat(2400))));
-        when(mapper.selectOne(any())).thenReturn(null);
+        stubLedger(null);
         ArgumentCaptor<List<Document>> docsCaptor = ArgumentCaptor.forClass(List.class);
 
         KnowledgeSyncView view = batched.sync();
@@ -208,7 +232,7 @@ class KnowledgeServiceImplTest {
         // 下次 sync 不再被「status=1 + mtime 未变」判据跳过，强制重摄取补齐向量
         when(storeProvider.getIfAvailable()).thenReturn(store);
         when(scanner.scan()).thenReturn(List.of(file("a.md", "default", 200L, "新正文")));
-        when(mapper.selectOne(any())).thenReturn(row("a.md", "default", 100L, 1, 1));
+        stubLedger(row("a.md", "default", 100L, 1, 1));
         org.mockito.Mockito.doThrow(new RuntimeException("pg down")).when(store).add(anyList());
         ArgumentCaptor<KbDocumentEntity> rowCaptor = ArgumentCaptor.forClass(KbDocumentEntity.class);
 
@@ -224,9 +248,7 @@ class KnowledgeServiceImplTest {
         // 孤儿清理：台账有、磁盘没有 → 删该文档 chunk + 台账行，绑定 agent 不再检索到已删内容
         when(storeProvider.getIfAvailable()).thenReturn(store);
         when(scanner.scan()).thenReturn(List.of(file("a.md", "default", 100L, "短正文")));
-        when(mapper.selectOne(any())).thenReturn(row("a.md", "default", 100L, 1, 1));
-        when(mapper.selectList(any()))
-                .thenReturn(List.of(row("ghost.md", "default", 50L, 2, 1)));
+        stubLedger(row("a.md", "default", 100L, 1, 1), row("ghost.md", "default", 50L, 2, 1));
 
         service.sync();
 
@@ -253,7 +275,7 @@ class KnowledgeServiceImplTest {
         // 后到者 tryLock 快速失败——恰好一个成功、一个抛可读异常，向量库只写一次
         when(storeProvider.getIfAvailable()).thenReturn(store);
         when(scanner.scan()).thenReturn(List.of(file("a.md", "default", 100L, "短正文")));
-        when(mapper.selectOne(any())).thenReturn(null);
+        stubLedger(null);
         CountDownLatch enteredAdd = new CountDownLatch(1);
         CountDownLatch releaseAdd = new CountDownLatch(1);
         CountDownLatch loserAttempted = new CountDownLatch(1);
@@ -399,7 +421,7 @@ class KnowledgeServiceImplTest {
     private KnowledgeServiceImpl hybridService() {
         KnowledgeProperties props = new KnowledgeProperties();
         props.setHybridEnabled(true);
-        return new KnowledgeServiceImpl(storeProvider, bm25Provider, scanner, mapper, props);
+        return new KnowledgeServiceImpl(storeProvider, bm25Provider, scanner, mapper, props, null);
     }
 
     private Document vectorDoc(String id, String source, String text) {
@@ -465,7 +487,7 @@ class KnowledgeServiceImplTest {
         KnowledgeProperties props = new KnowledgeProperties();
         props.setHybridEnabled(true);
         props.setTopK(1);
-        KnowledgeServiceImpl hybrid = new KnowledgeServiceImpl(storeProvider, bm25Provider, scanner, mapper, props);
+        KnowledgeServiceImpl hybrid = new KnowledgeServiceImpl(storeProvider, bm25Provider, scanner, mapper, props, null);
         when(bm25Provider.getIfAvailable()).thenReturn(bm25);
         when(storeProvider.getIfAvailable()).thenReturn(store);
         when(store.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(
@@ -503,7 +525,7 @@ class KnowledgeServiceImplTest {
         when(bm25Provider.getIfAvailable()).thenReturn(bm25);
         when(storeProvider.getIfAvailable()).thenReturn(store);
         when(scanner.scan()).thenReturn(List.of(file("a.md", "default", 100L, "短正文")));
-        when(mapper.selectOne(any())).thenReturn(null);
+        stubLedger(null);
 
         hybrid.sync();
 
@@ -517,7 +539,7 @@ class KnowledgeServiceImplTest {
         when(bm25Provider.getIfAvailable()).thenReturn(bm25);
         when(storeProvider.getIfAvailable()).thenReturn(store);
         when(scanner.scan()).thenReturn(List.of(file("a.md", "default", 100L, "短正文")));
-        when(mapper.selectOne(any())).thenReturn(null);
+        stubLedger(null);
         org.mockito.Mockito.doThrow(new RuntimeException("pg down")).when(store).add(anyList());
 
         assertThrows(IllegalStateException.class, hybrid::sync);
@@ -542,7 +564,7 @@ class KnowledgeServiceImplTest {
         // 关闭开关：摄取路径零 BM25 交互（不解析 bean、不标记失效）
         when(storeProvider.getIfAvailable()).thenReturn(store);
         when(scanner.scan()).thenReturn(List.of(file("a.md", "default", 100L, "短正文")));
-        when(mapper.selectOne(any())).thenReturn(null);
+        stubLedger(null);
 
         service.sync();
 
@@ -576,7 +598,7 @@ class KnowledgeServiceImplTest {
     /** 双路 rank1 叠加（归一化 ~1.0）与纯向量 rank2（~0.49）的构造 */
     private List<KnowledgeService.KnowledgeHit> fuseTwoVectorOneBm25(KnowledgeProperties props) {
         KnowledgeServiceImpl svc = new KnowledgeServiceImpl(
-                storeProvider, bm25Provider, scanner, mapper, props);
+                storeProvider, bm25Provider, scanner, mapper, props, null);
         List<Document> vec = List.of(
                 new Document("a", "A 文本", Map.of("source", "a.md", "title", "A")),
                 new Document("b", "B 文本", Map.of("source", "b.md", "title", "B")));

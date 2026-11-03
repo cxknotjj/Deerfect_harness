@@ -7,6 +7,7 @@ import com.dark.javaHarness.domain.dto.PageResult;
 import com.dark.javaHarness.domain.entity.KbDocumentEntity;
 import com.dark.javaHarness.mapper.KbDocumentMapper;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -37,6 +38,12 @@ import org.springframework.boot.ApplicationRunner;
  * <p>降级语义：VectorStore 经 {@link ObjectProvider} 惰性解析（启动零 PG 连接）；
  * sync 在向量库不可用时抛可读 {@link IllegalStateException}（管理端点直出），
  * search 降级返回空表——对齐 SandboxToolProvider「不影响主链路」先例。
+ *
+ * <p>体量说明（principal §1，约 520 行不拆）：摄取（扫描/切分/嵌入/台账/孤儿清理）与检索
+ * （向量 + BM25 + RRF 融合）共用同一套 chunk 口径（{@code docName#idx} 确定性 id、
+ * chunk 的 kb/source 元数据）和同一张台账——拆成两个类会重新引入「同一份元数据两个写者」，
+ * 漂移时症状是检索命中已删内容。待检索侧继续增长（如新增 rerank 供应商）时，再按
+ * 「摄取 / 检索」切开，并把 chunk 口径下沉为独立协作者。
  */
 public class KnowledgeServiceImpl implements KnowledgeService, ApplicationRunner {
 
@@ -83,15 +90,6 @@ public class KnowledgeServiceImpl implements KnowledgeService, ApplicationRunner
                                 ObjectProvider<KnowledgeBm25Index> bm25Provider,
                                 KnowledgeDocumentScanner scanner,
                                 KbDocumentMapper mapper,
-                                KnowledgeProperties props) {
-        this(storeProvider, bm25Provider, scanner, mapper, props, null);
-    }
-
-    @org.springframework.beans.factory.annotation.Autowired
-    public KnowledgeServiceImpl(ObjectProvider<VectorStore> storeProvider,
-                                ObjectProvider<KnowledgeBm25Index> bm25Provider,
-                                KnowledgeDocumentScanner scanner,
-                                KbDocumentMapper mapper,
                                 KnowledgeProperties props,
                                 SqlSessionFactory sqlSessionFactory) {
         this.storeProvider = storeProvider;
@@ -115,9 +113,13 @@ public class KnowledgeServiceImpl implements KnowledgeService, ApplicationRunner
             int skipped = 0;
             int chunks = 0;
             List<KbDocumentEntity> pendingRows = new ArrayList<>();
+            // 台账全量载入一次：增量判据逐文档比对，循环内逐条查会退化成 N+1（优化审查 2026-11-03），
+            // 同一份快照也供本轮孤儿清理复用（本轮新增行都在扫描结果内，不会是孤儿）
+            List<KbDocumentEntity> ledger = files.isEmpty() ? List.of() : mapper.selectList(null);
+            Map<String, KbDocumentEntity> ledgerByName = indexByName(ledger);
             try {
                 for (KnowledgeDocumentScanner.KbFile file : files) {
-                    KbDocumentEntity row = rowOf(file.name());
+                    KbDocumentEntity row = ledgerByName.get(file.name());
                     if (row != null && row.getStatus() != null && row.getStatus() == 1
                             && Objects.equals(row.getMtime(), file.mtime())
                             && Objects.equals(row.getKb(), file.kb())) {
@@ -165,7 +167,7 @@ public class KnowledgeServiceImpl implements KnowledgeService, ApplicationRunner
                 throw e;
             }
             flushRows(pendingRows);
-            cleanupOrphans(store, files);
+            cleanupOrphans(store, files, ledger);
             return new KnowledgeSyncView(files.size(), updated, skipped, chunks);
         } finally {
             syncLock.unlock();
@@ -181,18 +183,19 @@ public class KnowledgeServiceImpl implements KnowledgeService, ApplicationRunner
      *
      * <p>安全阀：扫描结果为空时跳过清理（目录缺失/整体不可读时 scanner 返回空表，
      * 此时全量清理会误删整个库）。
+     *
+     * @param ledger 本轮开始时载入的台账快照（与增量判据同一份，省掉一次全表查询）
      */
-    private void cleanupOrphans(VectorStore store, List<KnowledgeDocumentScanner.KbFile> files) {
+    private void cleanupOrphans(VectorStore store, List<KnowledgeDocumentScanner.KbFile> files,
+                                List<KbDocumentEntity> ledger) {
         if (files.isEmpty()) {
             return;
         }
         Set<String> scannedNames = files.stream()
                 .map(KnowledgeDocumentScanner.KbFile::name)
                 .collect(Collectors.toSet());
-        List<KbDocumentEntity> rows = mapper.selectList(new QueryWrapper<KbDocumentEntity>()
-                .select("id", "doc_name", "chunk_count"));
         List<Long> orphanIds = new ArrayList<>();
-        for (KbDocumentEntity row : rows) {
+        for (KbDocumentEntity row : ledger) {
             if (scannedNames.contains(row.getDocName())) {
                 continue;
             }
@@ -461,6 +464,17 @@ public class KnowledgeServiceImpl implements KnowledgeService, ApplicationRunner
     /** 确定性 chunk id：重摄取时旧向量可精确删除（PgVectorStore TEXT 主键） */
     static String chunkId(String docName, int index) {
         return docName + "#" + index;
+    }
+
+    /** 台账按 doc_name 建索引：增量判据逐文档比对，用一次全量查询代替循环内逐条查（N+1） */
+    private static Map<String, KbDocumentEntity> indexByName(List<KbDocumentEntity> rows) {
+        Map<String, KbDocumentEntity> index = new HashMap<>(rows.size() * 2);
+        for (KbDocumentEntity row : rows) {
+            if (row.getDocName() != null) {
+                index.put(row.getDocName(), row);
+            }
+        }
+        return index;
     }
 
     private KbDocumentEntity rowOf(String docName) {
