@@ -10,7 +10,7 @@
 
 ## 硬规则
 
-- 未经用户明确要求，不执行 `git commit` / `git push` / `git add`。
+- Git 提交：功能完成且按项目规定跑完测试并通过后，可直接 commit 该功能的代码、测试与同批必需文档（细则见 [.trae/rules/git-workflow.md](.trae/rules/git-workflow.md)）；`git push` 仍需用户明确要求，禁止擅自推送。
 - Maven 命令必须带 `-s .mvn/settings.xml`；单模块构建/测试必须带 `-am`。
 - 重构期不留兼容层：旧构造器、旧重载、旧接口直接删，不做旧版本兼容。
 - 逻辑层不做防御性兜底，兜底与校验只放在系统边界（HTTP 入参、外部 API/MCP/模型返回、反序列化）。

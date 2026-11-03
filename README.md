@@ -12,15 +12,17 @@
 
 **让多个 AI 专家替你干活：任务发进来，自动拆解、并行执行、汇总交付。**
 
-[![Java](https://img.shields.io/badge/Java-25-007396?logo=openjdk&logoColor=white)](https://openjdk.org/projects/jdk/25/)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.x-6DB33F?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
-[![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.x-6DB33F?logo=spring&logoColor=white)](https://spring.io/projects/spring-ai)
+[![Java](https://img.shields.io/badge/Java-25-007396?logo=openjdk\&logoColor=white)](https://openjdk.org/projects/jdk/25/)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.x-6DB33F?logo=springboot\&logoColor=white)](https://spring.io/projects/spring-boot)
+[![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.x-6DB33F?logo=spring\&logoColor=white)](https://spring.io/projects/spring-ai)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
-[![Tests](https://img.shields.io/badge/tests-830-brightgreen?logo=junit5&logoColor=white)](#-运行测试)
+[![Tests](https://img.shields.io/badge/tests-830-brightgreen?logo=junit5\&logoColor=white)](#-运行测试)
 
 *Agentic 单 Agent 自主执行 · Graph 多 Agent 编排 · 全程流式可视化*
 
 </div>
+
+**项目定位**：个人agent助手，并非coding agent
 
 ## 为什么需要它？
 
@@ -103,7 +105,8 @@ curl -s -X POST http://localhost:8080/api/chat \
   -d '{"message":"你好"}'
 ```
 
-> [!TIP]
+> \[!TIP]
+>
 > - 没配 API Key 也能启动（调用模型才报 401）；配 DashScope / DeepSeek 等服务商的 Key 见 **[`docs/guides/setup.md`](./docs/guides/setup.md)**
 > - 启动时设置环境变量 `APP_PASSWORD=你的口令` 即开启登录鉴权（不设置则跳过登录）
 > - 不想装环境？Docker 三件套一键起：**[`docs/guides/docker-deploy.md`](./docs/guides/docker-deploy.md)**
@@ -130,34 +133,34 @@ curl -s -X POST http://localhost:8080/api/chat \
 
 ## 📖 文档
 
-| 文档 | 内容 |
-|---|---|
-| **入门** | |
-| [`docs/guides/setup.md`](./docs/guides/setup.md) | 本地部署详解（数据库 / API Key / 启动脚本 / agent 服务商核对） |
-| [`docs/guides/docker-deploy.md`](./docs/guides/docker-deploy.md) | Docker 三件套部署（构建 / ACR 拉取 / 离线部署） |
-| [`docs/guides/models.md`](./docs/guides/models.md) | 多模型与多服务商接入 |
-| [`docs/guides/first-run-audit.md`](./docs/guides/first-run-audit.md) | 首次使用流程规则与走查记录 |
-| **架构** | |
-| [`docs/features.md`](./docs/features.md) | 项目功能介绍（已落地能力全景 / 未实现清单） |
-| [`docs/architecture.md`](./docs/architecture.md) | 架构总览与数据流 |
-| [`docs/project-structure.md`](./docs/project-structure.md) | 服务端目录树（[EN](./docs/project-structure_EN.md)） |
-| [`docs/data-flow.md`](./docs/data-flow.md) | 数据流详解 |
-| [`docs/TECH_STACK.md`](./docs/TECH_STACK.md) | 技术栈明细与扩展方向 |
-| **功能指南** | |
-| [`docs/guides/api.md`](./docs/guides/api.md) | REST 接口全表与知识库管理页 |
-| [`docs/guides/cli.md`](./docs/guides/cli.md) | CLI 命令 |
-| [`docs/guides/knowledge-rag.md`](./docs/guides/knowledge-rag.md) | RAG 知识库配置（[EN](./docs/guides/knowledge-rag_EN.md)） |
-| [`docs/guides/mcp-tools.md`](./docs/guides/mcp-tools.md) | MCP 工具接入 |
-| [`docs/guides/wms-mcp.md`](./docs/guides/wms-mcp.md) | WMS 仓储查询 MCP 适配（独立 adapter、只读工具集） |
-| [`docs/guides/qq-channel.md`](./docs/guides/qq-channel.md) | QQ 机器人接入 |
-| [`docs/guides/resume.md`](./docs/guides/resume.md) | 断点续跑 |
-| **协议与规范** | |
-| [`docs/guides/sse-protocol.md`](./docs/guides/sse-protocol.md) | SSE 流式协议（[EN](./docs/guides/sse-protocol_EN.md)） |
-| [`docs/guides/commit-convention.md`](./docs/guides/commit-convention.md) | 提交规范（Conventional Commits） |
-| [`docs/guides/context-optimization.md`](./docs/guides/context-optimization.md) | 上下文优化与 Token 预算策略 |
-| **测试与演进** | |
-| [`docs/guides/functional-testing.md`](./docs/guides/functional-testing.md) | 测试全景 |
-| [`docs/HARNESS_TODO.md`](./docs/HARNESS_TODO.md) | 落地 TODO / 路线图 |
+| 文档                                                                             | 内容                                                 |
+| ------------------------------------------------------------------------------ | -------------------------------------------------- |
+| **入门**                                                                         | <br />                                             |
+| [`docs/guides/setup.md`](./docs/guides/setup.md)                               | 本地部署详解（数据库 / API Key / 启动脚本 / agent 服务商核对）         |
+| [`docs/guides/docker-deploy.md`](./docs/guides/docker-deploy.md)               | Docker 三件套部署（构建 / ACR 拉取 / 离线部署）                   |
+| [`docs/guides/models.md`](./docs/guides/models.md)                             | 多模型与多服务商接入                                         |
+| [`docs/guides/first-run-audit.md`](./docs/guides/first-run-audit.md)           | 首次使用流程规则与走查记录                                      |
+| **架构**                                                                         | <br />                                             |
+| [`docs/features.md`](./docs/features.md)                                       | 项目功能介绍（已落地能力全景 / 未实现清单）                            |
+| [`docs/architecture.md`](./docs/architecture.md)                               | 架构总览与数据流                                           |
+| [`docs/project-structure.md`](./docs/project-structure.md)                     | 服务端目录树（[EN](./docs/project-structure_EN.md)）       |
+| [`docs/data-flow.md`](./docs/data-flow.md)                                     | 数据流详解                                              |
+| [`docs/TECH_STACK.md`](./docs/TECH_STACK.md)                                   | 技术栈明细与扩展方向                                         |
+| **功能指南**                                                                       | <br />                                             |
+| [`docs/guides/api.md`](./docs/guides/api.md)                                   | REST 接口全表与知识库管理页                                   |
+| [`docs/guides/cli.md`](./docs/guides/cli.md)                                   | CLI 命令                                             |
+| [`docs/guides/knowledge-rag.md`](./docs/guides/knowledge-rag.md)               | RAG 知识库配置（[EN](./docs/guides/knowledge-rag_EN.md)） |
+| [`docs/guides/mcp-tools.md`](./docs/guides/mcp-tools.md)                       | MCP 工具接入                                           |
+| [`docs/guides/wms-mcp.md`](./docs/guides/wms-mcp.md)                           | WMS 仓储查询 MCP 适配（独立 adapter、只读工具集）                  |
+| [`docs/guides/qq-channel.md`](./docs/guides/qq-channel.md)                     | QQ 机器人接入                                           |
+| [`docs/guides/resume.md`](./docs/guides/resume.md)                             | 断点续跑                                               |
+| **协议与规范**                                                                      | <br />                                             |
+| [`docs/guides/sse-protocol.md`](./docs/guides/sse-protocol.md)                 | SSE 流式协议（[EN](./docs/guides/sse-protocol_EN.md)）   |
+| [`docs/guides/commit-convention.md`](./docs/guides/commit-convention.md)       | 提交规范（Conventional Commits）                         |
+| [`docs/guides/context-optimization.md`](./docs/guides/context-optimization.md) | 上下文优化与 Token 预算策略                                  |
+| **测试与演进**                                                                      | <br />                                             |
+| [`docs/guides/functional-testing.md`](./docs/guides/functional-testing.md)     | 测试全景                                               |
+| [`docs/HARNESS_TODO.md`](./docs/HARNESS_TODO.md)                               | 落地 TODO / 路线图                                      |
 
 > 完整文档索引与存档目录（设计文档 design/、报告 reports/、历史计划 superpowers/）见 **[`docs/README.md`](./docs/README.md)**。
 
@@ -169,13 +172,13 @@ Maven 多模块：`harness-api`（渠道与 core 共用的契约层：端口接�
 
 ## 🧪 运行测试
 
-单元测试基于 JUnit 5 + Mockito，**除 `JavaHarnessApplicationTests` 的 contextLoads 需本机 MySQL 外，不依赖真实数据库 / 网络 / API Key**（当前 830 个用例：server 687 / channel-qq 72 / cli 28 / wms-mcp-adapter 43）：
+单元测试基于 JUnit 5 + Mockito，**除** **`JavaHarnessApplicationTests`** **的 contextLoads 需本机 MySQL 外，不依赖真实数据库 / 网络 / API Key**（当前 830 个用例：server 687 / channel-qq 72 / cli 28 / wms-mcp-adapter 43）：
 
 ```bash
 mvn test
 ```
 
-> [!NOTE]
+> \[!NOTE]
 > `JavaHarnessApplicationTests` 是 `@SpringBootTest`，会尝试连接本机 MySQL；无数据库环境下单独运行该类可能因连接失败报错（其余业务测试不受影响）。测试全景见 [`docs/guides/functional-testing.md`](./docs/guides/functional-testing.md)。
 
 ## 🤝 贡献
@@ -192,7 +195,7 @@ mvn test
 - ⌨️ [Claude Code](https://github.com/anthropics/claude-code)（Anthropic）— CLI 终端交互设计
 - 🐳 [DeepSeek](https://github.com/deepseek-ai) — Agent 工具库设计与最小权限思路
 
----
+***
 
 <div align="center">
 
