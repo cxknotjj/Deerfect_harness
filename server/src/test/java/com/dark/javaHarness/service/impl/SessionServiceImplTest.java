@@ -26,6 +26,7 @@ import com.dark.javaHarness.mapper.SessionMessageArchiveMapper;
 import com.dark.javaHarness.mapper.SessionMessageMapper;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.SessionBindingCleaner;
+import com.dark.javaHarness.service.SessionMessageEntry;
 import tools.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Optional;
@@ -35,6 +36,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.beans.factory.ObjectProvider;
@@ -269,7 +271,7 @@ class SessionServiceImplTest {
                 "新名应为首条提问（参数绑定，非拼接）");
     }
 
-    /** saveContext 应以 FOR UPDATE 锁会话行:同会话并发写回串行化,防互相覆盖丢消息 */
+    /** saveContext 应以 FOR UPDATE 锁会话行:同会话并发写回串行化,防互相覆盖丢消息;存在性判定复用同一次查询 */
     @Test
     @SuppressWarnings({"unchecked", "rawtypes"})
     void saveContext_locksSessionRowForUpdate() {
@@ -279,10 +281,46 @@ class SessionServiceImplTest {
         sessionService.saveContext("9", new UserMessage("你好"));
 
         ArgumentCaptor<Wrapper> captor = ArgumentCaptor.forClass(Wrapper.class);
-        verify(sessionMapper, times(2)).selectOne(captor.capture()); // 防复活守卫 + 行锁
+        verify(sessionMapper).selectOne(captor.capture()); // 行锁即存在性判定，不再额外 SELECT 一次
         String lockSql = ((com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<?>)
-                captor.getAllValues().get(1)).getTargetSql();
-        assertTrue(lockSql.contains("FOR UPDATE"), "第二次 selectOne 应为 FOR UPDATE 行锁,实际: " + lockSql);
+                captor.getValue()).getTargetSql();
+        assertTrue(lockSql.contains("FOR UPDATE"), "selectOne 应为 FOR UPDATE 行锁,实际: " + lockSql);
+    }
+
+    /** saveContextBatch 一轮 user+assistant 只读改写快照一次：一次 UPDATE、无 INSERT */
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void saveContextBatch_writesBothMessagesInSingleSnapshotUpdate() {
+        SessionMessageEntity existing = new SessionMessageEntity();
+        existing.setId(77L);
+        existing.setSessionId("9");
+        existing.setContent("[]");
+        when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
+        when(messageMapper.selectOne(any())).thenReturn(existing);
+
+        sessionService.saveContextBatch("9", List.of(
+                new SessionMessageEntry(new UserMessage("你好"), 1730000000000L),
+                new SessionMessageEntry(new AssistantMessage("在的"), 1730000001000L)));
+
+        ArgumentCaptor<Wrapper> updateCaptor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(messageMapper, times(1)).update(eq(null), updateCaptor.capture());
+        verify(messageMapper, never()).insert(any(SessionMessageEntity.class));
+        // 整轮只有一次快照读取（批量写回的核心收益）
+        verify(messageMapper, times(1)).selectOne(any());
+
+        String json = ((com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<?>)
+                updateCaptor.getValue()).getSqlSet();
+        assertTrue(json.contains("content"), "应更新快照 content 列");
+    }
+
+    /** saveContextBatch 空批次：不查库、不写库（幂等短路） */
+    @Test
+    void saveContextBatch_emptyEntries_isNoOp() {
+        sessionService.saveContextBatch("9", List.of());
+
+        verify(messageMapper, never()).update(any(), any());
+        verify(messageMapper, never()).insert(any(SessionMessageEntity.class));
+        verify(sessionMapper, never()).selectOne(any());
     }
 
     /** saveContext 序列化失败应重试一次:第二次成功则照常落库 */

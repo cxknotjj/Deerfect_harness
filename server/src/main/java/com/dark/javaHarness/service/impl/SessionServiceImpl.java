@@ -13,6 +13,7 @@ import com.dark.javaHarness.mapper.SessionMessageArchiveMapper;
 import com.dark.javaHarness.mapper.SessionMessageMapper;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.SessionBindingCleaner;
+import com.dark.javaHarness.service.SessionMessageEntry;
 import com.dark.javaHarness.service.SessionService;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
@@ -45,6 +46,11 @@ import org.springframework.transaction.annotation.Transactional;
  *   旧提示词会在后续轮次抢占上下文头部，导致角色错位。
  *
  * sessionId 使用 session 表自增主键的字符串形式，与 session_messages.session_id（varchar）对齐。
+ *
+ * <p>体量说明（principal §1，约 520 行不拆）：快照读写、裁剪归档、ChatMemory 适配三者共用
+ * 同一份「单行 JSON 快照」存储模型——裁剪规则（保留条数/字符上限/配对保护）与读路径必须
+ * 同步演进，拆开会让两条规则分处两个类而难以保持一致；并发写回的 FOR UPDATE 锁也必须与
+ * 读-改-写同处一个事务边界内。若后续引入多行消息表，再按「存储 / 归档」切开。
  */
 @Service
 public class SessionServiceImpl implements SessionService {
@@ -177,44 +183,57 @@ public class SessionServiceImpl implements SessionService {
 
     /** 追加保存单条会话消息到该会话唯一一行上下文（不存在则新建），ts 取当前时刻 */
     @Override
+    @Transactional
     public void saveContext(String sessionId, Message message) {
-        saveContext(sessionId, message, System.currentTimeMillis());
+        saveContextBatch(sessionId,
+                List.of(new SessionMessageEntry(message, System.currentTimeMillis())));
     }
 
     /**
-     * 追加保存单条会话消息并记录时间戳（ts 为消息真实时刻：user=发送、assistant=完成；null 按当前处理）。
-     *
-     * <p>并发安全（优化审查 2026-09-25 中危项）：先以 FOR UPDATE 锁会话行作为该会话上下文
-     * 写回的互斥点，读-改-写全程串行——并发写同一会话（流式收尾 + QQ 同步、连续两轮竞速）
-     * 不再互相覆盖丢消息。事务边界由 @Transactional 保证（FOR UPDATE 须在事务内才有意义）。
+     * 追加保存单条会话消息并记录时间戳（ts 为消息真实时刻：user=发送、assistant=完成）。
+     * 单条与批量共用同一条写入路径（单条即一条 entry 的批量）。
      */
     @Override
     @Transactional
     public void saveContext(String sessionId, Message message, Long ts) {
-        if (sessionId == null || sessionId.isBlank() || message == null) {
+        saveContextBatch(sessionId, List.of(new SessionMessageEntry(message, ts)));
+    }
+
+    /**
+     * 批量追加保存会话消息：一轮 user+assistant 一次落盘（一次行锁 / 一次快照读取 /
+     * 一次序列化 / 一次 UPDATE）。逐条写回会把整份上下文 JSON 读改写两遍，长会话下
+     * 写放大与锁持有时间都翻倍（优化审查 2026-11-03）。
+     *
+     * <p>并发安全（优化审查 2026-09-25 中危项）：先以 FOR UPDATE 锁会话行作为该会话上下文
+     * 写回的互斥点，读-改-写全程串行——并发写同一会话（流式收尾 + QQ 同步、连续两轮竞速）
+     * 不再互相覆盖丢消息。事务边界由 @Transactional 保证（FOR UPDATE 须在事务内才有意义），
+     * 三个入口各自标注，避免自调用绕过代理导致 2 参路径无事务。
+     *
+     * <p>存在性判定与互斥锁合并为同一次查询（优化审查 2026-11-03）：锁查询本身就返回行，
+     * 行不存在/已软删即跳过写回，不再额外 SELECT 一次会话行。
+     */
+    @Override
+    @Transactional
+    public void saveContextBatch(String sessionId, List<SessionMessageEntry> entries) {
+        if (sessionId == null || sessionId.isBlank() || entries == null || entries.isEmpty()) {
             return;
         }
         // 防复活守卫：会话已软删/不存在时跳过写回，避免已删会话在流收尾时重建孤儿快照
-        if (getSession(sessionId) == null) {
+        Long sid = parseSessionId(sessionId);
+        if (sid == null || lockSessionRow(sid) == null) {
             log.info("会话不存在或已删除，跳过上下文写回 sessionId={}", sessionId);
             return;
         }
-        // 会话行互斥锁：序列化同会话并发写回（快照读-改-写以锁为界）
-        lockSessionRow(parseSessionId(sessionId));
-        // 读取已有上下文，追加本条消息
+        // 读取已有上下文，按顺序追加本批消息
         SessionMessageEntity existing = latestSnapshotRow(sessionId);
         List<Map<String, String>> items = new ArrayList<>(parseSnapshotItems(existing));
         // 存量 item 无 id：在此轮写回时补齐，保证后续裁剪归档有稳定定位符
         items.forEach(SessionServiceImpl::ensureMessageId);
-        Map<String, String> item = new LinkedHashMap<>();
-        item.put("id", newMessageId());
-        item.put("role", roleOf(message));
-        item.put("content", message.getText());
-        if (ts != null) {
-            // 时间戳以字符串形态入快照（保持 Map<String,String> 反序列化兼容）；仅展示用，loadContext 忽略
-            item.put("ts", String.valueOf(ts));
+        for (SessionMessageEntry entry : entries) {
+            if (entry != null && entry.message() != null) {
+                items.add(snapshotItem(entry.message(), entry.ts()));
+            }
         }
-        items.add(item);
         TrimResult trimmed = trimSnapshot(items);
 
         String json = serializeWithRetry(sessionId, items);
@@ -240,11 +259,24 @@ public class SessionServiceImpl implements SessionService {
         }
     }
 
-    /** 会话行锁（FOR UPDATE）：同一会话的上下文写回以该锁串行化；须在 @Transactional 内调用 */
-    private void lockSessionRow(Long sid) {
+    /** 单条消息 → 快照 item；ts 非空时以字符串形态入快照（保持 Map&lt;String,String&gt; 反序列化兼容） */
+    private static Map<String, String> snapshotItem(Message message, Long ts) {
+        Map<String, String> item = new LinkedHashMap<>();
+        item.put("id", newMessageId());
+        item.put("role", roleOf(message));
+        item.put("content", message.getText());
+        if (ts != null) {
+            // 时间戳仅展示用，loadContext 忽略
+            item.put("ts", String.valueOf(ts));
+        }
+        return item;
+    }
+
+    /** 会话行锁（FOR UPDATE）：同一会话的上下文写回以该锁串行化；返回行本身（null=不存在/已软删）；须在 @Transactional 内调用 */
+    private SessionEntity lockSessionRow(Long sid) {
         QueryWrapper<SessionEntity> lw = new QueryWrapper<>();
         lw.select("session_id").eq("session_id", sid).last("FOR UPDATE");
-        sessionMapper.selectOne(lw);
+        return sessionMapper.selectOne(lw);
     }
 
     /**
@@ -503,7 +535,7 @@ public class SessionServiceImpl implements SessionService {
     }
 
     /** 由 Spring AI Message 得到 role 字符串（system 角色提示词不入库：每次请求现组装，落库会造成角色错位） */
-    private String roleOf(Message message) {
+    private static String roleOf(Message message) {
         return message instanceof AssistantMessage ? "assistant" : "user";
     }
 

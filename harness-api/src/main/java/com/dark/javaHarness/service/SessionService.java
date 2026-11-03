@@ -49,6 +49,17 @@ public interface SessionService extends ChatMemory {
      */
     void saveContext(String sessionId, Message message, Long ts);
 
+    /**
+     * 批量追加保存会话消息：一次行锁、一次快照读取、一次序列化、一次 UPDATE。
+     *
+     * <p>一轮对话的用户消息与助手回复应经此一次写入——逐条调用
+     * {@link #saveContext(String, Message, Long)} 会把整份上下文 JSON 读改写两遍，
+     * 长会话下写放大与锁持有时间都翻倍。
+     *
+     * @param entries 待追加消息（按顺序落快照，各自携带真实时刻）
+     */
+    void saveContextBatch(String sessionId, List<SessionMessageEntry> entries);
+
     /** 更新会话的最近一次提问 */
     void touchSession(String sessionId, String lastQuestion);
 
