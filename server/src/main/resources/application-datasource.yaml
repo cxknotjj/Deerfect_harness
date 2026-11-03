@@ -5,8 +5,10 @@
 
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3306/harness?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
-    username: root
+    # useSSL 可配：本地默认关闭，公网/生产必须开（MYSQL_USE_SSL=true），否则口令与业务数据明文过网
+    url: jdbc:mysql://localhost:3306/harness?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=${MYSQL_USE_SSL:false}
+    # 账号同理走环境变量：默认 root 只服务于本机开发，生产用 MYSQL_USERNAME 覆盖为专用账号
+    username: ${MYSQL_USERNAME:root}
     # 本地默认空密码;生产/公网部署务必经 MYSQL_PASSWORD 环境变量注入强密码
     password: ${MYSQL_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver

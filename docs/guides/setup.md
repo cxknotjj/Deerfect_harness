@@ -72,6 +72,14 @@ setx WSLENV "QWEN_API_KEY/u:DEEPSEEK_API_KEY/u"   # 透传进 WSL（Linux 侧运
 $env:QWEN_API_KEY = "sk-你的key"    # Windows PowerShell；WSL 用 export QWEN_API_KEY=...
 ```
 
+**数据库连接（可选覆盖）**：默认连 `localhost:3306/harness`、账号 `root`、空密码、关闭 SSL，只为本机开发服务。非本机部署用环境变量覆盖，不要改 yaml：
+
+```powershell
+setx MYSQL_USERNAME "harness_app"   # 专用账号，避免用 root 跑业务
+setx MYSQL_PASSWORD "强密码"
+setx MYSQL_USE_SSL "true"           # 公网/跨机必开，否则口令与数据明文过网
+```
+
 > [!IMPORTANT]
 > **首次对话前核对 agent 绑定的服务商**：种子迁移链可能把默认 agent（general/researcher）绑到
 > DeepSeek 端点——只配 `QWEN_API_KEY` 时首次对话会 401。用下面 SQL 核对，若 `provider` 不是你
