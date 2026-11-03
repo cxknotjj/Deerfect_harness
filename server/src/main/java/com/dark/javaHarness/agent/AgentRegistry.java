@@ -6,15 +6,16 @@ import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.enums.AgentConstants;
+import com.dark.javaHarness.knowledge.KnowledgeRetriever;
+import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.prompt.SkillManager;
+import com.dark.javaHarness.prompt.ToolLazyManager;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.SessionService;
-import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.tool.ToolAssignments;
-import com.dark.javaHarness.prompt.ToolLazyManager;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
@@ -57,7 +58,7 @@ public class AgentRegistry {
     /** skill 装配管理器（load_skill 元工具来源）；null 时不注册元工具（测试场景） */
     private final SkillManager skillManager;
     /** 知识检索器（RAG 注入面）；null 时零行为变化（知识库禁用/测试场景） */
-    private final com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever;
+    private final KnowledgeRetriever knowledgeRetriever;
     /** Agentic SIMPLE 路径配置（app.agentic.*）；null = 未启用（测试/旧装配），全部走 ChatClient 路径 */
     private final AgenticProperties agenticProperties;
     /** AgentScope 模型工厂；null = 未启用 AgentScope 路径 */
@@ -108,7 +109,7 @@ public class AgentRegistry {
                          ToolLazyManager lazyTools,
                          PromptAssembler promptAssembler,
                          SkillManager skillManager,
-                         com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
+                         KnowledgeRetriever knowledgeRetriever,
                          ChatTimeoutProperties timeouts) {
         this(provider, agentServiceProvider, clientRegistry, memoryStore, toolAssignments, recorder,
                 budgets, lazyTools, promptAssembler, skillManager, knowledgeRetriever, timeouts,
@@ -131,7 +132,7 @@ public class AgentRegistry {
                          ToolLazyManager lazyTools,
                          PromptAssembler promptAssembler,
                          SkillManager skillManager,
-                         com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
+                         KnowledgeRetriever knowledgeRetriever,
                          ChatTimeoutProperties timeouts,
                          AgenticProperties agenticProperties,
                          AgentScopeModelFactory agentScopeModelFactory,

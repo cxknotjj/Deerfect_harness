@@ -1,19 +1,26 @@
 package com.dark.javaHarness.config.agent;
 
 import com.dark.javaHarness.agent.AgentRegistry;
-import com.dark.javaHarness.graph.MultiAgentGraphAgent;
-import com.dark.javaHarness.state.persistence.OrchestrationCheckpointStore;
+import com.dark.javaHarness.agent.agentic.AgentScopeModelFactory;
+import com.dark.javaHarness.config.AgenticProperties;
+import com.dark.javaHarness.config.ChatTimeoutProperties;
+import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.enums.AgentConstants;
-import com.dark.javaHarness.service.AgentConfigProvider;
-import com.dark.javaHarness.service.AgentService;
-import com.dark.javaHarness.service.SessionService;
+import com.dark.javaHarness.graph.MultiAgentGraphAgent;
+import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.observability.LlmCallRecorder;
-import com.dark.javaHarness.tool.ToolAssignments;
+import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.prompt.SkillManager;
 import com.dark.javaHarness.prompt.SkillSectionProvider;
 import com.dark.javaHarness.prompt.ToolLazyManager;
 import com.dark.javaHarness.prompt.UserProfileSectionProvider;
+import com.dark.javaHarness.service.AgentConfigProvider;
+import com.dark.javaHarness.service.AgentService;
+import com.dark.javaHarness.service.SessionService;
+import com.dark.javaHarness.service.impl.route.RagPrefetcher;
+import com.dark.javaHarness.state.persistence.OrchestrationCheckpointStore;
+import com.dark.javaHarness.tool.ToolAssignments;
 import java.util.List;
 import javax.sql.DataSource;
 import org.springframework.beans.factory.ObjectProvider;
@@ -80,16 +87,16 @@ public class ChatAgentConfig {
                                        SessionService memoryStore,
                                        ToolAssignments toolAssignments,
                                        LlmCallRecorder recorder,
-                                       com.dark.javaHarness.config.ContextBudgetProperties budgets,
+                                       ContextBudgetProperties budgets,
                                        ToolLazyManager toolLazyManager,
                                        PromptAssembler promptAssembler,
                                        SkillManager skillManager,
                                        MultiAgentGraphAgent multiAgent,
-                                       ObjectProvider<com.dark.javaHarness.knowledge.KnowledgeRetriever> knowledgeRetriever,
-                                       com.dark.javaHarness.config.ChatTimeoutProperties timeouts,
-                                       com.dark.javaHarness.config.AgenticProperties agenticProperties,
-                                       com.dark.javaHarness.agent.agentic.AgentScopeModelFactory agentScopeModelFactory,
-                                       com.dark.javaHarness.prompt.ContextCompositionRecorder compositionRecorder) {
+                                       ObjectProvider<KnowledgeRetriever> knowledgeRetriever,
+                                       ChatTimeoutProperties timeouts,
+                                       AgenticProperties agenticProperties,
+                                       AgentScopeModelFactory agentScopeModelFactory,
+                                       ContextCompositionRecorder compositionRecorder) {
         AgentRegistry agentRegistry = new AgentRegistry(agentConfigProvider, agentService, registry,
                 memoryStore, toolAssignments, recorder, budgets, toolLazyManager,
                 promptAssembler, skillManager, knowledgeRetriever.getIfAvailable(), timeouts,
@@ -116,15 +123,15 @@ public class ChatAgentConfig {
                                            ToolAssignments toolAssignments,
                                            LlmCallRecorder recorder,
                                            OrchestrationCheckpointStore checkpointStore,
-                                           com.dark.javaHarness.config.ContextBudgetProperties budgets,
+                                           ContextBudgetProperties budgets,
                                            ToolLazyManager toolLazyManager,
                                            PromptAssembler promptAssembler,
                                            SkillManager skillManager,
-                                           ObjectProvider<com.dark.javaHarness.knowledge.KnowledgeRetriever> knowledgeRetriever,
-                                           ObjectProvider<com.dark.javaHarness.service.impl.route.RagPrefetcher> ragPrefetcher,
-                                           com.dark.javaHarness.config.ChatTimeoutProperties timeouts,
+                                           ObjectProvider<KnowledgeRetriever> knowledgeRetriever,
+                                           ObjectProvider<RagPrefetcher> ragPrefetcher,
+                                           ChatTimeoutProperties timeouts,
                                            AgentConfigProvider agentConfigProvider,
-                                           com.dark.javaHarness.prompt.ContextCompositionRecorder compositionRecorder) {
+                                           ContextCompositionRecorder compositionRecorder) {
         return new MultiAgentGraphAgent(AgentConstants.MULTI_AGENT, registry, agentService,
                 toolAssignments, recorder, checkpointStore, budgets, memoryStore,
                 toolLazyManager, promptAssembler, skillManager, knowledgeRetriever.getIfAvailable(),

@@ -1,16 +1,20 @@
 package com.dark.javaHarness.agent;
 
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.agent.BranchProgressListener;
+import com.dark.javaHarness.config.ChatTimeoutProperties;
+import com.dark.javaHarness.config.ContextBudgetProperties;
+import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.AgentConfig;
 import com.dark.javaHarness.domain.Goal;
+import com.dark.javaHarness.knowledge.KnowledgeRetriever;
+import com.dark.javaHarness.observability.LlmCallRecorder;
+import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.prompt.SkillManager;
+import com.dark.javaHarness.prompt.ToolLazyManager;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.SessionService;
-import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.tool.ToolAssignments;
-import com.dark.javaHarness.prompt.ToolLazyManager;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -21,8 +25,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.ai.chat.metadata.Usage;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Sinks;
 import reactor.core.publisher.SignalType;
+import reactor.core.publisher.Sinks;
 
 /**
  * 通用 ChatModel 驱动 Agent（路径 A）：会话绑定 agent 的单轮问答执行者。
@@ -74,7 +78,7 @@ public class GeneralAssistantAgent implements Agent {
                                  AgentService agentService,
                                  ToolAssignments toolAssignments,
                                  LlmCallRecorder recorder,
-                                 com.dark.javaHarness.config.ContextBudgetProperties budgets) {
+                                 ContextBudgetProperties budgets) {
         this(agentName, clientRegistry, memoryStore, agentService, toolAssignments, recorder, budgets, null);
     }
 
@@ -88,7 +92,7 @@ public class GeneralAssistantAgent implements Agent {
                                  AgentService agentService,
                                  ToolAssignments toolAssignments,
                                  LlmCallRecorder recorder,
-                                 com.dark.javaHarness.config.ContextBudgetProperties budgets,
+                                 ContextBudgetProperties budgets,
                                  ToolLazyManager lazyTools) {
         this(agentName, clientRegistry, memoryStore, agentService, toolAssignments,
                 recorder, budgets, lazyTools, null, null);
@@ -105,7 +109,7 @@ public class GeneralAssistantAgent implements Agent {
                                  AgentService agentService,
                                  ToolAssignments toolAssignments,
                                  LlmCallRecorder recorder,
-                                 com.dark.javaHarness.config.ContextBudgetProperties budgets,
+                                 ContextBudgetProperties budgets,
                                  ToolLazyManager lazyTools,
                                  PromptAssembler promptAssembler,
                                  SkillManager skillManager) {
@@ -125,13 +129,13 @@ public class GeneralAssistantAgent implements Agent {
                                  AgentService agentService,
                                  ToolAssignments toolAssignments,
                                  LlmCallRecorder recorder,
-                                 com.dark.javaHarness.config.ContextBudgetProperties budgets,
+                                 ContextBudgetProperties budgets,
                                  ToolLazyManager lazyTools,
                                  PromptAssembler promptAssembler,
                                  SkillManager skillManager,
-                                 com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
-                                 com.dark.javaHarness.config.ChatTimeoutProperties timeouts,
-                                 com.dark.javaHarness.prompt.ContextCompositionRecorder compositionRecorder) {
+                                 KnowledgeRetriever knowledgeRetriever,
+                                 ChatTimeoutProperties timeouts,
+                                 ContextCompositionRecorder compositionRecorder) {
         this.agentName = agentName;
         this.agentService = agentService;
         ToolLazyManager effectiveLazy = lazyTools != null ? lazyTools : new ToolLazyManager(toolAssignments, false);
@@ -140,8 +144,8 @@ public class GeneralAssistantAgent implements Agent {
                 : new PromptAssembler(agentService, toolAssignments, List.of(), List.of(), effectiveLazy.isEnabled());
         // budgets 缺省时取配置类默认（与 application-chat.yaml 生产默认一致的单一数值源），
         // 不在此处硬编码兜底数字，避免代码/yaml 双口径漂移
-        com.dark.javaHarness.config.ContextBudgetProperties effectiveBudgets =
-                budgets != null ? budgets : new com.dark.javaHarness.config.ContextBudgetProperties();
+        ContextBudgetProperties effectiveBudgets =
+                budgets != null ? budgets : new ContextBudgetProperties();
         this.maxTokensFinal = effectiveBudgets.getMaxTokensFinal();
         this.streamRetry = new LlmRetry();
         this.chatCaller = new AgentChatCaller(clientRegistry, agentService, toolAssignments, recorder,

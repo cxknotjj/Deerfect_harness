@@ -3,20 +3,24 @@ package com.dark.javaHarness.graph;
 import com.dark.javaHarness.agent.Agent;
 import com.dark.javaHarness.agent.AgentChatCaller;
 import com.dark.javaHarness.agent.LlmRetry;
-import com.dark.javaHarness.graph.engine.OrchestrationEngine;
-import com.dark.javaHarness.graph.engine.ParallelOrchestrationEngine;
-import com.dark.javaHarness.state.persistence.OrchestrationCheckpointStore;
+import com.dark.javaHarness.agent.SubtaskResults;
 import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.Goal;
+import com.dark.javaHarness.graph.engine.OrchestrationEngine;
+import com.dark.javaHarness.graph.engine.ParallelOrchestrationEngine;
+import com.dark.javaHarness.knowledge.KnowledgeRetriever;
+import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.prompt.SkillManager;
 import com.dark.javaHarness.prompt.ToolLazyManager;
+import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.SessionService;
-import com.dark.javaHarness.observability.LlmCallRecorder;
+import com.dark.javaHarness.service.impl.route.RagPrefetcher;
+import com.dark.javaHarness.state.persistence.OrchestrationCheckpointStore;
 import com.dark.javaHarness.tool.ToolAssignments;
 import java.util.List;
 import org.slf4j.Logger;
@@ -84,20 +88,20 @@ public class MultiAgentGraphAgent implements Agent {
      * 预算超限跳过的子任务占位 result：聚合据此识别未执行子任务数（排除出真实结果），
      * 并在 prompt 注入降级说明；非空保证状态键有值、与「子任务失败无结果」区分。
      */
-    public static final String SKIPPED_RESULT = com.dark.javaHarness.agent.SubtaskResults.SKIPPED;
+    public static final String SKIPPED_RESULT = SubtaskResults.SKIPPED;
 
     /**
      * 子任务墙钟超时占位 result：与 {@link #SKIPPED_RESULT} 同构的占位通道（聚合排除出
      * 真实结果、prompt 注入超时说明），文案区分跳过原因（超时 ≠ 预算超限）。
      */
-    public static final String TIMEOUT_SKIPPED_RESULT = com.dark.javaHarness.agent.SubtaskResults.TIMEOUT_SKIPPED;
+    public static final String TIMEOUT_SKIPPED_RESULT = SubtaskResults.TIMEOUT_SKIPPED;
 
     /**
      * 子任务执行失败占位 result：与 {@link #TIMEOUT_SKIPPED_RESULT} 同构的第三条占位通道
      * （模型调用异常/重试耗尽/看门狗中止等）。失败不向编排上抛——单子任务异常会让
      * 其他子任务的真实结果全部作废（2026-10-02）。
      */
-    public static final String FAILED_RESULT = com.dark.javaHarness.agent.SubtaskResults.FAILED;
+    public static final String FAILED_RESULT = SubtaskResults.FAILED;
 
     private final String agentName;
     /** 编排消费上限熔断：各节点共享的预算账本（依赖 {@link #budgets}；节点实现类亦引用） */
@@ -169,7 +173,7 @@ public class MultiAgentGraphAgent implements Agent {
                                 ToolLazyManager lazyTools,
                                 PromptAssembler promptAssembler,
                                 SkillManager skillManager,
-                                com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
+                                KnowledgeRetriever knowledgeRetriever,
                                 ChatTimeoutProperties timeouts) {
         this(agentName, clientRegistry, agentService, toolAssignments, recorder,
                 checkpointStore, budgets, memoryStore, lazyTools, promptAssembler,
@@ -191,9 +195,9 @@ public class MultiAgentGraphAgent implements Agent {
                                 ToolLazyManager lazyTools,
                                 PromptAssembler promptAssembler,
                                 SkillManager skillManager,
-                                com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
+                                KnowledgeRetriever knowledgeRetriever,
                                 ChatTimeoutProperties timeouts,
-                                com.dark.javaHarness.service.impl.route.RagPrefetcher ragPrefetcher) {
+                                RagPrefetcher ragPrefetcher) {
         this(agentName, clientRegistry, agentService, toolAssignments, recorder,
                 checkpointStore, budgets, memoryStore, lazyTools, promptAssembler,
                 skillManager, knowledgeRetriever, timeouts, ragPrefetcher, null, null);
@@ -223,10 +227,10 @@ public class MultiAgentGraphAgent implements Agent {
                                 ToolLazyManager lazyTools,
                                 PromptAssembler promptAssembler,
                                 SkillManager skillManager,
-                                com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
+                                KnowledgeRetriever knowledgeRetriever,
                                 ChatTimeoutProperties timeouts,
-                                com.dark.javaHarness.service.impl.route.RagPrefetcher ragPrefetcher,
-                                com.dark.javaHarness.service.AgentConfigProvider agentConfigProvider,
+                                RagPrefetcher ragPrefetcher,
+                                AgentConfigProvider agentConfigProvider,
                                 ContextCompositionRecorder compositionRecorder) {
         ToolLazyManager lazy = lazyTools != null ? lazyTools : new ToolLazyManager(toolAssignments, false);
         this.agentName = agentName;

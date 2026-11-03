@@ -2,18 +2,18 @@ package com.dark.javaHarness.agent;
 
 import com.dark.javaHarness.advisor.ContextAssemblingAdvisor;
 import com.dark.javaHarness.advisor.ContextCompositionAdvisor;
-import com.dark.javaHarness.observability.LlmRequestLogAdvisor;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.AgentConfig;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
+import com.dark.javaHarness.observability.LlmCallRecorder;
+import com.dark.javaHarness.observability.LlmRequestLogAdvisor;
 import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.prompt.SkillManager;
 import com.dark.javaHarness.prompt.SystemAssembly;
 import com.dark.javaHarness.prompt.ToolLazyManager;
 import com.dark.javaHarness.service.SessionService;
-import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.tool.DefaultToolDecorators;
 import com.dark.javaHarness.tool.TokenEstimator;
 import com.dark.javaHarness.tool.ToolAssignments;
@@ -23,10 +23,13 @@ import com.dark.javaHarness.tool.ToolDecorationContext;
 import com.dark.javaHarness.tool.trace.ToolCallTracer;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -281,7 +284,7 @@ final class AgentRequestSpecFactory {
                 forAgent, fallbackSystem, config, trace == null ? null : trace.channel());
         String system = sections.stream()
                 .map(PromptAssembler.RenderedSection::text)
-                .collect(java.util.stream.Collectors.joining("\n\n"));
+                .collect(Collectors.joining("\n\n"));
         int ragTokens = 0;
         if (knowledgeRetriever != null) {
             // 执行期现查（source=inline_query）：turnId/traceId 经 build 的 trace 参数归因落
@@ -332,7 +335,7 @@ final class AgentRequestSpecFactory {
             if (!packSet.annotated().isEmpty()) {
                 packCallbacks.addAll(List.of(ToolCallbacks.from(packSet.annotated().toArray())));
             }
-            java.util.Set<String> seenNames = new java.util.HashSet<>();
+            Set<String> seenNames = new HashSet<>();
             for (ToolCallback cb : tools) {
                 seenNames.add(cb.getToolDefinition().name());
             }

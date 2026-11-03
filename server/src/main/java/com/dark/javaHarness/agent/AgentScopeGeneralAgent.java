@@ -1,17 +1,18 @@
 package com.dark.javaHarness.agent;
 
 import com.dark.javaHarness.advisor.ContextAssemblingAdvisor;
+import com.dark.javaHarness.agent.BranchProgressListener;
 import com.dark.javaHarness.agent.agentic.AgentScopeModelFactory;
 import com.dark.javaHarness.agent.agentic.SpringAiToolBridge;
-import com.dark.javaHarness.agent.BranchProgressListener;
 import com.dark.javaHarness.config.AgenticProperties;
 import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.AgentConfig;
 import com.dark.javaHarness.domain.Goal;
-import com.dark.javaHarness.observability.LlmCallObserver;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
+import com.dark.javaHarness.observability.LlmCallObserver;
+import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.prompt.SkillManager;
@@ -19,7 +20,6 @@ import com.dark.javaHarness.prompt.SystemAssembly;
 import com.dark.javaHarness.prompt.ToolLazyManager;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.SessionService;
-import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.tool.ToolAssignments;
 import com.dark.javaHarness.tool.trace.ToolCallTracer;
 import io.agentscope.core.ReActAgent;
@@ -49,6 +49,7 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.tool.ToolCallback;
 import reactor.core.publisher.Flux;
@@ -182,8 +183,8 @@ public class AgentScopeGeneralAgent implements Agent {
         // 1) system（PromptAssembler + RAG）与历史（MySQL → 预算裁剪）复用 ChatClient 路径的组装面
         SystemAssembly system = specFactory.assembleSystem(config, sessionId, agentName,
                 DEFAULT_SYSTEM_PROMPT, goal.objective(), trace);
-        List<org.springframework.ai.chat.messages.Message> history = specFactory.loadHistory(sessionId);
-        List<org.springframework.ai.chat.messages.Message> trimmed = history == null ? List.of()
+        List<Message> history = specFactory.loadHistory(sessionId);
+        List<Message> trimmed = history == null ? List.of()
                 : new ContextAssemblingAdvisor(budgets.getHistoryBudget()).assemble(history);
 
         // 2) 工具：装饰后的 Spring AI ToolCallback → AgentScope ToolBase（进度行仍由装饰链发射）
@@ -203,7 +204,7 @@ public class AgentScopeGeneralAgent implements Agent {
         messages.add(new UserMessage(goal.objective()));
         // 上下文构成快照（Path B）：不经 advisor，直接取裁剪后的历史 + 当前 user + system/工具口径
         if (compositionRecorder != null && sessionId != null && !sessionId.isBlank()) {
-            List<org.springframework.ai.chat.messages.Message> finalMessages = new ArrayList<>(trimmed);
+            List<Message> finalMessages = new ArrayList<>(trimmed);
             finalMessages.add(new org.springframework.ai.chat.messages.UserMessage(goal.objective()));
             compositionRecorder.record(sessionId, agentName, modelFactory.modelName(config),
                     trace.turnId(), system, AgentRequestSpecFactory.toolSchemaTokens(tools),
@@ -367,9 +368,9 @@ public class AgentScopeGeneralAgent implements Agent {
     }
 
     private static List<Msg> toAgentScopeMessages(
-            List<org.springframework.ai.chat.messages.Message> history) {
+            List<Message> history) {
         List<Msg> messages = new ArrayList<>(history.size());
-        for (org.springframework.ai.chat.messages.Message message : history) {
+        for (Message message : history) {
             String text = message.getText();
             if (text == null || text.isBlank()) {
                 continue;
