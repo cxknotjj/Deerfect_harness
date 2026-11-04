@@ -57,7 +57,7 @@ LABEL org.opencontainers.image.title="deerfect-harness" \
       org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${GIT_SHA}"
 
-COPY --from=build /build/server/target/javaHarness-server-*.jar /app/app.jar
+COPY --from=build /build/server/target/server-*.jar /app/app.jar
 # 运行期相对路径资源（相对启动工作目录 /workspace）：
 #   skills/    —— skill 动态装配目录（app.prompt.skills.dir）
 #   knowledge/ —— RAG 知识库文档目录（app.knowledge.dir）

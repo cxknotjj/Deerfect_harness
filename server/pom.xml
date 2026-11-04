@@ -4,24 +4,24 @@
     <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>com.dark</groupId>
-        <artifactId>javaHarness</artifactId>
+        <artifactId>java-harness</artifactId>
         <version>0.0.1-SNAPSHOT</version>
     </parent>
-    <artifactId>javaHarness-server</artifactId>
-    <name>javaHarness :: server</name>
+    <artifactId>server</artifactId>
+    <name>server</name>
     <description>服务端：Agent 编排框架本体（controller/service/agent/prompt/tool），spring-boot fat jar 交付</description>
 
     <dependencies>
         <dependency>
             <groupId>com.dark</groupId>
-            <artifactId>javaHarness-api</artifactId>
+            <artifactId>harness-api</artifactId>
             <version>${project.version}</version>
         </dependency>
 
         <!-- 运行期装配 QQ 渠道（编译期不可见 → core 无法 import channel） -->
         <dependency>
             <groupId>com.dark</groupId>
-            <artifactId>javaHarness-channel-qq</artifactId>
+            <artifactId>channel-qq</artifactId>
             <version>${project.version}</version>
             <scope>runtime</scope>
         </dependency>
@@ -236,7 +236,7 @@
                                 <bannedDependencies>
                                     <!-- core(server) 不得 compile 依赖渠道模块 -->
                                     <excludes>
-                                        <exclude>com.dark:javaHarness-channel-qq:*:*:compile</exclude>
+                                        <exclude>com.dark:channel-qq:*:*:compile</exclude>
                                     </excludes>
                                     <searchTransitive>false</searchTransitive>
                                 </bannedDependencies>

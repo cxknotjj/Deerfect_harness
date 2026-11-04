@@ -46,7 +46,7 @@
           <bannedDependencies>
             <!-- core(server) 不得 compile 依赖渠道模块 -->
             <excludes>
-              <exclude>com.dark:javaHarness-channel-qq:*:*:compile</exclude>
+              <exclude>com.dark:channel-qq:*:*:compile</exclude>
             </excludes>
             <searchTransitive>false</searchTransitive>
           </bannedDependencies>
@@ -67,7 +67,7 @@
 
 `channel-qq/pom.xml` 中仅有两类依赖：
 
-- `com.dark:javaHarness-api`（契约）；
+- `com.dark:harness-api`（契约）；
 - 渠道自身所需的第三方库（spring-boot-starter-web、mybatis-plus、okhttp、jackson 等）。
 
 渠道**不依赖** `server`，因此渠道代码不得引用任何 core 实现类——渠道只能面向 `harness-api` 编程。

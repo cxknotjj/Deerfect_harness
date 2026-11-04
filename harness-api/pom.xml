@@ -5,11 +5,11 @@
     <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>com.dark</groupId>
-        <artifactId>javaHarness</artifactId>
+        <artifactId>java-harness</artifactId>
         <version>0.0.1-SNAPSHOT</version>
     </parent>
-    <artifactId>javaHarness-api</artifactId>
-    <name>javaHarness :: api</name>
+    <artifactId>harness-api</artifactId>
+    <name>harness-api</name>
     <description>渠道与 core 共用的契约与 DTO（端口接口/请求响应模型）；不含任何渠道实现</description>
 
     <dependencies>

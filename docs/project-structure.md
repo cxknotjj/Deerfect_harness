@@ -14,7 +14,7 @@
 | `cli` | 终端客户端，纯 HTTP + SSE | compile → `harness-api` |
 | `wms-mcp-adapter` | 领域 MCP 适配范例 | 独立 |
 
-> 规则：core（server）编译期不得引用 `channel.qq`（enforcer 守护 `com.dark:javaHarness-channel-qq:*:*:compile`）；渠道新增输出控制走 `ReplyPostProcessor`，不改 core。详见 [`docs/design/channel-core-module-split.md`](./design/channel-core-module-split.md)。
+> 规则：core（server）编译期不得引用 `channel.qq`（enforcer 守护 `com.dark:channel-qq:*:*:compile`）；渠道新增输出控制走 `ReplyPostProcessor`，不改 core。详见 [`docs/design/channel-core-module-split.md`](./design/channel-core-module-split.md)。
 
 ---
 

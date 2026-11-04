@@ -14,7 +14,7 @@
 | `cli` | Terminal client, pure HTTP + SSE | compile → `harness-api` |
 | `wms-mcp-adapter` | Domain MCP adapter example | independent |
 
-> Rule: core (`server`) must not reference `channel.qq` at compile time (enforced by `com.dark:javaHarness-channel-qq:*:*:compile`); new channel output controls go through `ReplyPostProcessor` without touching core.
+> Rule: core (`server`) must not reference `channel.qq` at compile time (enforced by `com.dark:channel-qq:*:*:compile`); new channel output controls go through `ReplyPostProcessor` without touching core.
 
 ---
 

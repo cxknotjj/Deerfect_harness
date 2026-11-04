@@ -86,7 +86,7 @@ stop_server() {
     fuser -k 8080/tcp 2>/dev/null || true
     # pkill 无匹配时返回 1，set -e 会当场退出脚本——必须 || true
     pkill -f 'spring-boot:ru[n]' 2>/dev/null || true
-    pkill -f 'javaHarness-server-0.0.1-SNAPSHOT[.]jar' 2>/dev/null || true
+    pkill -f 'server-0.0.1-SNAPSHOT[.]jar' 2>/dev/null || true
     # SIGKILL 后内核异步释放 socket，短暂重试避免撞上释放窗口
     for i in $(seq 1 5); do
         sleep 1
