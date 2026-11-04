@@ -2,7 +2,7 @@
 
 - 范围：`server` 主链路（Chat / Session / Agent 配置 / Knowledge）、`harness-api` 会话契约、`project-structure.md` 文档
 - 创建：2026-11-03
-- 状态：共 15 项，已完成 14 项，待办 1 项
+- 状态：共 15 项，已完成 15 项，待办 0 项
 
 ## 进度概览
 
@@ -12,8 +12,8 @@
 | P0 正确性与一致性 | 1   | 0  | 1  |
 | P1 性能      | 4   | 0  | 4  |
 | P2 结构清理    | 5   | 0  | 5  |
-| P3 文档与工程   | 3   | 1  | 4  |
-| 合计         | 14  | 1  | 15 |
+| P3 文档与工程   | 4   | 0  | 4  |
+| 合计         | 15  | 0  | 15 |
 
 ## 背景
 
@@ -21,7 +21,7 @@
 
 问题集中在两类：**热路径上的重复读取/重复写入**，以及 `principal.md` §4「不留兼容层」未清理干净的重载堆积。本清单按 P0→P1→P2→P3 排列，每一项都可独立提交、可独立验证。
 
-执行结果（2026-11-03）：14 项落地，全模块 `mvn -s .mvn/settings.xml -o test` 942 条用例全绿（较基线 +7 条新测试）；P3-4 按自身触发条件（前端要加功能时）暂不做。
+执行结果（2026-11-03）：15 项全部落地。后端 `mvn -s .mvn/settings.xml -o test` 942 条用例全绿（较基线 +7）；前端 `npm run build`（含 vue-tsc）+ `npm test` 25 条 + `npm run test:e2e` 4 条冒烟全绿。
 
 ## 已完成
 
@@ -120,15 +120,16 @@
   - 做法：username 改为 `${MYSQL_USERNAME:root}`；`useSSL` 改为可配置项并在注释写明生产必须开启
   - 验收：本地默认行为不变；生产可用环境变量覆盖；`docs/guides/setup.md` 同步说明
   - 结果（2026-11-03）：datasource 的 username / useSSL 改为环境变量（`MYSQL_USERNAME` / `MYSQL_USE_SSL`），`setup.md` 补覆盖说明；compose 显式覆盖不受影响。
-- [ ] P3-4 前端超大单文件拆分（有触发条件再做）
+- [x] P3-4 前端超大单文件拆分
   - 作用：`MonitorView.vue` 1088 行、`main.css` 1341 行，已影响定位与复用；当该文件还要加功能时先拆
   - 位置：[web/src/components/MonitorView.vue](../web/src/components/MonitorView.vue)、[web/src/styles/main.css](../web/src/styles/main.css)
   - 做法：MonitorView 按「指标卡 / 轨迹表 / 明细浮层」拆子组件；CSS 按域拆文件后由入口 `@import`
   - 验收：`npm run build`（含 vue-tsc）与 `npm test` 通过；页面视觉无回归
+  - 结果（2026-11-03）：`MonitorView.vue` 1088 → 128 行，拆出 `components/monitor/` 四个子组件（指标卡 / 分布 / 会话明细 / 调用轨迹）+ `utils/monitorFormat.ts`；`main.css` 1341 行拆为 12 个域文件、入口只留 `@import`；监控样式迁到 `styles/monitor.css` 并统一以 `.monitor` 前缀限定。验收：build 通过、vitest 25 条（新增 9 条格式化用例）、e2e 4 条全绿；样式声明数与规则数与拆分前逐项相等（244/73）。
 
 ## 执行顺序
 
 1. P1-1 → P1-2 → P1-4 → P1-3：纯性能，改动局部，有基线测试兜底，先拿收益
 2. P0-1：涉及错误语义，需先确认「读配置失败该返回什么」
 3. P2-1 → P2-2 → P2-3 → P2-4 → P2-5：结构性清理，一次提交一个类
-4. P3-1 → P3-2 → P3-3：文档与配置，可与其他项同批；P3-4 等有功能增量时再做
+4. P3-1 → P3-2 → P3-3 → P3-4：文档、配置与前端拆分，可与其他项同批
