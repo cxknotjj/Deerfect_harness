@@ -46,9 +46,10 @@ test.describe('mock 模式冒烟', () => {
     await expect(page.locator('.kpi-grid .kpi').first()).toBeVisible()
     await expect(page.locator('.kpi-label').first()).toHaveText('LLM 调用')
 
-    // Micrometer 运行时指标（与 /actuator/prometheus 同源）
+    // Micrometer 运行时指标（与 /actuator/prometheus 同源）：SSE / LLM 调用 / Tokens /
+    // 首 token / 耗时 / 路径决策 / Graph 降级 / TTS / 堆内存 共 9 项
     await expect(page.getByText('运行时指标')).toBeVisible()
-    await expect(page.locator('.runtime-item')).toHaveCount(8)
+    await expect(page.locator('.runtime-item')).toHaveCount(9)
     await expect(page.locator('.runtime-item').first()).toContainText('SSE 活跃连接')
 
     // 组件状态：NapCat / Docker / MCP server
