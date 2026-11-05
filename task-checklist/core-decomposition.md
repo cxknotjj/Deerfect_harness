@@ -3,7 +3,7 @@
 - 范围：`ChatServiceImpl`、`SandboxToolkit`、`KnowledgeServiceImpl`、`ChatCli` 等上帝类
 - 创建：2026-11-05
 - 来源：知识图谱分析报告（`issue.md`）
-- 状态：共 4 项，已完成 2 项，待办 2 项
+- 状态：共 4 项，已完成 3 项，待办 1 项
 
 ## 背景
 
@@ -27,11 +27,12 @@
   - 验收：3 个类各自只暴露本类别回调；`SandboxToolProvider` 装配结果与拆分前完全一致；相关单测全绿
   - 结果（2026-11-05）：拆为 `SandboxShellTools` / `SandboxFileTools` / `SandboxBrowserTools`，公共封装下沉到包内 `SandboxToolSupport`，删除 `SandboxToolkit`；`SandboxToolProvider` 装配顺序与工具面不变；`mvn -s .mvn/settings.xml -pl server -am test` 全绿。
 
-- [ ] P1-2 `KnowledgeServiceImpl` 拆分摄取与检索
+- [x] P1-2 `KnowledgeServiceImpl` 拆分摄取与检索
   - 作用：增量摄取、孤儿清理、台账分页与向量 + BM25 混合检索同处一个类（16 个符号），写路径与读路径的失败语义混在一起
   - 位置：[KnowledgeServiceImpl](../server/src/main/java/com/dark/javaHarness/knowledge/KnowledgeServiceImpl.java)
   - 做法：拆出 `KnowledgeIngestor`（sync / 增量判据 / 孤儿清理）与 `HybridKnowledgeRetriever`（向量 + BM25 + RRF）；`KnowledgeServiceImpl` 只保留对外门面与事务边界
   - 验收：读路径不依赖写路径实现；`KnowledgeServiceImplTest` / `KnowledgeRetrieverTest` 全绿；摄取幂等与检索结果排序不变
+  - 结果（2026-11-05）：`KnowledgeServiceImpl` 534 行收敛为 93 行门面（`sync`/`delete`/`list`/`search` 委托 + 启动自动摄取）；写路径 `KnowledgeIngestor`（增量判据、孤儿清理、删除、台账分页、索引失效）与读路径 `HybridKnowledgeRetriever`（向量 + BM25 + RRF，只读 VectorStore/索引）互不依赖；chunk 口径（`docName#idx`）单点由写入侧产出；`KnowledgeServiceImplTest` 37 条、`KnowledgeRetrieverTest` 31 条与全量 801 条全绿。
 
 ## P2 外围类收敛
 

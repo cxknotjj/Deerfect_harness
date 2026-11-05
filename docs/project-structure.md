@@ -154,7 +154,9 @@ server/src/main/java/com/dark/javaHarness/
 ├── knowledge/                    # RAG 知识库
 │   ├── KnowledgeDocumentScanner.java  # 知识目录扫描（.md/.txt、front-matter 标题、坏文件跳过）
 │   ├── MarkdownChunker.java      # 段落感知切分（~700 字符 + 重叠，纯函数）
-│   ├── KnowledgeService.java / KnowledgeServiceImpl.java  # 增量摄取（mtime+kb 比对删旧写新）/ 删除 / 分页 / 检索（向量 + BM25 + RRF）
+│   ├── KnowledgeService.java / KnowledgeServiceImpl.java  # 对外门面（委托读写协作者 + 启动自动摄取）
+│   ├── KnowledgeIngestor.java    # 写路径：增量摄取（mtime+kb 比对删旧写新）/ 孤儿清理 / 删除 / 分页
+│   ├── HybridKnowledgeRetriever.java  # 读路径：向量 + BM25 + RRF 融合（不依赖写路径）
 │   ├── KnowledgeBm25Index.java   # BM25 内存索引（懒重建，混合检索第二路）
 │   ├── KnowledgeDirectoryWatcher.java # 知识目录监听（去抖后触发增量 sync）
 │   ├── KnowledgeSyncView.java    # 增量同步结果（扫描/更新/跳过/chunk 数）

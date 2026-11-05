@@ -491,7 +491,8 @@ class KnowledgeServiceImplTest {
         assertEquals("a.md", hits.get(0).docName());
         assertEquals(1.0, hits.get(0).score(), 1e-9, "双路 rank1 叠加 = 理论最大分，归一化到 1.0");
         assertEquals("b.md", hits.get(1).docName());
-        assertEquals((KnowledgeServiceImpl.RRF_K + 1.0) / (2.0 * (KnowledgeServiceImpl.RRF_K + 2.0)), hits.get(1).score(), 1e-9,
+        assertEquals((HybridKnowledgeRetriever.RRF_K + 1.0) / (2.0 * (HybridKnowledgeRetriever.RRF_K + 2.0)),
+                hits.get(1).score(), 1e-9,
                 "单路 rank2 = (1/(k+2)) / (2/(k+1))，落在 (0,1]");
     }
 
@@ -604,23 +605,23 @@ class KnowledgeServiceImplTest {
 
     @Test
     void kbFilterExpression_nullWhenNoBinding() {
-        assertNull(KnowledgeServiceImpl.kbFilterExpression(null));
-        assertNull(KnowledgeServiceImpl.kbFilterExpression(List.of()));
-        assertNull(KnowledgeServiceImpl.kbFilterExpression(List.of("  ", "")));
+        assertNull(HybridKnowledgeRetriever.kbFilterExpression(null));
+        assertNull(HybridKnowledgeRetriever.kbFilterExpression(List.of()));
+        assertNull(HybridKnowledgeRetriever.kbFilterExpression(List.of("  ", "")));
     }
 
     @Test
     void kbFilterExpression_inExpressionForBoundKbs() {
         assertEquals("kb in ['java','frontend']",
-                KnowledgeServiceImpl.kbFilterExpression(List.of("java", "frontend")));
-        assertEquals("kb in ['java']", KnowledgeServiceImpl.kbFilterExpression(List.of("'java'")),
+                HybridKnowledgeRetriever.kbFilterExpression(List.of("java", "frontend")));
+        assertEquals("kb in ['java']", HybridKnowledgeRetriever.kbFilterExpression(List.of("'java'")),
                 "单引号属病态输入应剔除");
     }
 
     @Test
     void chunkId_isDeterministic() {
-        assertEquals("a.md#3", KnowledgeServiceImpl.chunkId("a.md", 3));
-        assertEquals("java/spring.md#0", KnowledgeServiceImpl.chunkId("java/spring.md", 0),
+        assertEquals("a.md#3", KnowledgeIngestor.chunkId("a.md", 3));
+        assertEquals("java/spring.md#0", KnowledgeIngestor.chunkId("java/spring.md", 0),
                 "子目录文档 name 带前缀，id 仍确定性");
     }
 
@@ -628,8 +629,7 @@ class KnowledgeServiceImplTest {
 
     /** 双路 rank1 叠加（归一化 ~1.0）与纯向量 rank2（~0.49）的构造 */
     private List<KnowledgeService.KnowledgeHit> fuseTwoVectorOneBm25(KnowledgeProperties props) {
-        KnowledgeServiceImpl svc = new KnowledgeServiceImpl(
-                storeProvider, bm25Provider, scanner, mapper, props, null);
+        HybridKnowledgeRetriever svc = new HybridKnowledgeRetriever(storeProvider, bm25Provider, props);
         List<Document> vec = List.of(
                 new Document("a", "A 文本", Map.of("source", "a.md", "title", "A")),
                 new Document("b", "B 文本", Map.of("source", "b.md", "title", "B")));
