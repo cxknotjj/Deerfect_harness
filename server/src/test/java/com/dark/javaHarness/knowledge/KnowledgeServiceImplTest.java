@@ -31,6 +31,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -241,6 +242,36 @@ class KnowledgeServiceImplTest {
         verify(mapper).updateById(rowCaptor.capture());
         assertEquals(0, rowCaptor.getValue().getStatus(), "写入失败应置 0（失败待重试）");
         verify(mapper, never()).insert(any(KbDocumentEntity.class));
+    }
+
+    @Test
+    void sync_midwayFailure_rerunConvergesToFullRebuild() {
+        // 两文档摄取，第二个写入失败：已成功的 a.md 台账已落（不重复嵌入），
+        // 失败方重跑后补齐——最终结果与全量重建一致
+        when(storeProvider.getIfAvailable()).thenReturn(store);
+        when(scanner.scan()).thenReturn(List.of(
+                file("a.md", "default", 100L, "短正文"),
+                file("b.md", "default", 100L, "短正文")));
+        when(mapper.selectList(any())).thenReturn(List.of(), List.of(row("a.md", "default", 100L, 1, 1)));
+        AtomicInteger bAttempts = new AtomicInteger();
+        doAnswer(invocation -> {
+            List<Document> docs = invocation.getArgument(0);
+            if (docs.stream().anyMatch(d -> d.getId().startsWith("b.md#"))) {
+                if (bAttempts.incrementAndGet() == 1) {
+                    throw new RuntimeException("pg down");
+                }
+            }
+            return null;
+        }).when(store).add(anyList());
+
+        assertThrows(IllegalStateException.class, () -> service.sync(), "b 写入失败应中断本轮");
+        KnowledgeSyncView rerun = service.sync();
+
+        assertEquals(2, bAttempts.get(), "b 第一次失败、第二次成功");
+        assertEquals(2, rerun.scanned(), "两次扫描覆盖两个文档");
+        assertEquals(1, rerun.skipped(), "已成功的 a 不再重复嵌入");
+        assertEquals(1, rerun.updated(), "重跑只补齐失败的 b");
+        verify(mapper, times(2)).insert(any(KbDocumentEntity.class));
     }
 
     @Test

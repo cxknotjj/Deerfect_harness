@@ -3,7 +3,7 @@
 - 范围：异步观测、沙箱 / MCP 降级、知识摄取一致性、渠道连接韧性、工具标识校验
 - 创建：2026-11-05
 - 来源：知识图谱分析报告（`issue.md`）
-- 状态：共 5 项，已完成 3 项，待办 2 项
+- 状态：共 5 项，已完成 4 项，待办 1 项
 
 ## 背景
 
@@ -34,11 +34,12 @@
 
 ## P2 一致性与渠道韧性
 
-- [ ] P2-1 知识摄取写路径一致性
+- [x] P2-1 知识摄取写路径一致性
   - 作用：增量摄取 + 孤儿清理存在部分成功风险，失败后可能留下孤儿记录或半更新台账
   - 位置：[KnowledgeServiceImpl](../server/src/main/java/com/dark/javaHarness/knowledge/KnowledgeServiceImpl.java)、[KnowledgeRetriever](../server/src/main/java/com/dark/javaHarness/knowledge/KnowledgeRetriever.java)
   - 做法：明确事务边界（单文档摄取为最小事务单元）；孤儿清理与台账更新同批提交；失败时记录可重试状态而不是静默跳过
   - 验收：模拟中途失败后重跑可收敛到与全量重建一致的结果；补充摄取失败 / 重试测试
+  - 结果（2026-11-05）：现有实现已满足单文档最小单元（先删后写 + 失败置 status=0 + 成功文档先落台账 + 孤儿清理基于同一快照）；补充「两文档第二个失败、重跑收敛」用例；`KnowledgeServiceImplTest` 37 条全绿。
 
 - [ ] P2-2 `channel-qq` 事件处理韧性
   - 作用：OneBot 外部协议 + 长连接状态，断连或重复投递时缺少统一的重放 / 去重约定
