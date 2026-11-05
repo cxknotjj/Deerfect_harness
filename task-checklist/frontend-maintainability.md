@@ -3,7 +3,7 @@
 - 范围：`web` 的 API 客户端拆分、SSE 解析测试、复杂组件收敛
 - 创建：2026-11-05
 - 来源：知识图谱分析报告（`issue.md`）
-- 状态：共 3 项，已完成 1 项，待办 2 项
+- 状态：共 3 项，已完成 2 项，待办 1 项
 
 ## 背景
 
@@ -18,11 +18,12 @@
   - 验收：`client.ts` 只做聚合与导出，单文件符号数 ≤6；`npm run typecheck` + `npm run build` 通过；调用方零改动
   - 结果（2026-11-05）：拆为 `http.ts`（请求头/401 钩子/请求封装）、`auth.ts`、`sessions.ts`、`observability.ts`、`chatStream.ts`；`client.ts` 仅保留 `Api` 与 `realApi` 聚合及兼容导出；`npm run typecheck`、`npm test` 25 条、`npm run build` 全绿。
 
-- [ ] P1-2 SSE 流式解析独立并补测试
+- [x] P1-2 SSE 流式解析独立并补测试
   - 作用：`/api/chat/stream` 的 event/data 逐帧解析是前端最关键也最易坏的逻辑，目前混在 `streamChat` 里
   - 位置：[client.ts streamChat](../web/src/api/client.ts#L238-L336)、[useChat.ts](../web/src/composables/useChat.ts)
   - 做法：抽出 `parseSseFrame` / `SseStreamReader` 纯函数模块；补正常帧、多行 data、注释行、半帧截断、异常中止用例
   - 验收：解析模块单测覆盖上述 5 类场景；现有聊天流程行为不变；`npm test` 通过
+  - 结果（2026-11-05）：抽出 `sse.ts`（`SseLineParser` + `dataPayload` + `unescapeLineBreaks`），`chatStream.ts` 只负责流读取与回调分发；新增 6 条解析用例 + 2 条流式分发用例（含跨 chunk 半帧、CRLF、注释行、进度降级）；`npm test` 33 条全绿。
 
 ## P2 测试与复杂度
 

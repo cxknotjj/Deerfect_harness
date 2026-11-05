@@ -4,6 +4,8 @@
  */
 import type { ChatRequest, ProgressPayload, SseMeta } from './types'
 import { baseHeaders, notifyUnauthorized } from './http'
+import { SseLineParser, unescapeLineBreaks } from './sse'
+import type { SseFrame } from './sse'
 
 /** SSE 事件名与结束标记（与 harness-api 的 SseProtocol 常量字面量一致） */
 const EVENT_META = 'meta'
@@ -33,36 +35,6 @@ function parseJson<T>(raw: string): T | null {
   } catch {
     return null
   }
-}
-
-/**
- * 还原 SseProtocol.escapeLineBreaks 的转义（接收侧）：
- * 字面量 \n → 换行、\r → 回车、\\ → 反斜杠；非法序列原样保留。
- */
-function unescapeLineBreaks(s: string): string {
-  if (!s.includes('\\')) return s
-  let out = ''
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charAt(i)
-    if (c === '\\' && i + 1 < s.length) {
-      const n = s.charAt(++i)
-      if (n === 'n') out += '\n'
-      else if (n === 'r') out += '\r'
-      else if (n === '\\') out += '\\'
-      else out += c + n
-    } else {
-      out += c
-    }
-  }
-  return out
-}
-
-/** 剥掉 "data:" 前缀与其后至多一个空格（SSE 规范），保留载荷原文（缩进空格不丢）；
- *  尾部 \r 去除（服务端若发 \r\n 行尾，split('\n') 后载荷尾残留 \r 会污染 JSON/token） */
-function dataPayload(line: string): string {
-  const rest = line.slice('data:'.length)
-  const noSpace = rest.startsWith(' ') ? rest.slice(1) : rest
-  return noSpace.endsWith('\r') ? noSpace.slice(0, -1) : noSpace
 }
 
 /**
@@ -108,8 +80,8 @@ export async function streamChat(
     throw new Error(`HTTP ${resp.status}: ${await resp.text()}`)
   }
 
-  // 当前帧事件名；在 data 行分发后复位，保证「无 event: 的 data」落入 token 兜底
-  let event: string | null = null
+  // 行解析器：event: 行暂存，data: 行成帧（无 event 的 data 按 token 兜底）
+  const parser = new SseLineParser()
 
   const handleToken = (data: string): void => {
     // [DONE] 与 token 共用 event: token 块，读到 DONE 不再发 token 回调
@@ -120,10 +92,8 @@ export async function streamChat(
     }
   }
 
-  const dispatch = (line: string): void => {
-    const data = dataPayload(line)
-    const type = event
-    event = null
+  const dispatch = (frame: SseFrame): void => {
+    const { event: type, data } = frame
     if (type === EVENT_META) {
       const meta = parseJson<SseMeta>(data)
       if (meta) handlers.onMeta?.(meta)
@@ -140,12 +110,8 @@ export async function streamChat(
   }
 
   const handleLine = (line: string): void => {
-    if (line.trim() === '') return
-    if (line.startsWith('event:')) {
-      event = line.slice('event:'.length).trim()
-    } else if (line.startsWith('data:')) {
-      dispatch(line)
-    }
+    const frame = parser.parse(line)
+    if (frame) dispatch(frame)
   }
 
   const reader = resp.body.getReader()
