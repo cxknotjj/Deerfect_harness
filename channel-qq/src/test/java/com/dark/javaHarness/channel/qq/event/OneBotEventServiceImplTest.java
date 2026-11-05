@@ -18,8 +18,8 @@ import com.dark.javaHarness.channel.qq.client.NapCatProperties;
 import com.dark.javaHarness.channel.qq.dto.MessageSegment;
 import com.dark.javaHarness.channel.qq.dto.OneBotEvent;
 import com.dark.javaHarness.channel.qq.reply.EmojiReplies;
-import com.dark.javaHarness.domain.dto.ChatRequest;
-import com.dark.javaHarness.domain.dto.ChatResponse;
+import com.dark.javaHarness.view.ChatRequest;
+import com.dark.javaHarness.view.ChatResponse;
 import com.dark.javaHarness.channel.qq.persistence.OneBotSessionBinding;
 import com.dark.javaHarness.channel.qq.persistence.OneBotSessionBindingMapper;
 import com.dark.javaHarness.service.AgentService;
@@ -201,8 +201,8 @@ class OneBotEventServiceImplTest {
         props.setAgentId(10L);
         when(bindingMapper.selectOne(any())).thenReturn(binding(14L, "qq:private:" + UID, 5L));
         when(agentService.agentItems()).thenReturn(List.of(
-                new com.dark.javaHarness.domain.dto.AgentItemView(1L, "general"),
-                new com.dark.javaHarness.domain.dto.AgentItemView(2L, "writer")));
+                new com.dark.javaHarness.view.AgentItemView(1L, "general"),
+                new com.dark.javaHarness.view.AgentItemView(2L, "writer")));
         stubChatSuccess("嗯");
         service.handle(privateMsg(14L, "/agent writer"));
         service.handle(privateMsg(15L, "切换后继续聊"));
@@ -409,8 +409,8 @@ class OneBotEventServiceImplTest {
     void handle_historyCommand_repliesWithRecentMessages() {
         when(bindingMapper.selectOne(any())).thenReturn(binding(50L, "qq:private:" + UID, 5L));
         when(sessionService.listMessages("5")).thenReturn(List.of(
-                new com.dark.javaHarness.domain.dto.SessionMessagesView.Item("user", "你好", 1L),
-                new com.dark.javaHarness.domain.dto.SessionMessagesView.Item("assistant", "你好呀", 2L)));
+                new com.dark.javaHarness.view.SessionMessagesView.Item("user", "你好", 1L),
+                new com.dark.javaHarness.view.SessionMessagesView.Item("assistant", "你好呀", 2L)));
         service.handle(privateMsg(500L, "/history"));
         verify(chatService, never()).chat(any());
         @SuppressWarnings("unchecked")
@@ -434,8 +434,8 @@ class OneBotEventServiceImplTest {
     @Test
     void handle_agentCommand_listsAgents() {
         when(agentService.agentItems()).thenReturn(List.of(
-                new com.dark.javaHarness.domain.dto.AgentItemView(1L, "general"),
-                new com.dark.javaHarness.domain.dto.AgentItemView(2L, "writer")));
+                new com.dark.javaHarness.view.AgentItemView(1L, "general"),
+                new com.dark.javaHarness.view.AgentItemView(2L, "writer")));
         service.handle(privateMsg(600L, "/agent"));
         verify(chatService, never()).chat(any());
         @SuppressWarnings("unchecked")
@@ -449,8 +449,8 @@ class OneBotEventServiceImplTest {
     void handle_agentCommand_switchesByName() {
         when(bindingMapper.selectOne(any())).thenReturn(binding(60L, "qq:private:" + UID, 5L));
         when(agentService.agentItems()).thenReturn(List.of(
-                new com.dark.javaHarness.domain.dto.AgentItemView(1L, "general"),
-                new com.dark.javaHarness.domain.dto.AgentItemView(2L, "writer")));
+                new com.dark.javaHarness.view.AgentItemView(1L, "general"),
+                new com.dark.javaHarness.view.AgentItemView(2L, "writer")));
         service.handle(privateMsg(601L, "/agent writer"));
         verify(sessionService).switchAgent("5", 2L);
         verify(chatService, never()).chat(any());
@@ -461,7 +461,7 @@ class OneBotEventServiceImplTest {
         // 绑定查询在此分支不会被触发（未知名称先于绑定解析返回），用 lenient 保留「已有绑定也不切换」的场景
         lenient().when(bindingMapper.selectOne(any())).thenReturn(binding(61L, "qq:private:" + UID, 5L));
         when(agentService.agentItems()).thenReturn(List.of(
-                new com.dark.javaHarness.domain.dto.AgentItemView(1L, "general")));
+                new com.dark.javaHarness.view.AgentItemView(1L, "general")));
         service.handle(privateMsg(602L, "/agent 不存在"));
         verify(sessionService, never()).switchAgent(any(), anyLong());
     }

@@ -8,7 +8,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import com.dark.javaHarness.domain.dto.ErrorResponse;
+import com.dark.javaHarness.view.ErrorResponse;
 import java.io.IOException;
 import org.apache.catalina.connector.ClientAbortException;
 import org.junit.jupiter.api.AfterEach;

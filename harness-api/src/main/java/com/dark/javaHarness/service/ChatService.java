@@ -1,7 +1,7 @@
 package com.dark.javaHarness.service;
 
-import com.dark.javaHarness.domain.dto.ChatRequest;
-import com.dark.javaHarness.domain.dto.ChatResponse;
+import com.dark.javaHarness.view.ChatRequest;
+import com.dark.javaHarness.view.ChatResponse;
 import reactor.core.publisher.Flux;
 
 /**

@@ -1,4 +1,4 @@
-package com.dark.javaHarness.domain.dto;
+package com.dark.javaHarness.view;
 
 import jakarta.validation.constraints.NotBlank;
 

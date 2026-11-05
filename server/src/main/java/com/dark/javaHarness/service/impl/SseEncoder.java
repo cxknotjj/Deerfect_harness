@@ -1,8 +1,8 @@
 package com.dark.javaHarness.service.impl;
 
 import com.dark.javaHarness.agent.ProgressLine;
-import com.dark.javaHarness.domain.dto.KnowledgeSource;
-import com.dark.javaHarness.domain.dto.SseMeta;
+import com.dark.javaHarness.view.KnowledgeSource;
+import com.dark.javaHarness.view.SseMeta;
 import com.dark.javaHarness.enums.SseProtocol;
 import tools.jackson.databind.ObjectMapper;
 import java.util.List;
@@ -60,7 +60,7 @@ final class SseEncoder {
      */
     static Flux<String> metaEvent(String sessionId, boolean newSession, String goalId,
                                   String status, String error, List<KnowledgeSource> sources,
-                                  com.dark.javaHarness.domain.dto.RouteInfo route) {
+                                  com.dark.javaHarness.view.RouteInfo route) {
         SseMeta meta = new SseMeta(sessionId, newSession, goalId, status, error, sources, route);
         try {
             return Flux.just("event: " + SseProtocol.EVENT_META + "\ndata: " + OBJECT_MAPPER.writeValueAsString(meta));

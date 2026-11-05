@@ -1,4 +1,4 @@
-package com.dark.javaHarness.domain.dto;
+package com.dark.javaHarness.view;
 
 /**
  * 新建会话结果视图：返回新建会话的 ID 与占位名称。

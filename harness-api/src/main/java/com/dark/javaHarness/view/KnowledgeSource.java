@@ -1,4 +1,4 @@
-package com.dark.javaHarness.domain.dto;
+package com.dark.javaHarness.view;
 
 /**
  * 知识库检索命中的出处引用（SseMeta.sources / ChatResponse.sources 元素，

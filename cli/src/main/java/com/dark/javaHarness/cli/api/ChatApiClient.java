@@ -1,11 +1,11 @@
 package com.dark.javaHarness.cli.api;
 
-import com.dark.javaHarness.domain.dto.ChatRequest;
-import com.dark.javaHarness.domain.dto.ChatResponse;
-import com.dark.javaHarness.domain.dto.ProviderAddRequest;
-import com.dark.javaHarness.domain.dto.ProviderAddResult;
-import com.dark.javaHarness.domain.dto.ProviderRowView;
-import com.dark.javaHarness.domain.dto.SessionPageView;
+import com.dark.javaHarness.view.ChatRequest;
+import com.dark.javaHarness.view.ChatResponse;
+import com.dark.javaHarness.view.ProviderAddRequest;
+import com.dark.javaHarness.view.ProviderAddResult;
+import com.dark.javaHarness.view.ProviderRowView;
+import com.dark.javaHarness.view.SessionPageView;
 import com.dark.javaHarness.enums.SseProtocol;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;

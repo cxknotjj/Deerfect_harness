@@ -2,7 +2,7 @@ package com.dark.javaHarness.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dark.javaHarness.domain.AgentConfig;
-import com.dark.javaHarness.domain.dto.AgentItemView;
+import com.dark.javaHarness.view.AgentItemView;
 import com.dark.javaHarness.domain.entity.AgentEntity;
 import com.dark.javaHarness.domain.entity.ModelProviderEntity;
 import com.dark.javaHarness.mapper.AgentMapper;

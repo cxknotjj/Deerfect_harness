@@ -1,4 +1,4 @@
-package com.dark.javaHarness.domain.dto;
+package com.dark.javaHarness.view;
 
 /**
  * 新增模型供应商结果（POST /api/providers 响应体）。

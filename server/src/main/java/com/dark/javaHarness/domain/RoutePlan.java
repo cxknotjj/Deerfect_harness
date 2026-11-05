@@ -1,6 +1,6 @@
 package com.dark.javaHarness.domain;
 
-import com.dark.javaHarness.domain.dto.RouteInfo;
+import com.dark.javaHarness.view.RouteInfo;
 import java.util.List;
 
 /**

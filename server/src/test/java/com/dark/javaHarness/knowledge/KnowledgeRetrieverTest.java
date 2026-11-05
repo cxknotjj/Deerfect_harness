@@ -14,7 +14,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.config.knowledge.KnowledgeProperties;
-import com.dark.javaHarness.domain.dto.KnowledgeSource;
+import com.dark.javaHarness.view.KnowledgeSource;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

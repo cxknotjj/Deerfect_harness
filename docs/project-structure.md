@@ -8,7 +8,7 @@
 
 | 模块 | 职责 | 依赖 |
 |---|---|---|
-| `harness-api` | 渠道与 core 共用的契约层：端口接口、DTO、共享枚举、`ReplyPostProcessor` SPI | 无同反应堆依赖 |
+| `harness-api` | 渠道与 core 共用的契约层：端口接口（`service/`）、领域模型与状态机（`domain/`）、对外 DTO（`view/`）、共享枚举、`ReplyPostProcessor` SPI | 无同反应堆依赖 |
 | `server` | Spring Boot 主服务、core 实现与 fat jar 宿主 | compile → `harness-api`；runtime → `channel-qq` |
 | `channel-qq` | QQ 渠道（NapCat/OneBot 11）：客户端/事件/回复/持久化；事件准入 `ChannelEventPolicy` + 语义层端口 | compile → `harness-api` |
 | `cli` | 终端客户端，纯 HTTP + SSE | compile → `harness-api` |
@@ -101,8 +101,8 @@ server/src/main/java/com/dark/javaHarness/
 │   └── entity/                   # 数据库实体：AgentEntity / GoalEntity / SessionEntity / SessionMessageEntity
 │                                 #   / SessionMessageArchiveEntity / ModelProviderEntity / KbDocumentEntity
 │                                 #   / LlmCallLogEntity / ToolCallLogEntity / KbRetrievalLogEntity / McpServerLogEntity
-│   └── dto/                      # 接口 DTO：ChatRequest/ChatResponse/RouteInfo/SseMeta/MonitorSnapshot/RuntimeMetrics
-│                                 #   / ComponentStatus/ContextComposition/…
+│   └── dto/                      # 服务端内部视图 DTO：MonitorSnapshot / RuntimeMetrics / ComponentStatus / ContextComposition
+│                                 #   （对外契约 DTO 在 harness-api 的 view/ 包）
 ├── enums/                        # 共享常量：AgentConstants（GoalStatus / SseProtocol 已迁 harness-api）
 ├── exception/                    # 全局异常处理与领域异常
 │   ├── GlobalExceptionHandler.java   # @RestControllerAdvice，统一 {code, message}

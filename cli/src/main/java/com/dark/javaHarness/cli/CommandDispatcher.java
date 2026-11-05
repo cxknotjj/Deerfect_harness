@@ -1,8 +1,8 @@
 package com.dark.javaHarness.cli;
 
 import com.dark.javaHarness.cli.api.ChatApiClient;
-import com.dark.javaHarness.domain.dto.ProviderAddResult;
-import com.dark.javaHarness.domain.dto.ProviderRowView;
+import com.dark.javaHarness.view.ProviderAddResult;
+import com.dark.javaHarness.view.ProviderRowView;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.util.Arrays;

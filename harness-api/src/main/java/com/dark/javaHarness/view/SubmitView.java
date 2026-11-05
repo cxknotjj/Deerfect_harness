@@ -1,4 +1,4 @@
-package com.dark.javaHarness.domain.dto;
+package com.dark.javaHarness.view;
 
 /**
  * 提交目标响应（POST /api/harness/submit）。

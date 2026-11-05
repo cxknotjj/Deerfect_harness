@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.dark.javaHarness.domain.dto.SessionMessagesView;
+import com.dark.javaHarness.view.SessionMessagesView;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.SessionService;
 import java.util.List;

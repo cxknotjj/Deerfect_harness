@@ -8,7 +8,7 @@
 
 | Module | Responsibility | Depends on |
 |---|---|---|
-| `harness-api` | Shared contracts for channels and core: port interfaces, DTOs, shared enums, `ReplyPostProcessor` SPI | no reactor-internal deps |
+| `harness-api` | Shared contracts for channels and core: port interfaces (`service/`), domain models & state machine (`domain/`), outward DTOs (`view/`), shared enums, `ReplyPostProcessor` SPI | no reactor-internal deps |
 | `server` | Spring Boot main service, core implementation, fat-jar host | compile → `harness-api`; runtime → `channel-qq` |
 | `channel-qq` | QQ channel (NapCat/OneBot 11): client / events / replies / persistence | compile → `harness-api` |
 | `cli` | Terminal client, pure HTTP + SSE | compile → `harness-api` |

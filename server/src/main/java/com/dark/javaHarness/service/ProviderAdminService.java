@@ -1,7 +1,7 @@
 package com.dark.javaHarness.service;
 
-import com.dark.javaHarness.domain.dto.ProviderAddRequest;
-import com.dark.javaHarness.domain.dto.ProviderAddResult;
+import com.dark.javaHarness.view.ProviderAddRequest;
+import com.dark.javaHarness.view.ProviderAddResult;
 import com.dark.javaHarness.domain.entity.ModelProviderEntity;
 import java.util.List;
 

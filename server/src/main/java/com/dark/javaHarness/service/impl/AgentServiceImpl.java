@@ -211,7 +211,7 @@ public class AgentServiceImpl implements AgentService {
 
     /** Agent 列表（数据库行 id + name，委托 AgentConfigProvider，web 端下拉使用） */
     @Override
-    public java.util.List<com.dark.javaHarness.domain.dto.AgentItemView> agentItems() {
+    public java.util.List<com.dark.javaHarness.view.AgentItemView> agentItems() {
         return agentConfigProvider.listAgentItems();
     }
 

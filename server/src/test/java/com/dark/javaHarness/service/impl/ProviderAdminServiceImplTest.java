@@ -8,8 +8,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
-import com.dark.javaHarness.domain.dto.ProviderAddRequest;
-import com.dark.javaHarness.domain.dto.ProviderAddResult;
+import com.dark.javaHarness.view.ProviderAddRequest;
+import com.dark.javaHarness.view.ProviderAddResult;
 import com.dark.javaHarness.domain.entity.ModelProviderEntity;
 import com.dark.javaHarness.mapper.ModelProviderMapper;
 import java.util.List;

@@ -1,4 +1,4 @@
-package com.dark.javaHarness.domain.dto;
+package com.dark.javaHarness.view;
 
 /**
  * Agent 列表条目（GET /api/harness/agents）：id 即 agent 表主键，

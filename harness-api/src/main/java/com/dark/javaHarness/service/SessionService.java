@@ -1,7 +1,7 @@
 package com.dark.javaHarness.service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dark.javaHarness.domain.dto.SessionMessagesView;
+import com.dark.javaHarness.view.SessionMessagesView;
 import com.dark.javaHarness.domain.entity.SessionEntity;
 import java.util.List;
 import org.springframework.ai.chat.memory.ChatMemory;

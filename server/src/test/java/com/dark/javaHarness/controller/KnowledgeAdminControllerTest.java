@@ -63,9 +63,9 @@ class KnowledgeAdminControllerTest {
         List<?> result = controller.search("问题", null, false);
 
         assertEquals(1, result.size());
-        assertInstanceOf(com.dark.javaHarness.domain.dto.KnowledgeSource.class, result.get(0),
+        assertInstanceOf(com.dark.javaHarness.view.KnowledgeSource.class, result.get(0),
                 "full=false 应保持 KnowledgeSource 三字段现状（向后兼容）");
-        assertEquals("a.md", ((com.dark.javaHarness.domain.dto.KnowledgeSource) result.get(0)).docName());
+        assertEquals("a.md", ((com.dark.javaHarness.view.KnowledgeSource) result.get(0)).docName());
     }
 
     @Test

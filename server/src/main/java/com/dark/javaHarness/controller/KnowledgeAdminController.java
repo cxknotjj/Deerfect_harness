@@ -1,7 +1,7 @@
 package com.dark.javaHarness.controller;
 
-import com.dark.javaHarness.domain.dto.KnowledgeSource;
-import com.dark.javaHarness.domain.dto.PageResult;
+import com.dark.javaHarness.view.KnowledgeSource;
+import com.dark.javaHarness.view.PageResult;
 import com.dark.javaHarness.domain.entity.KbDocumentEntity;
 import com.dark.javaHarness.knowledge.KnowledgeDocumentScanner;
 import com.dark.javaHarness.knowledge.KnowledgeService;

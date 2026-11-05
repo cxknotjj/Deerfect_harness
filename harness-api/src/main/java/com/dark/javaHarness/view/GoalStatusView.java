@@ -1,4 +1,4 @@
-package com.dark.javaHarness.domain.dto;
+package com.dark.javaHarness.view;
 
 /**
  * Goal 状态查询视图（GET /api/chat/goal-status 响应体）。

@@ -9,8 +9,8 @@ import com.dark.javaHarness.channel.qq.reply.EmojiReplies;
 import com.dark.javaHarness.channel.qq.reply.UserRateLimiter;
 import com.dark.javaHarness.channel.qq.persistence.OneBotSessionBinding;
 import com.dark.javaHarness.channel.qq.persistence.OneBotSessionBindingMapper;
-import com.dark.javaHarness.domain.dto.ChatRequest;
-import com.dark.javaHarness.domain.dto.ChatResponse;
+import com.dark.javaHarness.view.ChatRequest;
+import com.dark.javaHarness.view.ChatResponse;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.ChatService;
 import com.dark.javaHarness.service.SemanticTriggerJudge;
@@ -303,14 +303,14 @@ public class OneBotEventServiceImpl implements OneBotEventService {
             sendReply(event, isGroup, "我们还没有聊天记录哦。", Set.of());
             return;
         }
-        List<com.dark.javaHarness.domain.dto.SessionMessagesView.Item> msgs =
+        List<com.dark.javaHarness.view.SessionMessagesView.Item> msgs =
                 sessionService.listMessages(String.valueOf(sid));
         if (msgs == null || msgs.isEmpty()) {
             sendReply(event, isGroup, "我们还没有聊天记录哦。", Set.of());
             return;
         }
         int n = parsePositiveInt(arg, 5);
-        List<com.dark.javaHarness.domain.dto.SessionMessagesView.Item> tail =
+        List<com.dark.javaHarness.view.SessionMessagesView.Item> tail =
                 msgs.subList(Math.max(0, msgs.size() - n), msgs.size());
         StringBuilder sb = new StringBuilder("最近 " + tail.size() + " 条：");
         for (var it : tail) {
@@ -321,14 +321,14 @@ public class OneBotEventServiceImpl implements OneBotEventService {
 
     /** /agent：无参列出 Agent；有参按名称切换（需已有会话绑定） */
     private void handleAgent(OneBotEvent event, boolean isGroup, String arg) {
-        List<com.dark.javaHarness.domain.dto.AgentItemView> agents = agentService.agentItems();
+        List<com.dark.javaHarness.view.AgentItemView> agents = agentService.agentItems();
         if (arg == null || arg.isBlank()) {
             sendReply(event, isGroup, "可用 Agent：\n" + formatAgentList(agents), Set.of());
             return;
         }
         Long targetId = agents.stream()
                 .filter(a -> a.name() != null && a.name().equalsIgnoreCase(arg.trim()))
-                .map(com.dark.javaHarness.domain.dto.AgentItemView::id)
+                .map(com.dark.javaHarness.view.AgentItemView::id)
                 .findFirst().orElse(null);
         if (targetId == null) {
             sendReply(event, isGroup, "没找到这个 Agent，可用：\n" + formatAgentList(agents), Set.of());
@@ -347,7 +347,7 @@ public class OneBotEventServiceImpl implements OneBotEventService {
         }
     }
 
-    private static String formatAgentList(List<com.dark.javaHarness.domain.dto.AgentItemView> agents) {
+    private static String formatAgentList(List<com.dark.javaHarness.view.AgentItemView> agents) {
         StringBuilder sb = new StringBuilder();
         for (var a : agents) {
             if (sb.length() > 0) {

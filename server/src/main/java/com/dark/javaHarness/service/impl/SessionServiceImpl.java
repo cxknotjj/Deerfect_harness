@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dark.javaHarness.domain.ChatMessageMetadata;
-import com.dark.javaHarness.domain.dto.SessionMessagesView;
+import com.dark.javaHarness.view.SessionMessagesView;
 import com.dark.javaHarness.domain.entity.SessionEntity;
 import com.dark.javaHarness.domain.entity.SessionMessageArchiveEntity;
 import com.dark.javaHarness.domain.entity.SessionMessageEntity;

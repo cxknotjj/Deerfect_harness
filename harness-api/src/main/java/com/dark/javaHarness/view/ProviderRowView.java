@@ -1,4 +1,4 @@
-package com.dark.javaHarness.domain.dto;
+package com.dark.javaHarness.view;
 
 /**
  * 模型-服务商映射行视图（GET /api/providers 响应元素，CLI 渲染用）。

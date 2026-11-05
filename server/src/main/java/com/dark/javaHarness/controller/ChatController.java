@@ -1,8 +1,8 @@
 package com.dark.javaHarness.controller;
 
-import com.dark.javaHarness.domain.dto.ChatRequest;
-import com.dark.javaHarness.domain.dto.ChatResponse;
-import com.dark.javaHarness.domain.dto.GoalStatusView;
+import com.dark.javaHarness.view.ChatRequest;
+import com.dark.javaHarness.view.ChatResponse;
+import com.dark.javaHarness.view.GoalStatusView;
 import com.dark.javaHarness.service.ChatService;
 import com.dark.javaHarness.service.GoalService;
 import jakarta.validation.Valid;

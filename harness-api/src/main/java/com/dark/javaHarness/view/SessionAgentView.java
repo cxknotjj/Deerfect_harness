@@ -1,4 +1,4 @@
-package com.dark.javaHarness.domain.dto;
+package com.dark.javaHarness.view;
 
 /**
  * 会话切换 Agent 结果视图：回显目标会话与切换后的 agentId（agentName 便于客户端直接展示）。

@@ -2,8 +2,8 @@ package com.dark.javaHarness.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
-import com.dark.javaHarness.domain.dto.ProviderAddRequest;
-import com.dark.javaHarness.domain.dto.ProviderAddResult;
+import com.dark.javaHarness.view.ProviderAddRequest;
+import com.dark.javaHarness.view.ProviderAddResult;
 import com.dark.javaHarness.domain.entity.ModelProviderEntity;
 import com.dark.javaHarness.mapper.ModelProviderMapper;
 import com.dark.javaHarness.service.ProviderAdminService;
