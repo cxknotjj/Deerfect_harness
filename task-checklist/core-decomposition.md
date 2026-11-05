@@ -3,7 +3,7 @@
 - 范围：`ChatServiceImpl`、`SandboxToolkit`、`KnowledgeServiceImpl`、`ChatCli` 等上帝类
 - 创建：2026-11-05
 - 来源：知识图谱分析报告（`issue.md`）
-- 状态：共 4 项，已完成 1 项，待办 3 项
+- 状态：共 4 项，已完成 2 项，待办 2 项
 
 ## 背景
 
@@ -11,11 +11,12 @@
 
 ## P0 主链路拆分
 
-- [ ] P0-1 `ChatServiceImpl` 拆成 route → execute → stream → persist 四段
+- [x] P0-1 `ChatServiceImpl` 拆成 route → execute → stream → persist 四段
   - 作用：当前一个类同时承担建档 / 路由判定 / 直答 / 编排 / SSE / 续跑 / 写回 / RAG / 限流 / 降级，24 条出边为全项目最高，是最大的单点风险
   - 位置：[ChatServiceImpl](../server/src/main/java/com/dark/javaHarness/service/impl/ChatServiceImpl.java#L112-L520)：`chat`、`streamReactive`、`resume`、`toSseBody`、`writeBackContext`、`resolveRouteWithPrefetch`、`decidePlan`
   - 做法：保留 `ChatService` 门面，仅做参数归一与流程编排；抽出 `RouteDecider`（判定 + 降级决策）、`ChatStreamPipeline`（SSE 组装与断连处理）、`TurnPersistence`（会话建档 / 写回 / 续跑状态）、`KnowledgePrefetcher`（RAG 预取）
   - 验收：`ChatServiceImpl` 行数下降 ≥40%，出边 ≤12；`ChatServiceImplTest` 与全量测试全绿；SSE 事件顺序、断连取消、续跑行为逐项不变
+  - 结果（2026-11-05）：`ChatServiceImpl` 由 586 行收敛为 57 行门面（仅 `chat`/`streamReactive`/`resume` 三个分发，出边 7）；抽出 `RouteDecider`（判定 + 入口预取汇合）、`ChatTurnExecutor`（同步执行 + COMPLEX 降级重答）、`ChatStreamPipeline`（流式执行 / SSE 组装 / 断连 / 续跑）、`TurnPersistence`（建档 / 绑定 / 写回 / 续跑校验）、`ReplyDecorator`（后处理 / 语音 flag / RAG 出处），RAG 预取沿用既有 `RagPrefetcher` 共享池 bean；`ChatServiceImplTest` 47 条与全量 800 条全绿（含 Spring 上下文装配）。
 
 ## P1 能力组件拆分
 

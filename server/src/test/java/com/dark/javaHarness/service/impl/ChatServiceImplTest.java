@@ -75,22 +75,34 @@ class ChatServiceImplTest {
     @Mock
     private ObjectProvider<ReplyPostProcessor> replyPostProcessors;
     @Mock
+    private ObjectProvider<KnowledgeRetriever> knowledgeRetrieverProvider;
+    @Mock
     private VoiceArtifactStore voiceArtifacts;
 
     private ChatServiceImpl chatService;
 
     @BeforeEach
     void setUp() {
-        // 手动构造（@Autowired 构造加入后 @InjectMocks 无法实例化）：null 知识检索器（知识库禁用
-        // 语义）、ObjectProvider 未打桩（getIfAvailable 返回 null → 预取器 bean 缺位，零行为）、
-        // 限流器 0=不限制（计数语义由 StreamConnectionLimiterTest 覆盖）、降级开关开启（降级用例依赖；
-        // 既有用例无「COMPLEX + 失败」组合，不受影响）；回复后处理器 provider 未打桩（无实现语义：
-        // 文本原样、flags 空集）
-        chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
-                null, ragPrefetcherProvider, new StreamConnectionLimiter(0), true, replyPostProcessors,
-                voiceArtifacts);
+        // 门面只持有执行段与流式段；其余协作件按组件语义装配：null 知识检索器（知识库禁用语义）、
+        // ObjectProvider 未打桩（getIfAvailable 返回 null → 预取器 bean 缺位，零行为）、
+        // 限流器 0=不限制（计数语义由 StreamConnectionLimiterTest 覆盖）、降级开关开启（降级用例依赖）。
+        chatService = buildChatService(new StreamConnectionLimiter(0), null);
         // 默认判定桩：Agentic（各用例可覆盖为 Graph/绑定 Agent/异常等场景）
         lenient().when(routeJudge.plan(anyString(), any(), any())).thenReturn(agenticPlan());
+    }
+
+    /** 按 ChatServiceImpl 的组装语义构建门面（与 Spring 组件装配保持同一依赖图） */
+    private ChatServiceImpl buildChatService(StreamConnectionLimiter limiter, KnowledgeRetriever knowledgeRetriever) {
+        if (knowledgeRetriever != null) {
+            lenient().when(knowledgeRetrieverProvider.getIfAvailable()).thenReturn(knowledgeRetriever);
+        }
+        TurnPersistence persistence = new TurnPersistence(sessionService, agentService, goalService);
+        ReplyDecorator decorator = new ReplyDecorator(replyPostProcessors, voiceArtifacts,
+                knowledgeRetrieverProvider);
+        RouteDecider routeDecider = new RouteDecider(routeJudge, ragPrefetcherProvider);
+        return new ChatServiceImpl(
+                new ChatTurnExecutor(agentService, routeDecider, persistence, decorator, true),
+                new ChatStreamPipeline(agentService, limiter, routeDecider, persistence, decorator, true));
     }
 
     private Goal succeededGoal(String sessionId, String summary) {
@@ -473,9 +485,7 @@ class ChatServiceImplTest {
     /** 过载保护接线：上限 1 时第二路流被并发超限拒绝；首路终结 doFinally 释放后恢复 */
     @Test
     void streamReactive_limiterFull_secondRequestRejected_thenReleasedAfterTermination() {
-        chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
-                null, ragPrefetcherProvider, new StreamConnectionLimiter(1), true, replyPostProcessors,
-                voiceArtifacts);
+        chatService = buildChatService(new StreamConnectionLimiter(1), null);
         ChatRequest req = new ChatRequest("hi", "50", null);
         when(agentService.executeStreamReactive(eq("general"), eq("hi"), eq("50"), any(), any(), any()))
                 .thenReturn(Flux.just("a"));  // 冷流：未订阅不发射，名额保持占用
@@ -815,9 +825,7 @@ class ChatServiceImplTest {
     @Test
     void chat_withKnowledgeBinding_shouldPrefetchBeforeJudge() {
         stubRealPrefetcher();
-        chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
-                knowledgeRetriever, ragPrefetcherProvider, new StreamConnectionLimiter(0), true,
-                replyPostProcessors, voiceArtifacts);
+        chatService = buildChatService(new StreamConnectionLimiter(0), knowledgeRetriever);
         SessionEntity session = new SessionEntity();
         session.setAgentId(1);
         when(sessionService.getSession("42")).thenReturn(session);
@@ -838,9 +846,7 @@ class ChatServiceImplTest {
     @Test
     void streamReactive_withKnowledgeBinding_shouldPrefetchBeforeJudge() {
         stubRealPrefetcher();
-        chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
-                knowledgeRetriever, ragPrefetcherProvider, new StreamConnectionLimiter(0), true,
-                replyPostProcessors, voiceArtifacts);
+        chatService = buildChatService(new StreamConnectionLimiter(0), knowledgeRetriever);
         SessionEntity session = new SessionEntity();
         session.setAgentId(1);
         when(sessionService.getSession("50")).thenReturn(session);
@@ -859,9 +865,7 @@ class ChatServiceImplTest {
     @Test
     void chat_prefetchFails_shouldNotBreakChat() {
         stubRealPrefetcher();
-        chatService = new ChatServiceImpl(agentService, sessionService, routeJudge, goalService,
-                knowledgeRetriever, ragPrefetcherProvider, new StreamConnectionLimiter(0), true,
-                replyPostProcessors, voiceArtifacts);
+        chatService = buildChatService(new StreamConnectionLimiter(0), knowledgeRetriever);
         SessionEntity session = new SessionEntity();
         session.setAgentId(1);
         when(sessionService.getSession("42")).thenReturn(session);
