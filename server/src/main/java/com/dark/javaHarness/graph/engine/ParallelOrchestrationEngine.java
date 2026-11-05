@@ -2,12 +2,13 @@ package com.dark.javaHarness.graph.engine;
 
 import com.dark.javaHarness.agent.ProgressLine;
 import com.dark.javaHarness.agent.BranchProgressListener;
-import com.dark.javaHarness.graph.MultiAgentGraphAgent;
+import com.dark.javaHarness.agent.SubtaskResults;
 import com.dark.javaHarness.graph.OrchestrationBudget;
 import com.dark.javaHarness.graph.OrchestrationNodes;
 import com.dark.javaHarness.state.CheckpointSelector;
 import com.dark.javaHarness.state.OrchestrationCheckpoint;
 import com.dark.javaHarness.state.OrchestrationStage;
+import com.dark.javaHarness.state.OrchestrationStateKeys;
 import com.dark.javaHarness.state.persistence.OrchestrationCheckpointStore;
 import com.dark.javaHarness.domain.Goal;
 import com.dark.javaHarness.observability.HarnessMetrics;
@@ -76,7 +77,7 @@ public final class ParallelOrchestrationEngine implements OrchestrationEngine {
         save(goal, OrchestrationStage.SUBTASKS_DONE, state);
         aggregateWithDigest(state, null);
         save(goal, OrchestrationStage.DONE, state);
-        return state.value(MultiAgentGraphAgent.K_FINAL, String.class).orElse(goal.objective());
+        return state.value(OrchestrationStateKeys.K_FINAL, String.class).orElse(goal.objective());
     }
 
     /* ---------------- 流式执行 ---------------- */
@@ -109,7 +110,7 @@ public final class ParallelOrchestrationEngine implements OrchestrationEngine {
             merge(state, nodes.lead(state, channels.cancelled,
                     line -> BranchProgressListener.tryEmitSerialized(channels.progress, line)));
             emit(channels.progress, ProgressLine.encode("拆解",
-                    state.value(MultiAgentGraphAgent.K_SUBTASK_COUNT, Integer.class).orElse(0)
+                    state.value(OrchestrationStateKeys.K_SUBTASK_COUNT, Integer.class).orElse(0)
                             + " 个子任务已就绪"));
             save(goal, OrchestrationStage.LEAD_DONE, state);
             runSubtasks(state,
@@ -151,7 +152,7 @@ public final class ParallelOrchestrationEngine implements OrchestrationEngine {
 
     /** 已完成编排的续跑：零 LLM 调用，直接回放最终回答（旧 END 帧兜底语义）。 */
     private void replayFinal(Goal goal, OrchestrationState state, Channels channels) {
-        String finalAnswer = state.value(MultiAgentGraphAgent.K_FINAL, String.class).orElse(null);
+        String finalAnswer = state.value(OrchestrationStateKeys.K_FINAL, String.class).orElse(null);
         emit(channels.tokens, finalAnswer == null || finalAnswer.isBlank()
                 ? goal.objective() : finalAnswer);
     }
@@ -168,7 +169,7 @@ public final class ParallelOrchestrationEngine implements OrchestrationEngine {
         if (channels.contentSent.get()) {
             return;
         }
-        String finalAnswer = state.value(MultiAgentGraphAgent.K_FINAL, String.class).orElse(null);
+        String finalAnswer = state.value(OrchestrationStateKeys.K_FINAL, String.class).orElse(null);
         if (finalAnswer != null && !finalAnswer.isBlank()) {
             emit(channels.progress, ProgressLine.encode("聚合", "汇总子任务结果，生成最终回答"));
             emit(channels.progress, finalAnswer);
@@ -200,20 +201,20 @@ public final class ParallelOrchestrationEngine implements OrchestrationEngine {
                 emit(channels.tokens, digest);
                 channels.contentSent.set(true);
             }
-            state.put(MultiAgentGraphAgent.K_FINAL, digest);
+            state.put(OrchestrationStateKeys.K_FINAL, digest);
         }
     }
 
     /** 简化 Graph 的最终回答：拼装非占位子任务结果；全部失败/跳过（无可用结果）时返回 null */
     private String subtaskDigest(OrchestrationState state) {
-        int count = state.value(MultiAgentGraphAgent.K_SUBTASK_COUNT, Integer.class).orElse(0);
+        int count = state.value(OrchestrationStateKeys.K_SUBTASK_COUNT, Integer.class).orElse(0);
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < count; i++) {
-            String result = state.value(MultiAgentGraphAgent.K_RESULT_PREFIX + i, String.class).orElse(null);
+            String result = state.value(OrchestrationStateKeys.K_RESULT_PREFIX + i, String.class).orElse(null);
             if (result == null || result.isBlank()
-                    || MultiAgentGraphAgent.SKIPPED_RESULT.equals(result)
-                    || MultiAgentGraphAgent.TIMEOUT_SKIPPED_RESULT.equals(result)
-                    || MultiAgentGraphAgent.FAILED_RESULT.equals(result)) {
+                    || SubtaskResults.SKIPPED.equals(result)
+                    || SubtaskResults.TIMEOUT_SKIPPED.equals(result)
+                    || SubtaskResults.FAILED.equals(result)) {
                 continue;
             }
             if (sb.length() > 0) {
@@ -251,7 +252,7 @@ public final class ParallelOrchestrationEngine implements OrchestrationEngine {
                              Consumer<String> toolEmitter,
                              AtomicBoolean cancelled,
                              BranchProgressListener progress) {
-        int count = state.value(MultiAgentGraphAgent.K_SUBTASK_COUNT, Integer.class).orElse(0);
+        int count = state.value(OrchestrationStateKeys.K_SUBTASK_COUNT, Integer.class).orElse(0);
         if (count <= 0) {
             return;
         }
@@ -318,13 +319,13 @@ public final class ParallelOrchestrationEngine implements OrchestrationEngine {
 
     private static Map<String, Object> failedDelta(int idx, BranchProgressListener progress) {
         if (progress != null) {
-            progress.recordOutcome(idx, MultiAgentGraphAgent.FAILED_RESULT);
+            progress.recordOutcome(idx, SubtaskResults.FAILED);
         }
-        return Map.of(MultiAgentGraphAgent.K_RESULT_PREFIX + idx, MultiAgentGraphAgent.FAILED_RESULT);
+        return Map.of(OrchestrationStateKeys.K_RESULT_PREFIX + idx, SubtaskResults.FAILED);
     }
 
     private static String resultOf(Map<String, Object> delta, int idx) {
-        Object value = delta == null ? null : delta.get(MultiAgentGraphAgent.K_RESULT_PREFIX + idx);
+        Object value = delta == null ? null : delta.get(OrchestrationStateKeys.K_RESULT_PREFIX + idx);
         return value instanceof String s ? s : null;
     }
 
@@ -333,16 +334,16 @@ public final class ParallelOrchestrationEngine implements OrchestrationEngine {
     /** 编排 input 组装：objective/sessionId + 轨迹标识（取 Goal，null 不放键）+ 预算账本。 */
     private OrchestrationState initialState(Goal goal) {
         Map<String, Object> input = new HashMap<>();
-        input.put(MultiAgentGraphAgent.K_OBJECTIVE, goal.objective());
-        input.put(MultiAgentGraphAgent.K_SESSION_ID, goal.sessionId());
+        input.put(OrchestrationStateKeys.K_OBJECTIVE, goal.objective());
+        input.put(OrchestrationStateKeys.K_SESSION_ID, goal.sessionId());
         if (goal.turnId() != null) {
-            input.put(MultiAgentGraphAgent.K_TURN_ID, goal.turnId());
+            input.put(OrchestrationStateKeys.K_TURN_ID, goal.turnId());
         }
         if (goal.traceId() != null) {
-            input.put(MultiAgentGraphAgent.K_TRACE_ID, goal.traceId());
+            input.put(OrchestrationStateKeys.K_TRACE_ID, goal.traceId());
         }
         if (goal.channel() != null && !goal.channel().isBlank()) {
-            input.put(MultiAgentGraphAgent.K_CHANNEL, goal.channel());
+            input.put(OrchestrationStateKeys.K_CHANNEL, goal.channel());
         }
         budget.putLedger(input);
         return new OrchestrationState(goal.id(), input);
@@ -363,7 +364,7 @@ public final class ParallelOrchestrationEngine implements OrchestrationEngine {
 
     private static BranchProgressListener progressListener(Channels channels) {
         return new BranchProgressListener(channels.progress,
-                MultiAgentGraphAgent.SUBTASK_NODE_PREFIX, MultiAgentGraphAgent.K_SUBTASK_PREFIX);
+                OrchestrationStateKeys.SUBTASK_NODE_PREFIX, OrchestrationStateKeys.K_SUBTASK_PREFIX);
     }
 
     private static void emit(Sinks.Many<String> sink, String row) {

@@ -11,7 +11,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.dark.javaHarness.graph.MultiAgentGraphAgent;
+import com.dark.javaHarness.agent.SubtaskResults;
 import com.dark.javaHarness.graph.OrchestrationBudget;
 import com.dark.javaHarness.graph.OrchestrationNodes;
 import com.dark.javaHarness.state.OrchestrationStage;
@@ -75,7 +75,7 @@ class ParallelOrchestrationEngineTest {
         when(nodes.lead(any(OrchestrationState.class), any(), any()))
                 .thenReturn(Map.of("subtaskCount", 1, "subtask_0", "A"));
         when(nodes.subtask(any(OrchestrationState.class), anyInt(), any(), any(), any()))
-                .thenReturn(Map.of("result_0", MultiAgentGraphAgent.FAILED_RESULT));
+                .thenReturn(Map.of("result_0", SubtaskResults.FAILED));
         when(nodes.aggregate(any(OrchestrationState.class), any(), any(), any()))
                 .thenThrow(new IllegalStateException("聚合调用失败"));
 

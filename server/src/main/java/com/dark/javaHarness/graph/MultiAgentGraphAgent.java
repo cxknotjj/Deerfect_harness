@@ -3,13 +3,13 @@ package com.dark.javaHarness.graph;
 import com.dark.javaHarness.agent.Agent;
 import com.dark.javaHarness.agent.AgentChatCaller;
 import com.dark.javaHarness.agent.LlmRetry;
-import com.dark.javaHarness.agent.SubtaskResults;
 import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.Goal;
 import com.dark.javaHarness.graph.engine.OrchestrationEngine;
 import com.dark.javaHarness.graph.engine.ParallelOrchestrationEngine;
+import com.dark.javaHarness.state.OrchestrationStateKeys;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.prompt.ContextCompositionRecorder;
@@ -61,48 +61,7 @@ public class MultiAgentGraphAgent implements Agent {
     static final String NODE_LEAD = "lead";
     static final String NODE_AGGREGATE = "aggregate";
 
-    /** 状态键（节点实现类 OrchestrationNodes 与引擎跨类引用的契约） */
-    public static final String K_OBJECTIVE = "objective";
-    public static final String K_SESSION_ID = "sessionId";
-    /** 轨迹键：轮次/调用链标识（引擎从 Goal 注入；编排内 5 次调用共用） */
-    public static final String K_TURN_ID = "turnId";
-    public static final String K_TRACE_ID = "traceId";
-    /** 来源渠道键：system prompt 的信道规范段据此生成（Goal 注入；旧检查点缺键按空处理） */
-    public static final String K_CHANNEL = "channel";
-    /** 轨迹键：lead 调用的 span_id（lead 节点发起调用前生成写入；subtask/aggregate 读出作 parent_span） */
-    public static final String K_LEAD_SPAN = "leadSpanId";
-    public static final String K_SUBTASK_COUNT = "subtaskCount";
-    public static final String K_SUBTASK_PREFIX = "subtask_";
-    public static final String K_SUBTASK_AGENT_PREFIX = "subtaskAgent_";
-    /** 任务书键：lead 出口写入（已按预算截断），subtask 节点读出作 user 文本；旧 checkpoint 缺键 orElse(null) 安全 */
-    public static final String K_SUBTASK_BRIEF_PREFIX = "subtaskBrief_";
-    /** 工具包键：lead 出口写入包名 CSV（空名单写空串），subtask 节点读出逐包解析包定义；旧 checkpoint 缺键 orElse("") 与空串同口径=无包 */
-    public static final String K_SUBTASK_PACKS_PREFIX = "subtaskPacks_";
-    public static final String K_RESULT_PREFIX = "result_";
-    public static final String K_FINAL = "final";
-
-    /** 子任务节点名前缀 */
-    public static final String SUBTASK_NODE_PREFIX = "subtask-";
-
-    /**
-     * 预算超限跳过的子任务占位 result：聚合据此识别未执行子任务数（排除出真实结果），
-     * 并在 prompt 注入降级说明；非空保证状态键有值、与「子任务失败无结果」区分。
-     */
-    public static final String SKIPPED_RESULT = SubtaskResults.SKIPPED;
-
-    /**
-     * 子任务墙钟超时占位 result：与 {@link #SKIPPED_RESULT} 同构的占位通道（聚合排除出
-     * 真实结果、prompt 注入超时说明），文案区分跳过原因（超时 ≠ 预算超限）。
-     */
-    public static final String TIMEOUT_SKIPPED_RESULT = SubtaskResults.TIMEOUT_SKIPPED;
-
-    /**
-     * 子任务执行失败占位 result：与 {@link #TIMEOUT_SKIPPED_RESULT} 同构的第三条占位通道
-     * （模型调用异常/重试耗尽/看门狗中止等）。失败不向编排上抛——单子任务异常会让
-     * 其他子任务的真实结果全部作废（2026-10-02）。
-     */
-    public static final String FAILED_RESULT = SubtaskResults.FAILED;
-
+    /** 状态键已下沉到 {@link OrchestrationStateKeys}，本类不再持有（打断 graph ↔ graph.engine 环） */
     private final String agentName;
     /** 编排消费上限熔断：各节点共享的预算账本（依赖 {@link #budgets}；节点实现类亦引用） */
     private final OrchestrationBudget orchestrationBudget;

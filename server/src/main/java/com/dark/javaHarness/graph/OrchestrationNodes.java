@@ -7,6 +7,7 @@ import com.dark.javaHarness.agent.BranchProgressListener;
 import com.dark.javaHarness.agent.BudgetLedger;
 import com.dark.javaHarness.agent.CallTrace;
 import com.dark.javaHarness.agent.ProgressLine;
+import com.dark.javaHarness.agent.SubtaskResults;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.enums.AgentConstants;
 import com.dark.javaHarness.graph.engine.OrchestrationState;
@@ -14,6 +15,7 @@ import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.impl.route.RagPrefetcher;
+import com.dark.javaHarness.state.OrchestrationStateKeys;
 import com.dark.javaHarness.tool.trace.ToolCallTracer;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -35,8 +37,8 @@ import reactor.core.publisher.Sinks;
  * lead 拆解 / subtask 子任务执行 / aggregate 聚合，及节点→caller 的 predict* 桥接与
  * 流式聚合护栏 {@link AggregateStreamGuard} 的所有权。
  *
- * <p>状态键常量仍归宿主（是 {@link MultiAgentStreamPipeline} 的跨类契约），本类经
- * {@code MultiAgentGraphAgent.K_*} 引用；执行/流式/续跑入口留在宿主
+ * <p>状态键常量已下沉到 {@link com.dark.javaHarness.state.OrchestrationStateKeys}（引擎与节点共用，
+ * 避免 graph ↔ graph.engine 循环依赖）；执行/流式/续跑入口留在宿主
  * （{@code MultiAgentGraphAgent}），由自研引擎按阶段调用本类。
  */
 public class OrchestrationNodes {
@@ -97,14 +99,14 @@ public class OrchestrationNodes {
             log.info("[multi-agent][lead] 客户端已断开，跳过拆解");
             return new HashMap<>();
         }
-        String objective = state.value(MultiAgentGraphAgent.K_OBJECTIVE, String.class).orElse("");
-        String sessionId = state.value(MultiAgentGraphAgent.K_SESSION_ID, String.class).orElse(null);
+        String objective = state.value(OrchestrationStateKeys.K_OBJECTIVE, String.class).orElse("");
+        String sessionId = state.value(OrchestrationStateKeys.K_SESSION_ID, String.class).orElse(null);
         // 轨迹贯通：lead 为编排根调用（parentSpan=null），spanId 在发起前生成并写入状态键——
         // subtask/aggregate 节点读出作各自 parent_span（续跑时沿检查点沿用，不重生成）
-        String turnId = state.value(MultiAgentGraphAgent.K_TURN_ID, String.class).orElse(null);
-        String traceId = state.value(MultiAgentGraphAgent.K_TRACE_ID, String.class).orElse(null);
+        String turnId = state.value(OrchestrationStateKeys.K_TURN_ID, String.class).orElse(null);
+        String traceId = state.value(OrchestrationStateKeys.K_TRACE_ID, String.class).orElse(null);
         String leadSpanId = CallTrace.newSpanId();
-        String channel = state.value(MultiAgentGraphAgent.K_CHANNEL, String.class).orElse(null);
+        String channel = state.value(OrchestrationStateKeys.K_CHANNEL, String.class).orElse(null);
         CallTrace leadTrace = new CallTrace(turnId, traceId, null, leadSpanId, channel);
         // 思考透传（agent 表 thinking 列显示口径）：lead 行 thinking=1 且流式旁路可用时，
         // reasoningContent delta 编码为「思考 · lead」进度行经旁路 sink 合入（不节流，与聚合同口径）
@@ -128,17 +130,17 @@ public class OrchestrationNodes {
         }
         Map<String, Object> updates = new HashMap<>();
         int n = Math.min(items.size(), resolvedMaxSubtasks());
-        updates.put(MultiAgentGraphAgent.K_LEAD_SPAN, leadSpanId);
-        updates.put(MultiAgentGraphAgent.K_SUBTASK_COUNT, n);
+        updates.put(OrchestrationStateKeys.K_LEAD_SPAN, leadSpanId);
+        updates.put(OrchestrationStateKeys.K_SUBTASK_COUNT, n);
         for (int i = 0; i < n; i++) {
             LeadOutputParser.Subtask item = items.get(i);
-            updates.put(MultiAgentGraphAgent.K_SUBTASK_PREFIX + i, item.desc());
-            updates.put(MultiAgentGraphAgent.K_SUBTASK_AGENT_PREFIX + i, item.agent());
+            updates.put(OrchestrationStateKeys.K_SUBTASK_PREFIX + i, item.desc());
+            updates.put(OrchestrationStateKeys.K_SUBTASK_AGENT_PREFIX + i, item.agent());
             // 任务书随槽位落状态，截断在 lead 出口完成（写入即定稿）；旧 checkpoint 缺键 orElse(null) 安全。
             // brief 长文本不参与 RAG 预取（下方预取 query 仍为 desc），只作子任务执行的 user 文本
-            updates.put(MultiAgentGraphAgent.K_SUBTASK_BRIEF_PREFIX + i, truncateBrief(item.brief()));
+            updates.put(OrchestrationStateKeys.K_SUBTASK_BRIEF_PREFIX + i, truncateBrief(item.brief()));
             // 包名 CSV 随槽位落状态：空名单写空串（读侧 orElse("") 归一化，两种口径同义=无包）
-            updates.put(MultiAgentGraphAgent.K_SUBTASK_PACKS_PREFIX + i, String.join(",", item.packs()));
+            updates.put(OrchestrationStateKeys.K_SUBTASK_PACKS_PREFIX + i, String.join(",", item.packs()));
         }
         log.info("[multi-agent][lead] 拆解为 {} 个子任务，指派：{}", n,
                 items.subList(0, n).stream().map(LeadOutputParser.Subtask::agent).toList());
@@ -202,7 +204,7 @@ public class OrchestrationNodes {
                                        Consumer<String> toolEmitter,
                                        AtomicBoolean cancelled,
                                        BranchProgressListener progress) {
-        String task = state.value(MultiAgentGraphAgent.K_SUBTASK_PREFIX + idx, String.class).orElse(null);
+        String task = state.value(OrchestrationStateKeys.K_SUBTASK_PREFIX + idx, String.class).orElse(null);
         if (task == null || task.isBlank()) {
             return new HashMap<>(); // lead 未设置该子任务 → 快速短路
         }
@@ -210,14 +212,14 @@ public class OrchestrationNodes {
             log.info("[multi-agent][subtask-{}] 客户端已断开，跳过专家调用", idx);
             return new HashMap<>();
         }
-        String expert = state.value(MultiAgentGraphAgent.K_SUBTASK_AGENT_PREFIX + idx, String.class).orElse(null);
+        String expert = state.value(OrchestrationStateKeys.K_SUBTASK_AGENT_PREFIX + idx, String.class).orElse(null);
         // 任务书读出：旧 checkpoint 缺键 → null（执行退化为 task/desc，口径见 predictSubtask）
-        String brief = state.value(MultiAgentGraphAgent.K_SUBTASK_BRIEF_PREFIX + idx, String.class).orElse(null);
+        String brief = state.value(OrchestrationStateKeys.K_SUBTASK_BRIEF_PREFIX + idx, String.class).orElse(null);
         // 工具包读出：旧 checkpoint 缺键 → orElse("") 归一化为无包（与空名单同口径，执行退化现状）；
         // 可分配边界：包授出的工具 ⊆ lead 自身 tools 列（列空则零授出，见 resolvePacks）
         PackResolution packs = resolvePacks(
-                state.value(MultiAgentGraphAgent.K_SUBTASK_PACKS_PREFIX + idx, String.class).orElse(""));
-        String sessionId = state.value(MultiAgentGraphAgent.K_SESSION_ID, String.class).orElse(null);
+                state.value(OrchestrationStateKeys.K_SUBTASK_PACKS_PREFIX + idx, String.class).orElse(""));
+        String sessionId = state.value(OrchestrationStateKeys.K_SESSION_ID, String.class).orElse(null);
         // 子任务入口 RAG 预取补提交（fire-and-forget）：主提交点已上移 lead 出口（排队空档消化
         // 检索延迟，spec 3.6），本钩子保留覆盖断点续跑（lead 不重跑、直接进入 subtask 节点）场景；
         // 与 lead 出口首跑提交同参数重复幂等（KnowledgeRetriever 复合缓存键），无需去重。
@@ -233,10 +235,10 @@ public class OrchestrationNodes {
             }
         }
         // 轨迹贯通：派生调用挂同一执行链（turn/trace），parent_span=lead 的 span_id
-        CallTrace trace = new CallTrace(state.value(MultiAgentGraphAgent.K_TURN_ID, String.class).orElse(null),
-                state.value(MultiAgentGraphAgent.K_TRACE_ID, String.class).orElse(null),
-                state.value(MultiAgentGraphAgent.K_LEAD_SPAN, String.class).orElse(null), null,
-                state.value(MultiAgentGraphAgent.K_CHANNEL, String.class).orElse(null));
+        CallTrace trace = new CallTrace(state.value(OrchestrationStateKeys.K_TURN_ID, String.class).orElse(null),
+                state.value(OrchestrationStateKeys.K_TRACE_ID, String.class).orElse(null),
+                state.value(OrchestrationStateKeys.K_LEAD_SPAN, String.class).orElse(null), null,
+                state.value(OrchestrationStateKeys.K_CHANNEL, String.class).orElse(null));
         // 子任务墙钟超时（app.context.subtask-wall-clock-seconds，0 = 不限制）：把断连令牌包装为
         // 「断连 OR 超时」供给——独立包装、绝不置位共享 AtomicBoolean（超时不是客户端断开，
         // 置位会连坐短路同批并行子任务与聚合）；超时命中时 caller 在 token 边界抛
@@ -279,8 +281,8 @@ public class OrchestrationNodes {
             log.warn("[multi-agent][subtask-{}] 编排 token 消费已达上限（{} / {}），跳过专家调用",
                     idx, OrchestrationBudget.ledgerValue(state), budgets.getOrchestrationBudget());
             Map<String, Object> updates = new HashMap<>();
-            updates.put(MultiAgentGraphAgent.K_RESULT_PREFIX + idx, MultiAgentGraphAgent.SKIPPED_RESULT);
-            recordOutcome(progress, idx, MultiAgentGraphAgent.SKIPPED_RESULT);
+            updates.put(OrchestrationStateKeys.K_RESULT_PREFIX + idx, SubtaskResults.SKIPPED);
+            recordOutcome(progress, idx, SubtaskResults.SKIPPED);
             return updates;
         } catch (CancellationException e) {
             // 超时命中判定：deadline 已过且共享断连令牌未置位——真实客户端断开（令牌置位）
@@ -292,8 +294,8 @@ public class OrchestrationNodes {
             log.warn("[multi-agent][subtask-{}] 子任务执行超时中止（耗时 {}s / 上限 {}s），写占位结果",
                     idx, (System.nanoTime() - startNanos) / 1_000_000_000L, wallClock);
             Map<String, Object> updates = new HashMap<>();
-            updates.put(MultiAgentGraphAgent.K_RESULT_PREFIX + idx, MultiAgentGraphAgent.TIMEOUT_SKIPPED_RESULT);
-            recordOutcome(progress, idx, MultiAgentGraphAgent.TIMEOUT_SKIPPED_RESULT);
+            updates.put(OrchestrationStateKeys.K_RESULT_PREFIX + idx, SubtaskResults.TIMEOUT_SKIPPED);
+            recordOutcome(progress, idx, SubtaskResults.TIMEOUT_SKIPPED);
             return updates;
         } catch (Exception e) {
             // 其余执行失败（模型调用异常/重试耗尽/看门狗 120s 零帧中止等）：写占位结果不向图上抛——
@@ -301,12 +303,12 @@ public class OrchestrationNodes {
             // 真实结果全部作废；失败占位后其余子任务照常完成，聚合注入失败说明（2026-10-02）
             log.warn("[multi-agent][subtask-{}] 子任务执行失败，写占位结果：{}", idx, safeMessage(e), e);
             Map<String, Object> updates = new HashMap<>();
-            updates.put(MultiAgentGraphAgent.K_RESULT_PREFIX + idx, MultiAgentGraphAgent.FAILED_RESULT);
-            recordOutcome(progress, idx, MultiAgentGraphAgent.FAILED_RESULT);
+            updates.put(OrchestrationStateKeys.K_RESULT_PREFIX + idx, SubtaskResults.FAILED);
+            recordOutcome(progress, idx, SubtaskResults.FAILED);
             return updates;
         }
         Map<String, Object> updates = new HashMap<>();
-        updates.put(MultiAgentGraphAgent.K_RESULT_PREFIX + idx, result);
+        updates.put(OrchestrationStateKeys.K_RESULT_PREFIX + idx, result);
         recordOutcome(progress, idx, result);
         log.info("[multi-agent][subtask-{}] 完成（专家={}），结果长度={}", idx, expert, result.length());
         return updates;
@@ -340,31 +342,31 @@ public class OrchestrationNodes {
             log.info("[multi-agent][aggregate] 客户端已断开，跳过聚合调用");
             return new HashMap<>();
         }
-        int n = state.value(MultiAgentGraphAgent.K_SUBTASK_COUNT, Integer.class).orElse(0);
-        String sessionId = state.value(MultiAgentGraphAgent.K_SESSION_ID, String.class).orElse(null);
+        int n = state.value(OrchestrationStateKeys.K_SUBTASK_COUNT, Integer.class).orElse(0);
+        String sessionId = state.value(OrchestrationStateKeys.K_SESSION_ID, String.class).orElse(null);
         // 轨迹贯通：聚合为派生调用（parent_span=lead 的 span_id），与子任务同树
-        CallTrace trace = new CallTrace(state.value(MultiAgentGraphAgent.K_TURN_ID, String.class).orElse(null),
-                state.value(MultiAgentGraphAgent.K_TRACE_ID, String.class).orElse(null),
-                state.value(MultiAgentGraphAgent.K_LEAD_SPAN, String.class).orElse(null), null,
-                state.value(MultiAgentGraphAgent.K_CHANNEL, String.class).orElse(null));
+        CallTrace trace = new CallTrace(state.value(OrchestrationStateKeys.K_TURN_ID, String.class).orElse(null),
+                state.value(OrchestrationStateKeys.K_TRACE_ID, String.class).orElse(null),
+                state.value(OrchestrationStateKeys.K_LEAD_SPAN, String.class).orElse(null), null,
+                state.value(OrchestrationStateKeys.K_CHANNEL, String.class).orElse(null));
         List<String> results = new ArrayList<>();
         int skipped = 0;
         int timedOut = 0;
         int failed = 0;
         for (int i = 0; i < n; i++) {
-            String r = state.value(MultiAgentGraphAgent.K_RESULT_PREFIX + i, String.class).orElse(null);
+            String r = state.value(OrchestrationStateKeys.K_RESULT_PREFIX + i, String.class).orElse(null);
             if (r == null || r.isBlank()) {
                 continue; // 子任务失败（异常上抛的旧路径/短路槽位）无结果
             }
-            if (MultiAgentGraphAgent.SKIPPED_RESULT.equals(r)) {
+            if (SubtaskResults.SKIPPED.equals(r)) {
                 skipped++; // 预算熔断跳过：不计入真实结果，降级说明交代
                 continue;
             }
-            if (MultiAgentGraphAgent.TIMEOUT_SKIPPED_RESULT.equals(r)) {
+            if (SubtaskResults.TIMEOUT_SKIPPED.equals(r)) {
                 timedOut++; // 墙钟超时跳过：不计入真实结果，超时说明交代（与预算降级互不掺混）
                 continue;
             }
-            if (MultiAgentGraphAgent.FAILED_RESULT.equals(r)) {
+            if (SubtaskResults.FAILED.equals(r)) {
                 failed++; // 执行失败跳过：不计入真实结果，失败说明交代（与预算/超时互不掺混）
                 continue;
             }
@@ -373,7 +375,7 @@ public class OrchestrationNodes {
         String finalAnswer;
         if (results.isEmpty() && skipped == 0 && timedOut == 0 && failed == 0) {
             // 子任务全失败（旧路径异常上抛，无任何占位）：兜底（原有行为）
-            finalAnswer = state.value(MultiAgentGraphAgent.K_FINAL, String.class).orElse("（未生成最终回答）");
+            finalAnswer = state.value(OrchestrationStateKeys.K_FINAL, String.class).orElse("（未生成最终回答）");
         } else {
             // 有真实结果或存在占位（含全部被跳过/超时/失败）：照常调聚合模型（聚合必发，
             // 与预算/超时占位同语义），各说明段前置交代占比
@@ -406,7 +408,7 @@ public class OrchestrationNodes {
             }
         }
         Map<String, Object> updates = new HashMap<>();
-        updates.put(MultiAgentGraphAgent.K_FINAL, finalAnswer);
+        updates.put(OrchestrationStateKeys.K_FINAL, finalAnswer);
         log.info("[multi-agent][aggregate] 汇总 {} 个子任务结果（预算超限跳过 {} 个，超时跳过 {} 个，失败跳过 {} 个）",
                 results.size(), skipped, timedOut, failed);
         return updates;

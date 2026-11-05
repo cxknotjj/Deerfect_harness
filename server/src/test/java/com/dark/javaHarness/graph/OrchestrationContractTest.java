@@ -2,6 +2,8 @@ package com.dark.javaHarness.graph;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.dark.javaHarness.agent.SubtaskResults;
+import com.dark.javaHarness.state.OrchestrationStateKeys;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -14,17 +16,17 @@ class OrchestrationContractTest {
 
     @Test
     void placeholderTextsAreStable() {
-        assertEquals("（预算超限跳过：编排 token 消费已达上限）", MultiAgentGraphAgent.SKIPPED_RESULT);
-        assertEquals("（子任务执行超时，已跳过）", MultiAgentGraphAgent.TIMEOUT_SKIPPED_RESULT);
-        assertEquals("（子任务执行失败，已跳过）", MultiAgentGraphAgent.FAILED_RESULT);
+        assertEquals("（预算超限跳过：编排 token 消费已达上限）", SubtaskResults.SKIPPED);
+        assertEquals("（子任务执行超时，已跳过）", SubtaskResults.TIMEOUT_SKIPPED);
+        assertEquals("（子任务执行失败，已跳过）", SubtaskResults.FAILED);
     }
 
     @Test
     void stateKeysAreStable() {
-        assertEquals("objective", MultiAgentGraphAgent.K_OBJECTIVE);
-        assertEquals("subtask_", MultiAgentGraphAgent.K_SUBTASK_PREFIX);
-        assertEquals("subtaskAgent_", MultiAgentGraphAgent.K_SUBTASK_AGENT_PREFIX);
-        assertEquals("result_", MultiAgentGraphAgent.K_RESULT_PREFIX);
-        assertEquals("final", MultiAgentGraphAgent.K_FINAL);
+        assertEquals("objective", OrchestrationStateKeys.K_OBJECTIVE);
+        assertEquals("subtask_", OrchestrationStateKeys.K_SUBTASK_PREFIX);
+        assertEquals("subtaskAgent_", OrchestrationStateKeys.K_SUBTASK_AGENT_PREFIX);
+        assertEquals("result_", OrchestrationStateKeys.K_RESULT_PREFIX);
+        assertEquals("final", OrchestrationStateKeys.K_FINAL);
     }
 }

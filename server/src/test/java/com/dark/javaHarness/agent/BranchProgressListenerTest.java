@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dark.javaHarness.agent.ProgressLine;
-import com.dark.javaHarness.graph.MultiAgentGraphAgent;
+import com.dark.javaHarness.state.OrchestrationStateKeys;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.Test;
@@ -17,8 +17,8 @@ import reactor.core.publisher.Sinks;
  */
 class BranchProgressListenerTest {
 
-    private static final String NODE_PREFIX = MultiAgentGraphAgent.SUBTASK_NODE_PREFIX;
-    private static final String STATE_PREFIX = MultiAgentGraphAgent.K_SUBTASK_PREFIX;
+    private static final String NODE_PREFIX = OrchestrationStateKeys.SUBTASK_NODE_PREFIX;
+    private static final String STATE_PREFIX = OrchestrationStateKeys.K_SUBTASK_PREFIX;
 
     /** 建监听器 + 已订阅收集器；返回 [listener, rows] */
     private Object[] listenerWithRows() {
