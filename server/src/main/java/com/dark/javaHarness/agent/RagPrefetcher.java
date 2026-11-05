@@ -1,6 +1,8 @@
-package com.dark.javaHarness.service.impl.route;
+package com.dark.javaHarness.agent;
 
+import com.dark.javaHarness.domain.AgentConfig;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
+import com.dark.javaHarness.service.AgentService;
 import java.util.List;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -11,14 +13,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * RAG 入口预取器（自 {@link ChatServiceImpl} 拆出，超长类拆分 2026-09-25）：
+ * RAG 入口预取器（超长类拆分 2026-09-25；2026-11-05 由 service.impl.route 下沉到 agent 包，
+ * 使 graph 编排不再反向依赖 service.impl）：
  * 进程级共享预取池（守护线程、core 空闲 60s 回收，饱和静默丢弃——预取是纯加速，
  * 被丢的请求退化为组装期现查）+ 会话绑定知识库解析 + 预取提交与汇合等待。
  * 提交签名显式化（agentName, sessionId, query）：会话 agent 名解析留守宿主（入口解析后传入），
  * kb 绑定解析内聚本类（agentService 查 config → parseBinding，未绑定不入池）；
  * 以 bean 注册于 KnowledgeConfig（随 knowledgeRetriever 同条件装配，知识库禁用时缺位），
  * 供入口与编排侧复用同一共享池。
- * judge 与预取的汇合次序（并行后汇合）属聊天编排语义，仍由宿主 {@code resolveAgentWithPrefetch} 编排。
+ * judge 与预取的汇合次序（并行后汇合）属聊天编排语义，仍由宿主（RouteDecider）编排。
  */
 public final class RagPrefetcher {
 
@@ -28,11 +31,10 @@ public final class RagPrefetcher {
     private static final long PREFETCH_GRACE_SECONDS = 2;
 
     private final KnowledgeRetriever knowledgeRetriever;
-    private final com.dark.javaHarness.service.AgentService agentService;
+    private final AgentService agentService;
     private final ThreadPoolExecutor pool;
 
-    public RagPrefetcher(KnowledgeRetriever knowledgeRetriever,
-                  com.dark.javaHarness.service.AgentService agentService) {
+    public RagPrefetcher(KnowledgeRetriever knowledgeRetriever, AgentService agentService) {
         this.knowledgeRetriever = knowledgeRetriever;
         this.agentService = agentService;
         this.pool = new ThreadPoolExecutor(
@@ -90,8 +92,7 @@ public final class RagPrefetcher {
         if (agentName == null || agentName.isBlank()) {
             return null;
         }
-        com.dark.javaHarness.domain.AgentConfig config =
-                agentService.getAgentConfig(agentName).orElse(null);
+        AgentConfig config = agentService.getAgentConfig(agentName).orElse(null);
         return KnowledgeRetriever.parseBinding(config == null ? null : config.knowledge());
     }
 

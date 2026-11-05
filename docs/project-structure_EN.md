@@ -40,7 +40,10 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── AgentConfigProvider.java  # Runtime config from the agent table (routing map)
 │   ├── ProviderAdminService.java # model_provider mapping management (hot refresh on add)
 │   └── impl/                     # Implementations (AgentServiceImpl / ChatServiceImpl / SessionServiceImpl / ProviderAdminServiceImpl / SseEncoder etc.)
-│       └── route/                # LlmRouteJudge (main-agent routing decision) / RagPrefetcher (RAG entry prefetch)
+│       ├── ChatServiceImpl.java  # Chat facade (only chat/streamReactive/resume dispatch)
+│       ├── ChatTurnExecutor.java / ChatStreamPipeline.java  # Sync execution / streaming & SSE
+│       ├── RouteDecider.java / TurnPersistence.java / ReplyDecorator.java  # Routing & prefetch join / session persistence / reply decoration
+│       └── route/                # LlmRouteJudge (main-agent routing decision) / LlmSemanticTriggerJudge (channel semantic trigger)
 ├── advisor/                      # Spring AI Advisor interceptors (cross-cutting agent-flow management)
 │   ├── ContextAssemblingAdvisor.java  # Context assembly: filter / token-budget truncation / role normalization
 │   └── PromptBudgetAdvisor.java  # Prompt section budgets (history / user / tool-result truncation)
@@ -88,6 +91,7 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── CallSpecAssembler.java      # Role-based assembly policy (MemoryPolicy injection / maxTokens tiers / attachment list)
 │   ├── AgentRequestSpecFactory.java  # Shared request-assembly factory (system / memory injection / tool decoration / output tier)
 │   ├── LlmRetry.java               # LLM call retry policy
+│   ├── RagPrefetcher.java          # RAG entry prefetch pool (shared by entry & orchestration; KB binding resolution)
 │   ├── ProgressLine.java           # Progress line wire protocol (MARK+stage+SEP+detail) codec
 │   └── BranchProgressListener.java # Subtask outcome broadcaster (shared with Graph)
 ├── graph/                        # Graph orchestration path (Lead → parallel experts → aggregation)

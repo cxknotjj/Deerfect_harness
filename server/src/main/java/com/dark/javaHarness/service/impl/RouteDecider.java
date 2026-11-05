@@ -1,12 +1,12 @@
 package com.dark.javaHarness.service.impl;
 
+import com.dark.javaHarness.agent.RagPrefetcher;
 import com.dark.javaHarness.domain.RoutePlan;
 import com.dark.javaHarness.domain.dto.ChatRequest;
 import com.dark.javaHarness.enums.AgentConstants;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.observability.HarnessMetrics;
 import com.dark.javaHarness.service.RouteJudge;
-import com.dark.javaHarness.service.impl.route.RagPrefetcher;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.Future;

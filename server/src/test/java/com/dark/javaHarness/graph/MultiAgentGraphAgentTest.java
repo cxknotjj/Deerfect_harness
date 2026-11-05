@@ -21,6 +21,7 @@ import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.advisor.ContextAssemblingAdvisor;
 import com.dark.javaHarness.agent.ProgressLine;
+import com.dark.javaHarness.agent.RagPrefetcher;
 import com.dark.javaHarness.state.OrchestrationCheckpoint;
 import com.dark.javaHarness.state.OrchestrationStage;
 import com.dark.javaHarness.state.persistence.OrchestrationCheckpointStore;
@@ -30,7 +31,6 @@ import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.SessionService;
-import com.dark.javaHarness.service.impl.route.RagPrefetcher;
 import com.dark.javaHarness.tool.ToolAssignments;
 import java.util.List;
 import org.junit.jupiter.api.Test;

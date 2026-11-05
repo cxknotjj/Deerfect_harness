@@ -3,7 +3,7 @@
 - 范围：`server` 内部包级依赖、`tool` / `graph` 导入环、分层回归防护
 - 创建：2026-11-05
 - 来源：知识图谱分析报告（`issue.md`）
-- 状态：共 4 项，已完成 3 项，待办 1 项
+- 状态：共 4 项，已完成 4 项，待办 0 项
 
 ## 背景
 
@@ -34,8 +34,9 @@
   - 验收：新增 1 个 `ArchitectureTest`；故意引入一条违规依赖时测试失败；`mvn -s .mvn/settings.xml -pl server -am test` 全绿
   - 结果（2026-11-05）：新增 `archunit-junit5` 1.4.1（test 作用域，字节码级依赖分析无法用源码扫描可靠替代）；落地 4 条规则：agent↛graph、controller↛mapper、tool↛service.impl、validation↛运行时包；`RecallHistoryTools` 作为已登记例外显式排除。实测临时让 `ProgressLine` 引用 `graph.OrchestrationBudget` 时测试按规则失败，回退后全量 797 条全绿。
 
-- [ ] P1-2 收敛 server-runtime 与 agent-orchestration 双向依赖
+- [x] P1-2 收敛 server-runtime 与 agent-orchestration 双向依赖
   - 作用：当前 `service` / `controller` 与 `agent` / `graph` 之间 111 / 50 条跨层导入，改一处容易连环回归
   - 位置：[ChatServiceImpl](../server/src/main/java/com/dark/javaHarness/service/impl/ChatServiceImpl.java#L112-L520)、[AgentRequestSpecFactory](../server/src/main/java/com/dark/javaHarness/agent/AgentRequestSpecFactory.java)、[OrchestrationNodes](../server/src/main/java/com/dark/javaHarness/graph/OrchestrationNodes.java)
   - 做法：明确单向调用方向（`service` → `agent`/`graph` 的入口，只允许回调经接口）；把 `service` 被 `agent` 依赖的部分下沉为 `agent` 自有的参数对象 / 接口，禁止 `agent` 直接 import `service.impl`
   - 验收：`agent` / `graph` 包对 `service.impl` 的 import 降为 0；ArchUnit 规则可覆盖；全量测试全绿
+  - 结果（2026-11-05）：核查后 `agent` 已无 `service.impl` 依赖，唯一反向入口是 `graph` 对 `service.impl.route.RagPrefetcher` 的 import；把 `RagPrefetcher` 迁到 `agent` 包（`graph → agent` 已是既有允许方向，且 `agent` 已依赖 `knowledge`），同步更新 `KnowledgeConfig` / `ChatAgentConfig` / 两个 graph 类与测试引用；`ArchitectureTest` 增补 `runtime_must_not_depend_on_service_impl`（agent/graph ↛ service.impl）；相关 101 条与全量 801 条全绿（含 Spring 上下文装配），文档路径已同步。

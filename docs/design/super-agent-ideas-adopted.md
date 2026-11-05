@@ -48,11 +48,11 @@
 
 **本项目已应用（完整）**——RAG 入口预取就是标准的投机执行：
 
-- `ChatServiceImpl` 在路径判定**之前**提交 RAG 预取，判定与检索并行执行，互不依赖；
+- `RouteDecider` 在路径判定**之前**提交 RAG 预取，判定与检索并行执行，互不依赖；
 - 判定完成后进入汇合窗口（2 秒）等待预取；窗口内未完成则取消任务、放弃结果；
 - 预取池饱和时静默丢弃；任何失败都退化为「组装期现查」，主流程零感知。
 
-代码：[RagPrefetcher.java](../../server/src/main/java/com/dark/javaHarness/service/impl/route/RagPrefetcher.java#L27-L86)、[ChatServiceImpl.java](../../server/src/main/java/com/dark/javaHarness/service/impl/ChatServiceImpl.java#L440-L467)
+代码：[RagPrefetcher.java](../../server/src/main/java/com/dark/javaHarness/agent/RagPrefetcher.java#L26-L97)、[RouteDecider.java](../../server/src/main/java/com/dark/javaHarness/service/impl/RouteDecider.java#L66-L98)
 
 编排路径同样应用了该思想：lead 拆解出子任务后、扇出之前，对每个子任务并行提交 RAG 预取，把检索延迟消化在子任务并发限流的排队空档里（见 [data-flow.md](../data-flow.md) 5i 节）。
 

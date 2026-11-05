@@ -43,8 +43,11 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── AgentConfigProvider.java  # 从 agent 表读取运行配置（路由映射；配置读失败与「未配置」语义分离）
 │   ├── ProviderAdminService.java # model_provider 映射管理（新增即热刷新注册表）
 │   └── impl/                     # AgentServiceImpl / ChatServiceImpl / SessionServiceImpl / GoalServiceImpl / ProviderAdminServiceImpl / SseEncoder 等
+│       ├── ChatServiceImpl.java  # 聊天门面（仅 chat/streamReactive/resume 分发）
+│       ├── ChatTurnExecutor.java / ChatStreamPipeline.java  # 同步执行段 / 流式与 SSE 段
+│       ├── RouteDecider.java / TurnPersistence.java / ReplyDecorator.java  # 路由判定与预取汇合 / 会话建档与写回 / 回复装饰
 │       ├── SessionHistoryArchiveService.java  # 会话归档检索（recall_history 数据源，按会话过滤）
-│       └── route/                # LlmRouteJudge（主 Agent 路由判定）/ RagPrefetcher（RAG 入口预取）/ LlmSemanticTriggerJudge（渠道路由语义判定）
+│       └── route/                # LlmRouteJudge（主 Agent 路由判定）/ LlmSemanticTriggerJudge（渠道路由语义判定）
 ├── advisor/                      # Spring AI Advisor 拦截器（Agent 流程横切管理）
 │   ├── ContextAssemblingAdvisor.java  # 上下文组装：过滤/token 预算截断/role 归一化
 │   ├── PromptBudgetAdvisor.java  # Prompt 分段预算（历史/user/工具结果三段裁剪）
@@ -122,6 +125,7 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── CallSpecAssembler.java      # 角色装配策略（MemoryPolicy 记忆判定/maxTokens 档位/观测名单计算）
 │   ├── AgentRequestSpecFactory.java  # 双路径共用请求组装工厂（system/记忆注入/工具装饰/输出档位）
 │   ├── LlmRetry.java               # LLM 调用重试策略
+│   ├── RagPrefetcher.java          # RAG 入口预取共享池（入口与编排侧复用；kb 绑定解析内聚）
 │   ├── ProgressLine.java           # 进度行线协议（MARK+stage+SEP+detail）编解码
 │   └── BranchProgressListener.java # 子任务结局播报（并行完成事件串行发射；与 Graph 共用）
 ├── graph/                        # Graph 编排路径（Lead → 专家并行 → 聚合）

@@ -1,6 +1,7 @@
 package com.dark.javaHarness.config.agent;
 
 import com.dark.javaHarness.agent.AgentRegistry;
+import com.dark.javaHarness.agent.RagPrefetcher;
 import com.dark.javaHarness.agent.agentic.AgentScopeModelFactory;
 import com.dark.javaHarness.config.AgenticProperties;
 import com.dark.javaHarness.config.ChatTimeoutProperties;
@@ -18,7 +19,6 @@ import com.dark.javaHarness.prompt.UserProfileSectionProvider;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.SessionService;
-import com.dark.javaHarness.service.impl.route.RagPrefetcher;
 import com.dark.javaHarness.state.persistence.OrchestrationCheckpointStore;
 import com.dark.javaHarness.tool.ToolAssignments;
 import java.util.List;

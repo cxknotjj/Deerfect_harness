@@ -17,6 +17,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.agent.ProgressLine;
+import com.dark.javaHarness.agent.RagPrefetcher;
 import com.dark.javaHarness.config.StreamConnectionLimiter;
 import com.dark.javaHarness.domain.AgentConfig;
 import com.dark.javaHarness.domain.Goal;
@@ -34,7 +35,6 @@ import com.dark.javaHarness.service.ReplyPostProcessor;
 import com.dark.javaHarness.service.RouteJudge;
 import com.dark.javaHarness.service.SessionMessageEntry;
 import com.dark.javaHarness.service.SessionService;
-import com.dark.javaHarness.service.impl.route.RagPrefetcher;
 import com.dark.javaHarness.voice.VoiceArtifactStore;
 import java.util.List;
 import java.util.Optional;

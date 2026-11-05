@@ -22,6 +22,14 @@ class ArchitectureTest {
                     .because("principal §3：agent 不得 import graph，共用常量应下沉到 agent");
 
     @ArchTest
+    static final ArchRule runtime_must_not_depend_on_service_impl =
+            noClasses().that().resideInAnyPackage(
+                            "com.dark.javaHarness.agent..",
+                            "com.dark.javaHarness.graph..")
+                    .should().dependOnClassesThat().resideInAPackage("com.dark.javaHarness.service.impl..")
+                    .because("principal §3：运行时包只依赖 service 接口，不得反向依赖 service 实现");
+
+    @ArchTest
     static final ArchRule controller_must_not_depend_on_mapper =
             noClasses().that().resideInAPackage("com.dark.javaHarness.controller..")
                     .should().dependOnClassesThat().resideInAPackage("com.dark.javaHarness.mapper..")
