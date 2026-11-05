@@ -3,7 +3,7 @@
 - 范围：`ChatServiceImpl`、`SandboxToolkit`、`KnowledgeServiceImpl`、`ChatCli` 等上帝类
 - 创建：2026-11-05
 - 来源：知识图谱分析报告（`issue.md`）
-- 状态：共 4 项，已完成 3 项，待办 1 项
+- 状态：共 4 项，已完成 4 项，待办 0 项
 
 ## 背景
 
@@ -36,8 +36,9 @@
 
 ## P2 外围类收敛
 
-- [ ] P2-1 `ChatCli` 拆分命令分发与渲染
+- [x] P2-1 `ChatCli` 拆分命令分发与渲染
   - 作用：13 个符号同时处理参数解析、SSE 消费、终端渲染与本地续跑状态
   - 位置：[ChatCli](../cli/src/main/java/com/dark/javaHarness/cli/ChatCli.java)、[ChatApiClient](../cli/src/main/java/com/dark/javaHarness/cli/api/ChatApiClient.java)
   - 做法：抽 `CommandDispatcher`（/help、/agent、/resume、/provider）与 `StreamRenderer`（逐帧渲染）；`ChatCli` 只负责启动与依赖组装
   - 验收：CLI 交互命令行为不变；`mvn -s .mvn/settings.xml -pl cli -am test` 全绿
+  - 结果（2026-11-05）：`ChatCli` 473 行收敛为 141 行启动/组装类；命令解析与输出移至 `CommandDispatcher`（/help、/new、/agent、/routing、/resume、/provider），SSE 逐帧解析、回合小结与会话 ID 记忆移至 `StreamRenderer`，可变选择状态集中到 `ChatSessionState`；顺带删除 `runTurn` 中只写不读的 `orchestrated` 死变量；命令文案与调用顺序逐字面保持，`mvn -s .mvn/settings.xml -pl cli -am test` 28 条全绿。

@@ -1,0 +1,220 @@
+package com.dark.javaHarness.cli;
+
+import com.dark.javaHarness.cli.api.ChatApiClient;
+import com.dark.javaHarness.domain.dto.ProviderAddResult;
+import com.dark.javaHarness.domain.dto.ProviderRowView;
+import java.io.IOException;
+import java.io.PrintStream;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Locale;
+import java.util.function.Supplier;
+
+/**
+ * 斜杠命令解析与分发（自 {@link ChatCli} 拆出，超长类拆分 2026-11-05）：
+ * /help、/new、/agent、/routing、/resume、/provider 与普通消息入口。
+ * 回合执行委托给 {@link StreamRenderer}，会话选择状态存放在 {@link ChatSessionState}。
+ */
+final class CommandDispatcher {
+
+    private final ChatApiClient api;
+    private final ChatSessionState state;
+    private final StreamRenderer streamRenderer;
+    private final Supplier<PrintStream> ui;
+
+    /** 会话切换等场景清空续跑目标后回写持久化文件（由 ChatCli 提供） */
+    private final Runnable persistResumeState;
+
+    CommandDispatcher(ChatApiClient api, ChatSessionState state, StreamRenderer streamRenderer,
+                      Supplier<PrintStream> ui, Runnable persistResumeState) {
+        this.api = api;
+        this.state = state;
+        this.streamRenderer = streamRenderer;
+        this.ui = ui;
+        this.persistResumeState = persistResumeState;
+    }
+
+    /** 命令分发：返回 true 表示退出 */
+    boolean dispatch(String line) {
+        if ("/exit".equals(line) || "/quit".equals(line)) {
+            return true;
+        }
+        if ("/help".equals(line)) {
+            printHelp();
+        } else if ("/new".equals(line)) {
+            handleNewSession();
+        } else if (line.startsWith("/agent")) {
+            handleAgentCommand(line);
+        } else if (line.startsWith("/routing")) {
+            handleRoutingCommand(line);
+        } else if (line.startsWith("/resume")) {
+            handleResumeCommand(line);
+        } else if (line.startsWith("/provider")) {
+            handleProviderCommand(line);
+        } else {
+            streamRenderer.send(line);
+        }
+        return false;
+    }
+
+    /** 帮助信息（命令名青色着色） */
+    private void printHelp() {
+        String c = "\033[36m";
+        String r = "\033[0m";
+        ui.get().println("  直接输入文本与 AI 聊天（默认由服务端智能分流：Agentic 路径 / Graph 编排路径）");
+        ui.get().println("  " + c + "/new" + r + "         新建会话（后续对话使用新上下文，旧会话保留）");
+        ui.get().println("  " + c + "/agent <id>" + r + "  切换到指定 Agent（agent 表主键，并同步当前会话的 agent_id）");
+        ui.get().println("  " + c + "/agent off" + r + "   取消指定，恢复服务端自动分流");
+        ui.get().println("  " + c + "/agent" + r + "       查看当前 Agent");
+        ui.get().println("  " + c + "/routing" + r + "       查看/设置执行路径：auto | agentic | graph");
+        ui.get().println("  " + c + "/resume" + r + "       断点续跑：恢复当前会话最近一次编排任务（从中断处继续）");
+        ui.get().println("  " + c + "/resume <goalId>" + r + "  断点续跑指定的 goal（goalId 见每回合末尾的会话信息）");
+        ui.get().println("  " + c + "/provider" + r + "      查看模型-服务商映射（model_provider 表全量）");
+        ui.get().println("  " + c + "/provider add" + r + "  新增供应商：/provider add <provider> <apiUrl> <模型1,模型2,...>");
+        ui.get().println("  " + c + "/exit" + r + "        退出");
+    }
+
+    /** 处理 /new 命令：调用服务端新建空会话并切换当前会话（旧会话保留，可随时通过会话列表找回） */
+    private void handleNewSession() {
+        try {
+            String newId = api.createSession();
+            state.sessionId(newId);
+            // 会话切换后「当前会话的任务」语义随之清空（含持久化文件）
+            state.lastOrchestratedGoalId(null);
+            persistResumeState.run();
+            ui.get().println("\033[90m已开启新会话 " + newId + "\033[0m");
+        } catch (IOException e) {
+            ui.get().println("新建会话失败: " + e.getMessage());
+        }
+    }
+
+    /** 处理 /agent 命令：切换、查看或取消（off）当前 Agent */
+    private void handleAgentCommand(String line) {
+        String arg = line.substring("/agent".length()).trim();
+        if (arg.isEmpty()) {
+            ui.get().println("当前 Agent: " + (state.agentId() == null
+                    ? "自动分流（简单→会话绑定 Agent，复杂→multi-agent）" : state.agentId()));
+            return;
+        }
+        if ("off".equalsIgnoreCase(arg)) {
+            state.agentId(null);
+            ui.get().println("已恢复服务端自动分流");
+            return;
+        }
+        try {
+            long id = Long.parseLong(arg);
+            // 先落库（服务端校验 agentId 存在性并更新 session 表 agent_id），成功后才更新内存选择。
+            // 尚无会话（首轮未发消息）时仅记内存：下一轮服务端自动建档，请求携带的 agentId 会同步进会话表。
+            if (state.sessionId() != null) {
+                try {
+                    api.switchSessionAgent(state.sessionId(), id);
+                } catch (IOException e) {
+                    ui.get().println("切换失败（会话 " + state.sessionId() + " 未变更）: " + e.getMessage());
+                    return;
+                }
+            }
+            state.agentId(id);
+            ui.get().println("已切换到 Agent #" + state.agentId()
+                    + (state.sessionId() == null ? "（新会话建档时将登记该 Agent）"
+                    : "（会话 " + state.sessionId() + " 已同步）")
+                    + "；简单问题由该 Agent 直答，复杂问题仍自动编排；/agent off 可恢复");
+        } catch (NumberFormatException e) {
+            ui.get().println("agent 编号无效，用法: /agent <数字Id> | /agent off | /agent");
+        }
+    }
+
+    /** 处理 /routing 命令：查看或设置显式执行路径（auto/agentic/graph）。 */
+    private void handleRoutingCommand(String line) {
+        String arg = line.substring("/routing".length()).trim().toLowerCase(Locale.ROOT);
+        if (arg.isEmpty()) {
+            ui.get().println("当前执行路径: " + (state.routing() == null ? "auto（服务端判定）" : state.routing()));
+            return;
+        }
+        if ("auto".equals(arg)) {
+            state.routing(null);
+            ui.get().println("已恢复自动路径判定");
+            return;
+        }
+        if ("agentic".equals(arg) || "graph".equals(arg)) {
+            state.routing(arg);
+            ui.get().println("已固定执行路径: " + arg + "（/routing auto 恢复自动判定）");
+            return;
+        }
+        ui.get().println("routing 取值无效，用法: /routing auto | agentic | graph");
+    }
+
+    /**
+     * 处理 /resume 命令：断点续跑未完成的复杂编排。
+     * 带参 = 显式指定 goalId；无参 = 恢复当前会话最近一次编排任务（用户无需记住 goalId）。
+     */
+    private void handleResumeCommand(String line) {
+        String arg = line.substring("/resume".length()).trim();
+        if (arg.isEmpty()) {
+            if (state.lastOrchestratedGoalId() == null || state.lastOrchestratedGoalId().isBlank()) {
+                ui.get().println("当前会话没有可续跑的编排任务（/resume <goalId> 可显式指定）");
+                return;
+            }
+            arg = state.lastOrchestratedGoalId();
+        }
+        ui.get().println("\033[90m正在从检查点续跑 goal " + arg + "（已完成节点不再重跑）…\033[0m");
+        streamRenderer.resume(arg);
+    }
+
+    /**
+     * 处理 /provider 命令：模型-服务商映射管理（model_provider 表）。
+     * <pre>
+     * /provider [list]                                    查看全量映射（含禁用行）
+     * /provider add &lt;provider&gt; &lt;apiUrl&gt; &lt;模型1,模型2,...&gt;   新增映射并热刷新（免重启生效）
+     * </pre>
+     * 新增前需确保已设置对应环境变量 <PROVIDER大写>_API_KEY（如 MOONSHOT_API_KEY）。
+     */
+    private void handleProviderCommand(String line) {
+        String arg = line.substring("/provider".length()).trim();
+        if (arg.isEmpty() || "list".equalsIgnoreCase(arg)) {
+            try {
+                List<ProviderRowView> rows = api.listProviders();
+                if (rows.isEmpty()) {
+                    ui.get().println("暂无模型映射（model_provider 表为空）");
+                    return;
+                }
+                ui.get().println("部署模型映射（id | 模型 → 供应商 | 端点，共 " + rows.size() + " 行）：");
+                for (ProviderRowView r : rows) {
+                    String flag = r.status() != null && r.status() == 1
+                            ? "\033[32m✓\033[0m" : "\033[31m✗\033[0m";
+                    ui.get().println("  " + flag + " [" + r.id() + "] " + r.model() + "  →  " + r.provider()
+                            + "  \033[90m" + r.apiUrl() + "\033[0m");
+                }
+                ui.get().println("\033[90m提示：不同供应商可有同名模型（各自成行）；agent 按 id 绑定端点\033[0m");
+            } catch (IOException e) {
+                ui.get().println("获取映射失败: " + e.getMessage());
+            }
+            return;
+        }
+        if (arg.startsWith("add")) {
+            String[] parts = arg.split("\\s+", 4);
+            if (parts.length < 4) {
+                ui.get().println("用法: /provider add <provider> <apiUrl> <模型1,模型2,...>");
+                return;
+            }
+            String provider = parts[1];
+            List<String> models = Arrays.stream(parts[3].split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .toList();
+            if (models.isEmpty()) {
+                ui.get().println("至少提供一个模型名");
+                return;
+            }
+            try {
+                ProviderAddResult result = api.addProvider(provider, parts[2], models);
+                ui.get().println("\033[32m✓ " + result.summary() + "，注册表已热刷新（免重启生效）\033[0m");
+                ui.get().println("\033[90m提示：请确保已设置环境变量 " + provider.toUpperCase()
+                        + "_API_KEY，否则该供应商模型将回退默认客户端\033[0m");
+            } catch (IOException e) {
+                ui.get().println("新增供应商失败: " + e.getMessage());
+            }
+            return;
+        }
+        ui.get().println("用法: /provider [list] | /provider add <provider> <apiUrl> <模型1,模型2,...>");
+    }
+}
