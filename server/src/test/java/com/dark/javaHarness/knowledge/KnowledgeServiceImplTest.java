@@ -208,6 +208,28 @@ class KnowledgeServiceImplTest {
     }
 
     @Test
+    void syncFailure_doesNotAffectSubsequentSearch() {
+        // 读写路径解耦：摄取（写）失败后，检索（读）仍应正常返回命中，不继承写路径的失败状态
+        when(storeProvider.getIfAvailable()).thenReturn(store);
+        when(scanner.scan()).thenReturn(List.of(file("a.md", "default", 100L, "短正文")));
+        stubLedger(null);
+        org.mockito.Mockito.doThrow(new RuntimeException("pg down")).when(store).add(anyList());
+
+        assertThrows(IllegalStateException.class, service::sync);
+
+        Document doc = org.mockito.Mockito.mock(Document.class);
+        when(doc.getMetadata()).thenReturn(Map.of("source", "a.md", "title", "标题-a.md"));
+        when(doc.getText()).thenReturn("片段内容");
+        when(doc.getScore()).thenReturn(0.87);
+        when(store.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(doc));
+
+        List<KnowledgeService.KnowledgeHit> hits = service.search("问题", null);
+
+        assertEquals(1, hits.size(), "摄取失败后检索应照常工作");
+        assertEquals("a.md", hits.get(0).docName());
+    }
+
+    @Test
     void sync_largeDoc_batchesEmbedRequests() {
         // embed-batch-size=2：5 chunk → 3 次 add（2+2+1），规避 DashScope 单请求 10 条硬上限
         KnowledgeProperties props = new KnowledgeProperties();

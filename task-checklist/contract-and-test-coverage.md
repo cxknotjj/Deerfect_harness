@@ -3,7 +3,7 @@
 - 范围：`harness-api` 契约拆分与测试、高扇入基座回归保护、`server` 复杂文件测试补齐
 - 创建：2026-11-05
 - 来源：知识图谱分析报告（`issue.md`）
-- 状态：共 4 项，已完成 3 项，待办 1 项
+- 状态：共 4 项，已完成 4 项，待办 0 项
 
 ## 背景
 
@@ -36,8 +36,9 @@
 
 ## P2 复杂文件测试
 
-- [ ] P2-1 `server` 复杂文件测试热点收敛
+- [x] P2-1 `server` 复杂文件测试热点收敛
   - 作用：`server` 有 61 个 `complex` 文件，其中 `graph` / `tool` / `service` 是主链路高风险区
   - 位置：优先 [OrchestrationNodes](../server/src/main/java/com/dark/javaHarness/graph/OrchestrationNodes.java)、[ParallelOrchestrationEngine](../server/src/main/java/com/dark/javaHarness/graph/engine/ParallelOrchestrationEngine.java)、[SandboxToolProvider](../server/src/main/java/com/dark/javaHarness/tool/builtin/SandboxToolProvider.java)、[KnowledgeServiceImpl](../server/src/main/java/com/dark/javaHarness/knowledge/KnowledgeServiceImpl.java)
   - 做法：按「失败路径优先」补用例：子任务失败隔离、聚合降级、沙箱不可用降级、摄取失败不影响检索；每项先确认现有行为再固化
   - 验收：上述 4 个文件各有失败路径用例；`server` 文件级覆盖 ≥55%；`mvn -s .mvn/settings.xml -pl server -am test` 全绿
+  - 结果（2026-11-05）：4 个热点文件的失败路径用例已齐备——`ParallelOrchestrationEngine`（聚合失败降级摘要、无可用结果上抛、新增「单子任务异常不拖垮其余结果」）、`SandboxToolProvider`（init 挂死超时、init 抛异常、Docker 不可达、降级 gauge 为 0）、`KnowledgeServiceImpl`（向量库未装配抛可读错误、写入失败包装、台账置 0 待重试、新增「摄取失败后检索照常」）、`OrchestrationNodes`（工具包解析与预算降级由 `OrchestrationNodesResolvePacksTest` / `MultiAgentGraphAgentTest` 覆盖）；server 文件级测试关联 132/201 ≈ 65.7%（≥55%）；跨模块全量 803（server）+ 39（harness-api）+ 28（cli）全绿。

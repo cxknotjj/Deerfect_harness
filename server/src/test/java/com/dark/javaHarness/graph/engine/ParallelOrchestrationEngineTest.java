@@ -69,6 +69,32 @@ class ParallelOrchestrationEngineTest {
     }
 
     @Test
+    void execute_oneSubtaskThrows_otherResultsSurvive() {
+        // 子任务失败隔离：单个槽位抛异常写失败占位，其余槽位结果照常参与聚合降级
+        OrchestrationNodes nodes = mock(OrchestrationNodes.class);
+        when(nodes.lead(any(OrchestrationState.class), any(), any()))
+                .thenReturn(Map.of("subtaskCount", 2, "subtask_0", "A", "subtask_1", "B"));
+        when(nodes.subtask(any(OrchestrationState.class), anyInt(), any(), any(), any()))
+                .thenAnswer(inv -> {
+                    int idx = inv.getArgument(1);
+                    if (idx == 0) {
+                        throw new IllegalStateException("子任务 0 模型超时");
+                    }
+                    return Map.of("result_" + idx, "结论" + idx);
+                });
+        when(nodes.aggregate(any(OrchestrationState.class), any(), any(), any()))
+                .thenThrow(new IllegalStateException("聚合调用失败"));
+
+        ParallelOrchestrationEngine engine = new ParallelOrchestrationEngine(
+                nodes, mock(OrchestrationBudget.class), null, 2);
+
+        String answer = engine.execute(new Goal("g4", "两个问题", null, null, null));
+
+        assertTrue(answer.contains("结论1"), "失败槽位不应拖垮其余子任务结果：" + answer);
+        assertTrue(!answer.contains(SubtaskResults.FAILED), "失败占位不进入最终摘要：" + answer);
+    }
+
+    @Test
     void execute_aggregateFailsWithoutUsableResults_rethrowsForAgenticFallback() {
         // 无可用子任务结果（全部失败占位）时不做简化降级，异常上抛交给上层 Agentic 兜底
         OrchestrationNodes nodes = mock(OrchestrationNodes.class);
