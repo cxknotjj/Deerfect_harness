@@ -3,7 +3,7 @@
 - 范围：`web` 的 API 客户端拆分、SSE 解析测试、复杂组件收敛
 - 创建：2026-11-05
 - 来源：知识图谱分析报告（`issue.md`）
-- 状态：共 3 项，已完成 2 项，待办 1 项
+- 状态：共 3 项，已完成 3 项，待办 0 项
 
 ## 背景
 
@@ -27,8 +27,9 @@
 
 ## P2 测试与复杂度
 
-- [ ] P2-1 `web` 测试覆盖与复杂文件收敛
+- [x] P2-1 `web` 测试覆盖与复杂文件收敛
   - 作用：12 个 `complex` 文件集中在聊天窗口、轨迹页与格式化工具，覆盖不足时前端回归只能靠手测
   - 位置：[ChatWindow.vue](../web/src/components/ChatWindow.vue)、[TraceView.vue](../web/src/components/TraceView.vue)、[monitorFormat.ts](../web/src/utils/monitorFormat.ts)、[chatCache.ts](../web/src/composables/chatCache.ts)
   - 做法：优先补 `monitorFormat` / `chatCache` 的纯函数测试；`ChatWindow` 拆出消息列表与工具行子组件；`TraceView` 拆出筛选与详情面板
   - 验收：`web` 文件级覆盖 ≥40%；`ChatWindow` / `TraceView` 单文件符号数下降 ≥30%；`npm test` + `npm run test:e2e` 通过
+  - 结果（2026-11-05）：TraceView 348 → 121 行（派生逻辑全部下沉到 `utils/traceFormat.ts`，单行渲染抽出 `trace/TraceRow.vue`）；ChatWindow 172 → 63 行（滚动区/空态抽 `chat/ChatMessageList.vue`，状态栏与 token/耗时统计抽 `chat/ChatStatusBar.vue`）；新增 `traceFormat` / `sessionMtime` / `endpoints`（覆盖 http/auth/sessions/observability）与 3 个组件测试，`@vue/test-utils` 作为组件回归工具引入；`npm test` 71 条全绿、`npm run typecheck` / `build` 通过、`npm run test:e2e` 4 条通过（本机无 Playwright headless shell，按配置回退到已安装的 Chrome）；有测试关联的生产文件 15/37 ≈ 40.5%。
