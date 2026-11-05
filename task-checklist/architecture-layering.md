@@ -3,7 +3,7 @@
 - 范围：`server` 内部包级依赖、`tool` / `graph` 导入环、分层回归防护
 - 创建：2026-11-05
 - 来源：知识图谱分析报告（`issue.md`）
-- 状态：共 4 项，已完成 1 项，待办 3 项
+- 状态：共 4 项，已完成 2 项，待办 2 项
 
 ## 背景
 
@@ -11,11 +11,12 @@
 
 ## P0 消除导入环
 
-- [ ] P0-1 消除 tool 包导入环
+- [x] P0-1 消除 tool 包导入环
   - 作用：打断 `McpToolProvider ↔ SandboxToolProvider ↔ ToolAssignments` 的循环依赖，避免工具权限装配与工具实现互相牵制，为后续拆分 SandboxToolkit 铺路
   - 位置：[ToolAssignments](../server/src/main/java/com/dark/javaHarness/tool/ToolAssignments.java#L132-L245)、[McpToolProvider](../server/src/main/java/com/dark/javaHarness/tool/mcp/McpToolProvider.java)、[SandboxToolProvider](../server/src/main/java/com/dark/javaHarness/tool/builtin/SandboxToolProvider.java)
   - 做法：把 `ToolAssignments` 对两个 Provider 的依赖改为面向 `ToolProvider` 接口（`ToolSet tools()`）；Provider 只依赖工具元数据接口，不再反向依赖分配表；装配期由 `ChatAgentConfig` 注入实现
   - 验收：`ToolAssignments` 与两个 Provider 之间无相互 import；`mvn -s .mvn/settings.xml -pl server -am test` 全绿；工具装配结果与改动前逐项一致（现有 `ToolAssignmentsTest` 覆盖）
+  - 结果（2026-11-05）：核查发现两处反向 import 仅用于 Javadoc `{@link}`（`McpToolProvider` / `SandboxToolProvider` 对 `ToolAssignments`、`McpToolProvider` 对 `SandboxToolProvider`），代码依赖本身是单向的（分配表 → Provider）。按 principal §1「无真实复用不加抽象」，直接删除 Javadoc-only import 并改为纯文本引用，不引入 `ToolProvider` 接口；`mvn -s .mvn/settings.xml -pl server -am test` 全绿，工具装配语义零变化。
 
 - [x] P0-2 消除 graph 引擎导入环
   - 作用：解除 `ParallelOrchestrationEngine ↔ MultiAgentGraphAgent` 的循环依赖，让引擎与上层执行体各自可独立测试

@@ -2,8 +2,6 @@ package com.dark.javaHarness.tool.mcp;
 
 import com.dark.javaHarness.domain.McpServerLog;
 import com.dark.javaHarness.observability.McpServerRecorder;
-import com.dark.javaHarness.tool.ToolAssignments;
-import com.dark.javaHarness.tool.builtin.SandboxToolProvider;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
@@ -36,7 +34,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * MCP 工具提供者（prompt 动态加载·子项 3 多 server）：管理多个 MCP Server 连接，
- * 把各 server 暴露的工具转为标准 {@link ToolCallback} 并集，供 {@link ToolAssignments} 分配。
+ * 把各 server 暴露的工具转为标准 {@link ToolCallback} 并集，供 ToolAssignments 分配。
  *
  * <p><b>server 配置来源</b>：项目根 {@code mcp-config.json}（Claude/Cursor 同款 mcpServers
  * JSON 结构）的<b>全量条目</b>——{@code command}(±{@code args}) → stdio、{@code url} → http、
@@ -45,7 +43,7 @@ import org.springframework.stereotype.Component;
  * 配置解析逻辑见 {@link McpConfigParser}。
  *
  * <p><b>连接策略（架构决策）</b>：沿用「后台预热 + 懒连接兜底 + 失败降级」，与
- * {@link SandboxToolProvider} 一脉相承——应用启动完全不依赖 MCP；应用就绪后（ApplicationReadyEvent）
+ * SandboxToolProvider 一脉相承——应用启动完全不依赖 MCP；应用就绪后（ApplicationReadyEvent）
  * 后台线程逐 server 先行连接/发现，把握手超时的代价挪出请求路径；若请求早于预热完成到来，
  * 仍走 {@link #toolCallbacks()} 的懒连接（按 server 原子互斥，同一 server 并发请求只连一次）。
  * <b>失败按 server 隔离</b>：单 server 连接/发现失败只贡献空列表 + warn（失败同样写入缓存，
@@ -53,7 +51,7 @@ import org.springframework.stereotype.Component;
  * 先到者优先（同名冲突 warn；不做命名空间前缀，保持引用简单）。
  *
  * <p><b>按 agent 硬边界</b>：这里只负责「收集」MCP 工具；谁可见、谁能调由
- * {@link ToolAssignments} 决定（legacy 白名单 / 数据路径 tools 列按名授予）。
+ * ToolAssignments 决定（legacy 白名单 / 数据路径 tools 列按名授予）。
  */
 @Component
 public class McpToolProvider {

@@ -1,7 +1,6 @@
 package com.dark.javaHarness.tool.builtin;
 
 import com.dark.javaHarness.observability.HarnessMetrics;
-import com.dark.javaHarness.tool.ToolAssignments;
 import io.agentscope.runtime.sandbox.box.BaseSandbox;
 import io.agentscope.runtime.sandbox.box.BrowserSandbox;
 import io.agentscope.runtime.sandbox.box.Sandbox;
@@ -30,7 +29,7 @@ import org.springframework.stereotype.Component;
  * {@link SandboxFileTools} / {@link SandboxBrowserTools}）。
  *
  * <p>职责：把 agentscope 沙箱里的 ToolCallback（Python 执行 / Shell / 文件读写检索 /
- * 浏览器导航与快照）按安全类别暴露给 {@link ToolAssignments}，替代已退役的宿主机工具
+ * 浏览器导航与快照）按安全类别暴露给 ToolAssignments，替代已退役的宿主机工具
  * （FileTools/SearchTools/ShellTools——模型生成的代码与命令只在容器内执行，宿主机零暴露）。
  *
  * <p>容器拓扑：同一个 {@link SandboxService} 管理两个容器（同 user/session，不同镜像类型）：
