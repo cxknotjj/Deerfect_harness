@@ -39,5 +39,17 @@
             <artifactId>jakarta.validation-api</artifactId>
             <optional>true</optional>
         </dependency>
+
+        <!-- 测试：纯 JUnit 5 + Jackson 3（契约 DTO 的 JSON 字段名守卫），版本由 Spring Boot BOM 管理 -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>tools.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>
