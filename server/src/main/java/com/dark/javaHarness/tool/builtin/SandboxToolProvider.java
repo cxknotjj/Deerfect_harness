@@ -1,5 +1,6 @@
 package com.dark.javaHarness.tool.builtin;
 
+import com.dark.javaHarness.observability.HarnessMetrics;
 import com.dark.javaHarness.tool.ToolAssignments;
 import io.agentscope.runtime.sandbox.box.BaseSandbox;
 import io.agentscope.runtime.sandbox.box.BrowserSandbox;
@@ -164,6 +165,7 @@ public class SandboxToolProvider {
             log.warn("[sandbox] 等待沙箱初始化被中断，沙箱工具面为空");
         } finally {
             initialized = true;
+            publishMetrics();
         }
     }
 
@@ -183,6 +185,8 @@ public class SandboxToolProvider {
             init();
         } catch (Throwable t) {
             log.warn("[sandbox] 沙箱初始化异常（Docker 环境？）: {}", t.toString());
+        } finally {
+            publishMetrics();
         }
     }
 
@@ -220,6 +224,13 @@ public class SandboxToolProvider {
             }
             browserInitialized = true;
         }
+        publishMetrics();
+    }
+
+    /** 把当前工具面同步到 gauge：0 即降级，监控页与告警无需再依赖日志推断。 */
+    private void publishMetrics() {
+        SandboxStatus s = status();
+        HarnessMetrics.sandboxTools(s.baseTools(), s.browserTools());
     }
 
     protected void init() throws Exception {

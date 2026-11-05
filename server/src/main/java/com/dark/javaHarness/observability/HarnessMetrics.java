@@ -9,6 +9,7 @@ import io.micrometer.core.instrument.Timer;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntSupplier;
 
 /**
@@ -162,6 +163,30 @@ public final class HarnessMetrics {
                 .tag("kind", label(kind))
                 .register(REGISTRY)
                 .increment();
+    }
+
+    private static final AtomicInteger SANDBOX_TOOLS = new AtomicInteger();
+    private static final AtomicInteger SANDBOX_BROWSER_TOOLS = new AtomicInteger();
+    private static final AtomicBoolean SANDBOX_GAUGE_BOUND = new AtomicBoolean();
+
+    /**
+     * 沙箱已注册工具面 gauge：0 表示沙箱降级（Docker 不可达 / 初始化超时 / 镜像缺失）。
+     * 降级本身不阻断主链路，但必须能从指标看出「Agent 当前没有工具可用」。
+     */
+    public static void sandboxTools(int baseTools, int browserTools) {
+        SANDBOX_TOOLS.set(baseTools);
+        SANDBOX_BROWSER_TOOLS.set(browserTools);
+        if (!SANDBOX_GAUGE_BOUND.compareAndSet(false, true)) {
+            return;
+        }
+        Gauge.builder("harness.sandbox.tools", SANDBOX_TOOLS, (AtomicInteger v) -> v.get())
+                .description("沙箱已注册工具数（0=降级，沙箱类能力不可用）")
+                .strongReference(true)
+                .register(REGISTRY);
+        Gauge.builder("harness.sandbox.browser.tools", SANDBOX_BROWSER_TOOLS, (AtomicInteger v) -> v.get())
+                .description("沙箱已注册浏览器工具数（0=浏览器组降级）")
+                .strongReference(true)
+                .register(REGISTRY);
     }
 
     private static String label(String value) {

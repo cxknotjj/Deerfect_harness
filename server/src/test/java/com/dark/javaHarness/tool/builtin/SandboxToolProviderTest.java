@@ -3,6 +3,7 @@ package com.dark.javaHarness.tool.builtin;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.micrometer.core.instrument.Metrics;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -99,5 +100,21 @@ class SandboxToolProviderTest {
         assertTrue(provider.readOnlyFileTools().isEmpty());
         assertTrue(provider.writeTools().isEmpty());
         assertTrue(provider.browserTools().isEmpty(), "浏览器组同属沙箱工具，也应为空");
+    }
+
+    /** 降级必须能从指标看出来：工具面为 0 时 gauge 同步为 0，排障无需依赖日志推断 */
+    @Test
+    void degradedSandbox_publishesZeroToolGauge() {
+        SandboxToolProvider provider = new SandboxToolProvider() {
+            @Override
+            protected void init() {
+                throw new IllegalStateException("docker not available");
+            }
+        };
+        provider.initTimeoutMs = 2_000;
+
+        assertTrue(provider.baseTools().isEmpty(), "初始化失败应返回空工具面而非抛出");
+        assertEquals(0.0, Metrics.globalRegistry.get("harness.sandbox.tools").gauge().value());
+        assertEquals(0.0, Metrics.globalRegistry.get("harness.sandbox.browser.tools").gauge().value());
     }
 }
