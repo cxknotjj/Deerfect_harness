@@ -3,7 +3,7 @@
 - 范围：异步观测、沙箱 / MCP 降级、知识摄取一致性、渠道连接韧性、工具标识校验
 - 创建：2026-11-05
 - 来源：知识图谱分析报告（`issue.md`）
-- 状态：共 5 项，已完成 4 项，待办 1 项
+- 状态：共 5 项，已完成 5 项，待办 0 项
 
 ## 背景
 
@@ -41,8 +41,9 @@
   - 验收：模拟中途失败后重跑可收敛到与全量重建一致的结果；补充摄取失败 / 重试测试
   - 结果（2026-11-05）：现有实现已满足单文档最小单元（先删后写 + 失败置 status=0 + 成功文档先落台账 + 孤儿清理基于同一快照）；补充「两文档第二个失败、重跑收敛」用例；`KnowledgeServiceImplTest` 37 条全绿。
 
-- [ ] P2-2 `channel-qq` 事件处理韧性
+- [x] P2-2 `channel-qq` 事件处理韧性
   - 作用：OneBot 外部协议 + 长连接状态，断连或重复投递时缺少统一的重放 / 去重约定
   - 位置：[OneBotEventServiceImpl](../channel-qq/src/main/java/com/dark/javaHarness/channel/qq/event/OneBotEventServiceImpl.java)
   - 做法：按消息 id 做幂等去重；断连恢复后不回放已处理事件；失败事件记录并可观测
   - 验收：重复投递同一事件只处理一次；断连恢复不重复回复；补充幂等与恢复用例
+  - 结果（2026-11-05）：现有链路已在 ACK 前用 `MessageDedupCache` 按 messageId 去重、异步池拒绝与异常均有日志；补充去重缓存用例与「重复上报只分发一次」控制器用例；`mvn -s .mvn/settings.xml -pl channel-qq -am test` 83 条全绿。

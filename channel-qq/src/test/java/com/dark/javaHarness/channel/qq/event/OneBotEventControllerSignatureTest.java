@@ -2,9 +2,13 @@ package com.dark.javaHarness.channel.qq.event;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 import com.dark.javaHarness.channel.qq.client.NapCatProperties;
+import com.dark.javaHarness.channel.qq.dto.OneBotEvent;
 import tools.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Executor;
@@ -72,5 +76,22 @@ class OneBotEventControllerSignatureTest {
     void nullBody_treatedAsEmpty_signaturesMatch() throws Exception {
         OneBotEventController c = controller(SECRET);
         assertTrue(c.signatureValid(null, sign(new byte[0], SECRET)));
+    }
+
+    /** 重复上报同一 messageId：ACK 前幂等去重，事件只分发一次 */
+    @Test
+    void duplicateMessageId_dispatchedOnceBeforeAck() {
+        OneBotEventService service = mock(OneBotEventService.class);
+        NapCatProperties props = new NapCatProperties();
+        OneBotEventController c = new OneBotEventController(
+                new ObjectMapper(), service, Runnable::run, props);
+        byte[] body = "{\"post_type\":\"message\",\"message_type\":\"private\",\"message_id\":42,"
+                .concat("\"user_id\":10001,\"raw_message\":\"hi\"}")
+                .getBytes(StandardCharsets.UTF_8);
+
+        c.onEvent(body, null);
+        c.onEvent(body, null);
+
+        verify(service, times(1)).handle(any(OneBotEvent.class));
     }
 }
