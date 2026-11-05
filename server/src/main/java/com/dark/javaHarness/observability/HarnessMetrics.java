@@ -155,6 +155,15 @@ public final class HarnessMetrics {
                 .increment(count);
     }
 
+    /** 观测队列打满丢弃的记录数：kind=llm / tool；非零即排障数据出现缺口。 */
+    public static void observabilityDropped(String kind) {
+        Counter.builder("harness.observability.dropped")
+                .description("观测记录因队列打满被丢弃的条数")
+                .tag("kind", label(kind))
+                .register(REGISTRY)
+                .increment();
+    }
+
     private static String label(String value) {
         return value == null || value.isBlank() ? UNKNOWN : value;
     }

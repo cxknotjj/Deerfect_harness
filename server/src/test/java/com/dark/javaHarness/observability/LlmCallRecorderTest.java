@@ -9,8 +9,12 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.micrometer.core.instrument.Metrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import com.dark.javaHarness.domain.LlmCallLog;
 import com.dark.javaHarness.domain.ToolCallLog;
@@ -187,5 +191,40 @@ class LlmCallRecorderTest {
         verify(toolCallMapper, timeout(2000)).insert(
                 org.mockito.ArgumentMatchers.argThat((ToolCallLogEntity e) ->
                         e.getTurnId() == null && e.getTraceId() == null && e.getParentSpan() == null));
+    }
+
+    @Test
+    void record_queueFull_dropsWithoutBlockingAndIncrementsMetric() throws Exception {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        Metrics.addRegistry(registry);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        try {
+            LlmCallLogMapper mapper = mock(LlmCallLogMapper.class);
+            when(mapper.insert(any(LlmCallLogEntity.class))).thenAnswer(inv -> {
+                entered.countDown();
+                release.await(5, TimeUnit.SECONDS);
+                return null;
+            });
+            LlmCallRecorder recorder = new LlmCallRecorder(mapper, mock(ToolCallLogMapper.class), 1);
+
+            recorder.record(sampleLog()); // 工作线程取出并阻塞在 insert
+            assertTrue(entered.await(2, TimeUnit.SECONDS), "首条记录应进入落库");
+            recorder.record(sampleLog()); // 占满容量为 1 的队列
+            recorder.record(sampleLog()); // 队列已满 → 丢弃
+
+            double dropped = registry.get("harness.observability.dropped")
+                    .tag("kind", "llm").counter().count();
+            assertTrue(dropped >= 1, "队列打满应计入丢弃指标");
+        } finally {
+            release.countDown();
+            Metrics.removeRegistry(registry);
+        }
+    }
+
+    private static LlmCallLog sampleLog() {
+        return new LlmCallLog("s1", "general", "m", false, true,
+                10, 5, 15, false, 100, null, null, null, null, null, null, null, 1, 1,
+                null, null, null, null, null);
     }
 }

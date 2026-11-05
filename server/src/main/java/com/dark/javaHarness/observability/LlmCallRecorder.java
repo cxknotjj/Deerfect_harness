@@ -9,17 +9,22 @@ import com.dark.javaHarness.mapper.ToolCallLogMapper;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 
 /**
  * LLM / 工具调用观测记录器：把每次 LLM 调用的耗时 / token 消耗异步写入 llm_call_log 表，
  * 每次真实工具执行异步写入 tool_call_log 表（HARNESS_TODO「工具调用与 MCP 日志记录」）。
  *
- * <p>设计约束：<b>观测永不影响主链路</b>——落库走 boundedElastic 边界异步执行，
+ * <p>设计约束：<b>观测永不影响主链路</b>——落库交给单线程 + 有界队列异步执行，
+ * 队列打满时直接丢弃并计入 {@code harness.observability.dropped} / 周期性 warn，
  * 任何异常只记 warn，不向调用方传播；调用出口（AgentChatCaller / GeneralAssistantAgent /
  * LlmRouteJudge / ToolCallTracer）在 try/catch 或 doFinally 中调用本类，不因观测增加失败面。
  * 两类台账同置一处的原因：LlmCallRecorder 恰好被仅有的两个请求组装工厂持有方
@@ -33,12 +38,34 @@ public class LlmCallRecorder {
 
     private static final Logger log = LoggerFactory.getLogger(LlmCallRecorder.class);
 
+    /** 观测队列容量：单条记录写入毫秒级，1024 已覆盖瞬时尖峰；打满即丢弃，优先保护主链路 */
+    static final int QUEUE_CAPACITY = 1024;
+
+    /** 丢弃日志节流：每 100 条打一次，避免观测故障反过来刷屏 */
+    private static final int DROP_LOG_INTERVAL = 100;
+
     private final LlmCallLogMapper mapper;
     private final ToolCallLogMapper toolCallMapper;
+    private final ThreadPoolExecutor executor;
+    private final AtomicLong dropped = new AtomicLong();
 
+    @Autowired
     public LlmCallRecorder(LlmCallLogMapper mapper, ToolCallLogMapper toolCallMapper) {
+        this(mapper, toolCallMapper, QUEUE_CAPACITY);
+    }
+
+    /** 包内可见：单测用极小容量构造队列打满场景 */
+    LlmCallRecorder(LlmCallLogMapper mapper, ToolCallLogMapper toolCallMapper, int queueCapacity) {
         this.mapper = mapper;
         this.toolCallMapper = toolCallMapper;
+        this.executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS,
+                new LinkedBlockingQueue<>(queueCapacity),
+                r -> {
+                    Thread t = new Thread(r, "observability-recorder");
+                    t.setDaemon(true);
+                    return t;
+                },
+                new ThreadPoolExecutor.AbortPolicy());
     }
 
     /** 异步落库一条 LLM 调用记录；立即返回，内部异常仅 warn */
@@ -46,18 +73,31 @@ public class LlmCallRecorder {
         // 台账是全部 LLM 调用的唯一汇合点（Agent 与 route-judge 都经此处）：指标在此记账，
         // 错误率/P95/token 与落库同一口径，不再另设埋点
         HarnessMetrics.llmCall(log1);
-        Mono.fromRunnable(() -> doInsert(log1))
-                .subscribeOn(Schedulers.boundedElastic())
-                .subscribe(v -> { },
-                        e -> log.warn("[llm-call] 观测记录落库失败（不影响主链路）：{}", e.getMessage()));
+        submit("llm", () -> doInsert(log1));
     }
 
     /** 异步落库一条工具调用记录（ToolCallTracer 执行后投递）；立即返回，内部异常仅 warn */
     public void recordToolCall(ToolCallLog c) {
-        Mono.fromRunnable(() -> doInsertToolCall(c))
-                .subscribeOn(Schedulers.boundedElastic())
-                .subscribe(v -> { },
-                        e -> log.warn("[tool-call] 观测记录落库失败（不影响主链路）：{}", e.getMessage()));
+        submit("tool", () -> doInsertToolCall(c));
+    }
+
+    /** 有界队列投递：打满即丢弃并计数，落库异常只 warn，绝不向调用方传播 */
+    private void submit(String kind, Runnable task) {
+        try {
+            executor.execute(() -> {
+                try {
+                    task.run();
+                } catch (Exception e) {
+                    log.warn("[{}] 观测记录落库失败（不影响主链路）：{}", kind, e.getMessage());
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            HarnessMetrics.observabilityDropped(kind);
+            long total = dropped.incrementAndGet();
+            if (total % DROP_LOG_INTERVAL == 1) {
+                log.warn("[{}] 观测队列已满，已丢弃 {} 条记录（不影响主链路）", kind, total);
+            }
+        }
     }
 
     private void doInsert(LlmCallLog c) {
