@@ -3,7 +3,7 @@
 - 范围：异步观测、沙箱 / MCP 降级、知识摄取一致性、渠道连接韧性、工具标识校验
 - 创建：2026-11-05
 - 来源：知识图谱分析报告（`issue.md`）
-- 状态：共 5 项，已完成 2 项，待办 3 项
+- 状态：共 5 项，已完成 3 项，待办 2 项
 
 ## 背景
 
@@ -25,11 +25,12 @@
   - 验收：无 Docker 环境下启动即可看到明确降级日志与指标；有 Docker 时行为不变
   - 结果（2026-11-05）：初始化/超时/浏览器组降级后同步 `harness.sandbox.tools` 与 `harness.sandbox.browser.tools` gauge（0=降级），保留原有降级 WARN；新增降级指标用例；`mvn -s .mvn/settings.xml -pl server -am test` 全绿。
 
-- [ ] P1-3 工具标识配置一致性一次性校验
+- [x] P1-3 工具标识配置一致性一次性校验
   - 作用：agent 表 `tools` 列出现未识别 token 时逐请求重复 WARN，且 Agent 实际拿不到该工具，配置与运行结果不一致
   - 位置：[ToolAssignments.forAgent / forNames](../server/src/main/java/com/dark/javaHarness/tool/ToolAssignments.java#L132-L245)、[ChatAgentConfig](../server/src/main/java/com/dark/javaHarness/config/agent/ChatAgentConfig.java)
   - 做法：装配期或首次加载时对 `tools` 列做一次全量校验，汇总输出未知 token；运行期不再重复告警；未知 token 记录到指标
   - 验收：未知 token 只告警一次并汇总；工具装配结果不变；补充单测覆盖「含未知 token」场景
+  - 结果（2026-11-05）：首次解析时按 agent 汇总输出未登记 token，后续请求不再重复；新增 `harness.tool.unavailable_tokens`（kind=unregistered/unavailable，按 agent+token 只计一次）；新增去重用例；`mvn -s .mvn/settings.xml -pl server -am test` 全绿。
 
 ## P2 一致性与渠道韧性
 

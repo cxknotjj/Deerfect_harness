@@ -19,6 +19,8 @@ import com.dark.javaHarness.tool.builtin.tts.TextToSpeechTools;
 import com.dark.javaHarness.tool.mcp.McpToolProvider;
 import com.dark.javaHarness.voice.InMemoryVoiceArtifactStore;
 import com.dark.javaHarness.voice.TtsProperties;
+import io.micrometer.core.instrument.Metrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -254,6 +256,24 @@ class ToolAssignmentsTest {
         assertTrue(set.annotated().contains(webTools), "未知 token 跳过不影响其余声明");
         assertEquals(2, set.annotated().size(), "demo 组 → DemoTools 一并注入");
         assertTrue(set.callbacks().isEmpty());
+    }
+
+    @Test
+    void declaredTools_unknownToken_countedOnceAcrossRequests() {
+        when(agentConfigProvider.findAgentTools("cfg-check")).thenReturn(Optional.of("web, typo_tool"));
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        Metrics.addRegistry(registry);
+        try {
+            dataDriven.forAgent("cfg-check");
+            dataDriven.forAgent("cfg-check"); // 同一实例第二次：日志与指标都不重复
+            assertEquals(1.0, registry.get("harness.tool.unavailable_tokens")
+                    .tag("kind", "unregistered")
+                    .tag("agent", "cfg-check")
+                    .tag("token", "typo_tool")
+                    .counter().count(), "未登记 token 每个 agent+token 只计一次");
+        } finally {
+            Metrics.removeRegistry(registry);
+        }
     }
 
     @Test

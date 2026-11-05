@@ -189,6 +189,20 @@ public final class HarnessMetrics {
                 .register(REGISTRY);
     }
 
+    /**
+     * tools 声明中无法注入的 token 数（每个 agent+token 只记一次）：
+     * kind=unavailable 表示已登记但当前环境不可用（沙箱未启动 / MCP 未连接），
+     * kind=unregistered 表示声明笔误或工具名未登记——后者需要改配置。
+     */
+    public static void toolTokenUnavailable(String agent, String token, boolean registered) {
+        Counter.builder("harness.tool.unavailable_tokens")
+                .description("tools 声明中当前不可用或未登记的 token 数")
+                .tags("agent", label(agent), "token", label(token),
+                        "kind", registered ? "unavailable" : "unregistered")
+                .register(REGISTRY)
+                .increment();
+    }
+
     private static String label(String value) {
         return value == null || value.isBlank() ? UNKNOWN : value;
     }

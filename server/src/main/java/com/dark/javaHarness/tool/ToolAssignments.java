@@ -1,5 +1,6 @@
 package com.dark.javaHarness.tool;
 
+import com.dark.javaHarness.observability.HarnessMetrics;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.tool.builtin.DemoTools;
 import com.dark.javaHarness.tool.builtin.SandboxToolProvider;
@@ -190,6 +191,7 @@ public class ToolAssignments {
         List<ToolCallback> callbacks = new ArrayList<>();
         Set<String> usedNames = new HashSet<>();
         Set<String> unknown = new LinkedHashSet<>();
+        List<String> newlyReported = new ArrayList<>();
         for (String raw : declared.split("[,，;；\\s]+")) {
             String token = raw.trim();
             if (token.isEmpty()) {
@@ -215,10 +217,16 @@ public class ToolAssignments {
                         addCallbacks(callbacks, usedNames, List.of(cb));
                     } else if (unknown.add(token)) {
                         // 注入前可用性判定：未进入当前可用工具面的 token 一律不注入
-                        reportUnavailable(agentName, token);
+                        if (reportUnavailable(agentName, token)) {
+                            newlyReported.add(token);
+                        }
                     }
                 }
             }
+        }
+        if (!newlyReported.isEmpty()) {
+            log.info("[tool分配] agent='{}' tools 声明含未登记 token（已跳过注入，仅告警一次）: {}",
+                    agentName, newlyReported);
         }
         return new ToolSet(List.copyOf(annotated), List.copyOf(callbacks));
     }
@@ -226,19 +234,20 @@ public class ToolAssignments {
     /**
      * 注入前可用性判定后的记录：不在当前可用工具面的 token 一律跳过注入。
      * 已登记用途元数据、但当前环境不可用的（沙箱未启动 / MCP 未连接 / 上游无该工具）
-     * 只记 debug；完全未登记的 token 按 agent+token 单次 info 记录——保留排查声明笔误的
-     * 线索，又不会像逐轮 warn 那样刷屏。
+     * 只记 debug；完全未登记的 token 由调用方汇总 info 一次，避免逐轮刷屏。
+     *
+     * @return true 表示本次是该 agent+token 的首次记录（调用方据此汇总输出）
      */
-    private void reportUnavailable(String agentName, String token) {
+    private boolean reportUnavailable(String agentName, String token) {
         if (!reportedUnavailable.add(agentName + '\u0000' + token)) {
-            return;
+            return false;
         }
-        if (TOOL_PURPOSES.containsKey(token)) {
+        boolean registered = TOOL_PURPOSES.containsKey(token);
+        HarnessMetrics.toolTokenUnavailable(agentName, token, registered);
+        if (registered) {
             log.debug("[tool分配] agent='{}' 工具 '{}' 当前环境不可用，跳过注入", agentName, token);
-        } else {
-            log.info("[tool分配] agent='{}' 工具 '{}' 不在当前可用工具面（未注册或来源未启用），跳过注入",
-                    agentName, token);
         }
+        return true;
     }
 
     /** 查工具一句话用途；未登记回退 MCP callback 真实 description（动态发现的工具在索引段也能显示用途） */
