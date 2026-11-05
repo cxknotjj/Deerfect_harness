@@ -3,7 +3,7 @@
 - 范围：`server` 内部包级依赖、`tool` / `graph` 导入环、分层回归防护
 - 创建：2026-11-05
 - 来源：知识图谱分析报告（`issue.md`）
-- 状态：共 4 项，已完成 2 项，待办 2 项
+- 状态：共 4 项，已完成 3 项，待办 1 项
 
 ## 背景
 
@@ -27,11 +27,12 @@
 
 ## P1 分层回归防护
 
-- [ ] P1-1 引入 ArchUnit 分层规则
+- [x] P1-1 引入 ArchUnit 分层规则
   - 作用：把「`controller` / `service` 不得依赖 `graph` / `agent` 内部实现」「`tool` 不得依赖 `service`」等约定固化成测试，防止重构后再次打穿
   - 位置：[server/pom.xml](../server/pom.xml)（新增 test 依赖）、`server/src/test/java/com/dark/javaHarness/architecture/`
   - 做法：加入 `archunit-junit5`；编写包依赖规则与「禁止环」规则；对既有违规先登记为 `FreezingArchRule` 存量基线，新增违规直接失败
   - 验收：新增 1 个 `ArchitectureTest`；故意引入一条违规依赖时测试失败；`mvn -s .mvn/settings.xml -pl server -am test` 全绿
+  - 结果（2026-11-05）：新增 `archunit-junit5` 1.4.1（test 作用域，字节码级依赖分析无法用源码扫描可靠替代）；落地 4 条规则：agent↛graph、controller↛mapper、tool↛service.impl、validation↛运行时包；`RecallHistoryTools` 作为已登记例外显式排除。实测临时让 `ProgressLine` 引用 `graph.OrchestrationBudget` 时测试按规则失败，回退后全量 797 条全绿。
 
 - [ ] P1-2 收敛 server-runtime 与 agent-orchestration 双向依赖
   - 作用：当前 `service` / `controller` 与 `agent` / `graph` 之间 111 / 50 条跨层导入，改一处容易连环回归
