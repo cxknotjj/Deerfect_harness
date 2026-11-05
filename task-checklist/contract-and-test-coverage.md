@@ -3,7 +3,7 @@
 - 范围：`harness-api` 契约拆分与测试、高扇入基座回归保护、`server` 复杂文件测试补齐
 - 创建：2026-11-05
 - 来源：知识图谱分析报告（`issue.md`）
-- 状态：共 4 项，已完成 2 项，待办 2 项
+- 状态：共 4 项，已完成 3 项，待办 1 项
 
 ## 背景
 
@@ -27,11 +27,12 @@
   - 验收：`harness-api` 文件级覆盖 ≥60%；`Goal` 状态机用例覆盖全部合法 / 非法迁移；全量测试全绿
   - 结果（2026-11-05）：新增 4 个测试类 36 条用例——`GoalStateMachineTest`（合法路径、无守卫语义、续跑回置、持久化恢复、便捷构造）、`AgentServiceContractTest`（内存替身：同步/流式/续跑/查询语义）、`SessionServiceContractTest`（内存替身：建档/批量写回保留时间戳/切换 Agent 校验/分页倒序/幂等删除/ChatMemory 适配）、`ViewDtoJsonContractTest`（20 个 DTO 的 JSON 键名与嵌套结构、工厂方法语义）；`harness-api` 增加 JUnit 5 + Jackson 3 test 依赖；有测试关联的源文件 23/35 ≈ 65.7%（≥60%）；跨模块 `-pl harness-api,server,channel-qq,cli -am test` 全绿。
 
-- [ ] P1-2 高扇入基座变更守卫
+- [x] P1-2 高扇入基座变更守卫
   - 作用：`AgentService` / `SessionService` / `Goal` 任一签名或语义变化都会波及 20+ 文件，需要一层显式守卫
   - 位置：`harness-api/src/test/java/com/dark/javaHarness/contract/`（新增）
   - 做法：补一组「契约快照」测试：固定公开方法签名与关键返回结构，签名变化时测试失败并提示受影响模块
   - 验收：故意删改一个公开方法时测试失败；正常构建全绿
+  - 结果（2026-11-05）：新增 `PortSignatureGuardTest`（反射快照：公开构造器 + 公开方法（含 ChatMemory 继承端口）擦除签名，失败信息标注受影响模块）；实测签名与快照不一致时（缺 `add(String,Message)`、Goal 恢复构造器少一个 `String` 参数）测试按预期失败，补齐后 `harness-api` 39 条全绿。
 
 ## P2 复杂文件测试
 
