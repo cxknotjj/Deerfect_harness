@@ -1,10 +1,13 @@
 package com.dark.javaHarness.cli.api;
 
+import com.dark.javaHarness.domain.Schedule;
 import com.dark.javaHarness.view.ChatRequest;
 import com.dark.javaHarness.view.ChatResponse;
 import com.dark.javaHarness.view.ProviderAddRequest;
 import com.dark.javaHarness.view.ProviderAddResult;
 import com.dark.javaHarness.view.ProviderRowView;
+import com.dark.javaHarness.view.ScheduleCreateRequest;
+import com.dark.javaHarness.view.SchedulesView;
 import com.dark.javaHarness.view.SessionPageView;
 import com.dark.javaHarness.enums.SseProtocol;
 import tools.jackson.core.type.TypeReference;
@@ -172,6 +175,64 @@ public class ChatApiClient {
                 throw new IOException("流结束但未收到 meta 事件");
             }
             return meta;
+        }
+    }
+
+    /**
+     * 调用 GET /api/schedules 获取全部定时任务。
+     *
+     * @throws IOException 网络错误或非 2xx 响应
+     */
+    public List<Schedule> listSchedules() throws IOException {
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/schedules")
+                .get()
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            String body = resp.body().string();
+            if (!resp.isSuccessful()) {
+                throw new IOException("HTTP " + resp.code() + ": " + body);
+            }
+            return mapper.readValue(body, SchedulesView.class).items();
+        }
+    }
+
+    /**
+     * 调用 POST /api/schedules 创建定时任务（cron 为 6 段：秒 分 时 日 月 周）。
+     *
+     * @throws IOException 网络错误，或非 2xx 响应（cron 非法 / agent 不存在为 400）
+     */
+    public Schedule createSchedule(String objective, String agentName, String cron, String notifyChannel)
+            throws IOException {
+        String json = mapper.writeValueAsString(
+                new ScheduleCreateRequest(objective, agentName, cron, notifyChannel));
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/schedules")
+                .post(RequestBody.create(json, JSON))
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            String body = resp.body().string();
+            if (!resp.isSuccessful()) {
+                throw new IOException("HTTP " + resp.code() + ": " + body);
+            }
+            return mapper.readValue(body, Schedule.class);
+        }
+    }
+
+    /**
+     * 调用 DELETE /api/schedules/{id} 删除定时任务（已触发的 goal 不受影响）。
+     *
+     * @throws IOException 网络错误，或非 2xx 响应（任务不存在为 400）
+     */
+    public void deleteSchedule(String id) throws IOException {
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/schedules/" + id)
+                .delete()
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            if (!resp.isSuccessful()) {
+                throw new ApiException(resp.code(), resp.body().string());
+            }
         }
     }
 

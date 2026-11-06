@@ -29,6 +29,7 @@ server/src/main/java/com/dark/javaHarness/
 ├── controller/                   # 表现层：REST 接口 + SSE 流式
 │   ├── ChatController.java       # 聊天接口（/api/chat、/stream、/resume、/goal-status）
 │   ├── HarnessController.java    # 管理接口（agents / submit / goals / sessions / 会话绑定 Agent）
+│   ├── ScheduleController.java   # 定时任务管理（/api/schedules 列表 / 创建 / 删除）
 │   ├── ProviderAdminController.java  # 模型映射管理（/api/providers 查看与热刷新新增）
 │   ├── KnowledgeAdminController.java # 知识库管理（文档列表/上传/删除/增量同步）
 │   ├── MonitorController.java    # 运行监控（/api/monitor 汇总快照）
@@ -39,6 +40,7 @@ server/src/main/java/com/dark/javaHarness/
 │   └── KbRetrievalController.java # RAG 检索观测查询（/api/kb-retrievals）
 ├── service/                      # 业务层（接口 + impl/ 实现）
 │   ├── GoalService.java          # 目标台账（AgentService/SessionService/ChatService/SessionBindingCleaner 端口已迁 harness-api）
+│   ├── ScheduleService.java      # 定时任务：定义 + 到点派发（复用 AgentService.submit，不另建执行链）
 │   ├── RouteJudge.java           # 主 Agent 路由判断（Agentic / Graph 路径决策）
 │   ├── AgentConfigProvider.java  # 从 agent 表读取运行配置（路由映射；配置读失败与「未配置」语义分离）
 │   ├── ProviderAdminService.java # model_provider 映射管理（新增即热刷新注册表）
@@ -46,6 +48,7 @@ server/src/main/java/com/dark/javaHarness/
 │       ├── ChatServiceImpl.java  # 聊天门面（仅 chat/streamReactive/resume 分发）
 │       ├── ChatTurnExecutor.java / ChatStreamPipeline.java  # 同步执行段 / 流式与 SSE 段
 │       ├── RouteDecider.java / TurnPersistence.java / ReplyDecorator.java  # 路由判定与预取汇合 / 会话建档与写回 / 回复装饰
+│       ├── ScheduleServiceImpl.java  # 定时任务：到期扫描 → 提交 goal → 推进 next_run_at（失败也推进，防卡调度器）
 │       ├── SessionHistoryArchiveService.java  # 会话归档检索（recall_history 数据源，按会话过滤）
 │       └── route/                # LlmRouteJudge（主 Agent 路由判定）/ LlmSemanticTriggerJudge（渠道路由语义判定）
 ├── advisor/                      # Spring AI Advisor 拦截器（Agent 流程横切管理）
@@ -91,7 +94,7 @@ server/src/main/java/com/dark/javaHarness/
 ├── mapper/                       # 数据访问层：MyBatis-Plus Mapper
 │   └── AgentMapper / GoalMapper / SessionMapper / SessionMessageMapper / SessionMessageArchiveMapper / ModelProviderMapper
 │       / LlmCallLogMapper / ToolCallLogMapper / KbRetrievalLogMapper / McpServerLogMapper / KbDocumentMapper
-│       / OrchestrationCheckpointMapper
+│       / OrchestrationCheckpointMapper / ScheduleMapper
 │       （OneBot 会话绑定 Mapper 在 channel-qq 模块）
 ├── domain/                       # 领域模型（父包）
 │   ├── RouteDecision.java        # 路由决策枚举（SIMPLE / COMPLEX）
@@ -101,6 +104,7 @@ server/src/main/java/com/dark/javaHarness/
 │   └── entity/                   # 数据库实体：AgentEntity / GoalEntity / SessionEntity / SessionMessageEntity
 │                                 #   / SessionMessageArchiveEntity / ModelProviderEntity / KbDocumentEntity
 │                                 #   / LlmCallLogEntity / ToolCallLogEntity / KbRetrievalLogEntity / McpServerLogEntity
+│                                 #   / ScheduleEntity
 │   └── dto/                      # 服务端内部视图 DTO：MonitorSnapshot / RuntimeMetrics / ComponentStatus / ContextComposition
 │                                 #   （对外契约 DTO 在 harness-api 的 view/ 包）
 ├── enums/                        # 共享常量：AgentConstants（GoalStatus / SseProtocol 已迁 harness-api）
@@ -139,6 +143,7 @@ server/src/main/java/com/dark/javaHarness/
 │   └── engine/                     # OrchestrationEngine / ParallelOrchestrationEngine / OrchestrationState / EngineEvent
 ├── state/                        # 执行态与断点续跑
 │   ├── OrchestrationStage.java / OrchestrationCheckpoint.java / CheckpointSelector.java
+│   ├── OrchestrationStateKeys.java  # 编排状态 Map 的键常量（引擎与节点共用的字符串键单一来源）
 │   └── persistence/              # OrchestrationCheckpointStore / OrchestrationCheckpointEntity
 ├── observability/                # 观测（记录器 + 查询 + 请求日志）
 │   ├── LlmCallRecorder / KbRetrievalRecorder / McpServerRecorder  # 三表异步落库
@@ -169,7 +174,10 @@ server/src/main/java/com/dark/javaHarness/
 ├── tool/                         # 工具层
     ├── WebTools.java             # 网页抓取门面（fetchUrl：抓取 + 30min 内容缓存 + 相关段落裁剪）
     ├── HtmlToMarkdown.java / ContentRelevance.java  # 噪声剔除/主内容 Markdown 化 / 按查询意图裁剪
-    ├── SandboxToolProvider.java  # 容器级沙箱工具（Python/Shell/文件 + 浏览器，懒初始化、失败降级）
+    ├── SandboxToolProvider.java  # 容器级沙箱工具（Python/Shell/文件 + 浏览器，懒初始化、失败降级、健康探测自愈）
+    ├── SandboxShellTools.java / SandboxFileTools.java / SandboxBrowserTools.java / SandboxToolSupport.java
+    │                             # 沙箱工具封装（执行 / 文件读写 / 浏览器 / 统一结果截断）
+    ├── SandboxGuards.java        # 沙箱边界守卫：写入路径限 /workspace、Shell 破坏性命令拦截
     ├── McpToolProvider.java / McpConfigParser.java  # MCP 工具接入（多 server 懒连接、失败隔离）/ mcp-config.json 解析
     ├── McpServerTools.java       # 内置 MCP Server 暴露的演示工具（Streamable-HTTP /mcp）
     ├── ToolAssignments.java      # 工具分配表：按专家分配工具集（双通道注入，最小权限）

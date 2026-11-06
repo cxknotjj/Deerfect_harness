@@ -1,6 +1,7 @@
 package com.dark.javaHarness.cli;
 
 import com.dark.javaHarness.cli.api.ChatApiClient;
+import com.dark.javaHarness.domain.Schedule;
 import com.dark.javaHarness.view.ProviderAddResult;
 import com.dark.javaHarness.view.ProviderRowView;
 import java.io.IOException;
@@ -9,6 +10,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 斜杠命令解析与分发（自 {@link ChatCli} 拆出，超长类拆分 2026-11-05）：
@@ -51,6 +54,8 @@ final class CommandDispatcher {
             handleResumeCommand(line);
         } else if (line.startsWith("/provider")) {
             handleProviderCommand(line);
+        } else if (line.startsWith("/schedule")) {
+            handleScheduleCommand(line);
         } else {
             streamRenderer.send(line);
         }
@@ -71,6 +76,7 @@ final class CommandDispatcher {
         ui.get().println("  " + c + "/resume <goalId>" + r + "  断点续跑指定的 goal（goalId 见每回合末尾的会话信息）");
         ui.get().println("  " + c + "/provider" + r + "      查看模型-服务商映射（model_provider 表全量）");
         ui.get().println("  " + c + "/provider add" + r + "  新增供应商：/provider add <provider> <apiUrl> <模型1,模型2,...>");
+        ui.get().println("  " + c + "/schedule" + r + "     定时任务：list（默认）| add \"<cron>\" <agent> <目标> | del <id>");
         ui.get().println("  " + c + "/exit" + r + "        退出");
     }
 
@@ -168,6 +174,69 @@ final class CommandDispatcher {
      * </pre>
      * 新增前需确保已设置对应环境变量 <PROVIDER大写>_API_KEY（如 MOONSHOT_API_KEY）。
      */
+    /** /schedule add 的参数形态："<cron>" <agent> <目标>——cron 含空格，必须加引号才不会被拆开 */
+    private static final Pattern SCHEDULE_ADD = Pattern.compile("\"([^\"]+)\"\\s+(\\S+)\\s+(.+)");
+
+    /** 处理 /schedule：列表（默认）/ 创建 / 删除 */
+    private void handleScheduleCommand(String line) {
+        String arg = line.substring("/schedule".length()).trim();
+        if (arg.isEmpty() || "list".equalsIgnoreCase(arg)) {
+            printSchedules();
+            return;
+        }
+        if (arg.startsWith("add ")) {
+            Matcher matcher = SCHEDULE_ADD.matcher(arg.substring(4).trim());
+            if (!matcher.matches()) {
+                ui.get().println("用法: /schedule add \"<cron>\" <agent> <目标描述>");
+                ui.get().println("  例: /schedule add \"0 0 8 * * *\" general 每天八点汇总昨天的工作");
+                return;
+            }
+            try {
+                Schedule created = api.createSchedule(
+                        matcher.group(3), matcher.group(2), matcher.group(1), null);
+                ui.get().println("\033[32m✓ 已创建 " + created.id()
+                        + "，下次触发 " + created.nextRunAt() + "\033[0m");
+            } catch (IOException e) {
+                ui.get().println("创建失败: " + e.getMessage());
+            }
+            return;
+        }
+        if (arg.startsWith("del ")) {
+            String id = arg.substring(4).trim();
+            if (id.isEmpty()) {
+                ui.get().println("用法: /schedule del <id>");
+                return;
+            }
+            try {
+                api.deleteSchedule(id);
+                ui.get().println("\033[32m✓ 已删除 " + id + "\033[0m");
+            } catch (IOException e) {
+                ui.get().println("删除失败: " + e.getMessage());
+            }
+            return;
+        }
+        ui.get().println("用法: /schedule [list] | add \"<cron>\" <agent> <目标> | del <id>");
+    }
+
+    private void printSchedules() {
+        try {
+            List<Schedule> items = api.listSchedules();
+            if (items.isEmpty()) {
+                ui.get().println("暂无定时任务（/schedule add \"<cron>\" <agent> <目标> 创建）");
+                return;
+            }
+            ui.get().println("定时任务（共 " + items.size() + " 条）：");
+            for (Schedule s : items) {
+                String flag = s.enabled() ? "\033[32m●\033[0m" : "\033[90m○\033[0m";
+                ui.get().println("  " + flag + " " + s.id() + "  " + s.cron()
+                        + "  agent=" + s.agentName() + "  下次=" + s.nextRunAt());
+                ui.get().println("     \033[90m" + s.objective() + "\033[0m");
+            }
+        } catch (IOException e) {
+            ui.get().println("获取定时任务失败: " + e.getMessage());
+        }
+    }
+
     private void handleProviderCommand(String line) {
         String arg = line.substring("/provider".length()).trim();
         if (arg.isEmpty() || "list".equalsIgnoreCase(arg)) {

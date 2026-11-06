@@ -27,6 +27,10 @@ app:
     # 启动时清理上次强杀进程遗留的容器（@PreDestroy 未执行）。
     # 前提是单实例部署：同一个 Docker daemon 上跑多个实例会互相清容器。
     cleanup-orphans-on-start: true
+  # 定时任务扫描（agent_schedule 表）：到点把 objective 提交给指定 Agent（复用 goal 执行链）。
+  # 单实例假设——扫描与推进同线程串行；多实例部署需要 ShedLock 或改消息队列。
+  schedule:
+    scan-interval-ms: 10000
   # 工具 Schema 延迟加载（两段式工具暴露）：开启后请求级工具面轻量注入（名称+用途，schema 置空），
   # system 附工具索引段，模型经 expand_tool 元工具按需展开获取完整参数说明；
   # 关闭后回退全量注入现状（expand_tool 不注册）
