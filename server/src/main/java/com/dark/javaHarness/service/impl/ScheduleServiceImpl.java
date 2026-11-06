@@ -11,9 +11,15 @@ import com.dark.javaHarness.message.MessageSenderRegistry;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.GoalService;
 import com.dark.javaHarness.service.ScheduleService;
+import jakarta.annotation.PreDestroy;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -43,10 +49,33 @@ public class ScheduleServiceImpl implements ScheduleService {
     /** 推送正文里的结果摘要上限：IM 消息不是报告，超长内容截断 */
     private static final int RESULT_SUMMARY_LIMIT = 300;
 
+    /**
+     * 两次触发的最小间隔（秒）：必须大于扫描周期（10s）的两倍。
+     *
+     * <p>为什么：推送靠 {@code last_goal_id} + {@code notified_at} 定位「上一轮跑完的结果」，
+     * 而每次派发都会覆盖 last_goal_id。间隔太密时上一轮还没推完就被新一轮覆盖，
+     * 结果被静默丢弃（2026-11-06 用每 10 秒一条的 cron 复现）。30 秒给「派发 →
+     * goal 完成 → 下一轮推送」留出至少两轮节拍。
+     */
+    private static final long MIN_TRIGGER_INTERVAL_SECONDS = 30;
+
     private final ScheduleMapper mapper;
     private final AgentService agentService;
     private final GoalService goalService;
     private final MessageSenderRegistry senders;
+
+    /**
+     * 推送专用单线程（守护）：渠道 HTTP 会超时重试，放在调度线程上会把「下一轮派发」
+     * 一起拖住——NapCat 连不上时实测重试链路可占用数秒，任务越多叠加越久。
+     */
+    private final ExecutorService notifyExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "schedule-notify");
+        t.setDaemon(true);
+        return t;
+    });
+
+    /** 推送防重入：上一轮没跑完就跳过本轮，避免慢渠道把任务堆在队列里 */
+    private final AtomicBoolean notifying = new AtomicBoolean();
 
     public ScheduleServiceImpl(ScheduleMapper mapper, AgentService agentService,
                                GoalService goalService, MessageSenderRegistry senders) {
@@ -64,8 +93,28 @@ public class ScheduleServiceImpl implements ScheduleService {
      */
     @Scheduled(fixedDelayString = "${app.schedule.scan-interval-ms:10000}")
     public void tick() {
+        // 顺序不能反：dispatchDue 会覆盖 last_goal_id。先收集上一轮的结果快照，
+        // 再派发新的，否则高频 cron（间隔 ≤ 扫描周期）下永远只看到刚创建、还在 PENDING
+        // 的那个 goal，notified_at 永远置不上——推送被自己的派发饿死。
+        List<PendingNotify> pending = collectPending();
         dispatchDue();
-        notifyFinished();
+        if (pending.isEmpty() || !notifying.compareAndSet(false, true)) {
+            return;
+        }
+        notifyExecutor.execute(() -> {
+            try {
+                deliver(pending);
+            } catch (Throwable t) {
+                log.warn("[schedule] 推送轮次异常: {}", t.toString());
+            } finally {
+                notifying.set(false);
+            }
+        });
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        notifyExecutor.shutdownNow();
     }
 
     @Override
@@ -83,6 +132,14 @@ public class ScheduleServiceImpl implements ScheduleService {
         LocalDateTime next = expression.next(now);
         if (next == null) {
             throw new IllegalArgumentException("cron 永不触发: " + cron);
+        }
+        LocalDateTime following = expression.next(next);
+        if (following != null
+                && Duration.between(next, following).getSeconds() < MIN_TRIGGER_INTERVAL_SECONDS) {
+            throw new IllegalArgumentException(
+                    "cron 间隔过短（最小 " + MIN_TRIGGER_INTERVAL_SECONDS + " 秒，实际 "
+                            + Duration.between(next, following).getSeconds() + " 秒）："
+                            + "调度按 10 秒节拍扫描，更密的触发会让上一轮结果来不及推送就被覆盖");
         }
 
         ScheduleEntity row = new ScheduleEntity();
@@ -150,43 +207,70 @@ public class ScheduleServiceImpl implements ScheduleService {
      */
     @Override
     public int notifyFinished() {
-        List<ScheduleEntity> pending;
+        return deliver(collectPending());
+    }
+
+    /** 待推送快照：查询时就把 goal 终态与正文定下来，发送阶段不再读库（避免派发覆盖导致串行错乱） */
+    private record PendingNotify(String scheduleId, String goalId, String channelRef, String text) {
+    }
+
+    /** 收集「已触发、有推送目标、尚未通知、goal 已终态」的任务快照 */
+    private List<PendingNotify> collectPending() {
+        List<ScheduleEntity> rows;
         try {
-            pending = mapper.selectList(new QueryWrapper<ScheduleEntity>()
+            rows = mapper.selectList(new QueryWrapper<ScheduleEntity>()
                     .isNotNull("last_goal_id")
                     .isNull("notified_at")
                     .isNotNull("notify_channel")
                     .last("LIMIT " + DISPATCH_BATCH));
         } catch (Exception e) {
             log.warn("[schedule] 待推送任务扫描失败，本轮跳过: {}", e.toString());
-            return 0;
+            return List.of();
         }
-        if (pending == null || pending.isEmpty()) {
-            return 0;
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
         }
-        int delivered = 0;
-        for (ScheduleEntity row : pending) {
+        List<PendingNotify> pending = new ArrayList<>();
+        for (ScheduleEntity row : rows) {
             Goal goal = goalService.get(row.getLastGoalId()).orElse(null);
             if (goal == null) {
                 // goal 已过保留期被清理：标记掉，否则永远停留在待推送
                 log.warn("[schedule] 任务 {} 的 goal {} 已不存在，跳过推送", row.getId(), row.getLastGoalId());
-                markNotified(row.getId());
+                markNotified(row.getId(), row.getLastGoalId());
                 continue;
             }
             if (goal.status() == GoalStatus.PENDING || goal.status() == GoalStatus.RUNNING) {
                 continue; // 还在跑，下一轮再看
             }
-            if (senders.send(row.getNotifyChannel(), formatResult(row, goal))) {
+            pending.add(new PendingNotify(row.getId(), row.getLastGoalId(),
+                    row.getNotifyChannel(), formatResult(row, goal)));
+        }
+        return pending;
+    }
+
+    /** 实际发送并标记；失败也标记（避免每轮重试刷屏渠道），重试语义属于任务本身（P1-4） */
+    private int deliver(List<PendingNotify> pending) {
+        int delivered = 0;
+        for (PendingNotify item : pending) {
+            if (senders.send(item.channelRef(), item.text())) {
                 delivered++;
             }
-            markNotified(row.getId());
+            markNotified(item.scheduleId(), item.goalId());
         }
         return delivered;
     }
 
-    private void markNotified(String scheduleId) {
+    /**
+     * 条件更新：只在 last_goal_id 仍是我们推送的那一条时才置 notified_at。
+     *
+     * <p>不加这个条件会串轮次——发送期间 dispatchDue 已把 last_goal_id 换成新 goal，
+     * 直接按 id 更新会把「新一轮」标记成已通知，导致它永远不推。
+     */
+    private void markNotified(String scheduleId, String goalId) {
         UpdateWrapper<ScheduleEntity> update = new UpdateWrapper<>();
-        update.eq("id", scheduleId).set("notified_at", LocalDateTime.now());
+        update.eq("id", scheduleId)
+                .eq("last_goal_id", goalId)
+                .set("notified_at", LocalDateTime.now());
         try {
             mapper.update(null, update);
         } catch (Exception e) {

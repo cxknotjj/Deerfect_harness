@@ -1,11 +1,14 @@
 package com.dark.javaHarness.service.impl;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
@@ -85,6 +88,18 @@ class ScheduleServiceImplTest {
                 () -> service.create("早报", "general", "not-a-cron", null));
 
         assertTrue(e.getMessage().contains("cron"), "错误信息应指向 cron: " + e.getMessage());
+        verify(mapper, never()).insert(any(ScheduleEntity.class));
+    }
+
+    /** 间隔小于扫描周期两倍会丢推送（上一轮结果被新一轮覆盖），创建期就拒掉而不是等运行期静默丢 */
+    @Test
+    void create_tooFrequentCron_rejected() {
+        agentExists();
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> service.create("心跳", "general", "*/10 * * * * *", null));
+
+        assertTrue(e.getMessage().contains("间隔过短"), e.getMessage());
         verify(mapper, never()).insert(any(ScheduleEntity.class));
     }
 
@@ -189,6 +204,40 @@ class ScheduleServiceImplTest {
         verify(mapper).update(isNull(), captor.capture());
         assertTrue(captor.getValue().getSqlSet().contains("enabled"),
                 "无后续触发时间应停用: " + captor.getValue().getSqlSet());
+    }
+
+    /**
+     * 回归：tick 必须先收集上一轮结果再派发。
+     *
+     * <p>dispatchDue 会覆盖 last_goal_id；若先派发再查，高频 cron（间隔 ≤ 扫描周期）下
+     * 永远只看到刚创建、还在 PENDING 的那个 goal，notified_at 永远置不上（2026-11-06
+     * 用每 10 秒一条的 cron 端到端复现）。
+     */
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void tick_collectsBeforeDispatch_soHighFrequencyCronStillNotifies() {
+        ScheduleEntity row = pendingNotify("s10");
+        row.setLastGoalId("goal-old");
+        // 第一次 selectList 是 collectPending（上一轮），第二次是 dispatchDue（无到期任务）
+        when(mapper.selectList(any())).thenReturn(List.of(row), List.of());
+
+        Goal done = new Goal("goal-old", "早报");
+        done.succeed("上一轮的结果");
+        when(goalService.get("goal-old")).thenReturn(Optional.of(done));
+        when(qqSender.send(any(), any())).thenReturn(true);
+
+        service.tick();
+
+        verify(qqSender, org.mockito.Mockito.timeout(2_000)).send(eq("10001"), contains("上一轮的结果"));
+    }
+
+    /** tick 是调度入口：派发同步做，推送甩到独立线程（慢渠道不拖住下一轮派发） */
+    @Test
+    void tick_dispatchesWithoutThrowing() {
+        when(mapper.selectList(any())).thenReturn(List.of());
+
+        assertDoesNotThrow(() -> service.tick());
+        verify(mapper, org.mockito.Mockito.atLeastOnce()).selectList(any());
     }
 
     // ---------- 结果推送（P1-2） ----------
