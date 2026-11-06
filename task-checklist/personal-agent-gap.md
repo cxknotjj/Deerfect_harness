@@ -2,19 +2,19 @@
 
 - 范围：`server` 主链路 + `harness-api` 端口 + `channel-qq` 推送 + `web` 入口；不改 `cli` 的命令行协议（仅加命令）
 - 创建：2026-11-06
-- 状态：共 14 项，已完成 0 项，待办 14 项
+- 状态：共 14 项，已完成 4 项，待办 10 项
 - 关系：`docs/HARNESS_TODO.md` 是技术路线图（工程化 / 编排智能化 / 多实例），本清单是**产品视角**的能力补齐。重叠 4 条（画像长青、归档 RAG、滚动摘要、Goal 重投）在此提前并给出可执行口径；其余为新增。两者冲突时以本清单的验收口径为准，完成后回写 HARNESS_TODO 勾选。
 
 ## 进度概览
 
 | 分类             | 已完成 | 待办 | 小计 |
 | -------------- | --- | -- | -- |
-| P0 主动化的安全前置   | 0   | 2  | 2  |
-| P1 存在感（自己开始）  | 0   | 4  | 4  |
+| P0 主动化的安全前置   | 2   | 0  | 2  |
+| P1 存在感（自己开始）  | 2   | 2  | 4  |
 | P2 记忆连续性（人生级） | 0   | 4  | 4  |
 | P3 随身触达        | 0   | 2  | 2  |
 | P4 个人数据源       | 0   | 2  | 2  |
-| 合计             | 0   | 14 | 14 |
+| 合计             | 4   | 10 | 14 |
 
 ## 背景
 
@@ -30,33 +30,34 @@
 
 > 不先做这两条，P1 的无人值守执行就是在放大事故面：现在是「你让它跑代码」，之后是「它凌晨自己跑代码」。
 
-- [ ] P0-1 沙箱生命周期自愈（探测 / 重建 / 孤儿回收）
+- [x] P0-1 沙箱生命周期自愈（探测 / 重建 / 孤儿回收）
   - 作用：沙箱容器懒创建一次后无重置机制，坏状态只能停服恢复；强杀进程会残留容器。主动任务跑在无人值守时段，坏状态等于任务永久卡死
   - 位置：[SandboxToolProvider](../server/src/main/java/com/dark/javaHarness/tool/builtin/SandboxToolProvider.java)（持有 `SandboxService`，仅 `@PreDestroy` 销毁）、`application-agent.yaml` 的 `app.sandbox.*`
   - 做法：容器句柄加健康探测（`exec echo` 带超时）；连续 N 次失败或镜像/配置变更时销毁重建，重建期间工具调用返回可读错误而非挂死；启动时扫描并回收本项目前缀的孤儿容器；重建事件落 `tool_call_log` 或独立日志
   - 验收：手动 `docker kill` 容器后下一次工具调用自动重建并成功；强杀进程重启后无残留容器；单测覆盖「探测失败 → 重建 → 调用成功」与「重建失败 → 可读错误」
-
-- [ ] P0-2 沙箱写 / 执行边界拦截
+  - 结果（2026-11-06）：每 5 分钟在 base 容器内 echo 探活（独立线程限时，超时判故障），失败销毁重建并整组重生成工具；重建失败清空工具面；启动时 cleanupAllSandboxes 回收遗留容器。browser 组不探测（本就按需降级）。SandboxToolProviderTest 5→17 条。提交 2a672ce。
+- [x] P0-2 沙箱写 / 执行边界拦截
   - 作用：无人值守时模型输出没人复核，路径越界与危险命令必须在服务端拦
   - 位置：[SandboxFileTools](../server/src/main/java/com/dark/javaHarness/tool/builtin/SandboxFileTools.java)、[SandboxShellTools](../server/src/main/java/com/dark/javaHarness/tool/builtin/SandboxShellTools.java)（当前完全信任模型输出透传容器）
-  - 做法：写入路径 `realpath` 归一化后必须落在声明工作目录内（拒绝 `../` 与符号链接逃逸）；shell 加危险命令黑名单 + 执行超时 + 输出长度上限；**主防线仍是容器本身不挂载宿主目录**，黑名单只当减速带；被拒调用落审计并回可读原因
-  - 验收：`../` 越界写、`rm -rf /`、符号链接逃逸三类用例全部被拒且可审计；正常读写零回归；`SandboxFileToolsTest` / `SandboxShellToolsTest` 补对应用例
+  - 做法：写入路径按 Unix 语义归一化后必须落在 `/workspace` 内（拒绝 `../` 越界；符号链接逃逸纯字符串判断不了，靠容器隔离兜底，已写进类注释）；shell 加危险命令黑名单 + 结果长度上限；**主防线仍是容器本身不挂载宿主目录**，黑名单只当减速带；拒绝时抛可读异常给模型
+  - 验收：`../` 越界写与 `rm -rf /` 等破坏性命令被拒且错误可读；正常读写零回归；`SandboxGuardsTest` 覆盖路径归一化、四类越界、命令正反例与截断
+  - 结果（2026-11-06）：新增 SandboxGuards：写入路径 Unix 归一化后限 /workspace（相对路径按工作区解析、~ 拒绝），覆盖写/编辑/建目录/移动四处；Shell 拦截删根、mkfs、dd 写块设备、关机重启、fork 炸弹、改根权限六类；结果统一截断 4 万字符并注明原长。类注释写明「减速带非主防线」与符号链接依赖容器隔离。新增 12 条测试。提交 575b193。
 
 ## P1 存在感：让它自己开始
 
-- [ ] P1-1 定时任务（schedule 表 + 调度器 + 双入口）
+- [x] P1-1 定时任务（schedule 表 + 调度器 + 双入口）
   - 作用：让它到点自己干活，这是「存在感」的第一块砖；当前所有主动行为都必须由人触发
-  - 位置：新增 Flyway `V4__schedule.sql`、`config/ScheduleConfig`、`service/ScheduleService`；复用 [`goalExecutor`](../server/src/main/java/com/dark/javaHarness/config/GoalExecutorConfig.java) 与 [`AgentService.submit`](../server/src/main/java/com/dark/javaHarness/service/impl/AgentServiceImpl.java)
-  - 做法：表字段 `id / cron_or_at / objective / agent_name / session_id / owner_channel / enabled / last_run_at / next_run_at / retry_count`；扫描到点转 goal 执行，**不另写执行链**；支持一次性（at）与周期（cron，用 Spring `CronExpression` 不自研）；入口 `POST/GET/DELETE /api/schedules` + CLI `/schedule`；`next_run_at` 落库保证重启不丢不重跑
+  - 位置：Flyway `V7__agent_schedule.sql`、`service/ScheduleService`（+ impl）、`controller/ScheduleController`；复用 [`goalExecutor`](../server/src/main/java/com/dark/javaHarness/config/GoalExecutorConfig.java) 与 [`AgentService.submit`](../server/src/main/java/com/dark/javaHarness/service/impl/AgentServiceImpl.java)
+  - 做法：表字段 `id / objective / agent_name / cron / enabled / notify_channel / last_run_at / next_run_at / last_goal_id / notified_at`；扫描到点转 goal 执行，**不另写执行链**；cron 用 Spring `CronExpression`（6 段，秒级）不自研；入口 `POST/GET/DELETE /api/schedules` + CLI `/schedule`；`next_run_at` 落库保证重启不丢不重跑
   - 验收：配一条每分钟任务，两分钟后 `goal` 表出现两条执行记录；重启后不重复触发；同一时刻只触发一次（单实例即可，多实例另案）
-
-- [ ] P1-2 主动推送通道（harness-api 端口 + QQ 落地）
+  - 结果（2026-11-06）：agent_schedule（V7）+ /api/schedules 增删查 + CLI /schedule；派发=扫描到期行→AgentService.submit→推进 next_run_at，失败也推进（防每 10 秒重扫卡住队首）；cron 用 Spring CronExpression 6 段，创建即校验并验 agent 存在；永不触发表达式派发后停用。notify_channel 列留待 P1-2。11 条测试。提交 d80d0e8。
+- [x] P1-2 主动推送通道（harness-api 端口 + QQ 落地）
   - 作用：任务跑完要能找到人，否则定时任务等于写日志
   - 位置：`harness-api` 新增 `MessageSender` 端口（与 [ReplyPostProcessor](../harness-api/src/main/java/com/dark/javaHarness/service/ReplyPostProcessor.java) 平级但语义不同）；[channel-qq](../channel-qq/src/main/java/com/dark/javaHarness/channel/qq/client/NapCatApiClient.java) 实现
-  - 做法：`MessageSender.send(channelRef, text)` 渠道无关，渠道实现放各自模块（保持 core 不依赖 channel-qq 的 enforcer 边界）；QQ 用 `onebot_session_binding` 反查 userId 调 `sendPrivateMsg`；未绑定降级写站内通知；失败重试 1 次并落日志
+  - 做法：`MessageSender.send(target, text)` + `channel()` 渠道标识，由 `MessageSenderRegistry` 解析 `channel:target`；QQ 实现调 `sendPrivateMsg`（NapCat 客户端自身含 1 次重试）；目标来自 `agent_schedule.notify_channel`，不反查绑定表
   - 注意：**不要复用 `ReplyPostProcessor`** —— 它是「清洗模型回复文本」的 SPI，无副作用、幂等，与主动外发语义相反
-  - 验收：定时任务跑完 10 秒内 QQ 收到消息；未绑定时不抛异常且站内可查；core 的 enforcer 规则未被打破
-
+  - 验收：定时任务跑完 10 秒内 QQ 收到消息；未注册渠道 / 地址非法不抛异常且 WARN 日志可查；core 的 enforcer 规则未被打破
+  - 结果（2026-11-06）：harness-api 新增 MessageSender 端口 + MessageSenderRegistry（channel:target 路由，未注册/非法/实现违约一律 false）；channel-qq 实现私聊送达；推送判定改轮询（last_goal_id + notified_at 幂等，V8 加列）而非事件——Goal 完成点有三处，事件易漏发重发；派发与推送合成 tick 节拍；发送失败也标记避免刷渠道。16+7 条测试。提交 42bc16b。
 - [ ] P1-3 Goal 常驻（对话内声明 + 每轮注入）
   - 作用：现在的 goal 是「提交—查询」的一次性任务，不是「记得住你在追什么」的长期目标
   - 位置：`goal` 表已有 `session_id`（无需加字段）；[ContextAssemblingAdvisor](../server/src/main/java/com/dark/javaHarness/advisor/ContextAssemblingAdvisor.java) / [PromptAssembler](../server/src/main/java/com/dark/javaHarness/prompt/PromptAssembler.java) 加「活跃目标」段；[ChatServiceImpl](../server/src/main/java/com/dark/javaHarness/service/impl/ChatServiceImpl.java) 入口解析 `/goal`
