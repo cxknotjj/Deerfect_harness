@@ -21,12 +21,16 @@ public final class SandboxShellTools {
                 "Code execution completed");
     }
 
-    /** Shell 命令执行（run_shell_command） */
+    /** Shell 命令执行（run_shell_command）：命令先经 SandboxGuards 拦截破坏性模式 */
     public static ToolCallback runShellCommand(Sandbox sandbox) {
         RunShellCommandTool tool = new RunShellCommandTool();
         tool.bind(sandbox);
         return SandboxToolSupport.callback(tool,
-                (args, ctx) -> tool.run_shell_command(SandboxToolSupport.str(args, "command")),
+                (args, ctx) -> {
+                    String command = SandboxToolSupport.str(args, "command");
+                    SandboxGuards.requireSafeCommand(command);
+                    return tool.run_shell_command(command);
+                },
                 "Shell execution completed");
     }
 }

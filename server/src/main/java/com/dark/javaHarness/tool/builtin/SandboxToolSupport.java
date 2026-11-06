@@ -40,7 +40,8 @@ final class SandboxToolSupport {
         // 用 LinkedHashMap（而非 Map.of）：工具失败信息/部分实现可能返回 null，Map.of 拒绝 null
         BiFunction<Map<String, Object>, ToolContext, Map<String, Object>> function = (args, ctx) -> {
             Map<String, Object> body = new java.util.LinkedHashMap<>();
-            body.put("result", executor.apply(args, ctx));
+            // 结果统一截断：cat 大文件/递归目录的输出会直接进上下文，超长内容先裁再接
+            body.put("result", SandboxGuards.truncateResult(executor.apply(args, ctx)));
             body.put("message", message);
             Map<String, Object> response = new java.util.LinkedHashMap<>();
             response.put("Response", body);

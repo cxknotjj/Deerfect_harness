@@ -83,12 +83,13 @@ public final class SandboxFileTools {
 
     /* ---------------- 写入 ---------------- */
 
-    /** 写文件 */
+    /** 写文件（路径经 SandboxGuards 归一化并限制在工作区内） */
     public static ToolCallback writeFile(Sandbox sandbox) {
         WriteFileTool tool = new WriteFileTool();
         tool.bind(sandbox);
         return SandboxToolSupport.callback(tool,
-                (args, ctx) -> tool.fs_write_file(SandboxToolSupport.str(args, "path"),
+                (args, ctx) -> tool.fs_write_file(
+                        SandboxGuards.requireWritablePath(SandboxToolSupport.str(args, "path")),
                         SandboxToolSupport.str(args, "content")),
                 "Filesystem write_file completed");
     }
@@ -102,7 +103,8 @@ public final class SandboxFileTools {
             Object edits = args.get("edits");
             Map<String, Object>[] array = edits instanceof List<?> list
                     ? list.toArray(new Map[0]) : new Map[0];
-            return tool.fs_edit_file(SandboxToolSupport.str(args, "path"), array);
+            return tool.fs_edit_file(
+                    SandboxGuards.requireWritablePath(SandboxToolSupport.str(args, "path")), array);
         }, "Filesystem edit_file completed");
     }
 
@@ -111,17 +113,19 @@ public final class SandboxFileTools {
         CreateDirectoryTool tool = new CreateDirectoryTool();
         tool.bind(sandbox);
         return SandboxToolSupport.callback(tool,
-                (args, ctx) -> tool.fs_create_directory(SandboxToolSupport.str(args, "path")),
+                (args, ctx) -> tool.fs_create_directory(
+                        SandboxGuards.requireWritablePath(SandboxToolSupport.str(args, "path"))),
                 "Filesystem create_directory completed");
     }
 
-    /** 移动/重命名 */
+    /** 移动/重命名（源与目标都必须在工作区内，否则等于把文件搬出沙箱工作区） */
     public static ToolCallback moveFile(Sandbox sandbox) {
         MoveFileTool tool = new MoveFileTool();
         tool.bind(sandbox);
         return SandboxToolSupport.callback(tool,
-                (args, ctx) -> tool.fs_move_file(SandboxToolSupport.str(args, "source"),
-                        SandboxToolSupport.str(args, "destination")),
+                (args, ctx) -> tool.fs_move_file(
+                        SandboxGuards.requireWritablePath(SandboxToolSupport.str(args, "source")),
+                        SandboxGuards.requireWritablePath(SandboxToolSupport.str(args, "destination"))),
                 "Filesystem move_file completed");
     }
 }
