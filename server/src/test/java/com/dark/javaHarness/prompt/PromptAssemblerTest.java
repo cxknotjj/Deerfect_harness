@@ -197,7 +197,7 @@ class PromptAssemblerTest {
     @Test
     void assemble_profileProvider_generalRendersProfileSection() {
         PromptAssembler withProfile = new PromptAssembler(agentService, toolAssignments,
-                List.of(), List.of(agentName -> "【用户偏好画像】\n- 偏好简洁回复"), false);
+                List.of(), List.of(agentName -> "【用户偏好画像】\n- 偏好简洁回复"), List.of(), false);
         when(agentService.getAgentConfig("general")).thenReturn(Optional.empty());
         ToolCallback readOnlyCb = callbackNamed("fs_read_file");
         when(sandbox.readOnlyFileTools()).thenReturn(List.of(readOnlyCb));
@@ -212,11 +212,34 @@ class PromptAssemblerTest {
         assertTrue(parts[2].startsWith("可用工具索引"), "画像段之后是工具索引段");
     }
 
+    /** 活跃目标段：按会话注入，位置在画像之后、工具索引之前；无 sessionId 时整段跳过 */
+    @Test
+    void assembleSections_sessionId_injectsActiveGoalSection() {
+        PromptAssembler withGoal = new PromptAssembler(agentService, toolAssignments,
+                List.of(), List.of(),
+                List.of(sessionId -> "s1".equals(sessionId) ? "【当前目标】整理库存异常" : null),
+                false);
+        when(agentService.getAgentConfig("general")).thenReturn(Optional.empty());
+        stubEmptyToolFaces();
+
+        List<PromptAssembler.RenderedSection> withSession =
+                withGoal.assembleSections("general", "兜底角色", null, null, "s1");
+        List<String> names = withSession.stream().map(PromptAssembler.RenderedSection::name).toList();
+
+        assertTrue(names.contains("活跃目标"), "有 sessionId 时应渲染目标段: " + names);
+        assertTrue(names.indexOf("活跃目标") < names.indexOf("工具索引"), "目标段应在工具索引之前: " + names);
+        assertTrue(withSession.stream().anyMatch(s -> s.text().contains("整理库存异常")));
+
+        List<String> withoutSession = withGoal.assembleSections("general", "兜底角色", null, null, null)
+                .stream().map(PromptAssembler.RenderedSection::name).toList();
+        assertTrue(!withoutSession.contains("活跃目标"), "无会话场景（route-judge 等）不应出现目标段");
+    }
+
     /** 画像段角色过滤：provider 对子任务角色返回 null（实现侧 MemoryPolicy 口径）→ 该段跳过 */
     @Test
     void assemble_profileProvider_subtaskRoleSkipped() {
         PromptAssembler withProfile = new PromptAssembler(agentService, toolAssignments,
-                List.of(), List.of(agentName -> "general".equals(agentName) ? "【用户偏好画像】" : null), false);
+                List.of(), List.of(agentName -> "general".equals(agentName) ? "【用户偏好画像】" : null), List.of(), false);
         when(agentService.getAgentConfig("researcher")).thenReturn(Optional.empty());
 
         String system = withProfile.assemble("researcher", "兜底角色");
@@ -254,7 +277,7 @@ class PromptAssemblerTest {
      */
     @Test
     void assemble_lazyToolsEnabled_indexSectionCarriesExpandHint() {
-        PromptAssembler lazy = new PromptAssembler(agentService, toolAssignments, List.of(), List.of(), true);
+        PromptAssembler lazy = new PromptAssembler(agentService, toolAssignments, List.of(), List.of(), List.of(), true);
         when(agentService.getAgentConfig("general")).thenReturn(Optional.empty());
         ToolCallback readOnlyCb = callbackNamed("fs_read_file");
         when(sandbox.readOnlyFileTools()).thenReturn(List.of(readOnlyCb));
@@ -338,7 +361,7 @@ class PromptAssemblerTest {
         ToolCallback readOnlyCb = callbackNamed("fs_read_file");
         when(sandbox.readOnlyFileTools()).thenReturn(List.of(readOnlyCb));
         PromptAssembler withExtras = new PromptAssembler(agentService, toolAssignments,
-                List.of(agentName -> "SKILL：demo"), List.of(agentName -> "【用户偏好画像】"), false);
+                List.of(agentName -> "SKILL：demo"), List.of(agentName -> "【用户偏好画像】"), List.of(), false);
 
         List<PromptAssembler.RenderedSection> sections =
                 withExtras.assembleSections("general", "兜底角色", null);

@@ -2,6 +2,7 @@ package com.dark.javaHarness.cli;
 
 import com.dark.javaHarness.cli.api.ChatApiClient;
 import com.dark.javaHarness.domain.Schedule;
+import com.dark.javaHarness.view.GoalView;
 import com.dark.javaHarness.view.ProviderAddResult;
 import com.dark.javaHarness.view.ProviderRowView;
 import java.io.IOException;
@@ -56,6 +57,8 @@ final class CommandDispatcher {
             handleProviderCommand(line);
         } else if (line.startsWith("/schedule")) {
             handleScheduleCommand(line);
+        } else if (line.startsWith("/goal")) {
+            handleGoalCommand(line);
         } else {
             streamRenderer.send(line);
         }
@@ -77,6 +80,7 @@ final class CommandDispatcher {
         ui.get().println("  " + c + "/provider" + r + "      查看模型-服务商映射（model_provider 表全量）");
         ui.get().println("  " + c + "/provider add" + r + "  新增供应商：/provider add <provider> <apiUrl> <模型1,模型2,...>");
         ui.get().println("  " + c + "/schedule" + r + "     定时任务：list（默认）| add \"<cron>\" <agent> <目标> | del <id>");
+        ui.get().println("  " + c + "/goal" + r + "         长期目标：查看 | /goal <目标描述> 登记 | /goal done <id> 完成");
         ui.get().println("  " + c + "/exit" + r + "        退出");
     }
 
@@ -174,6 +178,59 @@ final class CommandDispatcher {
      * </pre>
      * 新增前需确保已设置对应环境变量 <PROVIDER大写>_API_KEY（如 MOONSHOT_API_KEY）。
      */
+    /** 处理 /goal：查看 / 登记 / 完成（长期目标跨轮注入，不进入执行链） */
+    private void handleGoalCommand(String line) {
+        String arg = line.substring("/goal".length()).trim();
+        if (arg.isEmpty() || "list".equalsIgnoreCase(arg)) {
+            printActiveGoal();
+            return;
+        }
+        if (arg.startsWith("done ")) {
+            String id = arg.substring(5).trim();
+            if (id.isEmpty()) {
+                ui.get().println("用法: /goal done <id>");
+                return;
+            }
+            try {
+                api.completeActiveGoal(id);
+                ui.get().println("\033[32m✓ 目标已完成 " + id + "\033[0m");
+            } catch (IOException e) {
+                ui.get().println("完成失败: " + e.getMessage());
+            }
+            return;
+        }
+        String sessionId = state.sessionId();
+        if (sessionId == null || sessionId.isBlank()) {
+            ui.get().println("当前没有会话，先发一条消息或 /new 再登记目标");
+            return;
+        }
+        try {
+            GoalView created = api.createActiveGoal(sessionId, arg);
+            ui.get().println("\033[32m✓ 已登记长期目标 " + created.id() + "，之后每轮对话都会带上它\033[0m");
+        } catch (IOException e) {
+            ui.get().println("登记失败: " + e.getMessage());
+        }
+    }
+
+    private void printActiveGoal() {
+        String sessionId = state.sessionId();
+        if (sessionId == null || sessionId.isBlank()) {
+            ui.get().println("当前没有会话");
+            return;
+        }
+        try {
+            GoalView goal = api.activeGoal(sessionId);
+            if (goal == null) {
+                ui.get().println("当前会话没有活跃目标（/goal <目标描述> 登记）");
+                return;
+            }
+            ui.get().println("活跃目标 " + goal.id() + "（" + goal.status() + "）");
+            ui.get().println("  \033[90m" + goal.objective() + "\033[0m");
+        } catch (IOException e) {
+            ui.get().println("查询失败: " + e.getMessage());
+        }
+    }
+
     /** /schedule add 的参数形态："<cron>" <agent> <目标>——cron 含空格，必须加引号才不会被拆开 */
     private static final Pattern SCHEDULE_ADD = Pattern.compile("\"([^\"]+)\"\\s+(\\S+)\\s+(.+)");
 

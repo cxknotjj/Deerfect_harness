@@ -48,7 +48,7 @@ class LlmRequestLogAdvisorChainTest {
         ChatClientRegistry registry = mock(ChatClientRegistry.class);
         when(registry.get(any())).thenReturn(client);
         PromptAssembler assembler = mock(PromptAssembler.class);
-        when(assembler.assembleSections(anyString(), anyString(), any(), any()))
+        when(assembler.assembleSections(anyString(), anyString(), any(), any(), any()))
                 .thenReturn(List.of(new PromptAssembler.RenderedSection("角色", "SYS", 1)));
 
         AgentRequestSpecFactory factory = new AgentRequestSpecFactory(registry, assembler,

@@ -11,6 +11,7 @@ import com.dark.javaHarness.graph.MultiAgentGraphAgent;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.prompt.ContextCompositionRecorder;
+import com.dark.javaHarness.prompt.ActiveGoalSectionProvider;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.prompt.SkillManager;
 import com.dark.javaHarness.prompt.SkillSectionProvider;
@@ -69,9 +70,10 @@ public class ChatAgentConfig {
                                            ToolAssignments toolAssignments,
                                            List<SkillSectionProvider> skillProviders,
                                            List<UserProfileSectionProvider> profileProviders,
+                                           List<ActiveGoalSectionProvider> goalProviders,
                                            ToolLazyManager toolLazyManager) {
         return new PromptAssembler(agentService, toolAssignments, skillProviders,
-                profileProviders, toolLazyManager.isEnabled());
+                profileProviders, goalProviders, toolLazyManager.isEnabled());
     }
 
     /**

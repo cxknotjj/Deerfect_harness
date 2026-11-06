@@ -21,6 +21,8 @@ public final class ContextCompositionCalculator {
     private static final Map<String, SectionSpec> SECTION_SPECS = Map.of(
             "角色", new SectionSpec("system.role", "角色提示词"),
             "用户偏好画像", new SectionSpec("system.profile", "用户画像"),
+            // 活跃目标段必须单独成项：它随会话变化，混进 system.other 会让「这轮为什么多了 100 token」无从解释
+            "活跃目标", new SectionSpec("system.activeGoal", "活跃目标"),
             "工具索引", new SectionSpec("system.toolIndex", "工具索引"),
             "工具纪律", new SectionSpec("system.discipline", "工具纪律"),
             "输出约定", new SectionSpec("system.output", "输出约定"),

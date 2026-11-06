@@ -20,6 +20,20 @@ public interface GoalService {
     /** 按 id 查询目标 */
     Optional<Goal> get(String id);
 
+    /**
+     * 登记一个跨轮长期目标（状态 ACTIVE，不进入执行链）。
+     *
+     * <p>与 {@link #create} 的区别：create 创建的是「这一轮要执行的任务」（PENDING → RUNNING），
+     * 本方法创建的是「用户希望长期推进的事」，只参与每轮 system 注入，不消耗 goalExecutor。
+     */
+    Goal createActive(String objective, String sessionId);
+
+    /** 查询会话当前活跃的长期目标（多条时取最近创建的一条） */
+    Optional<Goal> activeBySession(String sessionId);
+
+    /** 标记长期目标完成；不存在或不是 ACTIVE 返回 false */
+    boolean completeActive(String id);
+
     /** 查询全部目标 */
     List<Goal> all();
 

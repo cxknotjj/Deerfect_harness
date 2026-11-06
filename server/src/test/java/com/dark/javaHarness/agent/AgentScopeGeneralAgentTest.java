@@ -166,7 +166,7 @@ class AgentScopeGeneralAgentTest {
         agentic.setFallbackEnabled(true);
 
         PromptAssembler assembler = new PromptAssembler(agentService, effectiveAssignments,
-                List.of(), List.of(), false);
+                List.of(), List.of(), List.of(), false);
         ToolLazyManager lazyTools = new ToolLazyManager(effectiveAssignments, false);
 
         return new AgentScopeGeneralAgent(AGENT, mock(ChatClientRegistry.class), agentService,

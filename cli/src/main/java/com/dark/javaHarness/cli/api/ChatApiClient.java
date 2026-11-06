@@ -1,8 +1,11 @@
 package com.dark.javaHarness.cli.api;
 
 import com.dark.javaHarness.domain.Schedule;
+import com.dark.javaHarness.view.ActiveGoalRequest;
 import com.dark.javaHarness.view.ChatRequest;
 import com.dark.javaHarness.view.ChatResponse;
+import com.dark.javaHarness.view.GoalView;
+import com.dark.javaHarness.view.GoalsView;
 import com.dark.javaHarness.view.ProviderAddRequest;
 import com.dark.javaHarness.view.ProviderAddResult;
 import com.dark.javaHarness.view.ProviderRowView;
@@ -175,6 +178,64 @@ public class ChatApiClient {
                 throw new IOException("流结束但未收到 meta 事件");
             }
             return meta;
+        }
+    }
+
+    /**
+     * 调用 POST /api/harness/goals/active 登记跨轮长期目标（不进入执行链，只参与每轮 system 注入）。
+     *
+     * @throws IOException 网络错误，或非 2xx 响应（sessionId / objective 为空为 400）
+     */
+    public GoalView createActiveGoal(String sessionId, String objective) throws IOException {
+        String json = mapper.writeValueAsString(new ActiveGoalRequest(sessionId, objective));
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/harness/goals/active")
+                .post(RequestBody.create(json, JSON))
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            String body = resp.body().string();
+            if (!resp.isSuccessful()) {
+                throw new IOException("HTTP " + resp.code() + ": " + body);
+            }
+            return mapper.readValue(body, GoalView.class);
+        }
+    }
+
+    /**
+     * 调用 GET /api/harness/goals/active 查询会话当前活跃目标。
+     *
+     * @return 无活跃目标时返回 null
+     * @throws IOException 网络错误或非 2xx 响应
+     */
+    public GoalView activeGoal(String sessionId) throws IOException {
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/harness/goals/active?sessionId=" + sessionId)
+                .get()
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            String body = resp.body().string();
+            if (!resp.isSuccessful()) {
+                throw new IOException("HTTP " + resp.code() + ": " + body);
+            }
+            List<GoalView> goals = mapper.readValue(body, GoalsView.class).goals();
+            return goals == null || goals.isEmpty() ? null : goals.get(0);
+        }
+    }
+
+    /**
+     * 调用 POST /api/harness/goals/{id}/complete 标记长期目标完成。
+     *
+     * @throws IOException 网络错误，或非 2xx 响应（目标不存在/不是 ACTIVE 为 400）
+     */
+    public void completeActiveGoal(String id) throws IOException {
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/harness/goals/" + id + "/complete")
+                .post(RequestBody.create(new byte[0], null))
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            if (!resp.isSuccessful()) {
+                throw new ApiException(resp.code(), resp.body().string());
+            }
         }
     }
 

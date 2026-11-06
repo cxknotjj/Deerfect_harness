@@ -1,6 +1,7 @@
 package com.dark.javaHarness.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -31,6 +32,44 @@ class GoalServiceImplTest {
         // 纯单测环境无 MyBatis 引导，lambdaUpdate() 需要实体的 TableInfo 缓存，手动初始化
         TableInfoHelper.initTableInfo(
                 new MapperBuilderAssistant(new MybatisConfiguration(), ""), GoalEntity.class);
+    }
+
+    /** 长期目标：落库即 ACTIVE、绑定会话、不进执行链 */
+    @Test
+    void createActive_persistsActiveGoalBoundToSession() {
+        GoalMapper mapper = mock(GoalMapper.class);
+        GoalServiceImpl service = new GoalServiceImpl(mapper);
+
+        service.createActive("整理库存异常", "42");
+
+        ArgumentCaptor<GoalEntity> captor = ArgumentCaptor.forClass(GoalEntity.class);
+        verify(mapper).insert(captor.capture());
+        GoalEntity row = captor.getValue();
+        assertEquals("ACTIVE", row.getStatus(), "长期目标不能是 PENDING（会被执行链当作待执行）");
+        assertEquals("42", row.getSessionId(), "目标必须绑定会话，否则每轮注入找不到它");
+        assertEquals("整理库存异常", row.getObjective());
+    }
+
+    @Test
+    void activeBySession_blankSession_returnsEmpty() {
+        GoalServiceImpl service = new GoalServiceImpl(mock(GoalMapper.class));
+
+        assertTrue(service.activeBySession(" ").isEmpty());
+    }
+
+    /** 只有 ACTIVE 能被标记完成：重复调用或对已结束目标调用都应该返回 false，而不是把状态改回去 */
+    @Test
+    void completeActive_nonActiveGoal_returnsFalse() {
+        GoalMapper mapper = mock(GoalMapper.class);
+        GoalEntity row = new GoalEntity();
+        row.setId("goal-1");
+        row.setObjective("已结束的目标");
+        row.setStatus("SUCCEEDED");
+        row.setCreatedAt(java.time.LocalDateTime.now());
+        when(mapper.selectById("goal-1")).thenReturn(row);
+        GoalServiceImpl service = new GoalServiceImpl(mapper);
+
+        assertFalse(service.completeActive("goal-1"));
     }
 
     @Test

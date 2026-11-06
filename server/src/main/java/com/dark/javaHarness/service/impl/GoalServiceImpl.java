@@ -35,6 +35,42 @@ public class GoalServiceImpl implements GoalService {
         return goal;
     }
 
+    @Override
+    public Goal createActive(String objective, String sessionId) {
+        Goal goal = new Goal("goal-" + UUID.randomUUID(), objective, sessionId,
+                GoalStatus.ACTIVE, LocalDateTime.now(), null, null, null, null, null, null);
+        goalMapper.insert(toEntity(goal));
+        log.info("[goal] 登记长期目标 {}（session={}）: {}", goal.id(), sessionId, objective);
+        return goal;
+    }
+
+    @Override
+    public Optional<Goal> activeBySession(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return Optional.empty();
+        }
+        GoalEntity row = goalMapper.selectOne(
+                com.baomidou.mybatisplus.core.toolkit.Wrappers.<GoalEntity>lambdaQuery()
+                        .eq(GoalEntity::getSessionId, sessionId)
+                        .eq(GoalEntity::getStatus, GoalStatus.ACTIVE.name())
+                        .orderByDesc(GoalEntity::getCreatedAt)
+                        .last("LIMIT 1"));
+        return Optional.ofNullable(toGoal(row));
+    }
+
+    @Override
+    public boolean completeActive(String id) {
+        return get(id)
+                .filter(goal -> goal.status() == GoalStatus.ACTIVE)
+                .map(goal -> {
+                    goal.succeed("用户标记完成");
+                    update(goal);
+                    log.info("[goal] 长期目标已完成 {}", id);
+                    return true;
+                })
+                .orElse(false);
+    }
+
     /** 按 id 查询目标 */
     @Override
     public Optional<Goal> get(String id) {

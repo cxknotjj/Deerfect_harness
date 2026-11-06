@@ -55,18 +55,20 @@ public class PromptAssembler {
     private final List<SkillSectionProvider> skillProviders;
     /** 画像段提供者（扩展点）：用户偏好画像全文注入，角色过滤由实现侧判定（general/lead） */
     private final List<UserProfileSectionProvider> profileProviders;
+    /** 活跃目标段提供者（扩展点）：按会话注入跨轮长期目标，会话无目标时空段跳过 */
+    private final List<ActiveGoalSectionProvider> goalProviders;
     /** 工具 Schema 延迟加载开关（与 ToolLazyManager 同源）：开启时工具索引段追加 expand_tool 使用引导 */
     private final boolean lazyToolsEnabled;
     /** 固定段落集合（渲染时按 order 排序，次序声明即所得） */
     private final List<PromptSection> sections;
 
     public PromptAssembler(AgentService agentService, ToolAssignments toolAssignments) {
-        this(agentService, toolAssignments, List.of(), List.of(), false);
+        this(agentService, toolAssignments, List.of(), List.of(), List.of(), false);
     }
 
     public PromptAssembler(AgentService agentService, ToolAssignments toolAssignments,
                            List<SkillSectionProvider> skillProviders) {
-        this(agentService, toolAssignments, skillProviders, List.of(), false);
+        this(agentService, toolAssignments, skillProviders, List.of(), List.of(), false);
     }
 
     /**
@@ -76,15 +78,17 @@ public class PromptAssembler {
      */
     public PromptAssembler(AgentService agentService, ToolAssignments toolAssignments,
                            List<SkillSectionProvider> skillProviders,
-                           List<UserProfileSectionProvider> profileProviders, boolean lazyToolsEnabled) {
+                           List<UserProfileSectionProvider> profileProviders,
+                           List<ActiveGoalSectionProvider> goalProviders, boolean lazyToolsEnabled) {
         this.agentService = agentService;
         this.toolAssignments = toolAssignments;
         this.skillProviders = skillProviders == null ? List.of() : List.copyOf(skillProviders);
         this.profileProviders = profileProviders == null ? List.of() : List.copyOf(profileProviders);
+        this.goalProviders = goalProviders == null ? List.of() : List.copyOf(goalProviders);
         this.lazyToolsEnabled = lazyToolsEnabled;
-        this.sections = List.of(new RoleSection(), new ProfileSection(), new ToolIndexSection(),
-                new ToolDisciplineSection(), new OutputConventionSection(), new ChannelSection(),
-                new SkillSection());
+        this.sections = List.of(new RoleSection(), new ProfileSection(), new ActiveGoalSection(),
+                new ToolIndexSection(), new ToolDisciplineSection(), new OutputConventionSection(),
+                new ChannelSection(), new SkillSection());
     }
 
     /**
@@ -131,9 +135,18 @@ public class PromptAssembler {
     /** 按固定段落次序渲染（携带来源渠道，供信道规范段生成内容） */
     public List<RenderedSection> assembleSections(String agentName, String roleFallback,
                                                   AgentConfig config, String channel) {
+        return assembleSections(agentName, roleFallback, config, channel, null);
+    }
+
+    /**
+     * 按固定段落次序渲染（携带来源渠道与会话标识）：会话标识供活跃目标段取当前目标，
+     * 无会话场景（route-judge 等）传 null，该段自动跳过。
+     */
+    public List<RenderedSection> assembleSections(String agentName, String roleFallback,
+                                                  AgentConfig config, String channel, String sessionId) {
         PromptSection.Context ctx = new PromptSection.Context(
                 agentName, resolveRolePrompt(agentName, roleFallback, config),
-                toolNamesOf(agentName), channel);
+                toolNamesOf(agentName), channel, sessionId);
         List<RenderedSection> rendered = new ArrayList<>();
         for (PromptSection section : sections.stream()
                 .sorted(Comparator.comparingInt(PromptSection::order))
@@ -252,6 +265,34 @@ public class PromptAssembler {
         public String render(PromptSection.Context context) {
             for (UserProfileSectionProvider provider : profileProviders) {
                 String text = provider.provide(context.agentName());
+                if (text != null && !text.isBlank()) {
+                    return text;
+                }
+            }
+            return null;
+        }
+    }
+
+    /** 活跃目标段：会话当前 ACTIVE 目标的 objective + 已持续天数（无目标时空段跳过） */
+    private class ActiveGoalSection implements PromptSection {
+
+        @Override
+        public String name() {
+            return "活跃目标";
+        }
+
+        @Override
+        public int order() {
+            return 160;
+        }
+
+        @Override
+        public String render(PromptSection.Context context) {
+            if (context.sessionId() == null || context.sessionId().isBlank()) {
+                return null;
+            }
+            for (ActiveGoalSectionProvider provider : goalProviders) {
+                String text = provider.provide(context.sessionId());
                 if (text != null && !text.isBlank()) {
                     return text;
                 }

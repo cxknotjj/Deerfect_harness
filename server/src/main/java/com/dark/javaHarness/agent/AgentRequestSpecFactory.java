@@ -281,7 +281,7 @@ final class AgentRequestSpecFactory {
         // system 经 PromptAssembler 按段组装：角色段（表 prompt > 兜底指令 > 默认）+ 索引/纪律/约定等段；
         // 兜底角色指令收敛为角色段兜底，不再拼进 user。逐段结果一并返回，供上下文构成快照计量。
         List<PromptAssembler.RenderedSection> sections = promptAssembler.assembleSections(
-                forAgent, fallbackSystem, config, trace == null ? null : trace.channel());
+                forAgent, fallbackSystem, config, trace == null ? null : trace.channel(), sessionId);
         String system = sections.stream()
                 .map(PromptAssembler.RenderedSection::text)
                 .collect(Collectors.joining("\n\n"));

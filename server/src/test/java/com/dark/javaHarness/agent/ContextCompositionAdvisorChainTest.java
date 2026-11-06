@@ -45,7 +45,7 @@ class ContextCompositionAdvisorChainTest {
         ChatClientRegistry registry = mock(ChatClientRegistry.class);
         when(registry.get(any())).thenReturn(ChatClient.builder(model).build());
         PromptAssembler assembler = mock(PromptAssembler.class);
-        when(assembler.assembleSections(anyString(), anyString(), any(), any()))
+        when(assembler.assembleSections(anyString(), anyString(), any(), any(), any()))
                 .thenReturn(List.of(new PromptAssembler.RenderedSection("角色", "SYS", 1)));
 
         ContextCompositionStore store = new ContextCompositionStore();

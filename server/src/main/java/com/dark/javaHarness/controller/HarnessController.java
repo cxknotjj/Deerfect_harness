@@ -2,6 +2,11 @@ package com.dark.javaHarness.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dark.javaHarness.domain.Goal;
+import com.dark.javaHarness.domain.entity.SessionEntity;
+import com.dark.javaHarness.service.AgentService;
+import com.dark.javaHarness.service.GoalService;
+import com.dark.javaHarness.service.SessionService;
+import com.dark.javaHarness.view.ActiveGoalRequest;
 import com.dark.javaHarness.view.AgentsView;
 import com.dark.javaHarness.view.GoalView;
 import com.dark.javaHarness.view.GoalsView;
@@ -10,14 +15,12 @@ import com.dark.javaHarness.view.SessionCreatedView;
 import com.dark.javaHarness.view.SessionMessagesView;
 import com.dark.javaHarness.view.SessionPageView;
 import com.dark.javaHarness.view.SubmitView;
-import com.dark.javaHarness.domain.entity.SessionEntity;
-import com.dark.javaHarness.service.AgentService;
-import com.dark.javaHarness.service.GoalService;
-import com.dark.javaHarness.service.SessionService;
+import java.util.List;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -106,6 +109,38 @@ public class HarnessController {
         Goal goal = goalService.get(id)
                 .orElseThrow(() -> new IllegalArgumentException("未找到目标: " + id));
         return goalView(goal);
+    }
+
+    /**
+     * 登记跨轮长期目标（不进入执行链）：会话后续每轮对话都会在 system 里看到它。
+     *
+     * <p>与 POST /submit 的区别：submit 是「现在跑一次」，本端点是「记住要长期推进这件事」。
+     */
+    @PostMapping("/goals/active")
+    public GoalView createActiveGoal(@RequestBody ActiveGoalRequest request) {
+        if (request == null || request.sessionId() == null || request.sessionId().isBlank()) {
+            throw new IllegalArgumentException("sessionId 不能为空");
+        }
+        if (request.objective() == null || request.objective().isBlank()) {
+            throw new IllegalArgumentException("objective 不能为空");
+        }
+        return goalView(goalService.createActive(request.objective(), request.sessionId()));
+    }
+
+    /** 查询会话当前活跃的长期目标（无目标返回空列表） */
+    @GetMapping("/goals/active")
+    public GoalsView activeGoals(@RequestParam String sessionId) {
+        return new GoalsView(goalService.activeBySession(sessionId)
+                .map(goal -> List.of(goalView(goal)))
+                .orElse(List.of()));
+    }
+
+    /** 标记长期目标完成（只接受 ACTIVE 状态；已结束的传进来会 400） */
+    @PostMapping("/goals/{id}/complete")
+    public void completeActiveGoal(@PathVariable String id) {
+        if (!goalService.completeActive(id)) {
+            throw new IllegalArgumentException("目标不存在或不是活跃状态: " + id);
+        }
     }
 
     /** 查询全部目标 */
