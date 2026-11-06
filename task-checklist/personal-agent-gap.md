@@ -66,7 +66,7 @@
   - 位置：`goal` 表已有 `session_id`（无需加字段）；[ContextAssemblingAdvisor](../server/src/main/java/com/dark/javaHarness/advisor/ContextAssemblingAdvisor.java) / [PromptAssembler](../server/src/main/java/com/dark/javaHarness/prompt/PromptAssembler.java) 加「活跃目标」段；[ChatServiceImpl](../server/src/main/java/com/dark/javaHarness/service/impl/ChatServiceImpl.java) 入口解析 `/goal`
   - 做法：`/goal <objective>` 落 goal 并绑定当前 session；每轮组装把 RUNNING 目标的 objective + 最近进展注入（按预算截断，不挤掉 system 主体）；`/goal done <id>` 与 LLM 自评双通道收口；CLI 先行，Web 后续
   - 验收：声明目标后连续三轮对话，system 段都能看到目标；标记完成 / 取消后不再注入；超预算时按段裁剪，`system.channel` 等必需段不被挤掉
-  - 结果（2026-11-06）：新增 `GoalStatus.ACTIVE`（不复用 RUNNING——watchdog 会判死、重启会清理）；`GoalService.createActive/activeBySession/completeActive`；新增「活跃目标」prompt 段（order 160，按 sessionId 注入，provider 扩展点与画像同构）；快照加 `system.activeGoal` 映射；REST 三个端点 + CLI `/goal`。**只做手动完成，不做 LLM 自评**——误判完成会让目标悄悄消失。端到端：登记后发消息快照出现 107 token 的活跃目标段，完成后再发消失，重复完成 400。提交 5f1f8e2（22 文件）。
+  - 结果（2026-11-06）：新增 `GoalStatus.ACTIVE`（不复用 RUNNING——watchdog 会判死、重启会清理）；`GoalService.createActive/activeBySession/completeActive`；新增「活跃目标」prompt 段（order 160，按 sessionId 注入，provider 扩展点与画像同构）；快照加 `system.activeGoal` 映射；REST 三个端点 + CLI `/goal`。**只做手动完成，不做 LLM 自评**——误判完成会让目标悄悄消失。端到端：登记后发消息快照出现 107 token 的活跃目标段，完成后再发消失，重复完成 400。提交 183ed87（22 文件）。
 
 - [ ] P1-4 Goal 失败重投
   - 作用：无人值守的定时任务失败后没人管，等于白跑
