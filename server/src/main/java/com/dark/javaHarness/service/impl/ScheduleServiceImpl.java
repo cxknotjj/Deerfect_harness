@@ -5,8 +5,11 @@ import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.dark.javaHarness.domain.Goal;
 import com.dark.javaHarness.domain.Schedule;
 import com.dark.javaHarness.domain.entity.ScheduleEntity;
+import com.dark.javaHarness.enums.GoalStatus;
 import com.dark.javaHarness.mapper.ScheduleMapper;
+import com.dark.javaHarness.message.MessageSenderRegistry;
 import com.dark.javaHarness.service.AgentService;
+import com.dark.javaHarness.service.GoalService;
 import com.dark.javaHarness.service.ScheduleService;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -37,12 +40,32 @@ public class ScheduleServiceImpl implements ScheduleService {
     /** 单轮最多派发条数：防一次扫描把整个队列塞满（goalExecutor 有界，超了会拒绝） */
     private static final int DISPATCH_BATCH = 20;
 
+    /** 推送正文里的结果摘要上限：IM 消息不是报告，超长内容截断 */
+    private static final int RESULT_SUMMARY_LIMIT = 300;
+
     private final ScheduleMapper mapper;
     private final AgentService agentService;
+    private final GoalService goalService;
+    private final MessageSenderRegistry senders;
 
-    public ScheduleServiceImpl(ScheduleMapper mapper, AgentService agentService) {
+    public ScheduleServiceImpl(ScheduleMapper mapper, AgentService agentService,
+                               GoalService goalService, MessageSenderRegistry senders) {
         this.mapper = mapper;
         this.agentService = agentService;
+        this.goalService = goalService;
+        this.senders = senders;
+    }
+
+    /**
+     * 调度节拍：先派发到期任务，再补推送已完成但未通知的。
+     *
+     * <p>两件事放同一个节拍而不是各起一个 @Scheduled：派发与推送共享同一批任务，
+     * 分开调度会出现「推的比发的早」的空转窗口，也会让「同一条任务的日志被两条时间线切碎」。
+     */
+    @Scheduled(fixedDelayString = "${app.schedule.scan-interval-ms:10000}")
+    public void tick() {
+        dispatchDue();
+        notifyFinished();
     }
 
     @Override
@@ -93,7 +116,6 @@ public class ScheduleServiceImpl implements ScheduleService {
     }
 
     @Override
-    @Scheduled(fixedDelayString = "${app.schedule.scan-interval-ms:10000}")
     public int dispatchDue() {
         LocalDateTime now = LocalDateTime.now();
         List<ScheduleEntity> due;
@@ -115,6 +137,77 @@ public class ScheduleServiceImpl implements ScheduleService {
             fire(row, now);
         }
         return due.size();
+    }
+
+    /**
+     * 推送已完成任务的结果：按 {@code last_goal_id} 查 goal 状态，终态才发。
+     *
+     * <p>为什么轮询而不发事件：Goal 的完成点有三处（直跑、流式成功、流式失败），事件容易
+     * 漏发或重发；轮询 + notified_at 幂等标记只需读两张表，且失败天然下一轮补上。
+     *
+     * <p>发送失败也标记已通知：否则每 10 秒重试同一条会把渠道刷爆，而失败原因已经在
+     * {@link MessageSenderRegistry} 里告警。重试的语义属于「任务本身要不要重跑」（P1-4）。
+     */
+    @Override
+    public int notifyFinished() {
+        List<ScheduleEntity> pending;
+        try {
+            pending = mapper.selectList(new QueryWrapper<ScheduleEntity>()
+                    .isNotNull("last_goal_id")
+                    .isNull("notified_at")
+                    .isNotNull("notify_channel")
+                    .last("LIMIT " + DISPATCH_BATCH));
+        } catch (Exception e) {
+            log.warn("[schedule] 待推送任务扫描失败，本轮跳过: {}", e.toString());
+            return 0;
+        }
+        if (pending == null || pending.isEmpty()) {
+            return 0;
+        }
+        int delivered = 0;
+        for (ScheduleEntity row : pending) {
+            Goal goal = goalService.get(row.getLastGoalId()).orElse(null);
+            if (goal == null) {
+                // goal 已过保留期被清理：标记掉，否则永远停留在待推送
+                log.warn("[schedule] 任务 {} 的 goal {} 已不存在，跳过推送", row.getId(), row.getLastGoalId());
+                markNotified(row.getId());
+                continue;
+            }
+            if (goal.status() == GoalStatus.PENDING || goal.status() == GoalStatus.RUNNING) {
+                continue; // 还在跑，下一轮再看
+            }
+            if (senders.send(row.getNotifyChannel(), formatResult(row, goal))) {
+                delivered++;
+            }
+            markNotified(row.getId());
+        }
+        return delivered;
+    }
+
+    private void markNotified(String scheduleId) {
+        UpdateWrapper<ScheduleEntity> update = new UpdateWrapper<>();
+        update.eq("id", scheduleId).set("notified_at", LocalDateTime.now());
+        try {
+            mapper.update(null, update);
+        } catch (Exception e) {
+            log.warn("[schedule] 标记推送状态失败 {}: {}", scheduleId, e.toString());
+        }
+    }
+
+    /** 推送正文：任务目标 + 结果 + 摘要/原因 + goal 指针（便于回查完整记录） */
+    private static String formatResult(ScheduleEntity row, Goal goal) {
+        boolean succeeded = goal.status() == GoalStatus.SUCCEEDED;
+        String summary = goal.summary() == null ? "" : goal.summary().strip();
+        if (summary.length() > RESULT_SUMMARY_LIMIT) {
+            summary = summary.substring(0, RESULT_SUMMARY_LIMIT) + "…";
+        }
+        StringBuilder text = new StringBuilder("【定时任务】").append(row.getObjective().strip());
+        text.append("\n结果：").append(succeeded ? "成功" : "失败");
+        if (!summary.isEmpty()) {
+            text.append("\n").append(succeeded ? "摘要：" : "原因：").append(summary);
+        }
+        text.append("\n(goal ").append(row.getLastGoalId()).append(")");
+        return text.toString();
     }
 
     /** 触发单条并推进下次时间；失败也推进（重投是 goal 侧职责，见类注释） */

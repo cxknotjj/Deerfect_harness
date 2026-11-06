@@ -7,6 +7,7 @@ import com.dark.javaHarness.channel.qq.persistence.OneBotSessionBindingCleaner;
 import com.dark.javaHarness.channel.qq.persistence.OneBotSessionBindingMapper;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.ChatService;
+import com.dark.javaHarness.service.MessageSender;
 import com.dark.javaHarness.service.SemanticTriggerJudge;
 import com.dark.javaHarness.service.SessionBindingCleaner;
 import com.dark.javaHarness.service.SessionService;
@@ -57,6 +58,15 @@ public class NapCatChannelConfig {
     @Bean
     public NapCatApiClient napCatApiClient(NapCatProperties props, ObjectMapper objectMapper) {
         return new NapCatApiClientImpl(props, objectMapper);
+    }
+
+    /**
+     * 主动推送端口实现（定时任务结果 / 失败告警）：core 只认 {@link MessageSender}，
+     * 具体送达方式归渠道。napcat.enabled=false 时本 bean 不存在，core 的注册表为空。
+     */
+    @Bean
+    public MessageSender qqMessageSender(NapCatApiClient apiClient) {
+        return new QqMessageSender(apiClient);
     }
 
     /** /agent 指令经 AgentService 只读列举/映射 Agent（core 接口仅使用不修改，由本轮指令授权） */

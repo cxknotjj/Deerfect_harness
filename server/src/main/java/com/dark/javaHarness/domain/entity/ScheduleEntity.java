@@ -44,6 +44,9 @@ public class ScheduleEntity {
     /** 最近一次触发产生的 goal id（触发失败为空） */
     private String lastGoalId;
 
+    /** 执行结果推送时间；空 = 待推送（幂等标记，防每轮重复推送） */
+    private LocalDateTime notifiedAt;
+
     /** 创建时间 */
     private LocalDateTime createdAt;
 }

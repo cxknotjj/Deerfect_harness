@@ -14,7 +14,7 @@
 | `cli` | 终端客户端，纯 HTTP + SSE | compile → `harness-api` |
 | `wms-mcp-adapter` | 领域 MCP 适配范例 | 独立 |
 
-> 规则：core（server）编译期不得引用 `channel.qq`（enforcer 守护 `com.dark:channel-qq:*:*:compile`）；渠道新增输出控制走 `ReplyPostProcessor`，不改 core。详见 [`docs/design/channel-core-module-split.md`](./design/channel-core-module-split.md)。
+> 规则：core（server）编译期不得引用 `channel.qq`（enforcer 守护 `com.dark:channel-qq:*:*:compile`）；渠道新增输出控制走 `ReplyPostProcessor`，主动外发走 `MessageSender`（harness-api 端口，实现由渠道装配），两者都不改 core。详见 [`docs/design/channel-core-module-split.md`](./design/channel-core-module-split.md)。
 
 ---
 
@@ -167,6 +167,8 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── KnowledgeSyncView.java    # 增量同步结果（扫描/更新/跳过/chunk 数）
 │   └── KnowledgeRetriever.java   # 检索注入器：user 文本→top-k 命中→【出处N】知识段（预算截断）
 ├── channel/qq/                   # 已整体迁出为独立模块 `channel-qq`（NapCat/OneBot 11，napcat.enabled 条件装配，单向依赖 core 端口）
+├── message/                      # 主动推送（任务结果 / 失败告警外发）
+│   └── MessageSenderRegistry.java  # channel:target 路由到渠道实现；未注册渠道与实现违约一律 false
 ├── memory/                       # 用户画像（跨会话长期记忆）
 │   ├── UserProfileService.java   # 离线批量提炼空闲会话偏好 → 全局画像 Markdown（原子写）
 │   └── UserProfileSectionProviderImpl.java  # 画像段注入 general/lead 的 system prompt

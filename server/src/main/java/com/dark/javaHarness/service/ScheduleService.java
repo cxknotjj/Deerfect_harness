@@ -33,4 +33,14 @@ public interface ScheduleService {
      * @return 本轮触发的任务数
      */
     int dispatchDue();
+
+    /**
+     * 推送已结束任务的结果（按 last_goal_id 查 goal 终态；notified_at 幂等防重复）。
+     *
+     * <p>未配置 notify_channel 的任务不参与；goal 尚未结束的留到下一轮；
+     * 发送失败也标记已通知，避免每轮重试刷屏渠道。
+     *
+     * @return 本轮成功送达的条数
+     */
+    int notifyFinished();
 }
