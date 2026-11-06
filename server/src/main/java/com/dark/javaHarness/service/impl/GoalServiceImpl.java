@@ -28,9 +28,11 @@ public class GoalServiceImpl implements GoalService {
 
     /** 创建目标（带会话记忆与轨迹标识），初始状态 PENDING；标识值由调用方生成传入 */
     @Override
-    public Goal create(String objective, String sessionId, String turnId, String traceId, String channel) {
+    public Goal create(String objective, String sessionId, String turnId, String traceId, String channel,
+                       String agentName) {
         // UUID 保证重启/并发下主键唯一，避免内存序号与库中已有数据冲突
-        Goal goal = new Goal("goal-" + UUID.randomUUID(), objective, sessionId, turnId, traceId, channel);
+        Goal goal = new Goal("goal-" + UUID.randomUUID(), objective, sessionId, turnId, traceId,
+                channel, agentName);
         goalMapper.insert(toEntity(goal));
         return goal;
     }
@@ -38,7 +40,7 @@ public class GoalServiceImpl implements GoalService {
     @Override
     public Goal createActive(String objective, String sessionId) {
         Goal goal = new Goal("goal-" + UUID.randomUUID(), objective, sessionId,
-                GoalStatus.ACTIVE, LocalDateTime.now(), null, null, null, null, null, null);
+                GoalStatus.ACTIVE, LocalDateTime.now(), null, null, null, null, null, null, null, 0, null);
         goalMapper.insert(toEntity(goal));
         log.info("[goal] 登记长期目标 {}（session={}）: {}", goal.id(), sessionId, objective);
         return goal;
@@ -154,6 +156,9 @@ public class GoalServiceImpl implements GoalService {
         e.setFinishedAt(g.finishedAt());
         e.setLastProgressAt(g.lastProgressAt());
         e.setChannel(g.channel());
+        e.setAgentName(g.agentName());
+        e.setRetryCount(g.retryCount());
+        e.setNextRetryAt(g.nextRetryAt());
         return e;
     }
 
@@ -164,6 +169,7 @@ public class GoalServiceImpl implements GoalService {
         // 轨迹标识不入 goal 表，恢复为 null（resume 场景的调用链归属由编排侧处理）
         return new Goal(e.getId(), e.getObjective(), e.getSessionId(),
                 GoalStatus.valueOf(e.getStatus()), e.getCreatedAt(), e.getFinishedAt(), e.getSummary(),
-                null, null, e.getChannel(), e.getLastProgressAt());
+                null, null, e.getChannel(), e.getLastProgressAt(),
+                e.getAgentName(), e.getRetryCount() == null ? 0 : e.getRetryCount(), e.getNextRetryAt());
     }
 }

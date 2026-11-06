@@ -41,4 +41,13 @@ public class GoalEntity {
 
     /** 消息来源渠道（qq/cli/web/api；空 = 不注入信道规范段） */
     private String channel;
+
+    /** 执行该目标的 Agent 名（失败重投依据；聊天路径写路由结果，定时任务写 schedule 的 agent） */
+    private String agentName;
+
+    /** 已重投次数 */
+    private Integer retryCount;
+
+    /** 下次重投时间（指数退避）；空 = 不再重投 */
+    private LocalDateTime nextRetryAt;
 }

@@ -19,12 +19,18 @@ public class Goal {
     private final String traceId;
     /** 消息来源渠道（qq/cli/web/api；空 = 不注入信道规范段） */
     private final String channel;
+    /** 执行该目标的 Agent 名；空 = 不可重投（无从知道用哪个 Agent 重跑） */
+    private final String agentName;
     private GoalStatus status;
     private final LocalDateTime createdAt;
     private LocalDateTime finishedAt;
     private String summary;
     /** 最近进展时间：进入 RUNNING 时初始化，执行链路按阶段/节流刷新 */
     private LocalDateTime lastProgressAt;
+    /** 已重投次数（失败后由调度器递增） */
+    private int retryCount;
+    /** 下次重投时间（指数退避）；空 = 不再重投 */
+    private LocalDateTime nextRetryAt;
 
     /** 构造目标（无会话记忆） */
     public Goal(String id, String objective) {
@@ -41,28 +47,72 @@ public class Goal {
         this(id, objective, sessionId, turnId, traceId, null);
     }
 
+    /** 构造目标（带会话记忆、轨迹标识、来源渠道与执行 Agent），初始状态 PENDING */
+    public Goal(String id, String objective, String sessionId, String turnId, String traceId,
+                String channel, String agentName) {
+        this(id, objective, sessionId, GoalStatus.PENDING, LocalDateTime.now(), null, null,
+                turnId, traceId, channel, null, agentName, 0, null);
+    }
+
     /** 构造目标（带会话记忆、轨迹标识与来源渠道），初始状态 PENDING */
     public Goal(String id, String objective, String sessionId, String turnId, String traceId,
                 String channel) {
         this(id, objective, sessionId, GoalStatus.PENDING, LocalDateTime.now(), null, null,
-                turnId, traceId, channel, null);
+                turnId, traceId, channel, null, null, 0, null);
     }
 
     /** 从持久化数据恢复完整状态（轨迹标识不入 goal 表，恢复为 null） */
     public Goal(String id, String objective, String sessionId,
                 GoalStatus status, LocalDateTime createdAt, LocalDateTime finishedAt, String summary,
                 String turnId, String traceId, String channel, LocalDateTime lastProgressAt) {
+        this(id, objective, sessionId, status, createdAt, finishedAt, summary,
+                turnId, traceId, channel, lastProgressAt, null, 0, null);
+    }
+
+    /** 全状态构造（含失败重投三要素：执行 Agent / 已重投次数 / 下次重投时间） */
+    public Goal(String id, String objective, String sessionId,
+                GoalStatus status, LocalDateTime createdAt, LocalDateTime finishedAt, String summary,
+                String turnId, String traceId, String channel, LocalDateTime lastProgressAt,
+                String agentName, int retryCount, LocalDateTime nextRetryAt) {
         this.id = id;
         this.objective = objective;
         this.sessionId = sessionId;
         this.turnId = turnId;
         this.traceId = traceId;
         this.channel = channel;
+        this.agentName = agentName;
         this.status = status;
         this.createdAt = createdAt;
         this.finishedAt = finishedAt;
         this.summary = summary;
         this.lastProgressAt = lastProgressAt;
+        this.retryCount = retryCount;
+        this.nextRetryAt = nextRetryAt;
+    }
+
+    /**
+     * 是否可以再重投：必须知道用哪个 Agent 跑，且未超次数上限。
+     *
+     * <p>为什么要求 agentName：重投不新建 goal（要保留同一条轨迹与会话归属），
+     * 只能按原 Agent 重跑；没有记录就无从恢复，宁可让它停在 FAILED。
+     */
+    public boolean canRetry(int maxRetries) {
+        return agentName != null && !agentName.isBlank() && retryCount < maxRetries;
+    }
+
+    /** 安排下次重投时间（时间到由调度器重新提交本 goal） */
+    public void scheduleRetry(LocalDateTime at) {
+        this.nextRetryAt = at;
+    }
+
+    /** 重投前重置为待执行态：次数 +1，清空上次结论与结束时间，保留 objective 与轨迹 */
+    public void markRetry() {
+        this.retryCount++;
+        this.status = GoalStatus.PENDING;
+        this.finishedAt = null;
+        this.summary = null;
+        this.nextRetryAt = null;
+        this.lastProgressAt = null;
     }
 
     /** 标记目标进入执行中状态，并初始化进展时间 */
@@ -88,6 +138,21 @@ public class Goal {
         this.status = GoalStatus.FAILED;
         this.summary = summary;
         this.finishedAt = LocalDateTime.now();
+    }
+
+    /** 执行该目标的 Agent 名（空 = 不可重投） */
+    public String agentName() {
+        return agentName;
+    }
+
+    /** 已重投次数 */
+    public int retryCount() {
+        return retryCount;
+    }
+
+    /** 下次重投时间；空 = 不再重投 */
+    public LocalDateTime nextRetryAt() {
+        return nextRetryAt;
     }
 
     /** 目标ID */

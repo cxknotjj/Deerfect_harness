@@ -1,5 +1,8 @@
 package com.dark.javaHarness.service.impl;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -23,6 +26,7 @@ import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.BeforeEach;
@@ -88,7 +92,7 @@ class AgentServiceImplTest {
 
     private Goal stubGoal(String agentName, String sessionId) {
         Goal g = new Goal("goal-x", "hi", sessionId);
-        when(goalService.create(any(), any(), any(), any(), any())).thenReturn(g);
+        when(goalService.create(any(), any(), any(), any(), any(), any())).thenReturn(g);
         return g;
     }
 
@@ -160,7 +164,7 @@ class AgentServiceImplTest {
         assertEquals(GoalStatus.SUCCEEDED, goal.status(), "续跑成功后 goal 应标记 SUCCEEDED");
         // 复用传入 goal：不新建 goal（仅 markRunning + 完成共 2 次 update）
         org.mockito.Mockito.verify(goalService, org.mockito.Mockito.never())
-                .create(any(), any(), any(), any(), any());
+                .create(any(), any(), any(), any(), any(), any());
         org.mockito.Mockito.verify(goalService, org.mockito.Mockito.times(2)).update(goal);
     }
 
@@ -207,10 +211,103 @@ class AgentServiceImplTest {
                 () -> agentService.executeSync("ghost", "hi"));
 
         assertTrue(ex.getMessage().contains("未知 Agent"), "应透传注册表的未知 Agent 文案");
-        org.mockito.Mockito.verify(goalService, org.mockito.Mockito.never()).create(anyString(), anyString(), anyString(), anyString(), anyString());
+        org.mockito.Mockito.verify(goalService, org.mockito.Mockito.never()).create(anyString(), anyString(), anyString(), anyString(), anyString(), anyString());
     }
 
     /** agentNames 委托 registry 动态路由表：表驱动注册结果即 /agent 可切换列表 */
+    // ---------- 失败重投（P1-4） ----------
+
+    /** 重投跑的是「同一个 goal」：轨迹与会话归属不变，只把状态重置回 PENDING */
+    @Test
+    void retry_failedGoal_requeuesSameGoal() {
+        Goal failed = new Goal("goal-r", "重试任务", "s1", "turn-1", "trace-1", null, "general");
+        failed.fail("模型 500");
+        when(goalService.get("goal-r")).thenReturn(Optional.of(failed));
+        when(agentRegistry.require("general")).thenReturn(recordingAgent("general"));
+
+        assertTrue(agentService.retry("goal-r"), "应受理重投");
+
+        assertEquals(GoalStatus.SUCCEEDED, failed.status(), "同步执行器下重投应立即跑完");
+        assertEquals(1, failed.retryCount(), "重投次数应 +1");
+        assertEquals("ok-general", failed.summary());
+    }
+
+    /** 没有记录 agent 的 goal 不可重投：不知道用谁跑，宁可停在 FAILED */
+    @Test
+    void retry_goalWithoutAgent_returnsFalse() {
+        Goal failed = new Goal("goal-n", "无 agent", "s1");
+        failed.fail("boom");
+        when(goalService.get("goal-n")).thenReturn(Optional.of(failed));
+
+        assertFalse(agentService.retry("goal-n"));
+    }
+
+    @Test
+    void retry_succeededGoal_returnsFalse() {
+        Goal done = new Goal("goal-ok", "已完成", "s1", "t", "tr", null, "general");
+        done.succeed("done");
+        when(goalService.get("goal-ok")).thenReturn(Optional.of(done));
+
+        assertFalse(agentService.retry("goal-ok"), "只重投 FAILED");
+    }
+
+    @Test
+    void retry_agentGone_returnsFalse() {
+        Goal failed = new Goal("goal-g", "x", "s1", "t", "tr", null, "ghost");
+        failed.fail("boom");
+        when(goalService.get("goal-g")).thenReturn(Optional.of(failed));
+        when(agentRegistry.require("ghost")).thenThrow(new IllegalArgumentException("未知 Agent: ghost"));
+
+        assertFalse(agentService.retry("goal-g"), "agent 不存在时不应抛到调度器");
+    }
+
+    /** 首次失败就安排重投（1 分钟后）；次数用尽后不再安排 */
+    @Test
+    void executeSync_failure_schedulesRetryUntilLimit() {
+        Goal goal = new Goal("goal-f", "x", "s1", "t", "tr", null, "general");
+        when(goalService.create(any(), any(), any(), any(), any(), any())).thenReturn(goal);
+        when(agentRegistry.require("general")).thenReturn(new Agent() {
+            @Override
+            public String name() {
+                return "general";
+            }
+
+            @Override
+            public String execute(Goal g) {
+                throw new IllegalStateException("模型不可用");
+            }
+        });
+
+        agentService.executeSync("general", "x", "s1", "t");
+
+        assertEquals(GoalStatus.FAILED, goal.status());
+        assertNotNull(goal.nextRetryAt(), "首次失败应安排重投时间");
+    }
+
+    /**
+     * 用户取消不重投：把主动中断当成失败去重试，等于「我让你停下，你又自己跑起来了」。
+     */
+    @Test
+    void executeSync_cancelled_doesNotScheduleRetry() {
+        Goal goal = new Goal("goal-c", "x", "s1", "t", "tr", null, "general");
+        when(goalService.create(any(), any(), any(), any(), any(), any())).thenReturn(goal);
+        when(agentRegistry.require("general")).thenReturn(new Agent() {
+            @Override
+            public String name() {
+                return "general";
+            }
+
+            @Override
+            public String execute(Goal g) {
+                throw new java.util.concurrent.CancellationException("客户端断开");
+            }
+        });
+
+        agentService.executeSync("general", "x", "s1", "t");
+
+        assertNull(goal.nextRetryAt(), "取消不是失败，不应安排重投");
+    }
+
     @Test
     void agentNames_delegatesToRegistry() {
         when(agentRegistry.agentNames()).thenReturn(Set.of("general", "deepseek", "nailong"));
@@ -272,7 +369,7 @@ class AgentServiceImplTest {
                 return "done";
             });
             when(agentRegistry.require("general")).thenReturn(agent);
-            when(goalService.create(anyString(), any(), any(), any(), any()))
+            when(goalService.create(anyString(), any(), any(), any(), any(), any()))
                     .thenAnswer(inv -> new Goal("goal-" + UUID.randomUUID(), inv.getArgument(0, String.class)));
             AgentServiceImpl svc = new AgentServiceImpl(goalService, agentConfigProvider, agentRegistry, executor);
 
@@ -319,7 +416,7 @@ class AgentServiceImplTest {
                 return "done";
             });
             when(agentRegistry.require("general")).thenReturn(agent);
-            when(goalService.create(anyString(), any(), any(), any(), any()))
+            when(goalService.create(anyString(), any(), any(), any(), any(), any()))
                     .thenAnswer(inv -> new Goal("goal-reject", inv.getArgument(0, String.class)));
             AgentServiceImpl svc = new AgentServiceImpl(goalService, agentConfigProvider, agentRegistry, executor);
 
@@ -342,7 +439,7 @@ class AgentServiceImplTest {
         Agent agent = mock(Agent.class);
         when(agent.execute(any())).thenThrow(new LinkageError("类加载失败"));
         when(agentRegistry.require("general")).thenReturn(agent);
-        when(goalService.create(anyString(), any(), any(), any(), any()))
+        when(goalService.create(anyString(), any(), any(), any(), any(), any()))
                 .thenAnswer(inv -> new Goal("goal-error", inv.getArgument(0, String.class)));
 
         Goal goal = agentService.submit("general", "obj"); // setUp 注入 Runnable::run，同步执行

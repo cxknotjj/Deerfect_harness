@@ -41,6 +41,7 @@ class PortSignatureGuardTest {
                         "executeStreamReactive(String,String,String,String,String):Flux",
                         "executeStreamReactive(String,String,String,String,String,String):Flux",
                         "resumeStreamReactive(Goal):Flux",
+                        "retry(String):boolean",
                         "agentNames():Set",
                         "agentItems():List",
                         "findAgentNameById(Long):Optional",
@@ -79,6 +80,8 @@ class PortSignatureGuardTest {
                 "<init>(String,String,String)",
                 "<init>(String,String,String,String,String)",
                 "<init>(String,String,String,String,String,String)",
+                "<init>(String,String,String,String,String,String,String)",
+                "<init>(String,String,String,GoalStatus,LocalDateTime,LocalDateTime,String,String,String,String,LocalDateTime,String,int,LocalDateTime)",
                 "<init>(String,String,String,GoalStatus,LocalDateTime,LocalDateTime,String,String,String,String,LocalDateTime)",
                 "markRunning():void",
                 "touchProgress():void",
@@ -94,7 +97,13 @@ class PortSignatureGuardTest {
                 "createdAt():LocalDateTime",
                 "finishedAt():LocalDateTime",
                 "summary():String",
-                "lastProgressAt():LocalDateTime"));
+                "lastProgressAt():LocalDateTime",
+                "agentName():String",
+                "retryCount():int",
+                "nextRetryAt():LocalDateTime",
+                "canRetry(int):boolean",
+                "scheduleRetry(LocalDateTime):void",
+                "markRetry():void"));
 
         assertEquals(expected, signatures(Goal.class), "Goal 公开构造器/访问器发生变化。" + AFFECTED);
     }

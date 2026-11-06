@@ -31,6 +31,10 @@ app:
   # 单实例假设——扫描与推进同线程串行；多实例部署需要 ShedLock 或改消息队列。
   schedule:
     scan-interval-ms: 10000
+  # 失败重投扫描：每 30 秒找 next_retry_at 到期的 FAILED goal 重新提交（同一条 goal，不新建）。
+  # 退避 1→2 分钟，最多重投 2 次；watchdog 管「卡住不动」，这里管「失败再试一次」。
+  goal:
+    retry-scan-interval-ms: 30000
   # 工具 Schema 延迟加载（两段式工具暴露）：开启后请求级工具面轻量注入（名称+用途，schema 置空），
   # system 附工具索引段，模型经 expand_tool 元工具按需展开获取完整参数说明；
   # 关闭后回退全量注入现状（expand_tool 不注册）

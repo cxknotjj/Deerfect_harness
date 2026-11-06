@@ -14,6 +14,16 @@ public interface AgentService {
     /** 创建一个目标并异步派发给指定 Agent 执行。 */
     Goal submit(String agentName, String objective);
 
+    /**
+     * 重投一次失败的 Goal（同一个 goal，不新建）：重置为 PENDING 后按原 Agent 重跑。
+     *
+     * <p>为什么不新建：重投要保留同一条轨迹（traceId）、会话归属与 objective，
+     * 新建会让失败与重试变成两条互不相关的记录，排查时对不上。
+     *
+     * @return 是否已受理；goal 不存在、不是 FAILED、没有 agentName 或已超重投上限都返回 false
+     */
+    boolean retry(String goalId);
+
     /** 创建一个目标并同步执行（阻塞直至完成），适合聊天等需要立即拿到结果的场景。 */
     Goal executeSync(String agentName, String objective);
 

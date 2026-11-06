@@ -15,7 +15,8 @@ public interface GoalService {
      * turnId 由聊天入口生成（/submit 直发为 null）；traceId 由 AgentService
      * 创建执行链时生成——两者随 Goal 供执行链与观测贯通读取。
      */
-    Goal create(String objective, String sessionId, String turnId, String traceId, String channel);
+    Goal create(String objective, String sessionId, String turnId, String traceId, String channel,
+                String agentName);
 
     /** 按 id 查询目标 */
     Optional<Goal> get(String id);

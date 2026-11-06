@@ -117,6 +117,12 @@ class AgentServiceContractTest {
             return new Goal("g-async", objective);
         }
 
+        /** 契约只要求「受理与否」可判定；内存替身不做真实重投 */
+        @Override
+        public boolean retry(String goalId) {
+            return goalId != null && goalId.startsWith("g-");
+        }
+
         @Override
         public Goal executeSync(String agentName, String objective) {
             return executeSync(agentName, objective, null, null, null, null);

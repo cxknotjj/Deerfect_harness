@@ -50,6 +50,7 @@ server/src/main/java/com/dark/javaHarness/
 │       ├── RouteDecider.java / TurnPersistence.java / ReplyDecorator.java  # 路由判定与预取汇合 / 会话建档与写回 / 回复装饰
 │       ├── ScheduleServiceImpl.java  # 定时任务：到期扫描 → 提交 goal → 推进 next_run_at（失败也推进，防卡调度器）
 │       ├── ActiveGoalSectionProviderImpl.java  # 活跃目标段渲染（objective 截断 200 字 + 天数 + /goal done 提示）
+│       ├── GoalRetryScheduler.java  # 失败重投：扫 next_retry_at 到期的 FAILED goal 重新提交（退避 1→2 分钟，上限 2 次）
 │       ├── SessionHistoryArchiveService.java  # 会话归档检索（recall_history 数据源，按会话过滤）
 │       └── route/                # LlmRouteJudge（主 Agent 路由判定）/ LlmSemanticTriggerJudge（渠道路由语义判定）
 ├── advisor/                      # Spring AI Advisor 拦截器（Agent 流程横切管理）

@@ -6,12 +6,15 @@ import com.dark.javaHarness.agent.ProgressLine;
 import com.dark.javaHarness.domain.AgentConfig;
 import com.dark.javaHarness.domain.Goal;
 import com.dark.javaHarness.enums.AgentConstants;
+import com.dark.javaHarness.enums.GoalStatus;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.GoalService;
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicLong;
@@ -41,6 +44,15 @@ public class AgentServiceImpl implements AgentService {
      */
     private static final long PROGRESS_TOUCH_INTERVAL_MS = 30_000;
 
+    /**
+     * 失败重投上限：最多再跑 2 次（含首次共 3 次）。
+     *
+     * <p>为什么是 2：重投解决的是「瞬时故障」（模型 5xx、网络抖动、容器刚重启）。
+     * 同一份 objective 连挂三次基本是配置或能力问题，再重试只是烧 token，
+     * 应该停下来等用户看失败原因。
+     */
+    static final int MAX_RETRIES = 2;
+
     private final GoalService goalService;
     private final AgentConfigProvider agentConfigProvider;
     private final AgentRegistry agentRegistry;
@@ -62,7 +74,7 @@ public class AgentServiceImpl implements AgentService {
     @Override
     public Goal submit(String agentName, String objective) {
         Agent agent = requireAgent(agentName);
-        Goal goal = goalService.create(objective, null, null, newTraceId(), null);
+        Goal goal = goalService.create(objective, null, null, newTraceId(), null, agentName);
         try {
             goalExecutor.execute(() -> run(goal, agent));
         } catch (RejectedExecutionException e) {
@@ -101,7 +113,8 @@ public class AgentServiceImpl implements AgentService {
     public Goal executeSync(String agentName, String objective, String sessionId, String turnId,
                             String traceId, String channel) {
         Agent agent = requireAgent(agentName);
-        Goal goal = goalService.create(objective, sessionId, turnId, reuseOrNewTrace(traceId), channel);
+        Goal goal = goalService.create(objective, sessionId, turnId, reuseOrNewTrace(traceId), channel,
+                agentName);
         run(goal, agent);
         return goal;
     }
@@ -128,7 +141,8 @@ public class AgentServiceImpl implements AgentService {
     public Flux<String> executeStreamReactive(String agentName, String objective, String sessionId,
                                               String turnId, String traceId, String channel) {
         Agent agent = requireAgent(agentName);
-        Goal goal = goalService.create(objective, sessionId, turnId, reuseOrNewTrace(traceId), channel);
+        Goal goal = goalService.create(objective, sessionId, turnId, reuseOrNewTrace(traceId), channel,
+                agentName);
         Flux<String> stream = streamWithLifecycle(goal, agent);
         // 仅编排路径在流首下发 goal 进度行：goalId 尽早到达 CLI（客户端断开前也能记录，/resume 免记 ID）
         return AgentConstants.MULTI_AGENT.equals(agentName)
@@ -247,8 +261,55 @@ public class AgentServiceImpl implements AgentService {
         String reason = errorReason(e);
             log.warn("[{}] goal '{}' FAILED: {}", goal.id(), goal.objective(), reason);
             goal.fail(reason);
+            scheduleRetryIfPossible(goal, e);
             goalService.update(goal);
         }
+    }
+
+    /**
+     * 失败后安排重投（只设时间，真正重投由 {@code GoalRetryScheduler} 到点触发）。
+     *
+     * <p>退避：1 分钟 → 2 分钟。放大倍数取 2 的幂，够用且不用引入配置。
+     */
+    private void scheduleRetryIfPossible(Goal goal, Throwable cause) {
+        if (cause instanceof CancellationException) {
+            return; // 用户主动中断不是失败，重投会把已取消的任务又跑起来
+        }
+        if (!goal.canRetry(MAX_RETRIES)) {
+            return;
+        }
+        long delayMinutes = 1L << goal.retryCount();
+        goal.scheduleRetry(LocalDateTime.now().plusMinutes(delayMinutes));
+        log.info("[{}] {} 分钟后重投（已重投 {}/{} 次）", goal.id(), delayMinutes,
+                goal.retryCount(), MAX_RETRIES);
+    }
+
+    @Override
+    public boolean retry(String goalId) {
+        Goal goal = goalService.get(goalId).orElse(null);
+        if (goal == null || goal.status() != GoalStatus.FAILED || !goal.canRetry(MAX_RETRIES)) {
+            return false;
+        }
+        Agent agent;
+        try {
+            agent = requireAgent(goal.agentName());
+        } catch (RuntimeException e) {
+            // agent 被删/改名：重投无从下手，停在这里而不是每轮扫描都撞一次
+            log.warn("[{}] 重投放弃：agent '{}' 不可用（{}）", goalId, goal.agentName(), e.getMessage());
+            return false;
+        }
+        goal.markRetry();
+        goalService.update(goal);
+        try {
+            goalExecutor.execute(() -> run(goal, agent));
+        } catch (RejectedExecutionException e) {
+            goal.fail("重投被拒：执行队列已满");
+            goalService.update(goal);
+            return false;
+        }
+        log.info("[{}] 重投第 {}/{} 次（agent={}）", goalId, goal.retryCount(), MAX_RETRIES,
+                goal.agentName());
+        return true;
     }
 
     /** 取异常可读原因：getMessage 为空时回退到 toString，避免失败摘要为 null */
