@@ -2,7 +2,7 @@
 
 - 范围：`server` 主链路 + `harness-api` 端口 + `channel-qq` 推送 + `web` 入口；不改 `cli` 的命令行协议（仅加命令）
 - 创建：2026-11-06
-- 状态：共 14 项，已完成 7 项，待办 7 项
+- 状态：共 14 项，已完成 8 项，待办 6 项
 - 关系：`docs/HARNESS_TODO.md` 是技术路线图（工程化 / 编排智能化 / 多实例），本清单是**产品视角**的能力补齐。重叠 4 条（画像长青、归档 RAG、滚动摘要、Goal 重投）在此提前并给出可执行口径；其余为新增。两者冲突时以本清单的验收口径为准，完成后回写 HARNESS_TODO 勾选。
 
 ## 进度概览
@@ -11,10 +11,10 @@
 | -------------- | --- | -- | -- |
 | P0 主动化的安全前置   | 2   | 0  | 2  |
 | P1 存在感（自己开始）  | 4   | 0  | 4  |
-| P2 记忆连续性（人生级） | 1   | 3  | 4  |
+| P2 记忆连续性（人生级） | 2   | 2  | 4  |
 | P3 随身触达        | 0   | 2  | 2  |
 | P4 个人数据源       | 0   | 2  | 2  |
-| 合计             | 7   | 7  | 14 |
+| 合计             | 8   | 6  | 14 |
 
 ## 背景
 
@@ -85,11 +85,13 @@
   - 结果（2026-11-06）：V10 把 `session.profile_extracted`（一次性锁定）换成 `profile_extracted_at`（上次提炼对应的活跃时刻）+ `last_extracted_message_id`（快照游标），待提炼判定改为 `last_active_at > profile_extracted_at`（写回路径零维护，提炼期间的新消息也不会被吞）；`SessionService.snapshotItems` 暴露带 id 的快照条目；LLM 从「重写整份画像」改为「只输出新增/变更补丁」，代码按 `[key]` 合并（同 key 原位覆盖、新 key 追加、旧版无 key 行被同值带 key 条目替换），既有条目的存活从提示词自觉变成结构保证；单次喂入 ≤40 条 / 6000 字符；写盘前备份 `.bak`，主文件被清空时自动从备份读。存量会话在迁移里统一标记为已处理（不回溯 88 个历史会话）。
   - 端到端（真机两轮）：首轮喂 2 条消息 → 画像新增 `[技术栈] Java、Spring Boot`、`[沟通风格] 回答尽量简短`；次轮只喂新增 2 条 → `[沟通风格]` 原位改写为「详细一些」、追加 `[注释语言] 中文`，`[技术栈]` 与旧条目未丢；提炼后 15 秒内无重扫（无空转）。
 
-- [ ] P2-2 归档检索跨会话
+- [x] P2-2 归档检索跨会话
   - 作用：`recall_history` 现在只能回忆「这段对话里被裁掉的」，回忆不了「上个月那次」
   - 位置：[SessionHistoryArchiveService](../server/src/main/java/com/dark/javaHarness/service/impl/SessionHistoryArchiveService.java)（`.eq("session_id", ...)` 硬过滤）、`recall_history` 工具
   - 做法：工具加 `scope` 参数（`current` / `all`），**默认 `current` 保持现有行为**；`all` 走跨会话检索，先按时间倒序 + 关键词，数据量上来后接向量（与 P2-3 共用工件）
   - 验收：两个不同 session 各留一条特征消息，在第三个 session 用 `scope=all` 能召回两条；默认 `scope` 行为零变化；跨会话结果带 sessionId 与时间，不串会话上下文
+  - 结果（2026-11-06）：`SessionHistoryArchiveService.search` 加 `allSessions` 维度（默认 false = 原「按会话过滤」行为零变化），`ArchivedMessage` 携带 `sessionId`；`recall_history` 新增 `scope` 参数（current 默认 / all 跨会话，拼错直接拒绝而非静默退回 current）；跨会话结果标注「会话 N / messageId」，模型才能说清「是哪次对话里说的」；V11 加 `idx_archive_time(archived_at, id)` 支撑跨会话「时间倒序 + LIMIT」不走 filesort。
+  - 端到端（真机）：会话 240 / 241 各造一条归档（分别含「蓝色鲸鱼计划」「橙色海豚计划」），在第三个会话（253）让模型 `scope=all, query=代号检索` → 命中 2 条并正确标出会话 240/241，按归档时间倒序（241 在前）；同会话再查一次默认 scope（不传参）→ 返回「未命中」，确认会话内范围未放宽。
 
 - [ ] P2-3 长期记忆滚动摘要
   - 作用：长会话被预算裁掉的最旧轮次直接丢失，用户问「开头说的那个约束」就答不上

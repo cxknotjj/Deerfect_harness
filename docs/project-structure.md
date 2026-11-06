@@ -51,7 +51,7 @@ server/src/main/java/com/dark/javaHarness/
 │       ├── ScheduleServiceImpl.java  # 定时任务：到期扫描 → 提交 goal → 推进 next_run_at（失败也推进，防卡调度器）
 │       ├── ActiveGoalSectionProviderImpl.java  # 活跃目标段渲染（objective 截断 200 字 + 天数 + /goal done 提示）
 │       ├── GoalRetryScheduler.java  # 失败重投：扫 next_retry_at 到期的 FAILED goal 重新提交（退避 1→2 分钟，上限 2 次）
-│       ├── SessionHistoryArchiveService.java  # 会话归档检索（recall_history 数据源，按会话过滤）
+│       ├── SessionHistoryArchiveService.java  # 会话归档检索（recall_history 数据源；current 按会话过滤 / all 跨会话按时间倒序）
 │       └── route/                # LlmRouteJudge（主 Agent 路由判定）/ LlmSemanticTriggerJudge（渠道路由语义判定）
 ├── advisor/                      # Spring AI Advisor 拦截器（Agent 流程横切管理）
 │   ├── ContextAssemblingAdvisor.java  # 上下文组装：过滤/token 预算截断/role 归一化
@@ -194,7 +194,7 @@ server/src/main/java/com/dark/javaHarness/
     ├── DefaultToolDecorators.java  # 默认装饰链工厂（单一事实来源；新增装饰器=新类+此处登记一行）
     ├── builtin/SandboxToolkit.java  # 沙箱工具包（Python/Shell/文件/浏览器回调集合）
     ├── builtin/DemoTools.java     # 内置演示工具（@Tool 注解通道样例）
-    ├── builtin/history/RecallHistoryTools.java  # recall_history：按关键词/消息 ID 检索会话归档
+    ├── builtin/history/RecallHistoryTools.java  # recall_history：按关键词/消息 ID 检索会话归档（scope=current|all）
     ├── builtin/tts/TextToSpeechTools.java  # text_to_speech 工具入口：校验 + 合成 + 写工件
     ├── builtin/tts/EdgeTtsClient.java      # Edge TTS 子进程调用（超时杀进程 / 并发信号量）
     └── TokenEstimator.java       # 全项目统一 token 估算口径

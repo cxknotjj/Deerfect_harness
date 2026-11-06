@@ -4,16 +4,20 @@ import com.dark.javaHarness.service.impl.SessionHistoryArchiveService;
 import com.dark.javaHarness.service.impl.SessionHistoryArchiveService.ArchivedMessage;
 import com.dark.javaHarness.tool.ToolContextKeys;
 import java.util.List;
+import java.util.Locale;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
 /**
- * recall_history 工具：按关键词或消息 ID 检索本会话已归档的更早消息。
+ * recall_history 工具：按关键词或消息 ID 检索已归档的更早消息。
  *
- * <p>会话 ID 经 ToolContext 由服务端注入（模型不可见、不可改），跨会话检索被服务端过滤杜绝。
- * 结果由既有 ToolCallBudget 装饰链做工具结果 token 预算，本类只控制单条预览长度与条数。
+ * <p>两种范围：默认 {@code current} 只看本会话，会话 ID 经 ToolContext 由服务端注入
+ * （模型不可见、不可改）；{@code all} 跨全部历史会话召回，用于「上个月那次」。
+ * 跨会话结果会标注来源会话 ID，便于用户对上「是哪次对话」。
+ *
+ * <p>结果由既有 ToolCallBudget 装饰链做工具结果 token 预算，本类只控制单条预览长度与条数。
  */
 @Component
 public class RecallHistoryTools {
@@ -28,37 +32,64 @@ public class RecallHistoryTools {
     }
 
     @Tool(name = "recall_history",
-            description = "检索本会话已被上下文裁剪归档的更早消息。"
-                    + "当用户提到当前对话窗口之外的历史、需要找回早期细节时使用；"
+            description = "检索已被上下文裁剪归档的更早消息。"
+                    + "当用户提到当前对话窗口之外的历史、需要找回早期细节时使用。"
+                    + "scope=current（默认）只搜本会话；scope=all 跨全部历史会话，"
+                    + "用于「上个月那次」「之前某个会话」这类回忆。"
                     + "按关键词（query）或精确消息 ID（messageId）二选一检索。")
     public String recallHistory(
             @ToolParam(required = false, description = "关键词，匹配归档消息正文（与 messageId 二选一）")
             String query,
             @ToolParam(required = false, description = "精确消息 ID（历史引用行中给出的 m- 开头 ID）")
             String messageId,
+            @ToolParam(required = false, description = "检索范围：current=仅本会话（默认），all=跨全部历史会话")
+            String scope,
             @ToolParam(required = false, description = "返回条数，默认 3，最大 10")
             Integer limit,
             ToolContext context) {
+        Boolean allSessions = parseScope(scope);
+        if (allSessions == null) {
+            return "scope 只支持 current（默认，仅本会话）或 all（跨全部历史会话）。";
+        }
         String sessionId = sessionId(context);
-        if (sessionId == null) {
-            return "无法定位当前会话，不能检索归档历史。";
+        if (!allSessions && sessionId == null) {
+            return "无法定位当前会话，不能检索归档历史（如需跨会话检索请传 scope=all）。";
         }
         if (isBlank(query) && isBlank(messageId)) {
             return "请提供关键词 query 或消息 ID messageId 后再检索归档历史。";
         }
         int cap = limit == null ? DEFAULT_LIMIT : Math.max(1, Math.min(limit, SessionHistoryArchiveService.MAX_LIMIT));
-        List<ArchivedMessage> hits = archiveService.search(sessionId, messageId, query, cap);
+        List<ArchivedMessage> hits = archiveService.search(sessionId, messageId, query, cap, allSessions);
         if (hits.isEmpty()) {
-            return "未命中归档消息（可能未超出上下文窗口，或关键词不匹配）。";
+            return allSessions
+                    ? "未命中归档消息（全部历史会话都没有匹配内容，或该内容仍在上文窗口内）。"
+                    : "未命中归档消息（可能未超出上下文窗口，或关键词不匹配）。";
         }
         StringBuilder sb = new StringBuilder("命中 ").append(hits.size()).append(" 条归档消息：");
         for (int i = 0; i < hits.size(); i++) {
             ArchivedMessage m = hits.get(i);
-            sb.append("\n\n[").append(i + 1).append("] ").append(m.role())
-                    .append("（messageId=").append(m.messageId()).append("）\n")
-                    .append(m.content() == null ? "" : m.content());
+            sb.append("\n\n[").append(i + 1).append("] ").append(m.role());
+            if (allSessions) {
+                // 跨会话必须标来源，否则模型无法回答「是哪次会话里说的」
+                sb.append("（会话 ").append(m.sessionId()).append(" / messageId=").append(m.messageId()).append("）");
+            } else {
+                sb.append("（messageId=").append(m.messageId()).append("）");
+            }
+            sb.append("\n").append(m.content() == null ? "" : m.content());
         }
         return sb.toString();
+    }
+
+    /** scope 解析：null/空白/current → 仅本会话；all → 跨会话；其它 → null（非法） */
+    private static Boolean parseScope(String scope) {
+        if (scope == null || scope.isBlank()) {
+            return Boolean.FALSE;
+        }
+        String normalized = scope.trim().toLowerCase(Locale.ROOT);
+        if ("current".equals(normalized)) {
+            return Boolean.FALSE;
+        }
+        return "all".equals(normalized) ? Boolean.TRUE : null;
     }
 
     /** 从 ToolContext 取服务端注入的会话 ID；缺失/类型不符返回 null（工具不应越权推断） */
