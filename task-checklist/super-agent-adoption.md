@@ -51,6 +51,7 @@
   - 位置：新增 `tool/builtin/history/RecallHistoryTools.java`、[ToolAssignments](../server/src/main/java/com/dark/javaHarness/tool/ToolAssignments.java)、`TOOL_PURPOSES`、agent 表 `tools` 列
   - 做法：入参 `messageId` 或 `fromId/toId` + `limit`；`sessionId` 经 ToolContext 注入（不作为模型可见参数），服务端强制按会话过滤；返回内容走既有 `ToolCallBudget` 截断；只授予 `general` 与编排 `lead`，子任务专家与 `aggregator` 不注入
   - 验收：general/lead 能取回本会话归档原文；跨会话 ID 被拒绝；其他 agent 不可见；调用进 `tool_call_log` 并占用预算
+  - 后续（2026-11-06，P2-2）：`recall_history` 增加 `scope=all`，显式跨会话检索已放行并在结果标注来源会话号；默认 `scope=current` 仍保持本会话隔离，上条验收口径对默认行为继续成立。
 
 - [x] A5 链式召回测试与文档
   - 作用：锁定 ID、归档、引用、权限四段行为，避免后续裁剪逻辑改动造成静默丢失

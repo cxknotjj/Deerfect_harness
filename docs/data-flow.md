@@ -625,17 +625,21 @@ sequenceDiagram
   → 从 system 追加一行「历史引用：更早 N 条已归档，ID 示例 m-xxx，可用 recall_history」
 
 工具调用（general / lead，V5 分配）
-  recall_history(query | messageId, limit)
+  recall_history(query | messageId, scope, limit)
   → ToolContext.sessionId（服务端注入，模型不可见）
-  → SessionHistoryArchiveService：WHERE session_id=? + messageId/正文 LIKE
-      LEFT(content, 2000) + LIMIT ≤10
+  → SessionHistoryArchiveService.search(scope=current 默认 / all)
+      current：WHERE session_id=? + messageId/正文 LIKE
+      all    ：不加 session_id，按 archived_at 倒序（V11 idx_archive_time）+ 关键词，
+               结果标注「会话 N / messageId」，非法 scope 直接拒绝
+      两者均 LEFT(content, 2000) + LIMIT ≤10
   → ToolCallBudget 结果 token 预算
 ```
 
-**边界**：无 Trigger/Thread/Worker 引用图与多跳展开，未做摘要与向量化；归档检索按关键词/精确 ID。
+**边界**：无 Trigger/Thread/Worker 引用图与多跳展开，未做摘要与向量化；归档检索按关键词/精确 ID，
+`scope=all` 的跨会话召回靠时间倒序索引提前取够 10 条即停，关键词本身仍是 LIKE 顺序扫描。
 
 **测试**：`SessionServiceImplTest`（ID 补齐/裁剪归档）、`ContextAssemblingAdvisorTest`（引用行）、
-`RecallHistoryToolsTest` + `SessionHistoryArchiveServiceTest`（会话隔离/条数钳制）。
+`RecallHistoryToolsTest` + `SessionHistoryArchiveServiceTest`（会话隔离 / 条数钳制 / scope=all 跨会话与排序）。
 
 ***
 
@@ -705,7 +709,7 @@ sequenceDiagram
 | 统一出口       | `ChatController` 同步 + SSE                            |
 | 兜底         | `AgentService` → general                             |
 | 工具治理       | `ToolCallTracer`（进度行）+ `ToolCallBudget`（次数/结果 token 预算）+ `ToolLazyManager`（两段式延迟加载）+ `ToolAssignments`（专家分配硬边界） |
-| 会话归档/召回 | `SessionMessageArchiveMapper`（裁剪转归档）+ `SessionHistoryArchiveService` + `RecallHistoryTools`（`recall_history`） |
+| 会话归档/召回 | `SessionMessageArchiveMapper`（裁剪转归档）+ `SessionHistoryArchiveService`（current 会话内 / all 跨会话）+ `RecallHistoryTools`（`recall_history`，scope=current\|all） |
 | QQ 事件准入 | `ChannelEventPolicy`（程序层规则）+ `SemanticTriggerJudge` / `LlmSemanticTriggerJudge`（语义层，默认关闭） |
 | Goal 停滞看门狗 | `StaleGoalWatchdog`（`app.watchdog.enabled`，默认关闭） |
 | 沙箱工具面      | `SandboxToolProvider`（agentscope-runtime 容器）        |

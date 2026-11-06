@@ -43,6 +43,8 @@ server/src/main/java/com/dark/javaHarness/
 │       ├── ChatServiceImpl.java  # Chat facade (only chat/streamReactive/resume dispatch)
 │       ├── ChatTurnExecutor.java / ChatStreamPipeline.java  # Sync execution / streaming & SSE
 │       ├── RouteDecider.java / TurnPersistence.java / ReplyDecorator.java  # Routing & prefetch join / session persistence / reply decoration
+│       ├── SessionHistoryArchiveService.java  # Archive search backend for recall_history (current = session-scoped / all = cross-session, time-desc)
+│       ├── ScheduleServiceImpl.java / GoalRetryScheduler.java  # Cron dispatch to goals / backoff retry of failed goals
 │       └── route/                # LlmRouteJudge (main-agent routing decision) / LlmSemanticTriggerJudge (channel semantic trigger)
 ├── advisor/                      # Spring AI Advisor interceptors (cross-cutting agent-flow management)
 │   ├── ContextAssemblingAdvisor.java  # Context assembly: filter / token-budget truncation / role normalization
@@ -120,7 +122,7 @@ server/src/main/java/com/dark/javaHarness/
 │   └── KnowledgeRetriever.java   # Retrieval injector: user text → top-k hits → 【出处N】knowledge section (budget-truncated)
 ├── channel/qq/                   # Moved out to the standalone `channel-qq` module (NapCat/OneBot 11, conditional on napcat.enabled)
 ├── memory/                       # User profile (cross-session long-term memory)
-│   ├── UserProfileService.java   # Offline batch preference extraction from idle sessions → global profile Markdown (atomic write)
+│   ├── UserProfileService.java   # Incremental extraction of new messages from idle sessions (message-id cursor) → key-merged patch into global profile Markdown (atomic write + .bak)
 │   └── UserProfileSectionProviderImpl.java  # Profile section injected into general/lead system prompts
 ├── cli/                          # Moved out to the standalone `cli` module (`cli/src/main/java/com/dark/javaHarness/cli`, pure HTTP to 8080)
 └── tool/                         # Tools
@@ -135,6 +137,7 @@ server/src/main/java/com/dark/javaHarness/
     ├── ToolObservationDecorator.java / ToolBudgetDecorator.java / ToolLazyLoadDecorator.java / SkillMetaToolDecorator.java  # Default decorator chain (observation 100 → budget 200 → lazy-load 300 → meta-tool 400)
     ├── DefaultToolDecorators.java  # Default decorator-chain factory (single source of truth; new decorator = new class + one registration line)
     ├── TokenEstimator.java       # Project-wide token estimation standard
+    ├── builtin/history/RecallHistoryTools.java  # recall_history: archive retrieval by keyword / message id (scope=current|all)
     └── DemoTools.java            # Demo toolset (time / calculator / weather)
 ```
 
@@ -143,6 +146,24 @@ server/src/main/java/com/dark/javaHarness/
 > [!NOTE]
 > **Layer responsibilities**: `controller` handles REST/SSE and carries no business logic; `service` orchestrates the core logic (interfaces separated from implementations); `mapper` / `domain.entity` handle database reads, writes and mapping. Runtime concerns live in dedicated packages: `agent` (Agentic executor), `graph` (Graph orchestration), `state` (checkpoint/resume), `observability` (observation persistence and queries), `validation` (pure rules).
 
+
+## Database Migrations (Flyway, V1–V11)
+
+`server/src/main/resources/db/migration/` — applied automatically at startup. **Never edit an applied script**: a changed checksum blocks startup until `flyway repair` (or a manual checksum fix in `flyway_schema_history`).
+
+| Version | Purpose |
+| --- | --- |
+| V1 | Initial schema (sessions / goals / agents / observability tables) |
+| V2 | Nailong TTS tool config |
+| V3 | `session_message_archive` (sink for budget-trimmed messages) |
+| V4 | `goal.last_progress_at` |
+| V5 | `recall_history` tool assignment |
+| V6 | `goal.channel` |
+| V7 | `agent_schedule` cron table |
+| V8 | `schedule.notified_at` push idempotency marker |
+| V9 | Goal retry columns (`agent_name` / `retry_count` / `next_retry_at`) |
+| V10 | Incremental profile distillation (`profile_extracted_at` / `last_extracted_message_id` replaces the one-shot lock) |
+| V11 | `idx_archive_time(archived_at, id)` for `scope=all` cross-session time-desc recall |
 
 ---
 

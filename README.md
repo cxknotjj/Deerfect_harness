@@ -16,7 +16,7 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.x-6DB33F?logo=springboot\&logoColor=white)](https://spring.io/projects/spring-boot)
 [![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.x-6DB33F?logo=spring\&logoColor=white)](https://spring.io/projects/spring-ai)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
-[![Tests](https://img.shields.io/badge/tests-830-brightgreen?logo=junit5\&logoColor=white)](#-运行测试)
+[![Tests](https://img.shields.io/badge/tests-1086-brightgreen?logo=junit5\&logoColor=white)](#-运行测试)
 
 *Agentic 单 Agent 自主执行 · Graph 多 Agent 编排 · 全程流式可视化*
 
@@ -61,7 +61,8 @@
 
 - **混合检索 RAG**：pgvector 向量召回 + BM25 关键词召回，双路 RRF 融合排序，回答自动附知识出处
 - **会话记忆**：多轮上下文自动组装与预算裁剪
-- **用户画像**：离线批量提炼跨会话偏好，注入直答与编排，越聊越懂你
+- **用户画像**：空闲会话按消息游标**增量**提炼偏好（按 key 合并 + 写盘备份），注入直答与编排，长青会话的新偏好不再丢
+- **历史归档召回**：被预算裁掉的消息转存归档，`recall_history` 用 `scope=all` 可跨会话按关键词找回，并标注来源会话
 
 ### 🔌 开放接入与安全
 
@@ -83,7 +84,7 @@ CREATE DATABASE IF NOT EXISTS harness DEFAULT CHARACTER SET utf8mb4;
 
 ```bash
 mvn -DskipTests install
-java -jar server/target/javaHarness-server-0.0.1-SNAPSHOT.jar
+java -jar server/target/server-0.0.1-SNAPSHOT.jar
 ```
 
 **3️⃣ 开始对话**——三选一：
@@ -172,7 +173,7 @@ Maven 多模块：`harness-api`（渠道与 core 共用的契约层：端口接�
 
 ## 🧪 运行测试
 
-单元测试基于 JUnit 5 + Mockito，**除** **`JavaHarnessApplicationTests`** **的 contextLoads 需本机 MySQL 外，不依赖真实数据库 / 网络 / API Key**（当前 830 个用例：server 687 / channel-qq 72 / cli 28 / wms-mcp-adapter 43）：
+单元测试基于 JUnit 5 + Mockito，**除** **`JavaHarnessApplicationTests`** **的 contextLoads 需本机 MySQL 外，不依赖真实数据库 / 网络 / API Key**（当前 1086 个用例：harness-api 39 / server 893 / channel-qq 83 / cli 28 / wms-mcp-adapter 43）：
 
 ```bash
 mvn test

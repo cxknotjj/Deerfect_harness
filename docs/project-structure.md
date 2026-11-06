@@ -209,6 +209,24 @@ server/src/main/java/com/dark/javaHarness/
 > **分层职责**：`controller` 收发 REST/SSE，不承载业务逻辑；`service` 编排核心逻辑（接口与实现分离）；`mapper` / `domain.entity` 负责数据库读写与映射。运行时关注点独立成包：`agent`（Agentic 执行体）、`graph`（Graph 编排）、`state`（检查点/续跑）、`observability`（观测落库与查询）、`validation`（纯规则）。
 
 
+## 数据库迁移（Flyway，V1–V11）
+
+`server/src/main/resources/db/migration/`，启动时自动执行。**已应用的脚本不可再改**——改动会导致校验和不匹配，需 `flyway repair`（或按 Flyway 的逐行 CRC32 算法校正 `flyway_schema_history.checksum`）后才能启动。
+
+| 版本 | 内容 |
+| --- | --- |
+| V1 | 初始化 schema（会话 / goal / agent / 观测表等） |
+| V2 | nailong TTS 工具配置 |
+| V3 | `session_message_archive` 归档表（裁剪转归档的数据源） |
+| V4 | `goal.last_progress_at` |
+| V5 | `recall_history` 工具分配 |
+| V6 | `goal.channel` |
+| V7 | `agent_schedule` 定时任务表 |
+| V8 | `schedule.notified_at` 主动推送幂等标记 |
+| V9 | Goal 失败重投三列（`agent_name` / `retry_count` / `next_retry_at`） |
+| V10 | 画像增量提炼（`profile_extracted` 一次性锁定 → `profile_extracted_at` + `last_extracted_message_id` 游标；存量会话标记已处理、不回溯） |
+| V11 | `idx_archive_time(archived_at, id)`，支撑 `scope=all` 跨会话时间倒序召回 |
+
 ---
 
 [⬅ 返回 README](../README.md)

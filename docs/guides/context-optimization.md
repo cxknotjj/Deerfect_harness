@@ -226,7 +226,8 @@ input 注入账本（AtomicLong 累计 + AtomicBoolean 估算标记，Replace �
 - 写回快照时每条消息带稳定 ID；`session_messages` 快照超条数/字符上限被移除的消息与单条截断尾部，
   先写入 `session_message_archive`（与快照更新同事务）。
 - `ContextAssemblingAdvisor` 裁剪时把被丢消息的条数与 ID 示例追加到 system，提示模型「窗口外还有历史」。
-- `general` / `lead` 分配 `recall_history` 工具：按关键词或精确消息 ID 检索本会话归档；`sessionId`
-  由 ToolContext 服务端注入，结果再经 `ToolCallBudget` 做 token 预算。
-- 边界：单跳检索，无引用图/多跳展开，未做摘要与向量化；归档行不参与上下文预算的自动回填，
+- `general` / `lead` 分配 `recall_history` 工具：按关键词或精确消息 ID 检索归档；`sessionId`
+  由 ToolContext 服务端注入，结果再经 `ToolCallBudget` 做 token 预算。默认 `scope=current` 只搜本会话；
+  传 `scope=all` 跨全部历史会话按归档时间倒序召回，结果标注「会话 N / messageId」（2026-11-06，V11 `idx_archive_time` 支撑排序，非法 scope 直接拒绝而非静默退回 current）。
+- 边界：单跳检索，无引用图/多跳展开；跨会话仍是关键词 LIKE（未向量化），未做滚动摘要；归档行不参与上下文预算的自动回填，
   只有模型显式调用工具时才占用预算。

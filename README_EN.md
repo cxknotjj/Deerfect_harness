@@ -16,7 +16,7 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.x-6DB33F?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
 [![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.x-6DB33F?logo=spring&logoColor=white)](https://spring.io/projects/spring-ai)
 [![MySQL](https://img.shields.io/badge/MySQL-Flyway%20Managed-4479A1?logo=mysql&logoColor=white)](https://www.mysql.com/)
-[![Tests](https://img.shields.io/badge/tests-830-brightgreen?logo=junit5&logoColor=white)](#-running-tests)
+[![Tests](https://img.shields.io/badge/tests-1086-brightgreen?logo=junit5&logoColor=white)](#-running-tests)
 [![Docker](https://img.shields.io/badge/sandbox-Docker%20Isolated-2496ED?logo=docker&logoColor=white)](#-prerequisites)
 
 *Agentic single-agent execution · Graph multi-agent orchestration · Fully streaming, end to end*
@@ -54,6 +54,7 @@
 | 🧵 | **Thread-Pool Governance** | Background goals run in a managed bounded pool (capacity cap + fast-fail to FAILED when full); streaming dispatch uses a separate pool so the two never starve each other |
 | 🛡️ | **Sandbox Isolation** | Model-generated code/commands run inside Docker containers with zero host exposure; tools are assigned per expert under least privilege |
 | 💾 | **Session Memory** | Multi-turn context assembled automatically: filtering / token-budget truncation / role normalization |
+| 🧠 | **Long-term Memory** | Incremental profile distillation from idle sessions (message cursor + key-merged patches, atomic write with .bak); budget-trimmed messages are archived and `recall_history(scope=all)` retrieves them across sessions with source session IDs |
 | 🔁 | **Resume from Checkpoint** | orchestration checkpoints (`orchestration_checkpoint`) persisted to MySQL; after an interruption, `/resume` continues by stage without re-running completed phases |
 | 🧮 | **Call Observability** | Every LLM call is logged: latency / tokens / outcome, queryable per session |
 | 🖥️ | **Claude Code-style CLI** | In-place spinner refresh, tool-call lines, turn summaries — a terminal experience modeled after Claude Code |
@@ -123,7 +124,7 @@ flowchart TD
 ```bash
 # Build then run (recommended): install from the project root, fat jar lands in server/target/
 mvn -DskipTests install
-java -jar server/target/javaHarness-server-0.0.1-SNAPSHOT.jar
+java -jar server/target/server-0.0.1-SNAPSHOT.jar
 
 # Or run in dev mode (the server needs harness-api/channel-qq in the local repo)
 mvn -pl harness-api,channel-qq -DskipTests install
@@ -307,7 +308,7 @@ A multi-module Maven project: `harness-api` (shared contracts: port interfaces /
 
 ## 🧪 Running Tests
 
-Unit tests run on JUnit 5 + Mockito and need **no real database / network / API keys** (currently 830 test cases: server 687 / channel-qq 72 / cli 28 / wms-mcp-adapter 43; `JavaHarnessApplicationTests#contextLoads` is the only exception and needs local MySQL):
+Unit tests run on JUnit 5 + Mockito and need **no real database / network / API keys** (currently 1086 test cases: harness-api 39 / server 893 / channel-qq 83 / cli 28 / wms-mcp-adapter 43; `JavaHarnessApplicationTests#contextLoads` is the only exception and needs local MySQL):
 
 ```bash
 mvn -s .mvn/settings.xml test

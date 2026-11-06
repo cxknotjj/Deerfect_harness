@@ -141,11 +141,11 @@
 - 快照 item 写入稳定消息 ID（`SessionServiceImpl`），读取时放进 Spring AI `Message` metadata；
 - 快照裁剪移除的整条消息与单条超限截断的尾部先写入 `session_message_archive`（`V3`）；
 - 上下文裁剪时把被丢弃消息的条数与 ID 示例追加到 system（`ContextAssemblingAdvisor`），提示模型可用 `recall_history`；
-- `recall_history` 工具（`RecallHistoryTools`）按关键词或精确消息 ID 检索本会话归档，`sessionId` 经 ToolContext 注入、服务端强制会话过滤；授予 `general` 与编排 `lead`（`V5`）。
+- `recall_history` 工具（`RecallHistoryTools`）按关键词或精确消息 ID 检索归档，`sessionId` 经 ToolContext 注入；默认 `scope=current` 服务端强制本会话过滤，`scope=all` 跨全部历史会话按归档时间倒序召回并标注来源会话（2026-11-06，V11 `idx_archive_time`）；授予 `general` 与编排 `lead`（`V5`）。
 
 代码：[SessionServiceImpl.java](../../server/src/main/java/com/dark/javaHarness/service/impl/SessionServiceImpl.java#L190-L343)、[SessionHistoryArchiveService.java](../../server/src/main/java/com/dark/javaHarness/service/impl/SessionHistoryArchiveService.java)、[RecallHistoryTools.java](../../server/src/main/java/com/dark/javaHarness/tool/builtin/history/RecallHistoryTools.java)
 
-**边界**：没有 Trigger / Thread / Worker 的引用图与多跳展开，归档检索靠关键词/精确 ID，未做摘要与向量化。
+**边界**：没有 Trigger / Thread / Worker 的引用图与多跳展开，归档检索靠关键词/精确 ID（跨会话 `scope=all` 走时间倒序 + 关键词，仍是 LIKE 全表扫描），未做摘要与向量化。
 
 ---
 

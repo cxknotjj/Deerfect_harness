@@ -1,7 +1,7 @@
 # 🧭 项目功能介绍
 
 > 面向首次接触项目的读者，一页说明「现在能做什么、还没做什么」。
-> 本文按 2026-10-28 的代码与配置核对；技术基线为 **Java 25 / Spring Boot 4.1.2 / Spring AI 2.0.2**（详见 [TECH_STACK.md](./TECH_STACK.md)）。
+> 本文按 2026-11-06 的代码与配置核对；技术基线为 **Java 25 / Spring Boot 4.1.2 / Spring AI 2.0.2**（详见 [TECH_STACK.md](./TECH_STACK.md)）。
 
 ---
 
@@ -57,8 +57,9 @@ Deerfect Harness 是一个基于 Spring AI 的双路径 Agent 平台：**Agentic
 - **混合检索**：向量召回 + BM25 关键词召回，RRF 融合排序；回答带【出处N】内联引用与来源尾注。
 - **知识库增强**：目录监听自动摄取、上传 / 删除 / 同步 / 调试检索、单文件管理页 `/knowledge.html`（[knowledge-rag.md](./guides/knowledge-rag.md)）。
 - **会话记忆**：多轮上下文自动组装并按 token 预算裁剪，超长历史从最旧丢弃。
-- **用户画像**：定时提炼跨会话偏好，注入 `general` / `lead` 的 system prompt。
-- **Goal 台账**：目标全生命周期 `PENDING → RUNNING → SUCCEEDED/FAILED` 落库，支持异步提交与历史查询。
+- **用户画像**：空闲会话按消息游标**增量**提炼偏好（LLM 只输出新增/变更补丁、代码按 `[key]` 合并，既有条目不靠提示词自觉保留），写盘前备份 `.bak`；全局 Markdown 注入 `general` / `lead` 的 system prompt（默认关闭，`app.memory.profile-enabled` 开启）。
+- **历史归档召回**：快照裁剪的消息带稳定 ID 转存 `session_message_archive`；`recall_history` 默认 `scope=current` 只搜本会话，`scope=all` 跨全部历史会话按归档时间倒序召回并标注来源会话（V11 `idx_archive_time` 支撑排序）。
+- **Goal 台账与主动化**：目标全生命周期 `PENDING → RUNNING → SUCCEEDED/FAILED` 落库，失败按 1→2 分钟退避自动重投（上限 2 次）；定时调度、QQ 主动推送、对话内活跃目标注入，以及沙箱容器探活自愈与写/执行边界拦截均已落地。
 
 ## 七、可靠性护栏
 
@@ -81,7 +82,7 @@ Deerfect Harness 是一个基于 Spring AI 的双路径 Agent 平台：**Agentic
 - **会话上下文构成**：Web 监控页按会话查看最近一次请求的 system 分段 / RAG / 工具 Schema / 历史 / 当前消息占比（`GET /api/monitor/context`，内存快照 TTL 30 分钟）；估算口径 `TokenEstimator`，不含轮内动态工具结果，多 Agent 只保留最近一次调用。
 - **链路标识**：`turnId` / `traceId` / `parent_span` 贯通路由、子任务与聚合。
 - **保留期治理**：观测数据默认保留 90 天，每日凌晨低峰分批清理。
-- **轻量追踪**：自建 span 关系；Micrometer / OpenTelemetry 尚未接入。
+- **轻量追踪**：自建 span 关系；Micrometer 已接入（`/actuator/prometheus` 暴露运行指标），OpenTelemetry 分布式链路追踪尚未接入。
 
 ## 九、安全与部署
 
@@ -90,11 +91,11 @@ Deerfect Harness 是一个基于 Spring AI 的双路径 Agent 平台：**Agentic
 - **数据库演进**：Flyway 版本化迁移，启动自动建表 / 升级。
 - **模块化**：`harness-api` / `channel-qq` / `server` / `cli` / `wms-mcp-adapter` 五模块 + 独立 `web`。
 - **容器化**：Dockerfile + docker-compose（app + MySQL + pgvector），见 [docker-deploy.md](./guides/docker-deploy.md)。
-- **测试**：92 个测试类 / 830 个用例（server 78/687、channel-qq 7/72、cli 3/28、wms-mcp-adapter 4/43），详见 [functional-testing.md](./guides/functional-testing.md)。
+- **测试**：121 个测试类 / 1086 个用例（harness-api 5/39、server 101/893、channel-qq 8/83、cli 3/28、wms-mcp-adapter 4/43），详见 [functional-testing.md](./guides/functional-testing.md)。
 
 ## 十、尚未实现（路线图未勾选项）
 
-接口级限流防刷、CI/CD、Actuator + Prometheus、Micrometer 完整链路追踪、Testcontainers 集成测试、Swagger/OpenAPI、Redis 会话缓存、消息队列、多实例水平扩展、子任务依赖编排、子任务失败重规划、Goal 失败重投、长期记忆滚动摘要、对话历史 RAG 归档、PDF 导出、多模态输入、Web 端分页与独立域名部署。
+接口级限流防刷、CI/CD、OpenTelemetry 分布式链路追踪、Testcontainers 集成测试、Swagger/OpenAPI、Redis 会话缓存、消息队列、多实例水平扩展、子任务依赖编排、子任务失败重规划、长期记忆滚动摘要、对话历史向量化召回（跨会话关键词召回已支持，向量检索未做）、PDF 导出、多模态输入、Web 端分页与独立域名部署。
 
 > 完整清单与验收口径见 [HARNESS_TODO.md](./HARNESS_TODO.md)。
 

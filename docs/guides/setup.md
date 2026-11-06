@@ -30,7 +30,7 @@ CREATE DATABASE IF NOT EXISTS harness DEFAULT CHARACTER SET utf8mb4;
 ```bash
 # 打包后启动（推荐）：根聚合 install，fat jar 在 server/target/
 mvn -DskipTests install
-java -jar server/target/javaHarness-server-0.0.1-SNAPSHOT.jar
+java -jar server/target/server-0.0.1-SNAPSHOT.jar
 
 # 或开发模式直接运行（需先把契约/渠道模块装进本地仓库）
 mvn -pl harness-api,channel-qq -DskipTests install

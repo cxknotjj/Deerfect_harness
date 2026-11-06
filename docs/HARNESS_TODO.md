@@ -5,6 +5,7 @@
 > 术语说明：历史条目中的「路径 A / SIMPLE」对应 **Agentic 路径**，「路径 B / COMPLEX」对应 **Graph 编排路径**。
 > 版本基线：Spring Boot 4.1.2 / Spring AI 2.0.2 / Java 25（以根 `pom.xml` 与 [TECH_STACK.md](./TECH_STACK.md) 为准）；升级任何 AI 相关依赖前先验证兼容性。
 > 首次可用性约定：新增功能/入口合入前按 `docs/guides/first-run-audit.md`「五、首次使用流程规则」复查，走查结论追加至该报告「六、走查记录」。
+> 产品视角的能力补齐进度（主动性 / 记忆 / 触达）见 [task-checklist/personal-agent-gap.md](../task-checklist/personal-agent-gap.md)：2026-11-06 为 8/14，P0 / P1 全完成，P2 完成 2/4。
 
 ***
 
@@ -85,13 +86,10 @@
 - [ ] **子任务依赖编排**：lead 拆解支持声明依赖（如 `depends_on`），有依赖的子任务串行、无依赖的并行，替代当前纯并行
   - 验收：「先调研 X 再基于结论写代码」类任务按依赖顺序执行
 - [x] **复杂路径 Checkpointer（落库断点）**：已落地（`orchestration_checkpoint`，LEAD_DONE / SUBTASKS_DONE / DONE 三阶段，见 [guides/resume.md](./guides/resume.md)）。
-- [ ] **Goal 失败重投（任务化，2026-09 评估后另立）**：失败 Goal 自动重投——设计要点：
-  - 前置（2026-11-03）：`StaleGoalWatchdog` 已落地（默认关闭），只把「RUNNING 且长时间无进展」的目标条件标记为 FAILED，不自动重投；本条的重投策略仍待做
-
-  - goal 表未存 agent 路由信息，重投需 V10 迁移加 `agent_name` 路由列（重走路由会再烧一次 LLM judge，不可取）
-  - 加 `retry_count` / `next_retry_at`，仅对瞬态失败（网络/超时/5xx）重投且限次数；调用层 `LlmRetry` 已有 3 次退避，Goal 级重投的增量收益在「编排中后段失败」场景
-  - 防双跑复用 resume 409 机制（RUNNING 拒绝重投）；多 agent 路径优先走检查点 /resume 而非盲目重跑
-  - 验收：注入瞬态失败的 Goal 在窗口期后自动重投一次成功，非瞬态失败不重投
+- [x] **Goal 失败重投（2026-11-06 完成）**：失败 Goal 按 1→2 分钟退避自动重投，最多 2 次
+  - 落地：V9 给 `goal` 补 `agent_name` / `retry_count` / `next_retry_at`（原设计笔记写的 V10 编号已重整为 V9；此前 goal 不记录执行 Agent，既没法重投也看不出谁跑的）；`GoalRetryScheduler` 每 30 秒扫到期项调 `AgentService.retry`，重投跑**同一个 goal**以保住 traceId 与会话归属
+  - 取舍：不做「仅瞬态失败」精细分类——提交异常分支统一排期，取消类异常白名单排除；watchdog 只把停滞目标标 FAILED，两者不并发执行同一 Goal
+  - 验收：端到端造 FAILED 到期 goal → 30 秒后受理「重投第 1/2 次」→ 执行成功，`retry_count=1`、标记清空；成功路径 `retry_count` 恒为 0
 - [ ] **长期记忆滚动摘要**：会话历史超预算被裁剪的最旧轮次，滚动压缩为一段摘要注入 system（`MemoryPolicy` 扩展），长会话不丢单
   - 进度（2026-11-03）：已落地最小版「消息 ID + 裁剪转归档 + 历史引用行 + `recall_history` 单跳检索」；本条的滚动摘要压缩仍待做
   - 验收：超长会话中早期关键信息（如用户自述偏好）仍能被引用
@@ -120,7 +118,7 @@
   - 验收：`/swagger-ui.html` 可浏览所有接口
 - [x] **Maven 多模块拆分**（2026-09-18 立项，2026-10-24 完成最终形态）：根 pom `packaging=pom` + `harness-api` / `channel-qq` / `server` / `cli` / `wms-mcp-adapter` 五个模块。
   - **`harness-api`**：渠道与 core 共用的契约层（`ChatService`/`SessionService`/`AgentService`/`SessionBindingCleaner` 端口、DTO、`SessionEntity`、`GoalStatus`、`SseProtocol`、`ReplyPostProcessor`），包名不变、全项目 import 零改动；框架类型依赖声明为 optional，不向下游传递。
-  - **`server`**：Spring Boot 主服务与 fat jar 宿主（产物路径不变 `server/target/javaHarness-server-*.jar`），编译期依赖 `harness-api`，以 **runtime** scope 装配 `channel-qq`（core 编译期看不到渠道，`maven-enforcer-plugin` 守护不允许改成 compile）。
+  - **`server`**：Spring Boot 主服务与 fat jar 宿主（产物路径不变 `server/target/server-0.0.1-SNAPSHOT.jar`），编译期依赖 `harness-api`，以 **runtime** scope 装配 `channel-qq`（core 编译期看不到渠道，`maven-enforcer-plugin` 守护不允许改成 compile）。
   - **`channel-qq`**：QQ 渠道（NapCat/OneBot 11）整体独立成模块，仅依赖 `harness-api`；mapper 扫描由渠道自身 `NapCatChannelConfig` 承担；渠道输出控制走 core 的通用 `ReplyPostProcessor` SPI（新增处理器 + flag，不改 core）。
   - **`cli`**：纯 HTTP 客户端，依赖 `harness-api` 获取 DTO/SseProtocol（不再自持副本），运行期 classpath 不引入 spring-ai/mybatis。
   - **`wms-mcp-adapter`**：领域 MCP 适配范例，独立于本次拆分。
@@ -128,7 +126,7 @@
 - [x] **容器化交付**：Dockerfile + docker-compose（app + MySQL + pgvector）一键启动
   - 验收：`docker compose up` 后完整可访问
 - [ ] **CI/CD**：GitHub Actions / Gitee Go 自动流水线（2026-09-18 充实，检查项取自多模块拆分验收清单）
-  - CI（push/PR 触发）：`mvn -s .mvn/settings.xml clean package` 全模块编译 + 测试（当前 server 687 / channel-qq 72 / cli 28 / wms 43 例）→ 断言 server fat jar 无 `com/dark/javaHarness/cli/` 目录与 jline → 断言 cli 运行时 classpath 无 spring-ai/mybatis/reactor 传递依赖（harness-api 框架依赖为 optional）→ `docker build -f docker/Dockerfile .` 验证镜像可构建（基础镜像走 BUILD\_BASE/RUN\_BASE ARG，CI 侧按网络环境注入加速通道）
+  - CI（push/PR 触发）：`mvn -s .mvn/settings.xml clean package` 全模块编译 + 测试（当前 harness-api 39 / server 893 / channel-qq 83 / cli 28 / wms 43 例）→ 断言 server fat jar 无 `com/dark/javaHarness/cli/` 目录与 jline → 断言 cli 运行时 classpath 无 spring-ai/mybatis/reactor 传递依赖（harness-api 框架依赖为 optional）→ `docker build -f docker/Dockerfile .` 验证镜像可构建（基础镜像走 BUILD\_BASE/RUN\_BASE ARG，CI 侧按网络环境注入加速通道）
   - 缓存：`actions/setup-java` 内置 maven 缓存对齐 `.mvn-repo`（localRepository 由 `maven.multiModuleProjectDirectory` 定位项目根，CI 工作区即仓库）
   - CD（可选后置）：分支镜像打 tag 推送镜像仓库，服务器 `docker compose pull && up -d` 拉起；上线前是否人工确认决定 Delivery/Deployment 形态
   - 验收：PR 红灯可见（测试失败 / fat jar 混入 cli class / 镜像构建失败均可拦截）；全绿后产物可直接部署
@@ -219,9 +217,10 @@
 - [x] **RAG 知识库**（2026-09 完成）：pgvector 向量库 + DashScope text-embedding-v4 嵌入（1024 维）；knowledge/ 目录 .md/.txt 增量摄取（mtime 比对→MarkdownChunker 切分→嵌入入向量库，`POST /api/knowledge/sync`）；路径 A/B 检索增强（AgentRequestSpecFactory 唯一汇合点注入【出处N】知识段，aggregator 角色策略跳过）；出处透出（meta.sources + CLI 来源尾注）；管理端点 /api/knowledge（sync/documents/search/delete）；PG 不可用静默降级不影响启动；多知识库隔离（knowledge/ 一级子目录=kb，agent 表 knowledge 列 CSV 绑定，检索按向量 metadata.kb filterExpression 过滤防读串，kb 变更重摄取自愈）
   - 验收：knowledge/ 放本地文档 → sync 摄取 → 知识库问答，回答带【出处N】内联引用 + meta.sources + CLI 尾注 ✓
   - 余项已拆出为未完成条目（P1「知识库增强余项」）
-- [x] **用户偏好画像（跨对话长期记忆，2026-09 完成）**：全局单份 Markdown 画像 `user-profile/user-profile.md`（工作区顶层目录，容器整目录挂载防单文件 inode 陷阱），`UserProfileService` 定时扫描（5 分钟 fixedDelay 不堆叠）静默超 30 分钟且未提炼的会话，全量快照经 LLM 提炼偏好并与既有画像合并（保留无关条目/冲突以新为准/无新偏好原样输出；空白输出不落盘防抹画像，写盘成功才标记 `profile_extracted`）；画像全文经 `UserProfileSectionProvider` 注入 general/lead 的 system 画像段（order 150，角色过滤 `MemoryPolicy` 口径防污染子任务）；`app.memory.profile-enabled` 总开关同闸服务与注入点。不建 DB 表不做 RAG——常驻小数据全量注入优于检索（RAG 属对话历史归档，见未完成条目）；单会话一次提炼锁定，长青会话缺口见未完成「画像提取活跃重置」
+- [x] **用户偏好画像（跨对话长期记忆，2026-09 完成）**：全局单份 Markdown 画像 `user-profile/user-profile.md`（工作区顶层目录，容器整目录挂载防单文件 inode 陷阱），`UserProfileService` 定时扫描（5 分钟 fixedDelay 不堆叠）静默超 30 分钟且未提炼的会话，全量快照经 LLM 提炼偏好并与既有画像合并（保留无关条目/冲突以新为准/无新偏好原样输出；空白输出不落盘防抹画像，写盘成功才标记 `profile_extracted`）；画像全文经 `UserProfileSectionProvider` 注入 general/lead 的 system 画像段（order 150，角色过滤 `MemoryPolicy` 口径防污染子任务）；`app.memory.profile-enabled` 总开关同闸服务与注入点。不建 DB 表不做 RAG——常驻小数据全量注入优于检索（RAG 属对话历史归档，见未完成条目）；单会话一次提炼锁定（该缺口已于 2026-11-06 修复，见下）
   - 迁移：V19（session 表加 `last_active_at`/`profile_extracted` 两列，存量会话不回溯提炼）
   - 测试：`UserProfileServiceTest`（扫描/提炼/合并/落盘 7 用例）+ `UserProfileSectionProviderTest`（5 用例）+ `PromptAssemblerTest` 画像段用例
+  - 后续（2026-11-06，P2-1）：上述「一次提炼锁定」已废除——V10 把 `profile_extracted` 换成 `profile_extracted_at` + `last_extracted_message_id` 增量游标，扫描条件改为 `last_active_at > profile_extracted_at`（写回零维护），LLM 只输出补丁、代码按 `[key]` 合并，写盘前备份 `.bak`；`UserProfileServiceTest` 扩到 15 例。本条中的 `profile_extracted` / V19 仅为当时的实现记录，详见上方「画像提取活跃重置」条目。
 - [x] **MCP 工具接入**：让 Agent 通过 MCP 连接外部工具/服务，扩展工具生态（不再逐个自研）
   - 与 Sandbox 衔接：agentscope-runtime 内置 MCP 桥接，接入时优先评估复用（见存档「Spring AI Alibaba Sandbox 接入」条目）
   - 验收：模型可调用一个外部 MCP 工具完成真实任务 ✓
@@ -316,6 +315,6 @@
 
 ## 备注
 
-- 测试全景见 [docs/guides/functional-testing.md](./functional-testing.md)，数据流详解见 [docs/data-flow.md](./data-flow.md)，技术栈对照见 [TECH\_STACK.md](./TECH_STACK.md)。
+- 测试全景见 [docs/guides/functional-testing.md](./guides/functional-testing.md)，数据流详解见 [docs/data-flow.md](./data-flow.md)，技术栈对照见 [TECH\_STACK.md](./TECH_STACK.md)。
 - 每项完成后按对应"验收"标准验证后再勾选；完成的条目连同落地与验收记录移入本文件「二、已完成（存档）」对应主题节，若留有后续尾巴（余项/端点/优化）须拆出为未完成条目，避免尾巴被埋进存档。
 

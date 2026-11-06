@@ -2,13 +2,13 @@
 
 > 本文档介绍 Harness 各模块的功能测试内容：每个模块测什么、怎么测、边界在哪。
 > 测试代码位于 `src/test/java`，与业务代码同步演进；本文以实际编码为准。
-> 更新日期：2026-10-28。
+> 更新日期：2026-11-06。
 
 ***
 
 ## 一、总览
 
-> 服务端 78 个测试类 / 687 用例；另有 channel-qq 7 类 / 72 例、cli 3 类 / 28 例、wms-mcp-adapter 4 类 / 43 例（合计 92 类 / 830 例，按 `@Test` 统计，2026-10-29 核对）。
+> 121 个测试类 / 1086 个用例（harness-api 5 类 / 39 例、server 101 类 / 893 例、channel-qq 8 类 / 83 例、cli 3 类 / 28 例、wms-mcp-adapter 4 类 / 43 例；按 surefire 报告统计，含参数化展开，2026-11-06 核对）。
 
 **入口与异常**
 
@@ -21,6 +21,8 @@
 | `ModelQuotaExceptionTest` | 配额类硬错误识别与人话转换（402/403） | 6 |
 | `ModelAuthExceptionTest` | 鉴权类硬错误识别（401） | 4 |
 | `JavaHarnessApplicationTests` | Spring 容器冒烟（contextLoads） | 1 |
+| `ContextCompositionControllerTest` | 会话上下文构成监控端点 | 2 |
+| `SkillControllerTest` | 技能管理端点 | 1 |
 
 **配置与安全**
 
@@ -36,22 +38,38 @@
 | `ChatClientFactoryTest` | ChatClient 工厂 API Key 解析（yaml 映射/环境变量回退） | 5 |
 | `ChatClientRegistryTest` | 多服务商模型注册表（禁用回退/未知兜底） | 5 |
 | `ThinkingSwitchChatModelTest` | 思考开关模型层注入（enable_thinking 显式声明优先） | 5 |
+| `ArchitectureTest` | 分层依赖与模块边界守卫 | 5 |
+
+**契约层（harness-api）**
+
+| 测试类 | 覆盖功能域 | 用例数 |
+| --- | --- | --- |
+| `AgentServiceContractTest` | AgentService 端口行为契约 | 6 |
+| `GoalStateMachineTest` | Goal 状态机迁移合法性 | 9 |
+| `PortSignatureGuardTest` | 端口方法签名快照（防契约漂移） | 3 |
+| `SessionServiceContractTest` | SessionService 端口契约（含内存替身） | 9 |
+| `ViewDtoJsonContractTest` | 视图 DTO 的 JSON 序列化契约 | 12 |
 
 **Service 层**
 
 | 测试类 | 覆盖功能域 | 用例数 |
 | --- | --- | --- |
-| `ChatServiceImplTest` | 聊天用例编排（会话/记忆/SSE/路由/进度/会话 Agent 同步） | 35 |
-| `AgentServiceImplTest` | Agent 执行路由与 Goal 生命周期 | 13 |
-| `GoalServiceImplTest` | 启动清理僵尸 RUNNING 目标（保证 /resume 不被 409 拦截） | 1 |
-| `SessionServiceImplTest` | 会话切换 Agent + 删除会话（软删/快照清理/渠道绑定端口清理） | 22 |
-| `AgentConfigProviderTest` | agent 表配置读取（id→名称映射/模型+提示词） | 19 |
-| `ProviderAdminServiceImplTest` | 供应商映射管理（新增/更新/热刷新） | 6 |
-| `LlmRouteJudgeTest` | 主 Agent 前置判断（LLM 分流） | 10 |
-| `RagPrefetcherTest` | RAG 入口预取 | 6 |
-| `LlmCallRecorderTest` | LLM 调用观测（token 估算/异步落库/失败隔离） | 9 |
+| `ChatServiceImplTest` | 聊天用例编排（会话/记忆/SSE/路由/进度/会话 Agent 同步） | 47 |
+| `AgentServiceImplTest` | Agent 执行路由与 Goal 生命周期 | 19 |
+| `GoalServiceImplTest` | 启动清理僵尸 RUNNING 目标（保证 /resume 不被 409 拦截） | 7 |
+| `SessionServiceImplTest` | 会话切换 Agent + 删除会话（软删/快照清理/渠道绑定端口清理） | 28 |
+| `AgentConfigProviderTest` | agent 表配置读取（id→名称映射/模型+提示词） | 21 |
+| `ProviderAdminServiceImplTest` | 供应商映射管理（新增/更新/热刷新） | 7 |
+| `LlmRouteJudgeTest` | 主 Agent 前置判断（LLM 分流） | 18 |
+| `RagPrefetcherTest` | RAG 入口预取 | 12 |
+| `LlmCallRecorderTest` | LLM 调用观测（token 估算/异步落库/失败隔离） | 10 |
 | `ObservabilityLogCleanerTest` | 观测表保留期清理 | 5 |
 | `ObserveQueryServiceImplTest` | 观测查询收口（三表过滤/limit 收敛/id 倒序） | 6 |
+| `GoalRetrySchedulerTest` | 失败 Goal 退避重投排期 | 5 |
+| `MessageSenderRegistryTest` | 主动推送渠道路由（channel:target / 降级） | 7 |
+| `ProviderRulesTest` | 服务商配置规则 | 4 |
+| `ScheduleServiceImplTest` | 定时任务扫描 / cron 校验 / 推进 | 19 |
+| `StaleGoalWatchdogTest` | 停滞 Goal 标记 FAILED | 3 |
 
 **Agent 层（调用与编排）**
 
@@ -60,7 +78,7 @@
 | `AgentChatCallerTest` | 编排调用器（工具幻觉容错重试/异常透传） | 22 |
 | `AgentChatCallerRetryTest` | 编排调用器失败自动重试（指数退避） | 5 |
 | `AgentChatPipelineTest` | 流管道核（watchdog/帧记账/空响应防御） | 6 |
-| `AgentRegistryTest` | Agent 注册表（表驱动自动注册/内部角色排除） | 9 |
+| `AgentRegistryTest` | Agent 注册表（表驱动自动注册/内部角色排除） | 11 |
 | `GeneralAssistantAgentTest` | Agentic 路径回退（ChatClient）真·逐 token 透传契约 | 7 |
 | `GeneralAssistantAgentScaffoldTest` | Agentic 路径回退装配脚手架 | 7 |
 | `LlmCallObserverTest` | 调用观测值对象（估算标记/usage 帧） | 2 |
@@ -68,42 +86,56 @@
 | `LlmRequestLogAdvisorChainTest` | 请求日志 advisor 链 | 1 |
 | `LlmRetryTest` | LLM 重试策略（可重试判定/退避/耗尽抛错） | 12 |
 | `ProgressLineTest` | 进度行线协议编解码 | 4 |
-| `MultiAgentGraphAgentTest` | Graph 编排路径多 Agent 编排 + 流式进度 + 记忆注入 + 断点续跑 | 44 |
-| `BranchProgressListenerTest` | 并行分支钩子旁路（结局登记/串行发射） | 5 |
+| `MultiAgentGraphAgentTest` | Graph 编排路径多 Agent 编排 + 流式进度 + 记忆注入 + 断点续跑 | 43 |
+| `BranchProgressListenerTest` | 并行分支钩子旁路（结局登记/串行发射） | 4 |
 | `LeadOutputParserTest` | lead 拆解 JSON 解析（专家白名单/brief） | 13 |
 | `ThinkingThrottleTest` | 子任务思考内容合帧节流 | 5 |
+| `AgentScopeGeneralAgentTest` | Agentic ReAct 路径装配 | 3 |
+| `CheckpointSelectorTest` | 断点续跑检查点选择 | 4 |
+| `OrchestrationContractTest` | 编排端口契约 | 2 |
+| `OrchestrationNodesResolvePacksTest` | 子节点工具包解析 | 5 |
+| `OrchestrationStateTest` | 编排状态流转 | 2 |
+| `ParallelOrchestrationEngineTest` | 并行编排引擎调度 | 4 |
 
 **Advisor 与 Prompt**
 
 | 测试类 | 覆盖功能域 | 用例数 |
 | --- | --- | --- |
-| `ContextAssemblingAdvisorTest` | 上下文组装（过滤/归一化/token 预算） | 6 |
+| `ContextAssemblingAdvisorTest` | 上下文组装（过滤/归一化/token 预算） | 7 |
 | `PromptBudgetAdvisorTest` | 静态 prompt 预算（超限尾部截断+截断标记） | 8 |
 | `LlmRequestLogAdvisorTest` | 请求日志拦截器 | 3 |
-| `PromptAssemblerTest` | system 提示词分段组装（固定次序/优先级） | 15 |
+| `PromptAssemblerTest` | system 提示词分段组装（固定次序/优先级） | 18 |
 | `MemoryPolicyTest` | 会话记忆注入的角色策略（lead/general 注入，其余不注入） | 8 |
-| `SkillManagerTest` | skill 装配管理（索引段/热重载） | 15 |
-| `SkillRepositoryTest` | skill 文件仓库（front-matter 解析） | 7 |
+| `SkillManagerTest` | skill 装配管理（索引段/热重载） | 22 |
+| `SkillRepositoryTest` | skill 文件仓库（front-matter 解析） | 19 |
 | `ToolLazyManagerTest` | 工具 Schema 延迟加载（轻量包装/同请求自愈） | 13 |
+| `ActiveGoalSectionProviderImplTest` | 活跃目标段渲染 | 3 |
+| `ContextCompositionAdvisorChainTest` | 上下文构成 advisor 链 | 1 |
+| `ContextCompositionAdvisorTest` | 上下文构成快照采集 | 1 |
+| `ContextCompositionCalculatorTest` | 分段 token 占比计算 | 2 |
+| `ContextCompositionStoreTest` | 上下文构成内存快照 | 4 |
+| `TokenEstimatorTest` | token 估算口径 | 2 |
 
 **知识库与记忆**
 
 | 测试类 | 覆盖功能域 | 用例数 |
 | --- | --- | --- |
 | `KnowledgeRetrieverTest` | 检索注入（混合检索/出处渲染/降级） | 31 |
-| `KnowledgeServiceImplTest` | 增量摄取/删除/分页/检索 | 33 |
+| `KnowledgeServiceImplTest` | 增量摄取/删除/分页/检索 | 38 |
 | `KnowledgeDocumentScannerTest` | 知识目录扫描 | 7 |
 | `MarkdownChunkerTest` | 段落感知切分 | 7 |
 | `KnowledgeBm25IndexTest` | BM25 内存索引 | 11 |
 | `KnowledgeDirectoryWatcherTest` | 目录监听自动摄取（防抖） | 7 |
-| `UserProfileServiceTest` | 用户画像离线提炼批处理 | 7 |
+| `UserProfileServiceTest` | 用户画像增量提炼（消息游标 / 按 key 合并 / 备份恢复 / 降级） | 15 |
 | `UserProfileSectionProviderTest` | 画像段注入 | 5 |
+| `RecallHistoryToolsTest` | recall_history 工具（scope / 关键词 / ID / 预算） | 9 |
+| `SessionHistoryArchiveServiceTest` | 归档检索（会话内 / 跨会话 / 排序 / 上限） | 6 |
 
 **工具层**
 
 | 测试类 | 覆盖功能域 | 用例数 |
 | --- | --- | --- |
-| `ToolAssignmentsTest` | 工具分配表（双通道/最小权限） | 14 |
+| `ToolAssignmentsTest` | 工具分配表（双通道/最小权限） | 17 |
 | `DefaultToolDecoratorsTest` | 默认装饰链装配 | 2 |
 | `SkillMetaToolDecoratorTest` | load_skill 元工具 | 3 |
 | `ToolDecorationContextTest` | 装饰上下文 | 1 |
@@ -115,18 +147,41 @@
 | `McpToolProviderTest` | MCP 工具懒连接与失败降级 | 17 |
 | `McpConfigParserTest` | MCP 配置解析与 URL 日志脱敏 | 4 |
 | `WebToolsTest` | 网页抓取工具 | 16 |
-| `SandboxToolProviderTest` | 沙箱初始化超时兜底（无 Docker 不阻塞请求线程） | 4 |
+| `SandboxToolProviderTest` | 沙箱探活自愈与工具面重建（无 Docker 不阻塞请求线程） | 17 |
+| `EdgeTtsClientTest` | Edge TTS 子进程调用（超时 / 并发） | 8 |
+| `FileNameRulesTest` | 文件名安全规则 | 5 |
+| `InMemoryVoiceArtifactStoreTest` | 语音工件内存存储 | 4 |
+| `SandboxGuardsTest` | 沙箱路径归一化与危险命令拦截 | 12 |
+| `TextSanitizerTest` | 文本清洗 | 9 |
+| `TextToSpeechToolsTest` | text_to_speech 工具入口 | 7 |
 
 **QQ 渠道（channel/qq）**
 
 | 测试类 | 覆盖功能域 | 用例数 |
 | --- | --- | --- |
-| `OneBotEventServiceImplTest` | 事件处理（自消息过滤/@ 触发/限频/会话绑定/分段） | 28 |
-| `OneBotEventControllerSignatureTest` | 上报端点签名校验 | 4 |
-| `NapCatApiClientImplTest` | NapCat HTTP 客户端 | 8 |
-| `EmojiRepliesTest` | 表情包匹配与发送 | 10 |
+| `OneBotEventServiceImplTest` | 事件处理（自消息过滤/@ 触发/限频/会话绑定/分段） | 44 |
+| `OneBotEventControllerSignatureTest` | 上报端点签名校验 | 5 |
+| `NapCatApiClientImplTest` | NapCat HTTP 客户端 | 11 |
+| `EmojiRepliesTest` | 表情包匹配与发送 | 8 |
+| `ChannelEventPolicyTest` | 渠道事件准入规则 | 4 |
+| `CommandParserTest` | QQ 指令解析 | 4 |
+| `MessageDedupCacheTest` | 上报消息去重 | 3 |
+| `SentMessageTrackerTest` | 已发送消息追踪（防自回环） | 4 |
 
-**合计：92 个测试类 / 830 个用例（服务端 78/687 + channel-qq 7/72 + cli 3/28 + wms-mcp-adapter 4/43；按 `@Test` 统计，2026-10-29 核对）。除 `JavaHarnessApplicationTests` 需本机 MySQL 外，其余不依赖真实 DB/外网。**
+
+**CLI 与 WMS 适配器**
+
+| 测试类 | 覆盖功能域 | 用例数 |
+| --- | --- | --- |
+| `CallerTokenFilterTest` | WMS 适配器调用方 token 校验 | 6 |
+| `ResumeStateStoreTest` | CLI 断点续跑状态读写 | 4 |
+| `TerminalInputTest` | CLI 输入（无 TTY 降级） | 5 |
+| `TerminalRendererTest` | CLI 流式 Markdown 渲染 | 19 |
+| `WmsRestClientTest` | WMS 只读 REST 客户端 | 13 |
+| `WmsToolListGuardTest` | WMS 工具白名单守卫 | 4 |
+| `WmsToolsTest` | WMS 语义工具集 | 20 |
+
+**合计：121 个测试类 / 1086 个用例（harness-api 5/39、server 101/893、channel-qq 8/83、cli 3/28、wms-mcp-adapter 4/43；按 surefire 报告统计，2026-11-06 核对）。表格按类名列 120 行——`RagPrefetcherTest` 在 Agentic / Graph 两个包各有一组，合并计 12 例。除 `JavaHarnessApplicationTests` 需本机 MySQL 外，其余不依赖真实 DB/外网。**
 
 ***
 
