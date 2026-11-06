@@ -2,7 +2,7 @@
 
 - 范围：`server` 主链路 + `harness-api` 端口 + `channel-qq` 推送 + `web` 入口；不改 `cli` 的命令行协议（仅加命令）
 - 创建：2026-11-06
-- 状态：共 14 项，已完成 5 项，待办 9 项
+- 状态：共 14 项，已完成 6 项，待办 8 项
 - 关系：`docs/HARNESS_TODO.md` 是技术路线图（工程化 / 编排智能化 / 多实例），本清单是**产品视角**的能力补齐。重叠 4 条（画像长青、归档 RAG、滚动摘要、Goal 重投）在此提前并给出可执行口径；其余为新增。两者冲突时以本清单的验收口径为准，完成后回写 HARNESS_TODO 勾选。
 
 ## 进度概览
@@ -10,11 +10,11 @@
 | 分类             | 已完成 | 待办 | 小计 |
 | -------------- | --- | -- | -- |
 | P0 主动化的安全前置   | 2   | 0  | 2  |
-| P1 存在感（自己开始）  | 3   | 1  | 4  |
+| P1 存在感（自己开始）  | 4   | 0  | 4  |
 | P2 记忆连续性（人生级） | 0   | 4  | 4  |
 | P3 随身触达        | 0   | 2  | 2  |
 | P4 个人数据源       | 0   | 2  | 2  |
-| 合计             | 5   | 9  | 14 |
+| 合计             | 6   | 8  | 14 |
 
 ## 背景
 
@@ -68,11 +68,12 @@
   - 验收：声明目标后连续三轮对话，system 段都能看到目标；标记完成 / 取消后不再注入；超预算时按段裁剪，`system.channel` 等必需段不被挤掉
   - 结果（2026-11-06）：新增 `GoalStatus.ACTIVE`（不复用 RUNNING——watchdog 会判死、重启会清理）；`GoalService.createActive/activeBySession/completeActive`；新增「活跃目标」prompt 段（order 160，按 sessionId 注入，provider 扩展点与画像同构）；快照加 `system.activeGoal` 映射；REST 三个端点 + CLI `/goal`。**只做手动完成，不做 LLM 自评**——误判完成会让目标悄悄消失。端到端：登记后发消息快照出现 107 token 的活跃目标段，完成后再发消失，重复完成 400。提交 183ed87（22 文件）。
 
-- [ ] P1-4 Goal 失败重投
+- [x] P1-4 Goal 失败重投
   - 作用：无人值守的定时任务失败后没人管，等于白跑
   - 位置：[AgentServiceImpl](../server/src/main/java/com/dark/javaHarness/service/impl/AgentServiceImpl.java) 提交的异常分支、[StaleGoalWatchdog](../server/src/main/java/com/dark/javaHarness/observability/StaleGoalWatchdog.java)
   - 做法：失败落 `retry_count` / `last_error`（Flyway 迁移补列）；指数退避重投上限 2 次；连续失败置 `FAILED` 并经 P1-2 主动推送失败原因与最后一次错误摘要
   - 验收：注入必失败的 Goal，验证重投 2 次后置 FAILED 且只推送一次；成功路径 `retry_count` 恒为 0；watchdog 与重投不互相打架（同一 Goal 不并发执行）
+  - 结果（2026-11-06）：V9 给 goal 补 agent_name / retry_count / next_retry_at（此前 goal 不记录执行 Agent，既没法重投也看不出谁跑的）；失败按 1→2 分钟退避排期，`GoalRetryScheduler` 每 30 秒扫到期项调 `AgentService.retry`，重投跑**同一个 goal**（保住 traceId 与会话归属）；取消类异常不排期；受理失败清标记防每轮重扫。验证中发现 `updateById` 忽略 null 导致 next_retry_at 残留，改为调度器显式 set null。端到端：造 FAILED 到期 goal → 30 秒后受理「重投第 1/2 次」→ 执行成功，retry_count=1、标记清空。契约守卫 PortSignatureGuardTest 同步。提交 6ef7401。
 
 ## P2 记忆连续性：从会话级到人生级
 
