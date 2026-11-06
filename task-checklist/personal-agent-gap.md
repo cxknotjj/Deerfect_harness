@@ -50,7 +50,8 @@
   - 位置：Flyway `V7__agent_schedule.sql`、`service/ScheduleService`（+ impl）、`controller/ScheduleController`；复用 [`goalExecutor`](../server/src/main/java/com/dark/javaHarness/config/GoalExecutorConfig.java) 与 [`AgentService.submit`](../server/src/main/java/com/dark/javaHarness/service/impl/AgentServiceImpl.java)
   - 做法：表字段 `id / objective / agent_name / cron / enabled / notify_channel / last_run_at / next_run_at / last_goal_id / notified_at`；扫描到点转 goal 执行，**不另写执行链**；cron 用 Spring `CronExpression`（6 段，秒级）不自研；入口 `POST/GET/DELETE /api/schedules` + CLI `/schedule`；`next_run_at` 落库保证重启不丢不重跑
   - 验收：配一条每分钟任务，两分钟后 `goal` 表出现两条执行记录；重启后不重复触发；同一时刻只触发一次（单实例即可，多实例另案）
-  - 结果（2026-11-06）：agent_schedule（V7）+ /api/schedules 增删查 + CLI /schedule；派发=扫描到期行→AgentService.submit→推进 next_run_at，失败也推进（防每 10 秒重扫卡住队首）；cron 用 Spring CronExpression 6 段，创建即校验并验 agent 存在；永不触发表达式派发后停用。notify_channel 列留待 P1-2。11 条测试。提交 d80d0e8。
+  - 结果（2026-11-06）：agent_schedule（V7）+ /api/schedules 增删查 + CLI /schedule；派发=扫描到期行→AgentService.submit→推进 next_run_at，失败也推进（防每 10 秒重扫卡住队首）；cron 用 Spring CronExpression 6 段，创建即校验并验 agent 存在；永不触发表达式派发后停用。11 条测试。提交 d80d0e8。
+  - 端到端（2026-11-06 19:21，真机 MySQL + Flyway V7/V8）：创建每分钟任务 → 19:21:00.786 触发 → goal 落库并 SUCCEEDED（summary=收到）→ next_run_at 推进到 19:22:00，DELETE 与「任务不存在」400 均正常。
 - [x] P1-2 主动推送通道（harness-api 端口 + QQ 落地）
   - 作用：任务跑完要能找到人，否则定时任务等于写日志
   - 位置：`harness-api` 新增 `MessageSender` 端口（与 [ReplyPostProcessor](../harness-api/src/main/java/com/dark/javaHarness/service/ReplyPostProcessor.java) 平级但语义不同）；[channel-qq](../channel-qq/src/main/java/com/dark/javaHarness/channel/qq/client/NapCatApiClient.java) 实现
@@ -58,6 +59,8 @@
   - 注意：**不要复用 `ReplyPostProcessor`** —— 它是「清洗模型回复文本」的 SPI，无副作用、幂等，与主动外发语义相反
   - 验收：定时任务跑完 10 秒内 QQ 收到消息；未注册渠道 / 地址非法不抛异常且 WARN 日志可查；core 的 enforcer 规则未被打破
   - 结果（2026-11-06）：harness-api 新增 MessageSender 端口 + MessageSenderRegistry（channel:target 路由，未注册/非法/实现违约一律 false）；channel-qq 实现私聊送达；推送判定改轮询（last_goal_id + notified_at 幂等，V8 加列）而非事件——Goal 完成点有三处，事件易漏发重发；派发与推送合成 tick 节拍；发送失败也标记避免刷渠道。16+7 条测试。提交 42bc16b。
+  - 端到端（2026-11-06 19:28）：触发 → goal SUCCEEDED → 19:28:19 在 schedule-notify 线程推送 → NapCat 未启动，重试 2 次后 WARN 未送达且不抛异常 → 19:28:20 notified_at 置位。验证暴露并修复两处单测覆盖不到的问题（同步推送阻塞调度线程；高频 cron 下 last_goal_id 被派发覆盖导致推送饿死），提交 8eed771。
+  - 已知限制：推送定位依赖 `last_goal_id` 单字段，cron 间隔必须 ≥ 30 秒（已做成创建期校验）。若要支持更密的触发，需要独立通知表（每次触发插一条待推送记录），属后续技术债。
 - [ ] P1-3 Goal 常驻（对话内声明 + 每轮注入）
   - 作用：现在的 goal 是「提交—查询」的一次性任务，不是「记得住你在追什么」的长期目标
   - 位置：`goal` 表已有 `session_id`（无需加字段）；[ContextAssemblingAdvisor](../server/src/main/java/com/dark/javaHarness/advisor/ContextAssemblingAdvisor.java) / [PromptAssembler](../server/src/main/java/com/dark/javaHarness/prompt/PromptAssembler.java) 加「活跃目标」段；[ChatServiceImpl](../server/src/main/java/com/dark/javaHarness/service/impl/ChatServiceImpl.java) 入口解析 `/goal`
