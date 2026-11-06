@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { KbRetrievalItem, LlmCallItem, ToolCallItem } from '../api'
 import {
   computeBands,
@@ -76,6 +76,18 @@ function kbRow(id: number, partial: Partial<KbRetrievalItem> = {}): TraceRow {
 }
 
 describe('traceFormat 展示格式化', () => {
+  // 「当日 / 跨日」是拿系统时钟比的：固定为 2026-11-05 12:00。
+  // 不固定的话，用例里写死的日期一旦过了那天就全被判成跨日——
+  // CI 每天都会先红一次（2026-11-06 就是这么挂的）。
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 10, 5, 12, 0, 0))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('时长按 ms/s/分秒 三档收敛', () => {
     expect(fmtMs(null)).toBe('—')
     expect(fmtMs(812)).toBe('812ms')
@@ -107,11 +119,8 @@ describe('traceFormat 展示格式化', () => {
   })
 
   it('时间：当日 HH:mm:ss，跨日 MM-dd HH:mm，非法值空串', () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date(2026, 10, 5, 12, 0, 0))
     expect(fmtCreatedAt('2026-11-05T09:08:07')).toBe('09:08:07')
     expect(fmtCreatedAt('2026-11-01T09:08:07')).toBe('11-01 09:08')
-    vi.useRealTimers()
     expect(fmtCreatedAt(null)).toBe('')
     expect(fmtCreatedAt('not-a-date')).toBe('')
   })
