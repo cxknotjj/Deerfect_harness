@@ -3,6 +3,7 @@
 > 项目主入口在仓库根 [README](../README.md)；本页是 `docs/` 全量索引。
 > 目录约定：核心架构文档在根层；使用/部署/协议类在 `guides/`；设计文档在 `design/`（按日期存档）；报告在 `reports/`；历史实现计划与设计 spec 在 `archive/specs/`。
 > 历史设计文档正文里出现的 `docs/superpowers/...` 是 2026-10-30 文档压平前的旧目录，现已合并到 `archive/specs/`；这些存档按「时点记录」保留，不再逐个回填路径。
+> **非文档数据**：`knowledge/**` 是 RAG 知识库语料（含演示错误码，被测试套件引用）、`user-profile/user-profile.md` 是运行时画像数据，两者不是项目文档，不随代码基线更新。
 
 ## 项目约束
 

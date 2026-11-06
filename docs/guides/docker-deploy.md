@@ -70,7 +70,8 @@ curl -X POST http://localhost:8080/api/knowledge/sync   # 需真实 QWEN_API_KEY
 ```
 
 > [!NOTE]
-> - 全新 MySQL 由 Flyway 建表 + 种子 agent；旧库存量数据（自调的 agent 行、聊天历史）迁移：`mysqldump -uroot harness --no-create-info --skip-triggers --ignore-table=harness.flyway_schema_history > seed.sql`，再 `docker exec -i harness-mysql mysql -uroot -p<口令> harness < seed.sql`
+> - 全新 MySQL 由 Flyway 建表 + 种子 agent（当前基线 V11，见 [project-structure.md](../project-structure.md)）；**仅压平前旧库**的数据搬迁（自调的 agent 行、聊天历史）用：`mysqldump -uroot harness --no-create-info --skip-triggers --ignore-table=harness.flyway_schema_history > seed.sql`，再 `docker exec -i harness-mysql mysql -uroot -p<口令> harness < seed.sql`
+> - 上述 `mysqldump` 只导数据、不含 schema 与 `flyway_schema_history`，适用于 2026-10-30 压平前的旧库；当前新库直接由 Flyway V1–V11 建表升级，不要手工导入 schema
 > - 知识库/技能/表情/MCP 配置已**默认外挂**（compose volumes：`../knowledge`、`../skills`、`../channel`、`../mcp-config.json`），改宿主机文件免重打镜像：`knowledge/` 改完调 sync 增量摄取（mtime 对比，免重启）；表情映射表改后 `restart app`、新增图片即时生效；`mcp-config.json` 改后 `up -d --force-recreate app`；批量调参写 `docker/config/application.yaml`（只写要改的键，改后 `restart app`，用法见该文件头注释）
 
 **镜像版本与回滚（版本策略）**
@@ -80,7 +81,7 @@ curl -X POST http://localhost:8080/api/knowledge/sync   # 需真实 QWEN_API_KEY
 - **版本可追溯**：`docker inspect --format '{{json .Config.Labels}}' deerfect-harness:sha-xxx` 可看到 `org.opencontainers.image.version` 与 `revision`
 - **升级**：构建或拉取新 tag 后 `IMAGE_TAG=<新tag> docker compose -f docker/docker-compose.yml up -d --no-build`
 - **回滚**：目标机保留至少上一个版本的镜像（不要用 `docker image prune -a` 清掉），把 `IMAGE_TAG` 改回旧 tag 后执行同一条 up 命令
-- **数据库注意**：Flyway 只前进不后退，镜像回滚前确认旧版本能跑新库（新增列/表通常兼容；删列/改类型不兼容）
+- **数据库注意**：Flyway 只前进不后退（当前 V1–V11），镜像回滚前确认旧版本能跑新库（新增列/表通常兼容；删列/改类型不兼容）
 - **保留策略建议**：本地与仓库保留最近 3 个 `sha-*` 加全部语义化版本 tag
 
 **4️⃣ 从阿里云镜像仓库拉取（免构建、免传 tar）**

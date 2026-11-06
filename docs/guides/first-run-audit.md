@@ -8,7 +8,7 @@
 >
 > **历史提示（2026-10-28）**：本报告为时点记录，其中「Web Search / 前端 / 容器化 / 接口鉴权未开始」
 > 等条目现已全部落地（Web Search 经 Tavily MCP、Web 控制台、Docker 三件套、双通道鉴权）；
-> 当前功能面以 [features.md](../features.md) 为准。
+> 当前功能面以 [features.md](../features.md) 为准；报告里的测试数、模块数同为时点值，当前测试与迁移基线见 [README](../../README.md) 与 [dev.md](../dev.md)。
 
 ## 一、模块阶段判定
 

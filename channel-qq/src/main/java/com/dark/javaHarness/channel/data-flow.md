@@ -2,6 +2,8 @@
 
 > QQ（NapCat / OneBot 11 纯 HTTP）通道专属数据流文档。主链路（API → ChatService → Agent → LLM）见 `docs/data-flow.md`，本文档只画 channel 侧：从 NapCat 上报到回复落地的完整时序、全部静默丢弃点、线程模型与发送细节。
 
+> **2026-11-06 补充**：新增主动推送出站链路（定时任务结果 / 失败告警私聊送达），见第九节；前述「整段单条发送」仍为当前行为。
+>
 > **2026-10 增强要点**（分支 `feat/qq-channel-enhancements`）：① 群聊「回复机器人消息」也触发；② 指令化 `/new` `/reset` `/help` `/history` `/agent` `/recall`；③ 群聊回复首条可 `@提问者`；④ `/recall` 撤回；⑤ 已发消息 id 记录（`SentMessageTracker`）；⑥ 回复整段单条发送（超长按上限截断，不再分段）。触发判据与指令明细见第四节，撤回与消息记录见第五节。
 
 ## 一、线程模型（三条线程链）
@@ -173,6 +175,7 @@ channel/qq/
 │   └── MessageDedupCache         messageId 幂等去重（内存）
 ├── client/
 │   ├── NapCatApiClient(Impl)     出站客户端：发送（回传 message_id）+ delete_msg + 启动自检 + 成功/失败日志
+│   ├── QqMessageSender           主动推送：MessageSender 端口实现（仅私聊，见第九节）
 │   ├── NapCatChannelConfig       装配：napcat.enabled 条件装配 + onebotExecutor/chatExecutor
 │   └── NapCatProperties          yaml 绑定（reply/emoji/rate-limit/group-trigger 等）
 ├── reply/
@@ -180,3 +183,23 @@ channel/qq/
 │   └── UserRateLimiter           同 uid 内存滑动窗限频
 └── dto/                          OneBotEvent / MessageSegment / SendMsgRequest / ApiResult
 ```
+
+---
+
+## 九、主动推送（P1-2，2026-11-06）
+
+入站链路之外新增一条**出站主动链路**：定时任务跑完后由 core 主动找人，不再只在「用户发消息 → 回复」的闭环里。
+
+```text
+core      : ScheduleDispatcher → goal SUCCEEDED/FAILED → ScheduleNotify（tick 轮询 last_goal_id + notified_at）
+            → MessageSenderRegistry 解析 "qq:<QQ号>" → MessageSender.send(target, text)
+channel-qq: QqMessageSender.send → NapCatApiClient.sendPrivateMsg → POST /send_private_msg（仅私聊）
+```
+
+- **只做私聊**：主动消息是「任务找你」，群聊广播会把内部任务通知推给无关成员；需要群通知时由 agent 在自己的任务里显式发
+- **目标校验**：`target` 必须是合法 QQ 号，解析失败返回 `false` 并 WARN，不抛异常；客户端本身不抛异常、返回 `null` 即未送达
+- **幂等**：推送判定走轮询而非完成事件（Goal 完成点有三处，事件易漏发/重发），`notified_at` 置位后不再重推；发送失败也标记，避免反复刷渠道
+- **与入站回复的区别**：共用 `NapCatApiClient`（客户端自带 1 次重试），但**不经** `SentMessageTracker`，所以 `/recall` 不会撤回主动推送消息；也不参与入站限频与会话绑定
+- **模块边界**：`QqMessageSender` 实现 `harness-api` 的 `MessageSender` 端口（`channel()` 返回 `qq`），core 编译期不依赖渠道代码，由 runtime scope 装配
+
+组件：`channel-qq/.../client/QqMessageSender.java`；端口与注册表见 `harness-api` 的 `MessageSender` / `MessageSenderRegistry`。

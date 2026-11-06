@@ -16,8 +16,10 @@ Graph 编排路径（内部枚举 `COMPLEX`）按阶段落检查点到 `orchestr
 ```bash
 # API 方式
 curl -N -X POST "http://localhost:8080/api/chat/resume?goalId=<goalId>"
+curl "http://localhost:8080/api/chat/goal-status?goalId=<goalId>"   # 只查状态，不重跑
 
-# CLI 方式
+# CLI 方式（不传 goalId 时恢复当前会话最近一次编排任务）
+/resume
 /resume <goalId>
 ```
 
