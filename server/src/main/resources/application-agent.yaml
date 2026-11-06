@@ -19,6 +19,14 @@ app:
   # 留空 = 走 SDK 默认发现；环境变量 DOCKER_HOST 优先级更高（docker-java 标准链）。
   sandbox:
     docker-host: "127.0.0.1:2375"
+    # 容器健康自愈：定时在 base 容器内 echo 探活，失败则销毁重建（工具面同步重生成）。
+    # 无人值守任务下容器假死表现为「工具一直报错」，没有自愈只能重启应用。
+    health-enabled: true
+    # 探测间隔（毫秒，必须 > 0；关闭用 health-enabled=false，不要设 0）
+    health-interval-ms: 300000
+    # 启动时清理上次强杀进程遗留的容器（@PreDestroy 未执行）。
+    # 前提是单实例部署：同一个 Docker daemon 上跑多个实例会互相清容器。
+    cleanup-orphans-on-start: true
   # 工具 Schema 延迟加载（两段式工具暴露）：开启后请求级工具面轻量注入（名称+用途，schema 置空），
   # system 附工具索引段，模型经 expand_tool 元工具按需展开获取完整参数说明；
   # 关闭后回退全量注入现状（expand_tool 不注册）

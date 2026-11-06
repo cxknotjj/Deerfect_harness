@@ -3,25 +3,28 @@ package com.dark.javaHarness.tool.builtin;
 import com.dark.javaHarness.observability.HarnessMetrics;
 import io.agentscope.runtime.sandbox.box.BaseSandbox;
 import io.agentscope.runtime.sandbox.box.BrowserSandbox;
-import io.agentscope.runtime.sandbox.box.Sandbox;
 import io.agentscope.runtime.sandbox.manager.ManagerConfig;
 import io.agentscope.runtime.sandbox.manager.SandboxService;
 import io.agentscope.runtime.sandbox.manager.client.container.docker.DockerClientStarter;
+import io.agentscope.runtime.sandbox.manager.model.container.ContainerModel;
 import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
@@ -51,6 +54,9 @@ public class SandboxToolProvider {
     /** 沙箱内固定的用户/会话标识（容器命名与日志归因） */
     private static final String SANDBOX_USER = "javaHarness";
     private static final String SANDBOX_SESSION = "harness";
+
+    /** 健康探测令牌：容器内 echo 回显包含它才认为容器可用（容器活着但 shell 坏掉也算故障） */
+    private static final String PROBE_TOKEN = "__harness_probe_ok__";
 
     private final Object lock = new Object();
     private volatile boolean initialized;
@@ -89,6 +95,36 @@ public class SandboxToolProvider {
     volatile List<ToolCallback> write = List.of();
     private volatile List<ToolCallback> browser = List.of();
     private volatile SandboxService service;
+
+    /**
+     * base 容器句柄。工具 callback 在创建时 bind(sandbox)，容器重建后必须重新生成整组工具，
+     * 因此句柄与工具面在同一把锁内一起替换（{@link #rebuildBase}）。
+     */
+    private volatile BaseSandbox baseSandbox;
+
+    /** 自愈互斥：同一时刻只允许一次重建，避免探测超时叠加时并发建容器 */
+    private final AtomicBoolean healing = new AtomicBoolean();
+
+    /**
+     * 健康探测专用单线程（守护）：容器 HTTP 调用可能不响应中断，探测必须在独立线程限时等待，
+     * 绝不能占住 Spring 的调度线程或请求线程。
+     */
+    private final ExecutorService probeExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "sandbox-probe");
+        t.setDaemon(true);
+        return t;
+    });
+
+    /** 探测超时上限：容器已死时 runShellCommand 会挂到 TCP 超时，这里主动放弃按故障处理 */
+    volatile long probeTimeoutMs = Duration.ofSeconds(10).toMillis();
+
+    /** 健康自愈开关（application-agent.yaml app.sandbox.health-enabled）；默认值与 yaml 一致 */
+    @Value("${app.sandbox.health-enabled:true}")
+    volatile boolean healthEnabled = true;
+
+    /** 启动时清理上次强杀进程遗留的容器（无 @PreDestroy 执行时的孤儿） */
+    @Value("${app.sandbox.cleanup-orphans-on-start:true}")
+    volatile boolean cleanupOrphansOnStart = true;
 
     /** 执行类：Python 代码执行 + Shell 命令（base 容器内） */
     public List<ToolCallback> baseTools() {
@@ -205,7 +241,7 @@ public class SandboxToolProvider {
                 if (svc == null) {
                     log.warn("[sandbox] 沙箱服务不可用，浏览器工具组为空");
                 } else {
-                    Sandbox browserBox = new BrowserSandbox(svc, SANDBOX_USER, SANDBOX_SESSION);
+                    BrowserSandbox browserBox = new BrowserSandbox(svc, SANDBOX_USER, SANDBOX_SESSION);
                     this.browser = List.of(
                             SandboxBrowserTools.browserNavigate(browserBox),
                             SandboxBrowserTools.browserSnapshot(browserBox),
@@ -253,26 +289,159 @@ public class SandboxToolProvider {
             svc = new SandboxService(ManagerConfig.builder().build());
         }
         svc.start();
-        Sandbox sandbox = new BaseSandbox(svc, SANDBOX_USER, SANDBOX_SESSION);
-
-        this.base = List.of(
-                SandboxShellTools.runPythonCode(sandbox),
-                SandboxShellTools.runShellCommand(sandbox));
-        this.readOnly = List.of(
-                SandboxFileTools.readFile(sandbox),
-                SandboxFileTools.readMultipleFiles(sandbox),
-                SandboxFileTools.listDirectory(sandbox),
-                SandboxFileTools.directoryTree(sandbox),
-                SandboxFileTools.searchFiles(sandbox),
-                SandboxFileTools.getFileInfo(sandbox));
-        this.write = List.of(
-                SandboxFileTools.writeFile(sandbox),
-                SandboxFileTools.editFile(sandbox),
-                SandboxFileTools.createDirectory(sandbox),
-                SandboxFileTools.moveFile(sandbox));
+        cleanupOrphans(svc);
+        BaseSandbox box = new BaseSandbox(svc, SANDBOX_USER, SANDBOX_SESSION);
+        registerBaseTools(box);
+        this.baseSandbox = box;
         this.service = svc;
         log.info("[sandbox] 容器级沙箱就绪: 执行类={} 只读={} 写入={}",
                 base.size(), readOnly.size(), write.size());
+    }
+
+    /**
+     * 按容器句柄生成 base 组工具面。工具 callback 在创建时 bind(sandbox)，因此重建容器后
+     * 必须整组重生成——旧 callback 仍指向已销毁的容器，复用会一直报错。
+     */
+    private void registerBaseTools(BaseSandbox box) {
+        List<ToolCallback> executables = List.of(
+                SandboxShellTools.runPythonCode(box),
+                SandboxShellTools.runShellCommand(box));
+        List<ToolCallback> readOnlyTools = List.of(
+                SandboxFileTools.readFile(box),
+                SandboxFileTools.readMultipleFiles(box),
+                SandboxFileTools.listDirectory(box),
+                SandboxFileTools.directoryTree(box),
+                SandboxFileTools.searchFiles(box),
+                SandboxFileTools.getFileInfo(box));
+        List<ToolCallback> writeTools = List.of(
+                SandboxFileTools.writeFile(box),
+                SandboxFileTools.editFile(box),
+                SandboxFileTools.createDirectory(box),
+                SandboxFileTools.moveFile(box));
+        this.base = executables;
+        this.readOnly = readOnlyTools;
+        this.write = writeTools;
+    }
+
+    /**
+     * 启动时回收上次进程遗留的容器。
+     *
+     * <p>为什么需要：正常退出由 {@link #shutdown()} 的 {@code svc.close()} 回收，但强杀进程
+     * （IDE 停止、断电、容器重启）不会执行 @PreDestroy，容器会一直挂在 daemon 上，下次启动
+     * 又会新建一套——磁盘与端口都泄漏。
+     *
+     * <p>为什么用 cleanupAllSandboxes：此时本进程还没建过任何容器，daemon 上的沙箱容器都是
+     * 上一轮遗留。**前提是单实例部署**（本项目 docker-compose 的形态）；若同一 daemon 上跑
+     * 多个实例，后来启动的会清掉先启动者的容器——那时应改为按容器名前缀过滤。
+     */
+    protected void cleanupOrphans(SandboxService svc) {
+        if (!cleanupOrphansOnStart) {
+            return;
+        }
+        try {
+            Map<String, ContainerModel> existing = svc.getAllSandboxes();
+            if (existing == null || existing.isEmpty()) {
+                return;
+            }
+            log.warn("[sandbox] 启动时发现 {} 个残留容器（上次未正常退出），开始清理", existing.size());
+            svc.cleanupAllSandboxes();
+            log.info("[sandbox] 残留容器已清理");
+        } catch (Throwable t) {
+            // 清理失败不阻断初始化：容器能建就能用，残留只是占用资源
+            log.warn("[sandbox] 残留容器清理失败（不影响本次初始化）: {}", t.toString());
+        }
+    }
+
+    /**
+     * 周期健康探测与自愈：容器可能因 OOM、docker restart、镜像更新而失效，而沙箱句柄还
+     * 持有旧容器 ID——之后每次工具调用都失败，模型会反复撞墙重试，用户看到的是「工具一直
+     * 报错」而不是「沙箱挂了」。探测放在独立线程限时执行：容器假死时 runShellCommand 会挂到
+     * TCP 超时，不能占住调度线程。
+     */
+    @Scheduled(fixedDelayString = "${app.sandbox.health-interval-ms:300000}")
+    public void healthCheck() {
+        if (!healthEnabled) {
+            return;
+        }
+        BaseSandbox current = currentBaseSandbox();
+        if (current == null) {
+            return; // 未就绪（Docker 不可达 / 初始化失败 / 重建失败中），没有可自愈的句柄
+        }
+        if (!healing.compareAndSet(false, true)) {
+            return; // 上一次自愈还没结束
+        }
+        try {
+            if (probe(current)) {
+                return;
+            }
+            log.warn("[sandbox] base 容器健康探测失败，销毁并重建");
+            rebuildBase(current);
+        } finally {
+            healing.set(false);
+        }
+    }
+
+    /** 当前 base 容器句柄；单测在无 Docker 环境下覆盖本方法注入桩（探测逻辑与容器无关） */
+    protected BaseSandbox currentBaseSandbox() {
+        return baseSandbox;
+    }
+
+    /** 容器探活：容器内 echo 固定令牌，回显包含令牌才算可用（异常 / 超时 / 空回显都算故障） */
+    protected boolean probe(BaseSandbox box) {
+        Future<String> future = probeExecutor.submit(() -> box.runShellCommand("echo " + PROBE_TOKEN));
+        try {
+            String out = future.get(probeTimeoutMs, TimeUnit.MILLISECONDS);
+            return out != null && out.contains(PROBE_TOKEN);
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            log.warn("[sandbox] 容器探测超时 {}ms（容器假死？）", probeTimeoutMs);
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (ExecutionException e) {
+            log.warn("[sandbox] 容器探测异常: {}", e.getCause() == null ? e : e.getCause().toString());
+            return false;
+        }
+    }
+
+    /**
+     * 重建 base 容器：销毁旧容器 → 新建 → 重新生成工具面。
+     *
+     * <p>失败时清空工具面而不是留着指向死容器的旧 callback：空工具面会让模型直接说「没有
+     * 执行能力」，指向死容器则会让它反复重试同一个必败调用。
+     */
+    protected void rebuildBase(BaseSandbox stale) {
+        try {
+            stale.close(); // 等价于 SandboxService.stopAndRemoveSandbox(sandboxId)
+        } catch (Throwable t) {
+            log.warn("[sandbox] 旧容器销毁失败（继续重建）: {}", t.toString());
+        }
+        SandboxService svc = service;
+        if (svc == null) {
+            clearBaseTools();
+            publishMetrics();
+            return;
+        }
+        try {
+            BaseSandbox fresh = new BaseSandbox(svc, SANDBOX_USER, SANDBOX_SESSION);
+            registerBaseTools(fresh);
+            this.baseSandbox = fresh;
+            log.info("[sandbox] base 容器重建完成: 执行类={} 只读={} 写入={}",
+                    base.size(), readOnly.size(), write.size());
+        } catch (Throwable t) {
+            clearBaseTools();
+            log.warn("[sandbox] base 容器重建失败，执行/文件类工具已降级为空: {}", t.toString());
+        } finally {
+            publishMetrics();
+        }
+    }
+
+    private void clearBaseTools() {
+        this.base = List.of();
+        this.readOnly = List.of();
+        this.write = List.of();
+        this.baseSandbox = null;
     }
 
     /**
@@ -350,10 +519,11 @@ public class SandboxToolProvider {
     public record SandboxStatus(String state, int baseTools, int browserTools) {
     }
 
-    /** 应用退出时释放沙箱服务与全部容器（base + browser），并关闭初始化线程池 */
+    /** 应用退出时释放沙箱服务与全部容器（base + browser），并关闭初始化/探测线程池 */
     @PreDestroy
     public void shutdown() {
         initExecutor.shutdownNow();
+        probeExecutor.shutdownNow();
         try {
             SandboxService svc = service;
             if (svc != null) {

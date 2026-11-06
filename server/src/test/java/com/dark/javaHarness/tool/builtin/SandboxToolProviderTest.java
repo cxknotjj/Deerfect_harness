@@ -1,9 +1,20 @@
 package com.dark.javaHarness.tool.builtin;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import io.agentscope.runtime.sandbox.box.BaseSandbox;
+import io.agentscope.runtime.sandbox.manager.SandboxService;
+import io.agentscope.runtime.sandbox.manager.model.container.ContainerModel;
 import io.micrometer.core.instrument.Metrics;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -116,5 +127,179 @@ class SandboxToolProviderTest {
         assertTrue(provider.baseTools().isEmpty(), "初始化失败应返回空工具面而非抛出");
         assertEquals(0.0, Metrics.globalRegistry.get("harness.sandbox.tools").gauge().value());
         assertEquals(0.0, Metrics.globalRegistry.get("harness.sandbox.browser.tools").gauge().value());
+    }
+
+    // ---------- 健康自愈（P0-1）：探活口径 / 重建触发 / 孤儿回收 ----------
+
+    /** 探活回显包含令牌才算可用：容器活着但 shell 坏掉（回显异常）同样算故障 */
+    @Test
+    void probe_echoContainsToken_isHealthy() {
+        BaseSandbox box = mock(BaseSandbox.class);
+        when(box.runShellCommand(anyString())).thenReturn("__harness_probe_ok__\n");
+
+        assertTrue(new SandboxToolProvider().probe(box));
+    }
+
+    @Test
+    void probe_echoWithoutToken_isUnhealthy() {
+        BaseSandbox box = mock(BaseSandbox.class);
+        when(box.runShellCommand(anyString())).thenReturn("/bin/sh: command not found");
+
+        assertFalse(new SandboxToolProvider().probe(box), "回显不含令牌应判故障");
+    }
+
+    @Test
+    void probe_exception_isUnhealthy() {
+        BaseSandbox box = mock(BaseSandbox.class);
+        when(box.runShellCommand(anyString())).thenThrow(new IllegalStateException("container gone"));
+
+        assertFalse(new SandboxToolProvider().probe(box), "容器已销毁时调用抛异常，应判故障而非上抛");
+    }
+
+    /** 容器假死：探测必须在超时内返回，不能挂住调度线程 */
+    @Test
+    void probe_hangs_returnsWithinTimeout() {
+        BaseSandbox box = mock(BaseSandbox.class);
+        when(box.runShellCommand(anyString())).thenAnswer(inv -> {
+            Thread.sleep(5_000);
+            return "__harness_probe_ok__";
+        });
+        SandboxToolProvider provider = new SandboxToolProvider();
+        provider.probeTimeoutMs = 100;
+
+        long start = System.nanoTime();
+        assertFalse(provider.probe(box), "超时应判故障");
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+        assertTrue(elapsedMs < 2_000, "探测应在超时上限附近返回，实际 " + elapsedMs + "ms");
+    }
+
+    @Test
+    void healthCheck_probeFailed_triggersRebuild() {
+        AtomicInteger rebuilds = new AtomicInteger();
+        SandboxToolProvider provider = new SandboxToolProvider() {
+            @Override
+            protected BaseSandbox currentBaseSandbox() {
+                return mock(BaseSandbox.class);
+            }
+
+            @Override
+            protected boolean probe(BaseSandbox box) {
+                return false;
+            }
+
+            @Override
+            protected void rebuildBase(BaseSandbox stale) {
+                rebuilds.incrementAndGet();
+            }
+        };
+
+        provider.healthCheck();
+
+        assertEquals(1, rebuilds.get(), "探测失败应触发一次重建");
+    }
+
+    @Test
+    void healthCheck_probeOk_noRebuild() {
+        AtomicInteger rebuilds = new AtomicInteger();
+        SandboxToolProvider provider = new SandboxToolProvider() {
+            @Override
+            protected BaseSandbox currentBaseSandbox() {
+                return mock(BaseSandbox.class);
+            }
+
+            @Override
+            protected boolean probe(BaseSandbox box) {
+                return true;
+            }
+
+            @Override
+            protected void rebuildBase(BaseSandbox stale) {
+                rebuilds.incrementAndGet();
+            }
+        };
+
+        provider.healthCheck();
+
+        assertEquals(0, rebuilds.get(), "容器健康时不应重建");
+    }
+
+    /** 未就绪（Docker 不可达 / 初始化失败）：没有句柄可探，不应空跑探测 */
+    @Test
+    void healthCheck_noHandle_skipsProbe() {
+        AtomicInteger probes = new AtomicInteger();
+        SandboxToolProvider provider = new SandboxToolProvider() {
+            @Override
+            protected boolean probe(BaseSandbox box) {
+                probes.incrementAndGet();
+                return true;
+            }
+        };
+
+        provider.healthCheck();
+
+        assertEquals(0, probes.get());
+    }
+
+    @Test
+    void healthCheck_disabled_skipsProbe() {
+        AtomicInteger probes = new AtomicInteger();
+        SandboxToolProvider provider = new SandboxToolProvider() {
+            @Override
+            protected BaseSandbox currentBaseSandbox() {
+                return mock(BaseSandbox.class);
+            }
+
+            @Override
+            protected boolean probe(BaseSandbox box) {
+                probes.incrementAndGet();
+                return true;
+            }
+        };
+        provider.healthEnabled = false;
+
+        provider.healthCheck();
+
+        assertEquals(0, probes.get(), "开关关闭时不应探测");
+    }
+
+    /** 启动时发现残留容器：全部清理（单实例假设，见 cleanupOrphans 注释） */
+    @Test
+    void cleanupOrphans_leftoverContainers_clearsAll() {
+        SandboxService svc = mock(SandboxService.class);
+        when(svc.getAllSandboxes()).thenReturn(Map.of("old-1", new ContainerModel()));
+
+        new SandboxToolProvider().cleanupOrphans(svc);
+
+        verify(svc).cleanupAllSandboxes();
+    }
+
+    @Test
+    void cleanupOrphans_noneLeftover_noop() {
+        SandboxService svc = mock(SandboxService.class);
+        when(svc.getAllSandboxes()).thenReturn(Map.of());
+
+        new SandboxToolProvider().cleanupOrphans(svc);
+
+        verify(svc, never()).cleanupAllSandboxes();
+    }
+
+    @Test
+    void cleanupOrphans_disabled_noop() {
+        SandboxService svc = mock(SandboxService.class);
+        SandboxToolProvider provider = new SandboxToolProvider();
+        provider.cleanupOrphansOnStart = false;
+
+        provider.cleanupOrphans(svc);
+
+        verify(svc, never()).getAllSandboxes();
+    }
+
+    /** 清理失败只记日志：残留容器占用资源，但不该阻断本次启动 */
+    @Test
+    void cleanupOrphans_daemonError_doesNotThrow() {
+        SandboxService svc = mock(SandboxService.class);
+        when(svc.getAllSandboxes()).thenThrow(new IllegalStateException("daemon gone"));
+
+        assertDoesNotThrow(() -> new SandboxToolProvider().cleanupOrphans(svc));
     }
 }
