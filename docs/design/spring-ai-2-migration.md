@@ -67,7 +67,7 @@
 - 复用：`OrchestrationNodes`（把 `OverAllState` 改为 `Map`）、`OrchestrationBudget`、`LeadOutputParser`、`ThinkingThrottle`、`OrchestrationPrompts`
 
 **检查点设计**（替代 MysqlSaver）：
-- 新表 `orchestration_checkpoint(goal_id, checkpoint_id, stage, state_json, created_at)`，Flyway V41 建表。
+- 新表 `orchestration_checkpoint(goal_id, checkpoint_id, stage, state_json, created_at)`，Flyway V41 建表（压平前的历史编号；该表已并入 `V1__init_schema.sql` 基线，现行迁移为 V1–V11）。
 - 落点：`LEAD_DONE`（含 objective/subtaskCount/agents/briefs）、`SUBTASKS_DONE`（含全部 result_*）、`DONE`（含 final）。
 - 续跑选择：`DONE` → 直接回放 final；`SUBTASKS_DONE` → 只补 aggregate；`LEAD_DONE` → 补子任务 + aggregate；无检查点 → 报错（与现行为一致）。
 - `threadId` 语义保留：`goal.id()`。

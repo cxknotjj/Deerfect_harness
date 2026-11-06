@@ -163,7 +163,7 @@ curl -s -X POST http://localhost:8080/api/chat \
 | [`docs/guides/functional-testing.md`](./docs/guides/functional-testing.md)     | 测试全景                                               |
 | [`docs/HARNESS_TODO.md`](./docs/HARNESS_TODO.md)                               | 落地 TODO / 路线图                                      |
 
-> 完整文档索引与存档目录（设计文档 design/、报告 reports/、历史计划 superpowers/）见 **[`docs/README.md`](./docs/README.md)**。
+> 完整文档索引与存档目录（设计文档 design/、报告 reports/、历史 spec archive/specs/）见 **[`docs/README.md`](./docs/README.md)**。
 
 ## 技术架构
 

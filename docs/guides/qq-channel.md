@@ -15,6 +15,7 @@
 | 😀 表情包 | LLM 在回复末尾输出 `[emoji:分类]`（happy / angry / shock / chill / social / abstract / festive / none）；正文剥离标记后发送，再按分类从 `channel/emoji-index.json` 随机取一张（图片 `base64://` 内联、跨机部署可用）；`probability` / `send-delay-ms` 控频与节奏 |
 | 🔊 语音 | 用户明确要求「用语音说 / 念一下」时，Agent 调用 `text_to_speech` 工具（Edge TTS）合成 mp3；core 在响应 `flags` 中透出 `voice:<id>`，QQ 渠道取工件后以 `record` 段发送。语音成功时本轮不再发文字与表情，工件缺失/发送失败回退文字 |
 | 🧠 会话记忆 | 同一 QQ 用户/群自动延续多轮上下文；`/new` / `/reset` 删除绑定行后下条消息建档新会话；harness 删除会话时同步清理绑定 |
+| 📬 主动推送 | 定时任务跑完由 `MessageSender` 端口经 `sendPrivateMsg` 私聊送达（`notifyChannel` 形如 `qq:<目标>`）；判定走轮询 + `notified_at` 幂等，发送失败也标记避免刷渠道；未注册渠道 / 地址非法只 WARN 不抛异常。能力全景见 [features.md](../features.md) |
 | 🚦 防刷 | 同用户限频（`rate-limit.per-user-seconds`）+ 私聊白名单（`private-allow-users`，空 = 不限制）；群聊暂无群号白名单 |
 | ⏱️ 聊天超时 | `chat-timeout-seconds` 超时中断并放弃回复（后台任务取消），防 LLM 卡死占满线程池 |
 | 🎯 指定 Agent | `agent-id` 仅在会话首次建档时绑定，`/agent <名>` 可随时切换。绑定非 general 的专属 Agent 走 Agentic 直答（跳过 Graph 判定）；general 仍走统一路由（SIMPLE/COMPLEX） |

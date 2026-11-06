@@ -75,7 +75,7 @@
 
 - [x] B3 `ChatRequest` 增加 `channel` 并贯通到执行层
   - 作用：让 core 知道消息来自哪个渠道，prompt 才能按信道定制
-  - 位置：[ChatRequest](../harness-api/src/main/java/com/dark/javaHarness/domain/dto/ChatRequest.java)、[ChatServiceImpl](../server/src/main/java/com/dark/javaHarness/service/impl/ChatServiceImpl.java)、`AgentService/AgentServiceImpl`、`Goal/GoalEntity`、QQ `chatWithTimeout`、CLI `ChatApiClient`
+  - 位置：[ChatRequest](../harness-api/src/main/java/com/dark/javaHarness/view/ChatRequest.java)、[ChatServiceImpl](../server/src/main/java/com/dark/javaHarness/service/impl/ChatServiceImpl.java)、`AgentService/AgentServiceImpl`、`Goal/GoalEntity`、QQ `chatWithTimeout`、CLI `ChatApiClient`
   - 做法：新增可空 `channel` 字段（`qq` / `cli` / `web` / `api`）；QQ 显式传 `qq`；经 Goal 携带到 Agent 执行与 `AgentChatCaller`；同步更新所有构造调用与测试，不保留旧重载
   - 验收：QQ 触发的 Goal 带 `qq`；CLI/Web 带各自值或 null；全模块编译与测试通过
 

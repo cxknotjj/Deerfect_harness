@@ -91,11 +91,12 @@ Deerfect Harness 是一个基于 Spring AI 的双路径 Agent 平台：**Agentic
 - **数据库演进**：Flyway 版本化迁移，启动自动建表 / 升级。
 - **模块化**：`harness-api` / `channel-qq` / `server` / `cli` / `wms-mcp-adapter` 五模块 + 独立 `web`。
 - **容器化**：Dockerfile + docker-compose（app + MySQL + pgvector），见 [docker-deploy.md](./guides/docker-deploy.md)。
+- **持续集成**：`.github/workflows/ci.yml`（backend / web / e2e 三 job）与 `docker-image.yml`（镜像发布）已落地；CD 自动部署与分支保护强制校验仍需人工配置，见 [dev.md](./dev.md#8-ci-与镜像发布github-actions)。
 - **测试**：121 个测试类 / 1086 个用例（harness-api 5/39、server 101/893、channel-qq 8/83、cli 3/28、wms-mcp-adapter 4/43），详见 [functional-testing.md](./guides/functional-testing.md)。
 
 ## 十、尚未实现（路线图未勾选项）
 
-接口级限流防刷、CI/CD、OpenTelemetry 分布式链路追踪、Testcontainers 集成测试、Swagger/OpenAPI、Redis 会话缓存、消息队列、多实例水平扩展、子任务依赖编排、子任务失败重规划、长期记忆滚动摘要、对话历史向量化召回（跨会话关键词召回已支持，向量检索未做）、PDF 导出、多模态输入、Web 端分页与独立域名部署。
+接口级限流防刷、CD 自动部署与分支保护强制校验、OpenTelemetry 分布式链路追踪、Testcontainers 集成测试、Swagger/OpenAPI、Redis 会话缓存、消息队列、多实例水平扩展、子任务依赖编排、子任务失败重规划、长期记忆滚动摘要、对话历史向量化召回（跨会话关键词召回已支持，向量检索未做）、PDF 导出、多模态输入、Web 端分页与独立域名部署。
 
 > 完整清单与验收口径见 [HARNESS_TODO.md](./HARNESS_TODO.md)。
 

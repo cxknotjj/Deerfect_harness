@@ -4,7 +4,7 @@
 >
 > 改端口、改启动方式、换依赖服务时，同一次提交内更新本文件。
 >
-> 最后按代码核对：2026-10-29
+> 最后按代码核对：2026-11-06
 
 ## 1. 工具链（Windows 侧实测）
 
@@ -83,11 +83,14 @@ socat TCP-LISTEN:8080,bind=172.17.0.1,fork,reuseaddr TCP:127.0.0.1:8080
 Test-NetConnection 127.0.0.1 -Port 3306
 ```
 
-- Flyway 随 server 启动自动迁移，当前基线为 `V1`。
-- **迁移压平（2026-10-30）**：原 V1~V43（42 个文件）已合并为单个 `V1__init_schema.sql`
-  （最终 schema + 迁移种子数据），之后结构变更从 V2 重新编号。全新空库直接执行 V1。
-- **存量库升级**：先 `DROP TABLE flyway_schema_history;`，再启动应用——`baseline-on-migrate`
-  会以 V1 为基线跳过 V1，数据不动，但旧版历史记录不复存在（git 里仍有旧迁移可查）。
+- Flyway 随 server 启动自动迁移，**当前基线 `V11`**（V1–V11 共 11 个脚本，清单见 [project-structure.md](./project-structure.md)）；新增迁移从 `V12` 编号。
+- **迁移压平（2026-10-30，历史操作）**：原 V1~V43（42 个文件）已合并为单个 `V1__init_schema.sql`
+  （最终 schema + 迁移种子数据），之后结构变更从 V2 重新编号；全新空库从 V1 顺序执行到 V11。
+  V7–V11 依次落地定时任务 / 推送幂等 / Goal 重投 / 画像增量 / 归档跨会话索引。
+- **存量库升级（仅压平当时适用，勿再照做）**：当时先 `DROP TABLE flyway_schema_history;` 再启动，
+  让 `baseline-on-migrate` 以 V1 为基线跳过 V1。现在历史表已在正常使用，**再删表会让 Flyway
+  对已有库重跑迁移**，切勿执行。若因修改迁移脚本导致校验和不匹配，按
+  [project-structure.md](./project-structure.md) 的做法 `flyway repair` 校正 checksum。
 
 ## 5. 前端（`web/`）
 

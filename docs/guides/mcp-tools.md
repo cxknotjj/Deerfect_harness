@@ -30,7 +30,7 @@ WHERE agent_name IN ('general', 'researcher') AND tools NOT LIKE '%tavily_search
 > [!IMPORTANT]
 > **最小权限**：`general` 是所有回退路径的落点（路由兜底/未识别专家/lead 漏指派），已收敛为只读探索者
 > （网页抓取 + 沙箱只读文件 + 浏览器 + MCP 白名单）——执行类 `sandbox.base` 与写入类 `sandbox.write`
-> 只留给 lead 明确指派的 `coder`/`analyst`。general 的 `tools` 列对齐已由 V17 迁移自动落库（新库/存量库跑 Flyway 即生效），仅 Flyway 管不到的外部库需手工对齐
+> 只留给 lead 明确指派的 `coder`/`analyst`。general 的 `tools` 列对齐已落在 `V1__init_schema.sql` 基线种子数据里（压平前的 V17 迁移已并入；新库/存量库跑 Flyway 即生效），仅 Flyway 管不到的外部库需手工对齐
 > （数据驱动优先于代码内置，改库即生效）：
 
 ```sql

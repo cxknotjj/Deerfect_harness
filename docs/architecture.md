@@ -22,7 +22,9 @@ flowchart TD
 ```
 
 > [!TIP]
-> 数据流细节见 [`docs/data-flow.md`](data-flow.md)，落地 TODO 见 [`docs/HARNESS_TODO.md`](HARNESS_TODO.md)，测试全景见 [`docs/guides/functional-testing.md`](functional-testing.md)。
+> 数据流细节见 [`docs/data-flow.md`](data-flow.md)，落地 TODO 见 [`docs/HARNESS_TODO.md`](HARNESS_TODO.md)，测试全景见 [`docs/guides/functional-testing.md`](guides/functional-testing.md)。
+>
+> 上图是单次请求的双路径执行视图。长期记忆（增量画像 / 跨会话归档召回）与主动化（定时调度 / 主动推送 / 活跃目标）不在这条链上，能力清单见 [`features.md`](features.md)，归档召回数据流见 [`data-flow.md` 5j 节](data-flow.md#5j-会话历史归档与链式召回最小版2026-11-03)。
 
 
 ---

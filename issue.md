@@ -3,6 +3,7 @@
 > 分析对象：Deerfect Harness（java-harness）
 > 图谱基线：提交 `322c6a2`，1696 节点 / 2901 边 / 10 层 / 12 步导览
 > 统计口径：基于 `file:` 级节点的 `imports` 边（跨模块、跨层均按文件归属统计）；测试覆盖为文件级 `tested_by` 关系，非行覆盖率
+> 时点说明：图谱统计（节点/边数、类名、符号数）为该提交快照，`SandboxToolkit` 等文件在后续重构中已拆分；文中测试数已按当前主干更新为 1086，其余数字不随代码回溯。
 
 ## 摘要
 
@@ -16,7 +17,7 @@
 |---|---|---|---|
 | P0 | [ChatServiceImpl.java](server/src/main/java/com/dark/javaHarness/service/impl/ChatServiceImpl.java) | 全项目扇出最高（24 条出边、0 条入边），一个类同时承担建档 / 路由判定 / 直答 / 编排 / SSE / 续跑 / 写回 / RAG / 限流 / 降级；`complex` | 任一环节异常直接影响主链路，优先拆分职责 |
 | P0 | [ParallelOrchestrationEngine.java](server/src/main/java/com/dark/javaHarness/graph/engine/ParallelOrchestrationEngine.java) + [MultiAgentGraphAgent.java](server/src/main/java/com/dark/javaHarness/graph/MultiAgentGraphAgent.java) + [OrchestrationNodes.java](server/src/main/java/com/dark/javaHarness/graph/OrchestrationNodes.java) | Graph 路径核心，三者互相依赖形成导入环；涉及并发子任务、检查点续跑、聚合降级，状态机复杂 | 子任务失败隔离、续跑一致性、聚合降级边界 |
-| P1 | [SandboxToolProvider.java](server/src/main/java/com/dark/javaHarness/tool/builtin/SandboxToolProvider.java) + [SandboxToolkit.java](server/src/main/java/com/dark/javaHarness/tool/builtin/SandboxToolkit.java) | 容器沙箱 = 任意命令 / 文件 / 浏览器权限；20 个 ToolCallback 集中在一个类；无 Docker 时静默降级为空工具面 | 权限最小化、降级可观测性、工具面按类别拆分 |
+| P1 | [SandboxToolProvider.java](server/src/main/java/com/dark/javaHarness/tool/builtin/SandboxToolProvider.java) + `SandboxToolkit.java`（已拆分为 File/Shell/Browser 工具与 `SandboxGuards`） | 容器沙箱 = 任意命令 / 文件 / 浏览器权限；20 个 ToolCallback 集中在一个类；无 Docker 时静默降级为空工具面 | 权限最小化、降级可观测性、工具面按类别拆分 |
 | P1 | [McpToolProvider.java](server/src/main/java/com/dark/javaHarness/tool/mcp/McpToolProvider.java) + [ToolAssignments.java](server/src/main/java/com/dark/javaHarness/tool/ToolAssignments.java) | 外部 MCP 服务懒连接、失败隔离；工具权限边界（agent 表 `tools` 列）在此收口，配置错即越权或空工具；与两个 Provider 构成导入环 | 工具名与注册名一致性校验、启动期一次性告警 |
 | P2 | [LlmCallRecorder.java](server/src/main/java/com/dark/javaHarness/observability/LlmCallRecorder.java) | 异步落库且「异常只告警」，观测数据可能静默丢失；被 20 个文件引用 | 有界队列 + 丢弃 / 失败指标，避免排障数据缺失 |
 | P2 | [KnowledgeServiceImpl.java](server/src/main/java/com/dark/javaHarness/knowledge/KnowledgeServiceImpl.java) | 增量摄取 + 孤儿清理 + 向量 / BM25 混合检索，写路径有数据一致性风险（16 个符号） | 摄取幂等、孤儿清理事务边界、检索失败隔离 |
@@ -56,7 +57,7 @@
 
 | 文件 | 符号数 |
 |---|---|
-| [SandboxToolkit.java](server/src/main/java/com/dark/javaHarness/tool/builtin/SandboxToolkit.java) | 20 |
+| `SandboxToolkit.java`（当时，已拆分） | 20 |
 | [client.ts](web/src/api/client.ts) | 18（整个前端的 HTTP + SSE 都在一个文件里） |
 | [KnowledgeServiceImpl.java](server/src/main/java/com/dark/javaHarness/knowledge/KnowledgeServiceImpl.java) | 16 |
 | [ChatServiceImpl.java](server/src/main/java/com/dark/javaHarness/service/impl/ChatServiceImpl.java) | 15 |

@@ -1,7 +1,8 @@
 # javaHarness 文档导航
 
 > 项目主入口在仓库根 [README](../README.md)；本页是 `docs/` 全量索引。
-> 目录约定：核心架构文档在根层；使用/部署/协议类在 `guides/`；设计文档在 `design/`（按日期存档）；报告在 `reports/`；历史计划与 spec 在 `superpowers/`。
+> 目录约定：核心架构文档在根层；使用/部署/协议类在 `guides/`；设计文档在 `design/`（按日期存档）；报告在 `reports/`；历史实现计划与设计 spec 在 `archive/specs/`。
+> 历史设计文档正文里出现的 `docs/superpowers/...` 是 2026-10-30 文档压平前的旧目录，现已合并到 `archive/specs/`；这些存档按「时点记录」保留，不再逐个回填路径。
 
 ## 项目约束
 
@@ -59,4 +60,5 @@
 |---|---|
 | [guides/functional-testing.md](./guides/functional-testing.md) | 测试全景（类清单 / 场景 / 运行方式） |
 | [reports/](./reports/) | 阶段报告存档（CLI 输出优化 / 沙箱接入 / token 预算评审） |
-| [superpowers/](./superpowers/) | 历史实现计划与设计 spec 存档（时点记录，不随代码回溯更新） |
+| [archive/specs/](./archive/specs/) | 历史实现计划与设计 spec 存档（时点记录，不随代码回溯更新） |
+| [task-checklist/](../task-checklist/) | 可执行的能力补齐清单（主动性 / 记忆 / 触达；2026-11-06 进度 8/14） |

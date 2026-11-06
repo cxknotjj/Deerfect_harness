@@ -1,7 +1,7 @@
 # Session 上下文构成快照清单
 
 - 范围：`server`（prompt / agent / observability）与 `web` 监控页
-- 设计规格：[2026-11-01-session-context-composition-design.md](../docs/superpowers/specs/2026-11-01-session-context-composition-design.md)
+- 设计规格：原稿随 2026-10-30 文档压平移除；实现口径见 [上下文构成监控说明](../docs/dev.md#会话上下文构成快照) 与 [上下文优化指南](../docs/guides/context-optimization.md)
 - 创建：2026-11-01
 - 状态：共 11 项，已完成 11 项，待办 0 项
 
@@ -20,7 +20,7 @@
 
 - [x] 设计规格编写（2026-11-01）
   - 作用：明确快照口径、组件、接口与降级行为，避免实现阶段反复猜需求
-  - 位置：[2026-11-01-session-context-composition-design.md](../docs/superpowers/specs/2026-11-01-session-context-composition-design.md)
+  - 位置：原稿路径 `docs/superpowers/specs/2026-11-01-session-context-composition-design.md`（已移除）；现存实现见 `ContextCompositionAdvisor` / `ContextCompositionStore`
   - 做法：按目标、决策、数据流、组件、DTO、API、错误、测试、实现步骤分节
   - 验收：规格无占位符、前后一致、范围可被一个实现计划覆盖
 
