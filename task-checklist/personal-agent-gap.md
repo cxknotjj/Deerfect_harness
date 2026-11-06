@@ -2,7 +2,7 @@
 
 - 范围：`server` 主链路 + `harness-api` 端口 + `channel-qq` 推送 + `web` 入口；不改 `cli` 的命令行协议（仅加命令）
 - 创建：2026-11-06
-- 状态：共 14 项，已完成 4 项，待办 10 项
+- 状态：共 14 项，已完成 5 项，待办 9 项
 - 关系：`docs/HARNESS_TODO.md` 是技术路线图（工程化 / 编排智能化 / 多实例），本清单是**产品视角**的能力补齐。重叠 4 条（画像长青、归档 RAG、滚动摘要、Goal 重投）在此提前并给出可执行口径；其余为新增。两者冲突时以本清单的验收口径为准，完成后回写 HARNESS_TODO 勾选。
 
 ## 进度概览
@@ -10,11 +10,11 @@
 | 分类             | 已完成 | 待办 | 小计 |
 | -------------- | --- | -- | -- |
 | P0 主动化的安全前置   | 2   | 0  | 2  |
-| P1 存在感（自己开始）  | 2   | 2  | 4  |
+| P1 存在感（自己开始）  | 3   | 1  | 4  |
 | P2 记忆连续性（人生级） | 0   | 4  | 4  |
 | P3 随身触达        | 0   | 2  | 2  |
 | P4 个人数据源       | 0   | 2  | 2  |
-| 合计             | 4   | 10 | 14 |
+| 合计             | 5   | 9  | 14 |
 
 ## 背景
 
@@ -61,11 +61,12 @@
   - 结果（2026-11-06）：harness-api 新增 MessageSender 端口 + MessageSenderRegistry（channel:target 路由，未注册/非法/实现违约一律 false）；channel-qq 实现私聊送达；推送判定改轮询（last_goal_id + notified_at 幂等，V8 加列）而非事件——Goal 完成点有三处，事件易漏发重发；派发与推送合成 tick 节拍；发送失败也标记避免刷渠道。16+7 条测试。提交 42bc16b。
   - 端到端（2026-11-06 19:28）：触发 → goal SUCCEEDED → 19:28:19 在 schedule-notify 线程推送 → NapCat 未启动，重试 2 次后 WARN 未送达且不抛异常 → 19:28:20 notified_at 置位。验证暴露并修复两处单测覆盖不到的问题（同步推送阻塞调度线程；高频 cron 下 last_goal_id 被派发覆盖导致推送饿死），提交 8eed771。
   - 已知限制：推送定位依赖 `last_goal_id` 单字段，cron 间隔必须 ≥ 30 秒（已做成创建期校验）。若要支持更密的触发，需要独立通知表（每次触发插一条待推送记录），属后续技术债。
-- [ ] P1-3 Goal 常驻（对话内声明 + 每轮注入）
+- [x] P1-3 Goal 常驻（对话内声明 + 每轮注入）
   - 作用：现在的 goal 是「提交—查询」的一次性任务，不是「记得住你在追什么」的长期目标
   - 位置：`goal` 表已有 `session_id`（无需加字段）；[ContextAssemblingAdvisor](../server/src/main/java/com/dark/javaHarness/advisor/ContextAssemblingAdvisor.java) / [PromptAssembler](../server/src/main/java/com/dark/javaHarness/prompt/PromptAssembler.java) 加「活跃目标」段；[ChatServiceImpl](../server/src/main/java/com/dark/javaHarness/service/impl/ChatServiceImpl.java) 入口解析 `/goal`
   - 做法：`/goal <objective>` 落 goal 并绑定当前 session；每轮组装把 RUNNING 目标的 objective + 最近进展注入（按预算截断，不挤掉 system 主体）；`/goal done <id>` 与 LLM 自评双通道收口；CLI 先行，Web 后续
   - 验收：声明目标后连续三轮对话，system 段都能看到目标；标记完成 / 取消后不再注入；超预算时按段裁剪，`system.channel` 等必需段不被挤掉
+  - 结果（2026-11-06）：新增 `GoalStatus.ACTIVE`（不复用 RUNNING——watchdog 会判死、重启会清理）；`GoalService.createActive/activeBySession/completeActive`；新增「活跃目标」prompt 段（order 160，按 sessionId 注入，provider 扩展点与画像同构）；快照加 `system.activeGoal` 映射；REST 三个端点 + CLI `/goal`。**只做手动完成，不做 LLM 自评**——误判完成会让目标悄悄消失。端到端：登记后发消息快照出现 107 token 的活跃目标段，完成后再发消失，重复完成 400。提交 5f1f8e2（22 文件）。
 
 - [ ] P1-4 Goal 失败重投
   - 作用：无人值守的定时任务失败后没人管，等于白跑
