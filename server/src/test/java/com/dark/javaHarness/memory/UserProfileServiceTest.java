@@ -2,25 +2,29 @@ package com.dark.javaHarness.memory;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.LlmCallLog;
 import com.dark.javaHarness.domain.entity.SessionEntity;
 import com.dark.javaHarness.mapper.SessionMapper;
-import com.dark.javaHarness.service.SessionService;
 import com.dark.javaHarness.observability.LlmCallRecorder;
+import com.dark.javaHarness.service.SessionService;
+import com.dark.javaHarness.service.SessionSnapshotItem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,16 +35,16 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 
 /**
- * UserProfileService 用户偏好画像提取单测（真实临时目录文件 IO + mock LLM 链）：
- * - stale 会话触发提炼：合并结果原子落盘 + profile_extracted 标记 + llm_call_log 落库（memory-profile）
- * - LLM 失败/空输出不落盘不标记（防抹掉画像）；文件写失败不标记（下轮重试）
- * - 空快照直接标记跳过（不调 LLM）；扫描查询条件含 profile_extracted=0 + last_active_at 阈值
- * - 多会话逐个独立处理：单个失败不影响后续
+ * UserProfileService 增量提炼单测（真实临时目录文件 IO + mock LLM 链）：
+ * - 首次提炼：补丁按 key 合并落盘，推进游标并记录提炼时刻
+ * - 增量：第二轮只把游标之后的消息喂给模型（旧消息不重复进 prompt）
+ * - 去重：同 key 覆盖而非追加；旧版无 key 条目被同值带 key 条目替换
+ * - 降级：LLM 失败/空输出/写盘失败都不推进游标（下轮重试），NONE 推进但不写文件
+ * - 护栏：单次最多喂 40 条新消息（取尾部）；主画像被清空时从 .bak 恢复
  */
 @ExtendWith(MockitoExtension.class)
 class UserProfileServiceTest {
@@ -69,20 +73,31 @@ class UserProfileServiceTest {
     @BeforeEach
     void setUp() {
         profileFile = tempDir.resolve("user-profile.md");
-        service = new UserProfileService(sessionMapper, sessionService, clientRegistry, recorder,
-                profileFile.toString(), 30, 4000, 300000);
+        service = newService(profileFile);
+    }
+
+    private UserProfileService newService(Path file) {
+        return new UserProfileService(sessionMapper, sessionService, clientRegistry, recorder,
+                file.toString(), 30, 4000, 300000);
     }
 
     private SessionEntity staleSession(long id) {
         SessionEntity s = new SessionEntity();
         s.setSessionId(id);
         s.setLastActiveAt(LocalDateTime.now().minusMinutes(60));
-        s.setProfileExtracted(0);
         return s;
+    }
+
+    private static SessionSnapshotItem item(String id, String role, String content) {
+        return new SessionSnapshotItem(id, role, content, System.currentTimeMillis());
     }
 
     private void stubScan(SessionEntity... sessions) {
         when(sessionMapper.selectList(any())).thenReturn(List.of(sessions));
+    }
+
+    private void stubItems(String sessionId, SessionSnapshotItem... items) {
+        when(sessionService.snapshotItems(sessionId)).thenReturn(List.of(items));
     }
 
     private void stubLlm(String content) {
@@ -97,56 +112,144 @@ class UserProfileServiceTest {
                 List.of(new Generation(new AssistantMessage(content)))));
     }
 
-    private void stubContext(String sessionId, String... dialogLines) {
-        if (dialogLines.length == 0) {
-            when(sessionService.loadContext(sessionId)).thenReturn(List.of());
-            return;
-        }
-        java.util.List<org.springframework.ai.chat.messages.Message> messages = new java.util.ArrayList<>();
-        for (int i = 0; i < dialogLines.length; i++) {
-            messages.add(i % 2 == 0 ? new UserMessage(dialogLines[i]) : new AssistantMessage(dialogLines[i]));
-        }
-        when(sessionService.loadContext(sessionId)).thenReturn(messages);
-    }
-
-    private String markedSessionIds() {
+    /** 提炼进度更新（markUpToDate）：取最后一次 update 的 Wrapper */
+    @SuppressWarnings("unchecked")
+    private UpdateWrapper<SessionEntity> markWrapper() {
         ArgumentCaptor<Wrapper<SessionEntity>> captor = ArgumentCaptor.forClass(Wrapper.class);
-        verify(sessionMapper, org.mockito.Mockito.atLeastOnce()).update(any(), captor.capture());
-        StringBuilder ids = new StringBuilder();
-        for (Wrapper<SessionEntity> w : captor.getAllValues()) {
-            com.baomidou.mybatisplus.core.conditions.AbstractWrapper<?, ?, ?> aw =
-                    (com.baomidou.mybatisplus.core.conditions.AbstractWrapper<?, ?, ?>) w;
-            // 先渲染 SQL（惰性求值：eq 条件参数此刻才注册进 paramNameValuePairs），再取参数值
-            aw.getSqlSegment();
-            ids.append(aw.getParamNameValuePairs().values());
-        }
-        return ids.toString();
+        verify(sessionMapper, atLeastOnce()).update(any(), captor.capture());
+        UpdateWrapper<SessionEntity> uw =
+                (UpdateWrapper<SessionEntity>) captor.getAllValues().get(captor.getAllValues().size() - 1);
+        // 先渲染 SET 与 WHERE 片段（惰性求值，参数此刻才注册进 paramNameValuePairs）
+        uw.getSqlSet();
+        uw.getSqlSegment();
+        return uw;
     }
 
-    /* ---------------- 核心流程：提炼合并落盘 + 标记 ---------------- */
+    private String capturedUserPrompt() {
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        verify(requestSpec, atLeastOnce()).user(captor.capture());
+        return captor.getValue();
+    }
+
+    /* ---------------- 首次提炼：合并 + 推进游标 ---------------- */
 
     @Test
-    void staleSession_mergesWritesAndMarks() throws Exception {
+    void firstRound_mergesPatchAndAdvancesCursor() throws Exception {
         stubScan(staleSession(9L));
-        stubContext("9", "以后 SQL 都帮我写成批量的", "好的，已记住");
-        stubLlm("- 偏好简洁回复\n- SQL 倾向批量写法");
+        stubItems("9",
+                item("m1", "user", "以后 SQL 都帮我写成批量的"),
+                item("m2", "assistant", "好的，已记住"));
+        stubLlm("- [沟通风格] 偏好简洁回复\n- [SQL] 倾向批量写法");
 
         service.scanOnce();
 
-        assertEquals("- 偏好简洁回复\n- SQL 倾向批量写法", Files.readString(profileFile),
-                "合并结果应原子落盘到画像文件");
-        assertTrue(markedSessionIds().contains("9"), "落盘成功后应标记 profile_extracted=1");
+        assertEquals("- [沟通风格] 偏好简洁回复\n- [SQL] 倾向批量写法", Files.readString(profileFile),
+                "补丁应按 key 合并落盘");
+        UpdateWrapper<SessionEntity> uw = markWrapper();
+        assertTrue(uw.getSqlSet().contains("profile_extracted_at"), "应记录提炼时刻: " + uw.getSqlSet());
+        assertTrue(uw.getSqlSet().contains("last_extracted_message_id"), "应记录游标: " + uw.getSqlSet());
+        assertTrue(uw.getParamNameValuePairs().values().contains("m2"), "游标应为最后一条新消息");
         ArgumentCaptor<LlmCallLog> logCaptor = ArgumentCaptor.forClass(LlmCallLog.class);
         verify(recorder).record(logCaptor.capture());
         assertEquals("memory-profile", logCaptor.getValue().agentName(), "llm_call_log 应以 memory-profile 口径落库");
     }
 
-    /* ---------------- 降级：失败不标记（下轮重试） ---------------- */
+    /* ---------------- 增量：只喂新消息 ---------------- */
 
     @Test
-    void llmFailure_keepsFileAndSkipsMark() throws Exception {
+    void secondRound_feedsOnlyMessagesAfterCursor() throws Exception {
+        SessionEntity session = staleSession(9L);
+        session.setLastExtractedMessageId("m2");
+        stubScan(session);
+        stubItems("9",
+                item("m1", "user", "旧消息一"),
+                item("m2", "assistant", "旧回复二"),
+                item("m3", "user", "新消息三"),
+                item("m4", "assistant", "新回复四"));
+        stubLlm("- [语言] 中文");
+
+        service.scanOnce();
+
+        String prompt = capturedUserPrompt();
+        assertTrue(prompt.contains("新消息三") && prompt.contains("新回复四"), "应包含游标之后的消息");
+        assertFalse(prompt.contains("旧消息一") || prompt.contains("旧回复二"), "已提炼过的消息不应重复进 prompt");
+    }
+
+    /** 游标被裁剪丢弃时：剩余条目都晚于它，应全部按新增处理 */
+    @Test
+    void cursorTrimmedAway_feedsAllRemaining() {
+        SessionEntity session = staleSession(9L);
+        session.setLastExtractedMessageId("gone");
+        stubScan(session);
+        stubItems("9", item("m7", "user", "仅存的消息"));
+        stubLlm("- [语言] 中文");
+
+        service.scanOnce();
+
+        assertTrue(capturedUserPrompt().contains("仅存的消息"));
+    }
+
+    /* ---------------- 去重：按 key 覆盖 ---------------- */
+
+    @Test
+    void sameKey_overwritesInsteadOfAppending() throws Exception {
+        Files.writeString(profileFile, "- [沟通风格] 偏好详细解释\n- [语言] 中文");
         stubScan(staleSession(9L));
-        stubContext("9", "用户提到了偏好");
+        stubItems("9", item("m1", "user", "以后说简洁点"));
+        stubLlm("- [沟通风格] 偏好简洁回复");
+
+        service.scanOnce();
+
+        assertEquals("- [沟通风格] 偏好简洁回复\n- [语言] 中文", Files.readString(profileFile),
+                "同 key 应原位覆盖，既有条目保持原序且不产生重复行");
+    }
+
+    /** 旧版画像（无 key 的行）在模型输出同值带 key 条目时应被替换，不留下两条同义条目 */
+    @Test
+    void legacyLine_replacedByKeyedEquivalent() throws Exception {
+        Files.writeString(profileFile, "- 偏好简洁回复");
+        stubScan(staleSession(9L));
+        stubItems("9", item("m1", "user", "简单点"));
+        stubLlm("- [沟通风格] 偏好简洁回复");
+
+        service.scanOnce();
+
+        assertEquals("- [沟通风格] 偏好简洁回复", Files.readString(profileFile));
+    }
+
+    /* ---------------- 降级路径 ---------------- */
+
+    @Test
+    void noneOutput_marksWithoutTouchingFile() throws Exception {
+        Files.writeString(profileFile, "- [语言] 中文");
+        stubScan(staleSession(9L));
+        stubItems("9", item("m1", "user", "今天天气不错"));
+        stubLlm("NONE");
+
+        service.scanOnce();
+
+        assertEquals("- [语言] 中文", Files.readString(profileFile), "NONE 不应写盘");
+        assertTrue(markWrapper().getSqlSet().contains("profile_extracted_at"),
+                "NONE 也要推进，否则每轮重复问模型");
+    }
+
+    @Test
+    void blankLlmOutput_doesNotWipeExistingProfile() throws Exception {
+        Files.writeString(profileFile, "- 既有偏好条目");
+        stubScan(staleSession(9L));
+        stubItems("9", item("m1", "user", "聊天内容"));
+        stubLlm("   ");
+
+        service.scanOnce();
+
+        assertEquals("- 既有偏好条目", Files.readString(profileFile), "空输出不得抹掉既有画像");
+        verify(sessionMapper, never()).update(any(), any());
+    }
+
+    @Test
+    void llmFailure_keepsFileAndSkipsMark() {
+        stubScan(staleSession(9L));
+        stubItems("9", item("m1", "user", "用户提到了偏好"));
         when(clientRegistry.getByModel(anyString())).thenReturn(chatClient);
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
@@ -162,64 +265,92 @@ class UserProfileServiceTest {
     }
 
     @Test
-    void blankLlmOutput_doesNotWipeExistingProfile() throws Exception {
-        Files.writeString(profileFile, "- 既有偏好条目");
-        stubScan(staleSession(9L));
-        stubContext("9", "聊天内容");
-        stubLlm("   ");
-
-        service.scanOnce();
-
-        assertEquals("- 既有偏好条目", Files.readString(profileFile), "空输出不得抹掉既有画像");
-        verify(sessionMapper, never()).update(any(), any());
-    }
-
-    @Test
-    void fileWriteFailure_doesNotMark() {
-        // profileFile 的父目录被一个普通文件占用 → createDirectories 必败 → 写盘失败 → 不标记
+    void fileWriteFailure_doesNotAdvance() {
+        // profileFile 的父目录被一个普通文件占用 → createDirectories 必败 → 写盘失败 → 不推进游标
         Path occupied = tempDir.resolve("occupied");
         Path blocked = occupied.resolve("user-profile.md");
-        service = new UserProfileService(sessionMapper, sessionService, clientRegistry, recorder,
-                blocked.toString(), 30, 4000, 300000);
+        UserProfileService blockedService = newService(blocked);
         try {
             Files.writeString(occupied, "i-am-a-file");
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
         stubScan(staleSession(9L));
-        stubContext("9", "聊天内容");
-        stubLlm("- 新画像");
+        stubItems("9", item("m1", "user", "聊天内容"));
+        stubLlm("- [语言] 中文");
 
-        service.scanOnce();
+        blockedService.scanOnce();
 
         verify(sessionMapper, never()).update(any(), any());
     }
 
-    /* ---------------- 边界：空快照 / 查询条件 / 多会话独立处理 ---------------- */
+    /* ---------------- 边界与护栏 ---------------- */
 
     @Test
     void emptySnapshot_marksWithoutLlm() {
         stubScan(staleSession(9L));
-        stubContext("9");
+        stubItems("9");
 
         service.scanOnce();
 
         verify(clientRegistry, never()).getByModel(anyString());
-        assertTrue(markedSessionIds().contains("9"), "无内容可提炼也应标记（避免空转重扫）");
+        assertTrue(markWrapper().getSqlSet().contains("profile_extracted_at"), "无内容也应推进（避免空转重扫）");
     }
 
     @Test
-    void scanQuery_filtersPendingAndStale() {
+    void scanQuery_comparesActiveTimeAgainstLastExtraction() {
         when(sessionMapper.selectList(any())).thenReturn(List.of());
 
         service.scanOnce();
 
         ArgumentCaptor<Wrapper<SessionEntity>> captor = ArgumentCaptor.forClass(Wrapper.class);
         verify(sessionMapper).selectList(captor.capture());
-        QueryWrapper<?> qw = (QueryWrapper<?>) captor.getValue();
-        String sql = qw.getSqlSegment();
-        assertTrue(sql.contains("profile_extracted"), "扫描应限定待提炼会话");
-        assertTrue(sql.contains("last_active_at"), "扫描应限定静默超阈值的会话");
+        String sql = ((QueryWrapper<?>) captor.getValue()).getSqlSegment();
+        assertTrue(sql.contains("profile_extracted_at"), "应以「提炼时刻」判定待提炼: " + sql);
+        assertTrue(sql.contains("last_active_at"), "扫描应限定静默超阈值的会话: " + sql);
+        assertTrue(sql.contains("last_active_at > profile_extracted_at"), "应比较活跃时间而非布尔标记: " + sql);
+    }
+
+    /** 单次最多喂 40 条：超出时只取尾部（偏好信号集中在最近对话） */
+    @Test
+    void tooManyNewMessages_keepsOnlyRecentTail() {
+        List<SessionSnapshotItem> items = new ArrayList<>();
+        for (int i = 0; i < 50; i++) {
+            items.add(item("m" + i, i % 2 == 0 ? "user" : "assistant", "消息 #" + i));
+        }
+        stubScan(staleSession(9L));
+        when(sessionService.snapshotItems("9")).thenReturn(items);
+        stubLlm("- [语言] 中文");
+
+        service.scanOnce();
+
+        String prompt = capturedUserPrompt();
+        assertTrue(prompt.contains("消息 #49"), "应包含最新消息");
+        assertTrue(prompt.contains("消息 #10"), "第 40 条（索引 10）应保留");
+        assertFalse(prompt.contains("消息 #9\n"), "超出上限的最旧消息应被丢弃");
+        assertFalse(prompt.contains("消息 #0\n"), "最旧消息应被丢弃");
+    }
+
+    @Test
+    void writeCreatesBackupOfPreviousVersion() throws Exception {
+        Files.writeString(profileFile, "- [语言] 中文");
+        stubScan(staleSession(9L));
+        stubItems("9", item("m1", "user", "以后简洁点"));
+        stubLlm("- [沟通风格] 简洁");
+
+        service.scanOnce();
+
+        Path backup = Path.of(profileFile + ".bak");
+        assertTrue(Files.exists(backup), "写盘前应备份上一版");
+        assertEquals("- [语言] 中文", Files.readString(backup));
+    }
+
+    @Test
+    void blankMainFile_restoredFromBackup() throws Exception {
+        Files.writeString(profileFile, "");
+        Files.writeString(Path.of(profileFile + ".bak"), "- [语言] 中文");
+
+        assertEquals("- [语言] 中文", service.currentProfile(), "主文件被清空时应从备份恢复");
     }
 
     @Test
@@ -227,8 +358,8 @@ class UserProfileServiceTest {
         SessionEntity s9 = staleSession(9L);
         SessionEntity s10 = staleSession(10L);
         when(sessionMapper.selectList(any())).thenReturn(List.of(s9, s10));
-        stubContext("9", "会话九");
-        stubContext("10", "会话十", "回复");
+        stubItems("9", item("m1", "user", "会话九"));
+        stubItems("10", item("m1", "user", "会话十"), item("m2", "assistant", "回复"));
         // 第一次调用（会话 9）抛异常，第二次（会话 10）成功
         when(chatClient.prompt()).thenThrow(new RuntimeException("first fails"))
                 .thenReturn(requestSpec);
@@ -239,13 +370,13 @@ class UserProfileServiceTest {
                 .thenReturn(requestSpec);
         when(requestSpec.call()).thenReturn(responseSpec);
         when(responseSpec.chatResponse()).thenReturn(new ChatResponse(
-                List.of(new Generation(new AssistantMessage("- 会话十的偏好")))));
+                List.of(new Generation(new AssistantMessage("- [主题] 会话十的偏好")))));
 
         service.scanOnce();
 
-        String marked = markedSessionIds();
-        assertTrue(marked.contains("10"), "后一个会话应正常提炼标记");
-        assertFalse(marked.contains("9"), "失败的会话不应被标记");
-        assertEquals("- 会话十的偏好", Files.readString(profileFile));
+        assertEquals("- [主题] 会话十的偏好", Files.readString(profileFile));
+        UpdateWrapper<SessionEntity> uw = markWrapper();
+        assertNotNull(uw);
+        assertTrue(uw.getParamNameValuePairs().values().contains(10L), "只应推进成功的会话");
     }
 }

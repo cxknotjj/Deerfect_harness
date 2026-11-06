@@ -38,6 +38,16 @@ public interface SessionService extends ChatMemory {
     List<SessionMessagesView.Item> listMessages(String sessionId);
 
     /**
+     * 读取会话快照条目（含稳定 id），供增量消费方定位游标。
+     *
+     * <p>与 {@link #loadContext} 同一份数据、同一顺序；区别只在携带 id 与 ts——
+     * 画像提炼要回答「上次处理到哪一条」，仅凭正文无法在裁剪后重新定位。
+     *
+     * @return 会话不存在或无历史时返回空列表
+     */
+    List<SessionSnapshotItem> snapshotItems(String sessionId);
+
+    /**
      * 追加保存单条会话消息（session_messages 与 session 一对一，该会话仅一行）。
      * 等价于 {@link #saveContext(String, Message, Long)} 且 ts 取当前时刻。
      */

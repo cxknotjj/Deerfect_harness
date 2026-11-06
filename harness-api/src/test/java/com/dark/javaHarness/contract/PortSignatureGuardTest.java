@@ -56,6 +56,7 @@ class PortSignatureGuardTest {
                         "createSession(String,String):String",
                         "loadContext(String):List",
                         "listMessages(String):List",
+                        "snapshotItems(String):List",
                         "saveContext(String,Message):void",
                         "saveContext(String,Message,Long):void",
                         "saveContextBatch(String,List):void",

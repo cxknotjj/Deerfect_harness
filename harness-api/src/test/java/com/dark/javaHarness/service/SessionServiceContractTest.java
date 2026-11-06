@@ -199,6 +199,18 @@ class SessionServiceContractTest {
                     .toList();
         }
 
+        /** 契约只要求「与 loadContext 同源同序、携带稳定 id」；内存替身按序号生成 id */
+        @Override
+        public List<SessionSnapshotItem> snapshotItems(String sessionId) {
+            List<Stored> stored = contexts.getOrDefault(sessionId, List.of());
+            List<SessionSnapshotItem> items = new ArrayList<>();
+            for (int i = 0; i < stored.size(); i++) {
+                Stored s = stored.get(i);
+                items.add(new SessionSnapshotItem("m" + i, roleOf(s.message()), s.message().getText(), s.ts()));
+            }
+            return items;
+        }
+
         @Override
         public void saveContext(String sessionId, Message message) {
             saveContext(sessionId, message, System.currentTimeMillis());

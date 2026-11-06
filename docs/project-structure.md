@@ -173,7 +173,7 @@ server/src/main/java/com/dark/javaHarness/
 ├── message/                      # 主动推送（任务结果 / 失败告警外发）
 │   └── MessageSenderRegistry.java  # channel:target 路由到渠道实现；未注册渠道与实现违约一律 false
 ├── memory/                       # 用户画像（跨会话长期记忆）
-│   ├── UserProfileService.java   # 离线批量提炼空闲会话偏好 → 全局画像 Markdown（原子写）
+│   ├── UserProfileService.java   # 增量提炼空闲会话的新消息 → 按 key 合并进全局画像（补丁式，非全文重写；原子写 + .bak）
 │   └── UserProfileSectionProviderImpl.java  # 画像段注入 general/lead 的 system prompt
 ├── cli/                          # 已独立为 `cli` 模块（`cli/src/main/java/com/dark/javaHarness/cli`，纯 HTTP 连 8080）
 ├── tool/                         # 工具层

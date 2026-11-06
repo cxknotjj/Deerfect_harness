@@ -15,6 +15,7 @@ import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.SessionBindingCleaner;
 import com.dark.javaHarness.service.SessionMessageEntry;
 import com.dark.javaHarness.service.SessionService;
+import com.dark.javaHarness.service.SessionSnapshotItem;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
@@ -108,9 +109,8 @@ public class SessionServiceImpl implements SessionService {
         session.setCreator(creator == null || creator.isBlank() ? "anonymous" : creator);
         session.setLastQuestion(truncate(firstQuestion, 200));
         session.setIsDelete(0);
-        // 画像提取扫描依据：建档即活跃；标记待提炼
+        // 画像提炼扫描依据：建档即活跃；profile_extracted_at 留空 = 从未提炼
         session.setLastActiveAt(LocalDateTime.now());
-        session.setProfileExtracted(0);
         sessionMapper.insert(session);
         log.info("创建会话 sessionId={}, name='{}'", session.getSessionId(), session.getSessionName());
         return String.valueOf(session.getSessionId());
@@ -141,6 +141,22 @@ public class SessionServiceImpl implements SessionService {
     /** 读取该会话最新的上下文快照 item 列表（无会话/无行/解析失败返回空列表） */
     private List<Map<String, String>> readSnapshot(String sessionId) {
         return parseSnapshotItems(latestSnapshotRow(sessionId));
+    }
+
+    /**
+     * 快照条目读侧视图（带 id 与 ts）。
+     *
+     * <p>与 {@link #listMessages} 共用同一份快照，仅多暴露条目 id——增量消费方
+     * （画像提炼）用它做「上次处理到哪一条」的游标。
+     */
+    @Override
+    public List<SessionSnapshotItem> snapshotItems(String sessionId) {
+        List<SessionSnapshotItem> items = new ArrayList<>();
+        for (Map<String, String> item : readSnapshot(sessionId)) {
+            items.add(new SessionSnapshotItem(
+                    item.get("id"), item.get("role"), item.get("content"), parseTs(item.get("ts"))));
+        }
+        return items;
     }
 
     /** 查询该会话唯一的上下文行（保留取最新一条以兼容历史多行数据；无会话/无行返回 null） */

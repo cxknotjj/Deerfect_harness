@@ -2,7 +2,7 @@
 
 - 范围：`server` 主链路 + `harness-api` 端口 + `channel-qq` 推送 + `web` 入口；不改 `cli` 的命令行协议（仅加命令）
 - 创建：2026-11-06
-- 状态：共 14 项，已完成 6 项，待办 8 项
+- 状态：共 14 项，已完成 7 项，待办 7 项
 - 关系：`docs/HARNESS_TODO.md` 是技术路线图（工程化 / 编排智能化 / 多实例），本清单是**产品视角**的能力补齐。重叠 4 条（画像长青、归档 RAG、滚动摘要、Goal 重投）在此提前并给出可执行口径；其余为新增。两者冲突时以本清单的验收口径为准，完成后回写 HARNESS_TODO 勾选。
 
 ## 进度概览
@@ -11,10 +11,10 @@
 | -------------- | --- | -- | -- |
 | P0 主动化的安全前置   | 2   | 0  | 2  |
 | P1 存在感（自己开始）  | 4   | 0  | 4  |
-| P2 记忆连续性（人生级） | 0   | 4  | 4  |
+| P2 记忆连续性（人生级） | 1   | 3  | 4  |
 | P3 随身触达        | 0   | 2  | 2  |
 | P4 个人数据源       | 0   | 2  | 2  |
-| 合计             | 6   | 8  | 14 |
+| 合计             | 7   | 7  | 14 |
 
 ## 背景
 
@@ -77,11 +77,13 @@
 
 ## P2 记忆连续性：从会话级到人生级
 
-- [ ] P2-1 画像长青会话（去掉一次性锁定）
+- [x] P2-1 画像长青会话（去掉一次性锁定）
   - 作用：`profile_extracted=1` 让一次会话只提炼一次；QQ 渠道按用户固定 sessionId，等于每个用户一辈子只提炼一次画像，后面聊的全不进
-  - 位置：[UserProfileService](../server/src/main/java/com/dark/javaHarness/memory/UserProfileService.java)（`@Scheduled` 扫描 + `profile_extracted` 锁定 + 原子落盘）
+  - 位置：[UserProfileService](../server/src/main/java/com/dark/javaHarness/memory/UserProfileService.java)（`@Scheduled` 扫描 + 增量游标 + 原子落盘）
   - 做法：改「按增量提炼」——记录 `last_extracted_message_id`，每次只喂新增消息；画像条目按 key 合并（同 key 覆盖、新 key 追加），不做全文重写；单次提炼限制消息条数与 token 上限
   - 验收：同一 session 连续三轮新增对话，第二、三轮的新偏好能被捕获；重复内容不产生重复条目；单次提炼 token 不超预算；画像文件损坏时可从备份恢复
+  - 结果（2026-11-06）：V10 把 `session.profile_extracted`（一次性锁定）换成 `profile_extracted_at`（上次提炼对应的活跃时刻）+ `last_extracted_message_id`（快照游标），待提炼判定改为 `last_active_at > profile_extracted_at`（写回路径零维护，提炼期间的新消息也不会被吞）；`SessionService.snapshotItems` 暴露带 id 的快照条目；LLM 从「重写整份画像」改为「只输出新增/变更补丁」，代码按 `[key]` 合并（同 key 原位覆盖、新 key 追加、旧版无 key 行被同值带 key 条目替换），既有条目的存活从提示词自觉变成结构保证；单次喂入 ≤40 条 / 6000 字符；写盘前备份 `.bak`，主文件被清空时自动从备份读。存量会话在迁移里统一标记为已处理（不回溯 88 个历史会话）。
+  - 端到端（真机两轮）：首轮喂 2 条消息 → 画像新增 `[技术栈] Java、Spring Boot`、`[沟通风格] 回答尽量简短`；次轮只喂新增 2 条 → `[沟通风格]` 原位改写为「详细一些」、追加 `[注释语言] 中文`，`[技术栈]` 与旧条目未丢；提炼后 15 秒内无重扫（无空转）。
 
 - [ ] P2-2 归档检索跨会话
   - 作用：`recall_history` 现在只能回忆「这段对话里被裁掉的」，回忆不了「上个月那次」
