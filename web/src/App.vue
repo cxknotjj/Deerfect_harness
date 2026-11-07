@@ -20,10 +20,12 @@ import type { RoutingMode } from './api/types'
 import TraceView from './components/TraceView.vue'
 import MonitorView from './components/MonitorView.vue'
 import LoginView from './components/LoginView.vue'
+import OfflineView from './components/OfflineView.vue'
 import { api, setUnauthorizedHandler } from './api'
 import { useSessions } from './composables/useSessions'
 import { useChat } from './composables/useChat'
 import { useAgents } from './composables/useAgents'
+import { useOfflineGate, useUnreadBadge } from './composables/pwa'
 
 const {
   sessions,
@@ -65,6 +67,16 @@ const {
   // 占位会话名自动改名(与服务端 touchSession 同口径):首轮成功后把「新会话」替换为首条提问;
   // sid 为流发起时快照,旧流收尾时用户已切走也不会改错会话
   onRoundSucceeded: (sid, userText) => renameIfPlaceholder(sid, userText),
+})
+
+/**
+ * PWA:断网时由离线门替代主界面(应用壳由 service worker 预缓存,仍可启动);
+ * 页面不可见期间完成的回复计入主屏未读角标,回到前台自动清除(Badging API 缺失时静默)。
+ */
+const { offline, retry: retryConnection, stop: stopOfflineGate } = useOfflineGate()
+const { bump: markReplyUnread, stop: stopUnreadBadge } = useUnreadBadge()
+watch(streaming, (now, was) => {
+  if (was && !now) markReplyUnread()
 })
 
 const { agents, load: loadAgents, bind: bindAgentTo } = useAgents((msg) => showTip(msg, true))
@@ -260,6 +272,8 @@ window.addEventListener('keydown', onGlobalKeydown)
 onBeforeUnmount(() => {
   narrowMql.removeEventListener('change', onNarrowChange)
   window.removeEventListener('keydown', onGlobalKeydown)
+  stopOfflineGate()
+  stopUnreadBadge()
 })
 
 /** 主题切换:夜间(Telemetry Dark,默认)⇄ 日间(DeepSeek 蓝白);持久化 localStorage,按钮在顶栏右上角 */
@@ -287,8 +301,10 @@ function downloadSessionLog(): void {
 </script>
 
 <template>
+  <!-- 离线门优先于登录门:断网时先告知不可用,恢复联网后再走登录/主界面 -->
+  <OfflineView v-if="offline" @retry="retryConnection" />
   <!-- 登录门:服务端启用登录且未登录时替代主界面(静态资源公开,门只锁数据接口) -->
-  <LoginView v-if="needsLogin" :busy="loginBusy" :error="loginError" @submit="onLogin" />
+  <LoginView v-else-if="needsLogin" :busy="loginBusy" :error="loginError" @submit="onLogin" />
   <div
     v-else
     class="app-shell"
