@@ -62,4 +62,4 @@
 | [guides/functional-testing.md](./guides/functional-testing.md) | 测试全景（类清单 / 场景 / 运行方式） |
 | [reports/](./reports/) | 阶段报告存档（CLI 输出优化 / 沙箱接入 / token 预算评审） |
 | [archive/specs/](./archive/specs/) | 历史实现计划与设计 spec 存档（时点记录，不随代码回溯更新） |
-| [task-checklist/](../task-checklist/) | 可执行的能力补齐清单（主动性 / 记忆 / 触达；2026-11-06 进度 8/14） |
+| [task-checklist/](../task-checklist/) | 可执行清单：能力补齐（主动性 / 记忆 / 触达；2026-11-07 进度 11/14）与[工程护栏](../task-checklist/project-hardening.md)（质量门禁 / 集成测试 / 部署默认项，2026-11-07 新建） |
