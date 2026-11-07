@@ -1,5 +1,6 @@
 package com.dark.javaHarness.config.security;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,10 +20,20 @@ import java.util.concurrent.ConcurrentHashMap;
 public class LoginStateStore {
 
     private final long ttlMillis;
+    private final Clock clock;
     private final ConcurrentHashMap<String, Long> expiryByKey = new ConcurrentHashMap<>();
 
     public LoginStateStore(Duration ttl) {
+        this(ttl, Clock.systemUTC());
+    }
+
+    /**
+     * 供测试注入可控时钟：过期与滑动续期靠「推进时间」验证，而不是 sleep 等真实时间流逝
+     * （固定睡眠在慢机 / CI 高负载下会 flaky，且每条用例白等几百毫秒）。
+     */
+    LoginStateStore(Duration ttl, Clock clock) {
         this.ttlMillis = ttl.toMillis();
+        this.clock = clock;
     }
 
     /** 签发新登录凭证；顺带全量清扫过期项，避免长期运行下死亡凭证堆积 */
@@ -66,7 +77,8 @@ public class LoginStateStore {
         expiryByKey.values().removeIf(expiry -> expiry <= now);
     }
 
-    private static long now() {
-        return System.currentTimeMillis();
+    /** 当前时刻（毫秒）：统一走注入的 Clock，生产为 systemUTC，测试可手动推进 */
+    private long now() {
+        return clock.millis();
     }
 }

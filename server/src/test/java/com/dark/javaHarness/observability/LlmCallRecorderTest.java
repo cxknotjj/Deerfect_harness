@@ -99,12 +99,9 @@ class LlmCallRecorderTest {
         recorder.record(new LlmCallLog(null, "route-judge", "qwen3.8-27b", true, false,
                 null, 5, 5, true, 80, "boom", null, null, null, null, null, null, null, null,
                 null, null, null, null, null));
-        // 给异步线程留出执行窗口；若抛出则测试线程已失败
-        try {
-            Thread.sleep(300);
-        } catch (InterruptedException ignored) {
-            Thread.currentThread().interrupt();
-        }
+        // 用「落库确实被调用过」作为异步完成信号（异常被吞，但调用本身有记录）；
+        // 原来的「睡 300ms + assertTrue(true)」既拖时间又什么都没验证
+        verify(mapper, timeout(1000)).insert(any(LlmCallLogEntity.class));
         assertTrue(true, "落库异常被观测层吞掉，未影响调用方");
     }
 

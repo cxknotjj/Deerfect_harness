@@ -3,6 +3,7 @@ package com.dark.javaHarness.config.security;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.dark.javaHarness.support.MutableClock;
 import jakarta.servlet.ServletException;
 import java.io.IOException;
 import java.time.Duration;
@@ -86,9 +87,10 @@ class ApiTokenFilterTest {
     /** 登录通道：过期 Cookie 401 */
     @Test
     void cookieChannel_expiredCookie_returns401() throws Exception {
-        LoginStateStore store = new LoginStateStore(Duration.ofMillis(80));
+        MutableClock clock = new MutableClock();
+        LoginStateStore store = new LoginStateStore(Duration.ofMillis(80), clock);
         String login = store.create();
-        Thread.sleep(120);
+        clock.advance(Duration.ofMillis(120));
         ApiTokenFilter filter = new ApiTokenFilter("", store);
         assertEquals(401, run(filter, "GET", "/api/harness/sessions", null, login).getStatus());
     }

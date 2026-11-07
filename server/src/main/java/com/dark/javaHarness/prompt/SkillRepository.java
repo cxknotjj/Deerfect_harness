@@ -18,6 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -90,13 +91,23 @@ public class SkillRepository {
     /** 已告警过的重名入口（相对路径），避免每次扫描重复刷同一冲突 */
     private final Set<String> warnedConflicts = ConcurrentHashMap.newKeySet();
     private final long scanCacheNanos;
+    /** 单调时钟（纳秒）：默认 System::nanoTime，测试注入可推进的实现以验证 TTL，无需 sleep */
+    private final java.util.function.LongSupplier nanoClock;
     private final Object scanLock = new Object();
     private volatile Snapshot snapshot;
 
+    // 显式标注：类里还有一个测试用的包可见构造器，Spring 需要在多个候选里明确选这个
+    @Autowired
     public SkillRepository(@Value("${app.prompt.skills.dir:skills}") String dir,
                            @Value("${app.prompt.skills.scan-cache-ms:200}") long scanCacheMs) {
+        this(dir, scanCacheMs, System::nanoTime);
+    }
+
+    /** 测试用：注入可控纳秒时钟，TTL 到期靠推进时钟验证（不用 sleep 等真实时间） */
+    SkillRepository(String dir, long scanCacheMs, java.util.function.LongSupplier nanoClock) {
         this.dir = Path.of(dir == null || dir.isBlank() ? "skills" : dir.trim());
         this.scanCacheNanos = Math.max(0, scanCacheMs) * 1_000_000L;
+        this.nanoClock = nanoClock == null ? System::nanoTime : nanoClock;
         if (!Files.isDirectory(this.dir)) {
             log.info("[skill] 技能目录不存在（{}），技能面为空——创建目录并为每个技能建子目录（SKILL.md）即可热装配",
                     this.dir.toAbsolutePath());
@@ -147,16 +158,16 @@ public class SkillRepository {
             return scanUncached();
         }
         Snapshot current = snapshot;
-        if (current != null && System.nanoTime() - current.createdAtNanos() < scanCacheNanos) {
+        if (current != null && nanoClock.getAsLong() - current.createdAtNanos() < scanCacheNanos) {
             return current.skills();
         }
         synchronized (scanLock) {
             current = snapshot;
-            if (current != null && System.nanoTime() - current.createdAtNanos() < scanCacheNanos) {
+            if (current != null && nanoClock.getAsLong() - current.createdAtNanos() < scanCacheNanos) {
                 return current.skills();
             }
             List<Skill> skills = scanUncached();
-            snapshot = new Snapshot(skills, System.nanoTime());
+            snapshot = new Snapshot(skills, nanoClock.getAsLong());
             return skills;
         }
     }

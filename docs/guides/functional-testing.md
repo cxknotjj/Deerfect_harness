@@ -8,7 +8,7 @@
 
 ## 一、总览
 
-> 126 个测试类 / 1143 个用例（harness-api 5 类 / 40 例、server 106 类 / 949 例、channel-qq 8 类 / 83 例、cli 3 类 / 28 例、wms-mcp-adapter 4 类 / 43 例；按 surefire 报告统计，含参数化展开，2026-11-07 核对）。
+> 127 个测试类 / 1152 个用例（harness-api 5 类 / 40 例、server 107 类 / 958 例、channel-qq 8 类 / 83 例、cli 3 类 / 28 例、wms-mcp-adapter 4 类 / 43 例；按 surefire 报告统计，含参数化展开，2026-11-07 核对）。
 
 **入口与异常**
 
@@ -20,7 +20,7 @@
 | `GlobalExceptionHandlerTest` | 全局异常响应结构（含流式超限/断连） | 8 |
 | `ModelQuotaExceptionTest` | 配额类硬错误识别与人话转换（402/403） | 6 |
 | `ModelAuthExceptionTest` | 鉴权类硬错误识别（401） | 4 |
-| `JavaHarnessApplicationTests` | Spring 容器冒烟（contextLoads） | 1 |
+| `JavaHarnessApplicationTests` | Spring 容器冒烟（contextLoads） | 2 |
 | `ContextCompositionControllerTest` | 会话上下文构成监控端点 | 2 |
 | `SkillControllerTest` | 技能管理端点 | 1 |
 | `MemoryControllerTest` | 显式记忆接口（状态过滤 / 来源固定 manual / 删除校验） | 7 |
@@ -72,6 +72,7 @@
 | `ScheduleServiceImplTest` | 定时任务扫描 / cron 校验 / 推进 | 19 |
 | `StaleGoalWatchdogTest` | 停滞 Goal 标记 FAILED | 3 |
 | `MemoryServiceImplTest` | 显式记忆：同 key 覆盖 / 软删 / 状态判定 / 关键词定位 | 18 |
+| `MemoryRepositoryIntegrationTest` | 显式记忆仓储集成（真实 MySQL：软删 / 过期 / 同 key 覆盖的 SQL 行为） | 8 |
 
 **Agent 层（调用与编排）**
 
@@ -186,7 +187,7 @@
 | `WmsToolListGuardTest` | WMS 工具白名单守卫 | 4 |
 | `WmsToolsTest` | WMS 语义工具集 | 20 |
 
-**合计：126 个测试类 / 1143 个用例（harness-api 5/40、server 106/949、channel-qq 8/83、cli 3/28、wms-mcp-adapter 4/43；按 surefire 报告统计，2026-11-07 核对）。表格按类名列 125 行——`RagPrefetcherTest` 在 Agentic / Graph 两个包各有一组，合并计 12 例。除 `JavaHarnessApplicationTests` 需本机 MySQL 外，其余不依赖真实 DB/外网。**
+**合计：127 个测试类 / 1152 个用例（harness-api 5/40、server 107/958、channel-qq 8/83、cli 3/28、wms-mcp-adapter 4/43；按 surefire 报告统计，2026-11-07 核对）。表格按类名列 126 行——`RagPrefetcherTest` 在 Agentic / Graph 两个包各有一组，合并计 12 例。除 `JavaHarnessApplicationTests` 需本机 MySQL 外，其余不依赖真实 DB/外网。**
 
 ***
 

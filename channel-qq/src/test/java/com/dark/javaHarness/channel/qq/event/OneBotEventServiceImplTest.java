@@ -480,8 +480,10 @@ class OneBotEventServiceImplTest {
         // 超时放弃回复且静默：防 LLM 卡死占满处理线程池
         props.setChatTimeoutSeconds(1);
         when(bindingMapper.selectOne(any())).thenReturn(binding(34L, "qq:private:" + UID, 5L));
+        // 模拟聊天调用挂起：阻塞到 1s 超时后 cancel(true) 中断（不再睡满 2.5s）
+        java.util.concurrent.CountDownLatch releaseChat = new java.util.concurrent.CountDownLatch(1);
         when(chatService.chat(any())).thenAnswer(inv -> {
-            Thread.sleep(2500);
+            releaseChat.await(10, java.util.concurrent.TimeUnit.SECONDS);
             return ChatResponse.success("1", false, null, "迟到的回复", null, null,
                     java.util.Set.of(), null);
         });

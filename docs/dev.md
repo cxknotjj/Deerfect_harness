@@ -20,11 +20,22 @@
 ```bash
 mvn -s .mvn/settings.xml -DskipTests install          # 全量构建
 mvn -s .mvn/settings.xml -pl server -am test          # 单模块测试（必须 -am）
+mvn -s .mvn/settings.xml verify                       # 全量测试 + 覆盖率门禁（提交前跑这个）
 mvn -s .mvn/settings.xml -pl server spring-boot:run   # 只起服务
 ```
 
 - `-am` 不能省：省略会用本地仓库里旧的 `harness-api`，改接口后容易出「明明改了却没生效」。
 - 全量测试走 `run-wsl.sh test`，或 `mvn -s .mvn/settings.xml test`。
+- **`test` 不跑覆盖率门禁**：jacoco 的 `report` / `check` 绑在 `verify` 上。只跑 `test` 能过、`verify` 红，
+  就是覆盖率跌破了模块阈值——报告在 `target/site/jacoco/index.html`，日志会打印实际值与阈值。
+
+### 覆盖率门禁（jacoco）
+
+- 阈值是**行覆盖率（LINE）**，按模块独立设置：父 pom 的 `jacoco.line.minimum` 默认 `0.00`（只出报告），
+  各模块在自己的 `<properties>` 覆盖为「实测值下方约 2 个点」。当前：server 0.79 / channel-qq 0.75 /
+  wms-mcp-adapter 0.73 / harness-api 0.61 / cli 0.21。
+- 调整方式：先跑 `mvn verify` 看报告里的实际值，确认下降合理后再改模块属性；**不要放宽规则本身**。
+- 临时验证某模块会不会被拦：`mvn -pl <module> -am verify -Djacoco.line.minimum=0.99`（命令行属性优先级最高）。
 
 ## 2. 一键启动
 
@@ -138,9 +149,12 @@ PWA（P3-1）只在构建产物里生效：`npm run dev` 不注册 service worke
 
 | job       | 内容                                                                                                                                          |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `backend` | temurin 25 + MySQL 8.4 service；`mvn -s .mvn/settings.xml -Dmaven.repo.local=$HOME/.m2/repository -B verify`。上下文测试启动时会跑全量 Flyway 迁移，迁移校验失败即红 |
-| `web`     | Node 22；`npm ci` → `npm run build`（含 vue-tsc 类型检查）→ `npm test`（vitest）                                                                      |
+| `backend` | temurin 25 + MySQL 8.4 service；`mvn -s .mvn/settings.xml -Dmaven.repo.local=$HOME/.m2/repository -B verify`。上下文测试启动时会跑全量 Flyway 迁移，迁移校验失败即红；`verify` 同时跑覆盖率门禁，日志出现 `Rule violated` 即覆盖率跌破模块阈值，报告作为 `jacoco-reports` 产物上传（失败也传） |
+| `web`     | Node 22；`npm ci` → `npm run lint`（ESLint flat config）→ `npm run build`（含 vue-tsc 类型检查）→ `npm test`（vitest）                                      |
 | `e2e`     | Node 22 + Chromium；`npm run test:e2e`（mock 模式，不需要后端与数据库，失败上传 `playwright-report`）                                                           |
+
+前端 lint 同样是硬门禁：`npm run lint` 0 error 才放行。规则取向是「只拦会出错或会腐化的」——
+8 条纯排版规则（属性换行、自闭合空格等）已关闭，避免每次改动都产生无关 diff。
 
 分支保护（required status checks = `backend` / `web` / `e2e`）需仓库管理员在 GitHub
 `Settings → Branches`（或 Gitee 保护分支）勾选，CLI 无法自动配置。

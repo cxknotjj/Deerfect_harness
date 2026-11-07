@@ -254,6 +254,8 @@ async function onBodyClick(e: MouseEvent): Promise<void> {
 
     <!-- assistant:markdown 渲染(已净化)+ 代码块复制(委托)+ 常显操作栏(复制/赞/踩/分享 + 相对时间) -->
     <template v-else>
+      <!-- html 已在 renderMarkdown 里经 DOMPurify.sanitize 净化，此处 v-html 安全 -->
+      <!-- eslint-disable-next-line vue/no-v-html -->
       <div class="msg-bubble msg-bubble-assistant md-body" @click="onBodyClick" v-html="html"></div>
       <!-- RAG 知识引用:流末 meta 回传(本轮命中知识库才展示),回答结束后可感知 RAG 是否执行 -->
       <div v-if="message.sources.length > 0" class="msg-sources" title="本轮回答引用的知识库片段">

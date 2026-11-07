@@ -676,10 +676,14 @@ class MultiAgentGraphAgentTest {
                 .executeStreamReactive(new Goal("gr4", "调研竞品并输出报告"))
                 .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
                 .subscribe();
-        Thread.sleep(500);
+        // 等 lead 完成、两个子任务都进入在途阻塞（第 3 次 chatResponse 已发起）——
+        // 按可观测的调用数等待，比固定睡 500ms 精确
+        org.awaitility.Awaitility.await().atMost(5, java.util.concurrent.TimeUnit.SECONDS).until(() -> contentCalls.get() >= 3);
         disposable.dispose();        // cancel → 置位取消令牌：在途子任务调用随令牌中止
         releaseSubtasks.countDown(); // 放行：子任务流的下一 token 边界中止（取消异常上抛）
-        Thread.sleep(300);
+        // 等取消在图内传播完：窗口内调用数必须稳定在 3，一旦又发起调用立即失败
+        org.awaitility.Awaitility.await().during(200, java.util.concurrent.TimeUnit.MILLISECONDS).atMost(2, java.util.concurrent.TimeUnit.SECONDS)
+                .untilAsserted(() -> assertEquals(3, contentCalls.get()));
 
         // 续跑：从 lead 检查点恢复 → lead 不重跑（复用拆解），子任务批补跑 + 聚合补跑
         java.util.List<String> resumed = agent
@@ -701,6 +705,7 @@ class MultiAgentGraphAgentTest {
     void executeStreamReactive_cancelDuringLead_skipsRemainingLlmCalls() throws Exception {
         // 独立 stub：lead 的流式调用阻塞在闩锁上，模拟「调用进行中客户端断开」
         java.util.concurrent.CountDownLatch releaseLead = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch leadStarted = new java.util.concurrent.CountDownLatch(1);
         when(clientRegistry.get(any())).thenReturn(chatClient);
         when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
         lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
@@ -710,6 +715,7 @@ class MultiAgentGraphAgentTest {
         // lenient：短路生效时 lead 可能一次都不调用（UnnecessaryStubbing 免检）
         lenient().when(requestSpec.stream()).thenReturn(streamSpec);
         lenient().when(streamSpec.chatResponse()).thenAnswer(inv -> {
+            leadStarted.countDown();   // 已发起在途调用（随后阻塞在闩锁上）
             releaseLead.await(10, java.util.concurrent.TimeUnit.SECONDS);
             return fluxOf(fixedContent());
         });
@@ -720,11 +726,15 @@ class MultiAgentGraphAgentTest {
                 .executeStreamReactive(new Goal("g9", "调研竞品并输出报告"))
                 .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
                 .subscribe();
-        Thread.sleep(300);                    // 等图启动、lead 进入在途流式调用
+        // 等图启动、lead 真正进入在途流式调用（latch 由 stub 在发起时置位）
+        assertTrue(leadStarted.await(5, java.util.concurrent.TimeUnit.SECONDS),
+                "lead 应在超时前进入在途流式调用");
 
         disposable.dispose();                 // 模拟客户端断开 → cancel → 置位取消令牌
         releaseLead.countDown();              // 供给恢复：lead 在下一个 token 边界中止
-        Thread.sleep(500);                    // 给「短路失效则子任务会发起新调用」留暴露窗口
+        // 暴露窗口：断连后不得再发起调用。during 在窗口内持续校验，一旦短路失效立即失败
+        org.awaitility.Awaitility.await().during(300, java.util.concurrent.TimeUnit.MILLISECONDS).atMost(2, java.util.concurrent.TimeUnit.SECONDS)
+                .untilAsserted(() -> verify(requestSpec, org.mockito.Mockito.atMost(1)).stream());
 
         // 时序兼容：lead 或在置位前已发起调用（1 次）、或被更早短路（0 次），但绝不能再多；
         // call 已统一流式背书，子任务/聚合的调用同样走 stream——断连后零新增
@@ -778,10 +788,10 @@ class MultiAgentGraphAgentTest {
 
         disposable.dispose();     // 模拟客户端断开：取消置位，在途聚合调用随令牌中止
         releaseTail.countDown();  // 尾 token 供给恢复：验证在下一个 token 边界中止
-        Thread.sleep(500);        // 留暴露窗口：若无中止/短路，会有新增调用
-
-        // lead+2 子任务+聚合共 4 次调用，断连后零新增（取消异常不可重试、无后续节点）
-        assertEquals(4, contentCalls.get(), "断连后不得发起新增 LLM 调用");
+        // 暴露窗口：lead+2 子任务+聚合共 4 次调用，断连后零新增（取消异常不可重试、无后续节点）；
+        // during 在窗口内持续校验，一旦新增立即失败
+        org.awaitility.Awaitility.await().during(300, java.util.concurrent.TimeUnit.MILLISECONDS).atMost(2, java.util.concurrent.TimeUnit.SECONDS)
+                .untilAsserted(() -> assertEquals(4, contentCalls.get(), "断连后不得发起新增 LLM 调用"));
         // 部分输出不按成功返回：断连中止后收集到的帧不含完整最终回答
         assertTrue(rows.stream().noneMatch(fixedContent()::equals),
                 "断连中止后不应产出完整最终回答, 实际帧序列: " + rows);
@@ -829,7 +839,7 @@ class MultiAgentGraphAgentTest {
      * 聚合已推出部分 token 后失败：不重试（重试会造成内容重复），以已收内容为准收尾。
      */
     @Test
-    void executeStreamReactive_aggregatePartialTokenFailure_noRetry() {
+    void executeStreamReactive_aggregatePartialTokenFailure_noRetry() throws Exception {
         java.util.concurrent.atomic.AtomicInteger contentCalls = new java.util.concurrent.atomic.AtomicInteger();
         when(clientRegistry.get(any())).thenReturn(chatClient);
         when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
@@ -849,14 +859,12 @@ class MultiAgentGraphAgentTest {
         agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
 
         java.util.List<String> rows = new java.util.concurrent.CopyOnWriteArrayList<>();
+        java.util.concurrent.CountDownLatch finished = new java.util.concurrent.CountDownLatch(1);
         agent.executeStreamReactive(new Goal("g12", "调研竞品并输出报告"))
                 .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
-                .subscribe(rows::add);
-        try {
-            Thread.sleep(800);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+                .subscribe(rows::add, err -> finished.countDown(), finished::countDown);
+        // 等流真正结束（完成或出错），而不是睡 800ms 猜它跑完了
+        assertTrue(finished.await(5, java.util.concurrent.TimeUnit.SECONDS), "流应在超时前结束");
 
         // lead(1) + 子任务(2) + 聚合(1)：已推 token 后失败不重试
         assertEquals(4, contentCalls.get(), "已推出部分 token 后不得重试（内容重复风险）");
@@ -992,14 +1000,10 @@ class MultiAgentGraphAgentTest {
 
     /** 延迟发 token 的流（模拟专家调用人为拖慢）：首个 token 在延迟后才到达 */
     private static Flux<ChatResponse> delayedFluxOf(long delayMillis, String... tokens) {
-        return Flux.defer(() -> {
-            try {
-                Thread.sleep(delayMillis);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            return fluxOf(tokens);
-        });
+        // 用 Reactor 的延迟调度模拟「专家调用慢」：不阻塞线程，且能随取消立即终止
+        // （真实 token 是异步到达的，Thread.sleep 只是把线程按住，取消后仍要睡满）
+        return reactor.core.publisher.Mono.delay(java.time.Duration.ofMillis(delayMillis))
+                .thenMany(Flux.defer(() -> fluxOf(tokens)));
     }
 
     /**

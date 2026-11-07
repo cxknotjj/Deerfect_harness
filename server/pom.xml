@@ -11,6 +11,12 @@
     <name>server</name>
     <description>服务端：Agent 编排框架本体（controller/service/agent/prompt/tool），spring-boot fat jar 交付</description>
 
+    <properties>
+        <!-- 覆盖率门槛（LINE）：实测 81.0%（2026-11-07 全量测试），留约 2 个点余量。
+             低于此值 mvn verify 失败；改动后按实测定，不要为通过而放水 -->
+        <jacoco.line.minimum>0.79</jacoco.line.minimum>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>com.dark</groupId>

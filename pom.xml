@@ -47,6 +47,10 @@
              （Windows=GBK / WSL=UTF-8），两套工具链编出的 class 字符串常量会不一致 -->
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <!-- 覆盖率门槛（LINE，小数）：各子模块在自身 properties 覆盖为实测值下方约 2 个点，
+             未覆盖则为 0.00（只出报告不拦截）。改代码导致覆盖率下降时，verify 会失败并
+             打印实际值与阈值；确属合理下降时改这里，不要放宽 check 规则 -->
+        <jacoco.line.minimum>0.00</jacoco.line.minimum>
     </properties>
 
     <dependencyManagement>
@@ -139,6 +143,50 @@
                                     <artifactId>lombok</artifactId>
                                 </path>
                             </annotationProcessorPaths>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.15</version>
+                <executions>
+                    <!-- 采集：测试 JVM 挂 agent（argLine 由插件注入，勿在其他插件硬编码 argLine） -->
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <!-- 报告：绑定 verify，HTML 落 target/site/jacoco/（CI 作为产物上传） -->
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                    <!-- 门禁：行覆盖率低于模块阈值即构建失败（阈值见各模块 properties） -->
+                    <execution>
+                        <id>check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>${jacoco.line.minimum}</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
                         </configuration>
                     </execution>
                 </executions>

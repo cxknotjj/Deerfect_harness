@@ -1,4 +1,4 @@
-# CI 三件套：后端构建+测试（含 Flyway 迁移校验）、前端类型检查/构建/单测、前端 E2E 冒烟（mock）。
+# CI 三件套：后端构建+测试+覆盖率门禁（含 Flyway 迁移校验）、前端 lint/类型检查/构建/单测、前端 E2E 冒烟（mock）。
 #
 # 分支保护（需仓库管理员在 GitHub/Gitee 设置里勾选，CLI 无法自动完成）：
 #   Settings → Branches → Add branch protection rule（或 Ruleset）
@@ -57,6 +57,16 @@ jobs:
           SPRING_DATASOURCE_URL: jdbc:mysql://127.0.0.1:3306/harness?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
           SPRING_DATASOURCE_USERNAME: root
           SPRING_DATASOURCE_PASSWORD: harness
+      # 覆盖率报告：verify 的 jacoco:report 产物。if: always() 保证覆盖率门禁失败时也能
+      # 拿到报告——用来判断是「覆盖率下降」还是「测试失败」，两者的修法完全不同。
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-reports
+          path: '**/target/site/jacoco/'
+          retention-days: 7
+          if-no-files-found: ignore
 
   web:
     name: web
@@ -73,6 +83,10 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Install
         run: npm ci
+      # lint 放在 build 前：先拦未使用变量、错用响应式等「类型检查抓不到」的问题，
+      # 报错比 vue-tsc 的整包类型推导快得多
+      - name: Lint
+        run: npm run lint
       # build 内含 vue-tsc --noEmit（类型检查），不再重复跑一遍
       - name: Typecheck & build
         run: npm run build

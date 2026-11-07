@@ -11,6 +11,12 @@
     <name>wms-mcp-adapter</name>
     <description>WMS 只读能力 MCP 适配服务：独立 Spring Boot 应用（不进 server fat jar），把 WMS 只读 GET 端点包装为 10 个中文语义 MCP 工具</description>
 
+    <properties>
+        <!-- 覆盖率门槛（LINE）：实测 75.0%（2026-11-07 全量测试），留约 2 个点余量。
+             低于此值 mvn verify 失败；改动后按实测定，不要为通过而放水 -->
+        <jacoco.line.minimum>0.73</jacoco.line.minimum>
+    </properties>
+
     <dependencies>
         <!-- Web 容器：MCP Streamable HTTP 走 WebMVC 传输 -->
         <dependency>

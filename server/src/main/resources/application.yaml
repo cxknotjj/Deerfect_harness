@@ -14,6 +14,11 @@
 spring:
   application:
     name: javaHarness
+  lifecycle:
+    # 优雅停机的等待上限：与下方 server.shutdown=graceful 配套。
+    # 超时后强制结束，避免收尾卡住导致部署挂起；30s 覆盖绝大多数一轮对话。
+    # 注意：容器部署时 docker 的 stop_grace_period 必须 ≥ 该值，否则 JVM 未收尾就被 SIGKILL
+    timeout-per-shutdown-phase: 30s
   # 按域导入，不依赖 profile 激活。注意：导入文件中的键优先级高于本文件，
   # 因此各域文件必须保持键区间互不重叠（唯一归属）。
   config:
@@ -29,6 +34,10 @@ spring:
 
 server:
   port: 8080
+  # 优雅停机：Spring Boot 默认 immediate —— 重启/滚动更新时直接断开在途请求，
+  # SSE 流会表现为「连接被重置」。graceful 会停止接收新请求并等待在途请求完成
+  # （上限见 spring.lifecycle.timeout-per-shutdown-phase）。
+  shutdown: graceful
 
 # 运行基线观测（Actuator + Micrometer）：指标从 /actuator/prometheus 抓取，
 # 健康检查 /actuator/health（probes 供容器编排区分存活/就绪）。

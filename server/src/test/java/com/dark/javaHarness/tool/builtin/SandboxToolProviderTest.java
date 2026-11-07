@@ -33,13 +33,15 @@ class SandboxToolProviderTest {
     @Test
     void hangsInitDoesNotBlockCallerBeyondTimeout() throws Exception {
         CountDownLatch entered = new CountDownLatch(1);
+        // 用 latch 模拟「命名管道永久阻塞」：测试结束放行，避免遗留一个睡 60s 的线程
+        CountDownLatch releaseInit = new CountDownLatch(1);
         AtomicInteger attempts = new AtomicInteger();
         SandboxToolProvider provider = new SandboxToolProvider() {
             @Override
             protected void init() {
                 attempts.incrementAndGet();
                 try {
-                    Thread.sleep(60_000); // 模拟命名管道永久阻塞
+                    releaseInit.await();
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 } finally {
@@ -58,6 +60,7 @@ class SandboxToolProviderTest {
         assertTrue(provider.readOnlyFileTools().isEmpty());
         assertTrue(provider.writeTools().isEmpty());
         assertEquals(1, attempts.get(), "超时后不应重试，全进程只尝试一次");
+        releaseInit.countDown(); // 放行阻塞中的 init 线程
     }
 
     /** init 正常完成：工具面可用，且不会二次初始化 */
@@ -160,8 +163,15 @@ class SandboxToolProviderTest {
     @Test
     void probe_hangs_returnsWithinTimeout() {
         BaseSandbox box = mock(BaseSandbox.class);
+        // 模拟容器假死：调用一直不返回，直到 probe 超时后 cancel(true) 中断它
+        CountDownLatch releaseProbe = new CountDownLatch(1);
         when(box.runShellCommand(anyString())).thenAnswer(inv -> {
-            Thread.sleep(5_000);
+            try {
+                releaseProbe.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw e;
+            }
             return "__harness_probe_ok__";
         });
         SandboxToolProvider provider = new SandboxToolProvider();
@@ -171,6 +181,7 @@ class SandboxToolProviderTest {
         assertFalse(provider.probe(box), "超时应判故障");
         long elapsedMs = (System.nanoTime() - start) / 1_000_000;
         assertTrue(elapsedMs < 2_000, "探测应在超时上限附近返回，实际 " + elapsedMs + "ms");
+        releaseProbe.countDown(); // 兜底放行（正常路径已被 cancel(true) 中断）
     }
 
     @Test

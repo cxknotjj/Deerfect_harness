@@ -184,8 +184,10 @@ class KnowledgeRetrieverTest {
     @Test
     void timeoutEnabled_searchHangs_degradesNullWithinLimit() {
         props.setSearchTimeoutSeconds(1);
+        // 模拟嵌入端点挂起：阻塞到超时后 cancel(true) 中断（不再睡满 5s 拖慢用例）
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
         when(knowledgeService.search("挂起问题", List.of("default"))).thenAnswer(inv -> {
-            Thread.sleep(5000); // 模拟嵌入端点挂起
+            release.await(10, java.util.concurrent.TimeUnit.SECONDS);
             return List.of(hit("a.md", 0.9));
         });
 

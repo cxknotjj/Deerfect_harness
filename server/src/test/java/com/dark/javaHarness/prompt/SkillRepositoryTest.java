@@ -259,14 +259,17 @@ class SkillRepositoryTest {
     @Test
     void scanCache_reusesWithinTtl_andRefreshesAfterExpiry() throws Exception {
         Path entry = skill("s", "SKILL.md", "---\nname: s\ndescription: v1\n---\nbody");
-        SkillRepository repo = new SkillRepository(dir.toString(), 100);
+        // 注入可控纳秒时钟：TTL=100ms，推进时钟即可触发重扫，不用 sleep 等真实时间
+        java.util.concurrent.atomic.AtomicLong nanos = new java.util.concurrent.atomic.AtomicLong();
+        SkillRepository repo = new SkillRepository(dir.toString(), 100, nanos::get);
         assertEquals("v1", repo.skillsFor("x").get(0).description());
 
         Files.writeString(entry, "---\nname: s\ndescription: v2\n---\nbody");
         Files.setLastModifiedTime(entry, FileTime.fromMillis(System.currentTimeMillis() + 5000));
+        nanos.addAndGet(50_000_000L); // +50ms：仍在 TTL 内
         assertEquals("v1", repo.skillsFor("x").get(0).description(), "TTL 内复用扫描快照");
 
-        Thread.sleep(200);
+        nanos.addAndGet(60_000_000L); // 累计 +110ms：越过 100ms TTL
         assertEquals("v2", repo.skillsFor("x").get(0).description(), "TTL 过期后重新扫描并热重载");
     }
 

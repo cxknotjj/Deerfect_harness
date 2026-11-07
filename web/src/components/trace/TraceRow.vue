@@ -15,7 +15,8 @@ import {
   type TraceRow,
 } from '../../utils/traceFormat'
 
-const props = defineProps<{ row: TraceRow; depth: number; expanded: boolean }>()
+// 模板直接使用解构后的 row / depth / expanded，不需要 props 对象本身
+defineProps<{ row: TraceRow; depth: number; expanded: boolean }>()
 const emit = defineEmits<{ toggle: [key: string] }>()
 </script>
 

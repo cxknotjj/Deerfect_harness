@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -62,7 +63,7 @@ class KnowledgeDirectoryWatcherTest {
     }
 
     @Test
-    void eventStorm_mergesIntoSingleSync() throws IOException, InterruptedException {
+    void eventStorm_mergesIntoSingleSync() throws IOException {
         // 事件风暴去抖：连续 3 个写事件只触发一次 sync（静默期后无第二轮）
         when(knowledgeService.sync()).thenReturn(view());
         startWatcher();
@@ -72,18 +73,20 @@ class KnowledgeDirectoryWatcherTest {
         Files.writeString(tempDir.resolve("c.md"), "内容c");
 
         verify(knowledgeService, timeout(10_000)).sync();
-        // 首次 sync 后再等过一个完整静默期 + 余量，确认没有因事件数放大出第二次
-        Thread.sleep(DEBOUNCE_SECONDS * 1000L + 1_500);
-        verify(knowledgeService, times(1)).sync();
+        // 静默期 + 余量内不得出现第二次：during() 在整个窗口内持续轮询，
+        // 期间一旦多出一次调用立即失败（sleep 只在醒来那一刻抽查，可能漏判）
+        await().during(DEBOUNCE_SECONDS, TimeUnit.SECONDS)
+                .atMost(DEBOUNCE_SECONDS + 2, TimeUnit.SECONDS)
+                .untilAsserted(() -> verify(knowledgeService, times(1)).sync());
     }
 
     @Test
-    void deleteFile_triggersSyncForOrphanCleanup() throws IOException, InterruptedException {
+    void deleteFile_triggersSyncForOrphanCleanup() throws IOException {
         when(knowledgeService.sync()).thenReturn(view());
         Files.writeString(tempDir.resolve("a.md"), "内容");
+        // 目录注册在构造函数内同步完成（registerTree 先于 watch 线程启动），
+        // 事件由 WatchService 缓冲，无需等「注册稳定」
         startWatcher();
-        // 等监听注册稳定后再删，避免注册竞态吞掉删除事件
-        Thread.sleep(500);
 
         Files.delete(tempDir.resolve("a.md"));
 
@@ -91,27 +94,29 @@ class KnowledgeDirectoryWatcherTest {
     }
 
     @Test
-    void newSubDirectory_registeredAndWatched() throws IOException, InterruptedException {
+    void newSubDirectory_registeredAndWatched() throws IOException {
         when(knowledgeService.sync()).thenReturn(view());
         startWatcher();
-        // 监听期间新建一级子目录 → 补注册 → 子目录内文件变更仍触发 sync
+        // 监听期间新建一级子目录 → 补注册 → 子目录内文件变更仍触发 sync。
+        // 补注册由 watchLoop 异步完成，没有可观测的就绪信号：改成重试写入，
+        // 而不是睡 500ms 赌它已完成（真实场景同样可能合并/丢事件）
         Path sub = tempDir.resolve("java");
         Files.createDirectory(sub);
-        Thread.sleep(500);
 
-        Files.writeString(sub.resolve("spring.md"), "# Spring\n正文");
-
-        verify(knowledgeService, timeout(10_000)).sync();
+        await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
+            Files.writeString(sub.resolve("spring.md"), "# Spring\n正文");
+            verify(knowledgeService, timeout(1_000)).sync();
+        });
     }
 
     @Test
-    void missingDirectory_degradesWithoutSync() throws InterruptedException {
+    void missingDirectory_degradesWithoutSync() {
         // 目录不存在：构造降级（不建监听线程），不抛异常也不触发 sync
         watcher = new KnowledgeDirectoryWatcher(knowledgeService, tempDir.resolve("ghost"), DEBOUNCE_SECONDS);
 
-        Thread.sleep(DEBOUNCE_SECONDS * 1000L + 800);
-
-        verifyNoInteractions(knowledgeService);
+        await().during(DEBOUNCE_SECONDS, TimeUnit.SECONDS)
+                .atMost(DEBOUNCE_SECONDS + 2, TimeUnit.SECONDS)
+                .untilAsserted(() -> verifyNoInteractions(knowledgeService));
     }
 
     @Test
@@ -128,7 +133,7 @@ class KnowledgeDirectoryWatcherTest {
     }
 
     @Test
-    void close_stopsTriggeringSync() throws IOException, InterruptedException {
+    void close_stopsTriggeringSync() throws IOException {
         when(knowledgeService.sync()).thenReturn(view());
         startWatcher();
         Files.writeString(tempDir.resolve("a.md"), "内容");
@@ -137,8 +142,8 @@ class KnowledgeDirectoryWatcherTest {
         watcher.close();
         // close 后写文件不应再触发 sync（watchService 已关闭、线程已停）
         Files.writeString(tempDir.resolve("b.md"), "close 后写入");
-        Thread.sleep(DEBOUNCE_SECONDS * 1000L + 800);
-
-        verify(knowledgeService, times(1)).sync();
+        await().during(DEBOUNCE_SECONDS, TimeUnit.SECONDS)
+                .atMost(DEBOUNCE_SECONDS + 2, TimeUnit.SECONDS)
+                .untilAsserted(() -> verify(knowledgeService, times(1)).sync());
     }
 }

@@ -12,6 +12,12 @@
     <name>harness-api</name>
     <description>渠道与 core 共用的契约与 DTO（端口接口/请求响应模型）；不含任何渠道实现</description>
 
+    <properties>
+        <!-- 覆盖率门槛（LINE）：实测 63.6%（2026-11-07 全量测试），留约 2 个点余量。
+             低于此值 mvn verify 失败；改动后按实测定，不要为通过而放水 -->
+        <jacoco.line.minimum>0.61</jacoco.line.minimum>
+    </properties>
+
     <dependencies>
         <!-- 契约自身编译所需的框架类型。全部 optional=true：不向下游传递，
              需要这些类型的模块（server / channel-qq）自行声明，避免契约模块污染 CLI 的 classpath。
