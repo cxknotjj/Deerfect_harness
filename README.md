@@ -16,7 +16,7 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.x-6DB33F?logo=springboot\&logoColor=white)](https://spring.io/projects/spring-boot)
 [![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.x-6DB33F?logo=spring\&logoColor=white)](https://spring.io/projects/spring-ai)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
-[![Tests](https://img.shields.io/badge/tests-1152-brightgreen?logo=junit5\&logoColor=white)](#-运行测试)
+[![Tests](https://img.shields.io/badge/tests-1156-brightgreen?logo=junit5\&logoColor=white)](#-运行测试)
 
 *Agentic 单 Agent 自主执行 · Graph 多 Agent 编排 · 全程流式可视化*
 
@@ -174,7 +174,7 @@ Maven 多模块：`harness-api`（渠道与 core 共用的契约层：端口接�
 
 ## 🧪 运行测试
 
-单元测试基于 JUnit 5 + Mockito，**除** **`JavaHarnessApplicationTests`** **的 contextLoads 需本机 MySQL 外，不依赖真实数据库 / 网络 / API Key**（当前 1152 个用例：harness-api 40 / server 958 / channel-qq 83 / cli 28 / wms-mcp-adapter 43）：
+单元测试基于 JUnit 5 + Mockito，**除** **`JavaHarnessApplicationTests`** **的 contextLoads 需本机 MySQL 外，不依赖真实数据库 / 网络 / API Key**（当前 1156 个用例：harness-api 40 / server 962 / channel-qq 83 / cli 28 / wms-mcp-adapter 43）：
 
 ```bash
 mvn test

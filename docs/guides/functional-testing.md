@@ -8,7 +8,7 @@
 
 ## 一、总览
 
-> 127 个测试类 / 1152 个用例（harness-api 5 类 / 40 例、server 107 类 / 958 例、channel-qq 8 类 / 83 例、cli 3 类 / 28 例、wms-mcp-adapter 4 类 / 43 例；按 surefire 报告统计，含参数化展开，2026-11-07 核对）。
+> 128 个测试类 / 1156 个用例（harness-api 5 类 / 40 例、server 108 类 / 962 例、channel-qq 8 类 / 83 例、cli 3 类 / 28 例、wms-mcp-adapter 4 类 / 43 例；按 surefire 报告统计，含参数化展开，2026-11-07 核对）。
 
 **入口与异常**
 
@@ -20,7 +20,7 @@
 | `GlobalExceptionHandlerTest` | 全局异常响应结构（含流式超限/断连） | 8 |
 | `ModelQuotaExceptionTest` | 配额类硬错误识别与人话转换（402/403） | 6 |
 | `ModelAuthExceptionTest` | 鉴权类硬错误识别（401） | 4 |
-| `JavaHarnessApplicationTests` | Spring 容器冒烟（contextLoads） | 2 |
+| `JavaHarnessApplicationTests` | Spring 容器冒烟（contextLoads） | 3 |
 | `ContextCompositionControllerTest` | 会话上下文构成监控端点 | 2 |
 | `SkillControllerTest` | 技能管理端点 | 1 |
 | `MemoryControllerTest` | 显式记忆接口（状态过滤 / 来源固定 manual / 删除校验） | 7 |
@@ -35,6 +35,7 @@
 | `ClientAbortLogFilterTest` | 断连日志降噪过滤器 | 8 |
 | `ApiTokenFilterTest` | 机器通道鉴权（X-API-Token 双通道） | 8 |
 | `AuthControllerTest` | 口令登录/登出（失败限流锁定） | 8 |
+| `AuthControllerFailureCleanupTest` | 登录失败计数按窗口清理（过期清除 / 锁定中保留） | 3 |
 | `LoginStateStoreTest` | 登录态存储（滑动续期/吊销） | 6 |
 | `ChatClientFactoryTest` | ChatClient 工厂 API Key 解析（yaml 映射/环境变量回退） | 5 |
 | `ChatClientRegistryTest` | 多服务商模型注册表（禁用回退/未知兜底） | 5 |
@@ -187,7 +188,7 @@
 | `WmsToolListGuardTest` | WMS 工具白名单守卫 | 4 |
 | `WmsToolsTest` | WMS 语义工具集 | 20 |
 
-**合计：127 个测试类 / 1152 个用例（harness-api 5/40、server 107/958、channel-qq 8/83、cli 3/28、wms-mcp-adapter 4/43；按 surefire 报告统计，2026-11-07 核对）。表格按类名列 126 行——`RagPrefetcherTest` 在 Agentic / Graph 两个包各有一组，合并计 12 例。除 `JavaHarnessApplicationTests` 需本机 MySQL 外，其余不依赖真实 DB/外网。**
+**合计：128 个测试类 / 1156 个用例（harness-api 5/40、server 108/962、channel-qq 8/83、cli 3/28、wms-mcp-adapter 4/43；按 surefire 报告统计，2026-11-07 核对）。表格按类名列 127 行——`RagPrefetcherTest` 在 Agentic / Graph 两个包各有一组，合并计 12 例。除 `JavaHarnessApplicationTests` 需本机 MySQL 外，其余不依赖真实 DB/外网。**
 
 ***
 

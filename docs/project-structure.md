@@ -52,6 +52,7 @@ server/src/main/java/com/dark/javaHarness/
 │       ├── ScheduleServiceImpl.java  # 定时任务：到期扫描 → 提交 goal → 推进 next_run_at（失败也推进，防卡调度器）
 │       ├── ActiveGoalSectionProviderImpl.java  # 活跃目标段渲染（objective 截断 200 字 + 天数 + /goal done 提示）
 │       ├── GoalRetryScheduler.java  # 失败重投：扫 next_retry_at 到期的 FAILED goal 重新提交（退避 1→2 分钟，上限 2 次）
+│       ├── SessionSnapshotStore.java  # 会话上下文快照存储：单行 JSON 的读 / 追加写 / 裁剪 / 归档 / 序列化重试 / 写回行锁（自 SessionServiceImpl 抽出）
 │       ├── MemoryServiceImpl.java  # 显式记忆：同 key 覆盖（软删旧的）、过期/软删过滤、关键词定位
 │       ├── SessionHistoryArchiveService.java  # 会话归档检索（recall_history 数据源；current 按会话过滤 / all 跨会话按时间倒序）
 │       └── route/                # LlmRouteJudge（主 Agent 路由判定）/ LlmSemanticTriggerJudge（渠道路由语义判定）

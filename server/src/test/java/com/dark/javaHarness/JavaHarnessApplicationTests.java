@@ -32,4 +32,16 @@ class JavaHarnessApplicationTests {
         assertEquals("30s", environment.getProperty("spring.lifecycle.timeout-per-shutdown-phase"),
                 "收尾上限应为 30s，且需 ≤ docker 的 stop_grace_period");
     }
+
+    /**
+     * 隐式配置项必须在 yaml 里可见：这三个键此前只有 {@code @Value} 默认值，yaml 里搜不到，
+     * 运维改配置时无从发现。断言的是「环境里有这个键」——若有人把 yaml 声明删掉，键仍能靠
+     * {@code @Value} 默认值工作，但测试会失败，从而逼着保留声明（体检 2026-11-07 H2-4）。
+     */
+    @Test
+    void implicitConfigKeys_areDeclaredInYaml() {
+        assertEquals("600", environment.getProperty("app.context.summary-max-chars"));
+        assertEquals("qwen3.8-27b", environment.getProperty("app.context.summary-model"));
+        assertEquals("mcp-config.json", environment.getProperty("spring.ai.mcp.client.stdio-config-file"));
+    }
 }

@@ -40,6 +40,12 @@ import reactor.core.publisher.Sinks;
  * <p>状态键常量已下沉到 {@link com.dark.javaHarness.state.OrchestrationStateKeys}（引擎与节点共用，
  * 避免 graph ↔ graph.engine 循环依赖）；执行/流式/续跑入口留在宿主
  * （{@code MultiAgentGraphAgent}），由自研引擎按阶段调用本类。
+ *
+ * <p><b>体量说明（约 620 行，不再拆；2026-11-07 体检复核）</b>：三个节点共享同一份状态键、
+ * 预算账本（{@link BudgetLedger}）与取消令牌——拆成三个类后，任何跨节点改动（新增状态键、
+ * 调整熔断位置、改进度上报口径）都要同时改三处并重新对齐约定，语义漂移的风险高于「一个文件
+ * 长一点」的阅读成本。行数里有相当比重是拆解 JSON 的容错解析与 prompt 拼装，逻辑分支并不密。
+ * 若将来节点数增加，或三个节点各自长出独立的重试/降级策略，再按「节点」切开。
  */
 public class OrchestrationNodes {
 

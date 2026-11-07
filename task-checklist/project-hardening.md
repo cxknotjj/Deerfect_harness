@@ -2,7 +2,7 @@
 
 - 范围：根 `pom.xml` 与 `.github/workflows`、`web/` 前端工程、`server` 测试与运行配置、`docker/docker-compose.yml`；P2 另含 `SessionServiceImpl` 与两个超大类
 - 创建：2026-11-07
-- 状态：共 11 项，已完成 6 项，待办 5 项
+- 状态：共 11 项，已完成 10 项，待办 1 项
 - 关系：`project-optimization.md`（2026-11-03，15 项全完成）处理的是当时热路径的重复读写与结构清理，与本清单不重叠；本清单是 2026-11-07 新一轮体检的结论。能力补齐（主动性 / 记忆 / 触达）见 `personal-agent-gap.md`，本清单只处理工程护栏与结构债。
 
 ## 进度概览
@@ -11,8 +11,8 @@
 | ------------- | --- | -- | -- |
 | 体检与分级         | 1   | 0  | 1  |
 | P1 尽快（低成本高收益） | 5   | 0  | 5  |
-| P2 结构性（择机）    | 0   | 5  | 5  |
-| 合计            | 6   | 5  | 11 |
+| P2 结构性（择机）    | 4   | 1  | 5  |
+| 合计            | 10  | 1  | 11 |
 
 ## 背景
 
@@ -71,28 +71,45 @@
 
 > 四项都建议在 H1-1 覆盖率门禁之后动手——没有覆盖率数据，重构无法证明「只改结构、不改行为」。
 
-- [ ] H2-1 `SessionServiceImpl` 抽出 `SessionSnapshotStore`
+- [x] H2-1 `SessionServiceImpl` 抽出 `SessionSnapshotStore`
   - 作用：581 行 / 18 个 public 方法，同时承担建档、快照写回、裁剪归档、摘要触发、查询五类职责；快照逻辑（裁剪阈值、消息 ID 补齐、归档落库）与「会话端口」混在一起，改一处要读全文
   - 位置：`server/src/main/java/com/dark/javaHarness/service/impl/SessionServiceImpl.java`、`harness-api` 的 `SessionService` 契约、`SessionServiceImplTest`
   - 做法：抽 `SessionSnapshotStore`（快照读、批量写回、裁剪与归档落库），`SessionServiceImpl` 只保留端口方法编排与事务边界；先移动代码不改语义，再考虑合并重复的读取路径
   - 验收：`SessionServiceImpl` 行数与 public 方法数明显下降（目标 ≤ 400 行 / ≤ 12 个 public）；`SessionServiceImplTest` 与 `SessionServiceContractTest` 全绿且断言未放宽；`mvn verify` 覆盖率不低于改动前
-- [ ] H2-2 登录失败计数按窗口清理
+  - 结果（2026-11-07）：新增 `SessionSnapshotStore`（345 行），承接「快照读 + 追加写 + 裁剪规则 + 归档落库 + 序列化重试 + 写回行锁」**整体**；`SessionServiceImpl` 581 → **318 行**（-45%），构造参数 8 → 5，私有方法 12 → 2。
+  - 与原类头「约 520 行不拆」的关系：那条注释担心的是「读路径与裁剪规则分家会不一致」。抽取时把两者连同归档、行锁一起搬走——它们仍在同一个类里同步演进，风险不成立；分开的只是「会话元数据」（建档 / 自动改名 / 切 Agent / 分页 / 软删）与「ChatMemory 适配」，那部分不关心快照怎么存。类头注释已改写并保留这段推理。
+  - 一处口径修正：原验收写「public 方法数 ≤ 12」不成立——18 个 public 由 `SessionService`（12）+ `ChatMemory`（4）+ 摘要端口（2）的契约决定，拆实现类不会减少对外方法。实际减少的是行数、字段数、私有方法数。
+  - 验收：`SessionServiceImplTest` 28 条全绿且断言未改（三处构造改为共享同一批 mapper mock）；全量 1156 条 0 失败；server 行覆盖率 81.3%（与拆分前一致）。
+- [x] H2-2 登录失败计数按窗口清理
   - 作用：`failuresByIp` 只在登录成功时 `remove`，失败过的 IP 会永久留一条记录；公网暴露时被扫描器刷一轮，map 只增不减
   - 位置：`server/src/main/java/com/dark/javaHarness/config/security/AuthController.java`（`failuresByIp` 声明在第 49 行，成功重置在第 83 行，失败累加在第 117 行）
   - 做法：给 `FailState` 记录最后一次失败时间；加 `@Scheduled` 每小时清理「最后一次失败早于锁定窗口」的条目（窗口与现有锁定策略同源，避免两处阈值漂移）；清理量记日志便于观察
   - 验收：构造 1000 个已过窗口的 IP 后执行清理，map size 明显下降；窗口内仍在计数的 IP 不受影响；有单测覆盖「过期清理 / 活跃保留」两条分支
-- [ ] H2-4 隐式配置补进 yaml
+  - 结果（2026-11-07）：`FailState` 增 `lastFailureAt`；新增 `@Scheduled(fixedDelayString = "${app.security.failure-clean-interval-ms:3600000}")` 的 `purgeStaleFailures()`，清理「超过 1 小时没有新失败」的 IP 条目（锁定中的条目只要还在保留窗口内就保留），清理量记 info 日志。
+  - 可测性：清理逻辑拆成包可见的 `purgeStaleFailures(long cutoffMillis)`，测试直接传 cutoff 推进「时间」，不引入时钟注入、不等调度。
+  - 测试：`AuthControllerFailureCleanupTest` 3 条——窗口外清理 / 锁定中保留 / 调度入口不误清；原 `AuthControllerTest` 8 条不受影响。
+- [ ] H2-3 多实例假设显式化（定时任务防护）
+  - 作用：6 个 `@Scheduled` 全是单实例假设（画像提炼 300s、日志清理 cron 03:00、停滞 Goal 检测 60s、Goal 重投 30s、调度派发 10s、沙箱探活 300s），多实例部署时同一任务会被并发执行；现在没有任何提示，扩容时才发现重复推送
+  - 位置：`UserProfileService`、`ObservabilityLogCleaner`、`StaleGoalWatchdog`、`GoalRetryScheduler`、`ScheduleServiceImpl`、`SandboxToolProvider`
+  - 做法：短期不改调度实现——启动时打印一条显式警告日志（「检测到 N 个 @Scheduled，本版本假设单实例」），并在 `docs/dev.md` 写明约束；长期再引入 ShedLock 或 DB 行锁（派发与推送这两条并发代价最高，优先加锁）
+  - 验收：启动日志有该警告；`docs/dev.md` 能查到单实例约束与扩容前置条件；清单里记录「已评估、暂不加锁」的理由
+  - 2026-11-07：本轮按需跳过（先做 H2-1/2/4/5），条目仍待办——启动告警与 `docs/dev.md` 的单实例约束说明都还没做
+- [x] H2-4 隐式配置补进 yaml
   - 作用：三个键只有 `@Value` 默认值，yaml 里搜不到——运维改配置时无从发现，改错了也没有对照
   - 位置：`SessionSummaryService`（`app.context.summary-max-chars:600`、`app.context.summary-model:qwen3.8-27b`）、`McpToolProvider`（`spring.ai.mcp.client.stdio-config-file:mcp-config.json`）、`application-chat.yaml`（目前只有 `app.context.history-budget`）
   - 做法：把三个键补进对应 yaml 并加注释（默认值、影响范围、何时该改），值保持与 `@Value` 默认一致，不改变现有行为
   - 验收：三个键在 yaml 中可见；改 yaml 值能覆盖默认值（用一条测试或启动日志确认生效值）；`grep` 不到「只存在于 @Value」的配置项
-- [ ] H2-5 两个超大类补「不拆理由」结论
+  - 结果（2026-11-07）：`application-chat.yaml` 补 `app.context.summary-max-chars: 600` 与 `summary-model: qwen3.8-27b`（值与原 `@Value` 默认一致，行为不变，附用途与「何时该改」注释）；`application-ai.yaml` 补 `spring.ai.mcp.client.stdio-config-file: mcp-config.json`，注明「文件缺失回退 legacy 单 server、改后需重启」。顺带确认 `app.session.snapshot-max-messages: 200` 已在 yaml，无需补。
+  - 验收：`JavaHarnessApplicationTests` 新增 `implicitConfigKeys_areDeclaredInYaml`，断言三个键在 Spring 环境里可取到——yaml 声明被删时键仍能靠默认值工作，但测试会失败，从而逼着保留声明（把「可发现性」变成可执行约束，而不是靠注释）。
+- [x] H2-5 两个超大类补「不拆理由」结论
   - 作用：`OrchestrationNodes` 620 行、`OneBotEventServiceImpl` 578 行，体检结论是**职责单一、不建议拆**——但结论只存在于这次对话里，下次有人看到行数又会重新评估一遍
   - 位置：`server/src/main/java/com/dark/javaHarness/graph/OrchestrationNodes.java`、`channel-qq/src/main/java/com/dark/javaHarness/channel/qq/event/OneBotEventServiceImpl.java`
   - 做法：类头补注释说明职责边界与不拆理由（`OrchestrationNodes` 就是「编排节点的集合」，拆散增加跳转；`OneBotEventServiceImpl` 是单事件链路的顺序处理，拆开会让链路不可读）；结论回写本条目，与 `project-optimization.md` P3-2 的做法保持一致
-
-
-- 验收：两个类头有注释；本条目记录结论与日期，后续不再重复评估
+  - 验收：两个类头有注释；本条目记录结论与日期，后续不再重复评估
+  - 结果（2026-11-07）：两个类头补「体量说明」，不只写「不拆」，还写清**什么条件下再拆**：
+    - `OrchestrationNodes`（620 行）：三节点共享同一份状态键、预算账本与取消令牌，拆开后跨节点改动要同时改三处并对齐约定，语义漂移风险高于阅读成本；行数里相当比重是拆解 JSON 的容错解析与 prompt 拼装，分支并不密。触发拆分条件：节点数增加，或各节点长出独立的重试/降级策略。
+    - `OneBotEventServiceImpl`（578 行）：整条链路是「一条上报消息的顺序处理」，顺序本身即语义（限频先于调用、绑定先于建档、超时清理先于回复），拆成 pipeline 后顺序不再一眼可见，且每步要搬运同一组上下文。触发拆分条件：同一条链路要复用到其他渠道。
+  - 结论：本轮不拆。与 `project-optimization.md` P3-2 的做法一致（补「不拆理由」而非硬拆）。
 
 ## 边界：不在本清单内
 

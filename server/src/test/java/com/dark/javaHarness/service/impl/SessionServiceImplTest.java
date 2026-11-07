@@ -67,12 +67,16 @@ class SessionServiceImplTest {
     private SessionSummaryPort summaryPort;
 
     private SessionServiceImpl sessionService;
+    /** 快照存储：与 service 共享同一批 mapper mock，验证「元数据 / 快照」拆分后行为不变 */
+    private SessionSnapshotStore snapshotStore;
 
     @BeforeEach
     void setUp() {
         lenient().when(bindingCleanerProvider.getIfAvailable()).thenReturn(bindingCleaner);
-        sessionService = new SessionServiceImpl(sessionMapper, messageMapper, archiveMapper,
-                new ObjectMapper(), agentConfigProvider, bindingCleanerProvider, summaryPort, 200);
+        snapshotStore = new SessionSnapshotStore(sessionMapper, messageMapper, archiveMapper,
+                new ObjectMapper(), 200);
+        sessionService = new SessionServiceImpl(sessionMapper, snapshotStore,
+                agentConfigProvider, bindingCleanerProvider, summaryPort);
     }
 
     private SessionEntity session(long id, int agentId) {
@@ -199,8 +203,9 @@ class SessionServiceImplTest {
         existing.setSessionId("9");
         existing.setContent("""
                 [{"role":"user","content":"old1"},{"role":"assistant","content":"old2"}]""");
-        SessionServiceImpl svc = new SessionServiceImpl(sessionMapper, messageMapper, archiveMapper,
-                new ObjectMapper(), agentConfigProvider, bindingCleanerProvider, summaryPort, 2);
+        SessionServiceImpl svc = new SessionServiceImpl(sessionMapper,
+                new SessionSnapshotStore(sessionMapper, messageMapper, archiveMapper, new ObjectMapper(), 2),
+                agentConfigProvider, bindingCleanerProvider, summaryPort);
         when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
         when(messageMapper.selectOne(any())).thenReturn(existing);
 
@@ -332,8 +337,9 @@ class SessionServiceImplTest {
     @SuppressWarnings("unchecked")
     void saveContext_serializeFailure_retriesOnce() throws Exception {
         ObjectMapper mapper = org.mockito.Mockito.mock(ObjectMapper.class);
-        SessionServiceImpl svc = new SessionServiceImpl(sessionMapper, messageMapper, archiveMapper,
-                mapper, agentConfigProvider, bindingCleanerProvider, summaryPort, 200);
+        SessionServiceImpl svc = new SessionServiceImpl(sessionMapper,
+                new SessionSnapshotStore(sessionMapper, messageMapper, archiveMapper, mapper, 200),
+                agentConfigProvider, bindingCleanerProvider, summaryPort);
         when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
         when(messageMapper.selectOne(any())).thenReturn(null);
         when(mapper.writeValueAsString(any()))
@@ -350,8 +356,9 @@ class SessionServiceImplTest {
     @Test
     void saveContext_serializeTwiceFails_skipsWriteQuietly() throws Exception {
         ObjectMapper mapper = org.mockito.Mockito.mock(ObjectMapper.class);
-        SessionServiceImpl svc = new SessionServiceImpl(sessionMapper, messageMapper, archiveMapper,
-                mapper, agentConfigProvider, bindingCleanerProvider, summaryPort, 200);
+        SessionServiceImpl svc = new SessionServiceImpl(sessionMapper,
+                new SessionSnapshotStore(sessionMapper, messageMapper, archiveMapper, mapper, 200),
+                agentConfigProvider, bindingCleanerProvider, summaryPort);
         when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
         when(messageMapper.selectOne(any())).thenReturn(null);
         when(mapper.writeValueAsString(any()))
@@ -468,8 +475,9 @@ class SessionServiceImplTest {
         existing.setSessionId("9");
         existing.setContent("""
                 [{"role":"user","content":"old1"},{"role":"assistant","content":"old2"}]""");
-        SessionServiceImpl svc = new SessionServiceImpl(sessionMapper, messageMapper, archiveMapper,
-                new ObjectMapper(), agentConfigProvider, bindingCleanerProvider, summaryPort, 2);
+        SessionServiceImpl svc = new SessionServiceImpl(sessionMapper,
+                new SessionSnapshotStore(sessionMapper, messageMapper, archiveMapper, new ObjectMapper(), 2),
+                agentConfigProvider, bindingCleanerProvider, summaryPort);
         when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
         when(messageMapper.selectOne(any())).thenReturn(existing);
 

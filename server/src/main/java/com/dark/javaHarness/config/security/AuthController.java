@@ -6,11 +6,14 @@ import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,8 +36,17 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/auth")
 public class AuthController {
 
+    private static final Logger log = LoggerFactory.getLogger(AuthController.class);
+
     /** 登录通道 Cookie 名（与 ApiTokenFilter.COOKIE 同源，独立常量避免反向依赖过滤器） */
     public static final String COOKIE_NAME = ApiTokenFilter.COOKIE;
+
+    /**
+     * 失败计数的保留时长：超过这段时间没有新失败的 IP 条目由清理任务移除。
+     * 不清理的后果：只在登录成功时 remove，被扫描器刷过的 IP 会永久留一条——公网暴露下
+     * map 只增不减（体检 2026-11-07）。
+     */
+    private static final long FAILURE_RETENTION_MS = 3600_000L;
 
     private final String password;
     private final long ttlHours;
@@ -42,8 +54,8 @@ public class AuthController {
     private final long lockSeconds;
     private final LoginStateStore loginState;
 
-    /** 同 IP 失败计数：count 累计失败次数，lockedUntil>0 表示锁定截止时刻（毫秒） */
-    private record FailState(int count, long lockedUntil) {
+    /** 同 IP 失败计数：count 累计失败次数，lockedUntil>0 表示锁定截止时刻（毫秒），lastFailureAt 供清理判定 */
+    private record FailState(int count, long lockedUntil, long lastFailureAt) {
     }
 
     private final ConcurrentHashMap<String, FailState> failuresByIp = new ConcurrentHashMap<>();
@@ -123,10 +135,31 @@ public class AuthController {
             }
             int count = (state == null ? 0 : state.count()) + 1;
             if (count >= maxFailures) {
-                return new FailState(0, now + lockSeconds * 1000);
+                return new FailState(0, now + lockSeconds * 1000, now);
             }
-            return new FailState(count, 0);
+            return new FailState(count, 0, now);
         });
+    }
+
+    /**
+     * 清理长时间没有新失败的 IP 条目（每小时，间隔可配）。
+     *
+     * <p>为什么需要：失败计数只在登录成功时 {@code remove}，被扫描器刷过的 IP 会永久留一条，
+     * 公网暴露下 map 只增不减。这里按「最后一次失败时刻」清理，锁定中的条目只要还在窗口内就会被保留。
+     */
+    @Scheduled(fixedDelayString = "${app.security.failure-clean-interval-ms:3600000}")
+    public void purgeStaleFailures() {
+        int removed = purgeStaleFailures(System.currentTimeMillis() - FAILURE_RETENTION_MS);
+        if (removed > 0) {
+            log.info("[auth] 清理过期登录失败计数 {} 条，剩余 {} 条", removed, failuresByIp.size());
+        }
+    }
+
+    /** 包可见：测试直接传 cutoff，不用等真实时间；返回清除条数 */
+    int purgeStaleFailures(long cutoffMillis) {
+        int before = failuresByIp.size();
+        failuresByIp.entrySet().removeIf(entry -> entry.getValue().lastFailureAt() < cutoffMillis);
+        return before - failuresByIp.size();
     }
 
     private boolean notEnabled() {

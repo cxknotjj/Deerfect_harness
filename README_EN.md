@@ -16,7 +16,7 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.x-6DB33F?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
 [![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.x-6DB33F?logo=spring&logoColor=white)](https://spring.io/projects/spring-ai)
 [![MySQL](https://img.shields.io/badge/MySQL-Flyway%20Managed-4479A1?logo=mysql&logoColor=white)](https://www.mysql.com/)
-[![Tests](https://img.shields.io/badge/tests-1152-brightgreen?logo=junit5&logoColor=white)](#-running-tests)
+[![Tests](https://img.shields.io/badge/tests-1156-brightgreen?logo=junit5&logoColor=white)](#-running-tests)
 [![Docker](https://img.shields.io/badge/sandbox-Docker%20Isolated-2496ED?logo=docker&logoColor=white)](#-prerequisites)
 
 *Agentic single-agent execution · Graph multi-agent orchestration · Fully streaming, end to end*
@@ -308,7 +308,7 @@ A multi-module Maven project: `harness-api` (shared contracts: port interfaces /
 
 ## 🧪 Running Tests
 
-Unit tests run on JUnit 5 + Mockito and need **no real database / network / API keys** (currently 1152 test cases: harness-api 40 / server 958 / channel-qq 83 / cli 28 / wms-mcp-adapter 43; `JavaHarnessApplicationTests#contextLoads` is the only exception and needs local MySQL):
+Unit tests run on JUnit 5 + Mockito and need **no real database / network / API keys** (currently 1156 test cases: harness-api 40 / server 962 / channel-qq 83 / cli 28 / wms-mcp-adapter 43; `JavaHarnessApplicationTests#contextLoads` is the only exception and needs local MySQL):
 
 ```bash
 mvn -s .mvn/settings.xml test

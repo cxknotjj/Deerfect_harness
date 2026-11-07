@@ -43,6 +43,7 @@ server/src/main/java/com/dark/javaHarness/
 │       ├── ChatServiceImpl.java  # Chat facade (only chat/streamReactive/resume dispatch)
 │       ├── ChatTurnExecutor.java / ChatStreamPipeline.java  # Sync execution / streaming & SSE
 │       ├── RouteDecider.java / TurnPersistence.java / ReplyDecorator.java  # Routing & prefetch join / session persistence / reply decoration
+│       ├── SessionSnapshotStore.java  # Session snapshot store: single-row JSON read / append / trim / archive / serialize-retry / FOR UPDATE lock
 │       ├── SessionHistoryArchiveService.java  # Archive search backend for recall_history (current = session-scoped / all = cross-session, time-desc)
 │       ├── ScheduleServiceImpl.java / GoalRetryScheduler.java  # Cron dispatch to goals / backoff retry of failed goals
 │       └── route/                # LlmRouteJudge (main-agent routing decision) / LlmSemanticTriggerJudge (channel semantic trigger)
