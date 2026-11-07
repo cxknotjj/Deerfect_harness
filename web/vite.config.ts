@@ -58,4 +58,8 @@ export default defineConfig({
       },
     },
   },
+  preview: {
+    // PWA 真机验收需 HTTPS:允许 quick tunnel 域名作为 Host(仅 *.trycloudflare.com)
+    allowedHosts: ['.trycloudflare.com'],
+  },
 })
