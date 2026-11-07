@@ -5,7 +5,7 @@
 > 术语说明：历史条目中的「路径 A / SIMPLE」对应 **Agentic 路径**，「路径 B / COMPLEX」对应 **Graph 编排路径**。
 > 版本基线：Spring Boot 4.1.2 / Spring AI 2.0.2 / Java 25（以根 `pom.xml` 与 [TECH\_STACK.md](./TECH_STACK.md) 为准）；升级任何 AI 相关依赖前先验证兼容性。
 > 首次可用性约定：新增功能/入口合入前按 `docs/guides/first-run-audit.md`「五、首次使用流程规则」复查，走查结论追加至该报告「六、走查记录」。
-> 产品视角的能力补齐进度（主动性 / 记忆 / 触达）见 [task-checklist/personal-agent-gap.md](../task-checklist/personal-agent-gap.md)：2026-11-06 为 8/14，P0 / P1 全完成，P2 完成 2/4。
+> 产品视角的能力补齐进度（主动性 / 记忆 / 触达）见 [task-checklist/personal-agent-gap.md](../task-checklist/personal-agent-gap.md)：2026-11-07 为 10/14，P0 / P1 全完成，P2 完成 4/4。
 
 ***
 
@@ -43,7 +43,7 @@
 ## 方向定调（2026-08-28 / 2026-09-06 评估收拢，2026-10-28 更新现状）
 
 - **现状**：两路径架构闭环（RouteJudge 分流 + 自研并行引擎编排）、沙箱容器级隔离 + 按专家分配工具权限（服务端硬边界）、进度全链路可视 + 断连优雅处理、CLI/Web/QQ 三端可用、RAG 混合检索、MCP 工具生态、Docker 部署与双通道鉴权均已落地。
-- **短板**（按风险排序）：工程化（接口级限流、CI/CD、Prometheus 监控仍缺）、编排智能化（无依赖声明 / 失败重规划）、长会话记忆（无滚动摘要与历史归档）、多实例水平扩展。
+- **短板**（按风险排序）：工程化（接口级限流、CD 自动部署、分支保护仍缺）、编排智能化（无依赖声明 / 失败重规划）、长会话记忆（滚动摘要已落地，跨会话召回仍为关键词检索、未向量化）、多实例水平扩展。
 - **定调**：主线 = 能力扩展（web search → RAG ✓ → MCP ✓）；支线 = 可靠性收口（P0）；中期 = 编排智能化（P2）；远期 = 工程化可观测 + 产品化（P3）。
 - **增补定档**（2026-09-06）：Goal 失败重投 → P2；长期记忆滚动摘要 → P2；多实例水平扩展、Agent 行为回归评测集 → P3；多模态输入 → 远期。
 
@@ -222,6 +222,10 @@
   - 迁移：V19（session 表加 `last_active_at`/`profile_extracted` 两列，存量会话不回溯提炼）
   - 测试：`UserProfileServiceTest`（扫描/提炼/合并/落盘 7 用例）+ `UserProfileSectionProviderTest`（5 用例）+ `PromptAssemblerTest` 画像段用例
   - 后续（2026-11-06，P2-1）：上述「一次提炼锁定」已废除——V10 把 `profile_extracted` 换成 `profile_extracted_at` + `last_extracted_message_id` 增量游标，扫描条件改为 `last_active_at > profile_extracted_at`（写回零维护），LLM 只输出补丁、代码按 `[key]` 合并，写盘前备份 `.bak`；`UserProfileServiceTest` 扩到 15 例。本条中的 `profile_extracted` / V19 仅为当时的实现记录，详见上方「画像提取活跃重置」条目。
+- [x] **显式记忆（记住 / 忘掉 / 查看，2026-11-07 完成）**：用户明说「记住…」时落 `memory` 表（跨会话），与画像分离——画像是模型推断的软偏好，显式记忆是用户声明的事实，只有用户能删
+  - 落地：V13 建表（`memory_key` / `content` / `source` / `session_id` / `expires_at` / `deleted_at` 软删）；`remember` / `forget` / `list_memories` 三工具（V13 给 general/lead 工具列追加 `memory` 组）；`ExplicitMemorySectionProvider` 注入段 order 140（排在画像 150 之前，段内声明「冲突以用户明说为准」）；CLI `/remember` `/memories` `/forget` + `GET/POST/DELETE /api/memories`
+  - 取舍：同 key 以最新为准（写新记忆时软删旧条目，避免两条矛盾事实同时注入）；忘掉多命中时不删、返回候选让用户确认（误删一条珍视的记忆，代价远高于多问一句）；状态在读取时按 now 计算，不维护状态列
+  - 验收：真机——对话里「记住车牌」→ 新会话答出「沪A12345」；「忘掉」→ 新会话答「不知道」；`list_memories` 列出 id / 来源 / 时间 / 状态；画像里的 `[技术栈] Java` 与显式记忆「技术栈=Go」冲突时答 Go
 - [x] **MCP 工具接入**：让 Agent 通过 MCP 连接外部工具/服务，扩展工具生态（不再逐个自研）
   - 与 Sandbox 衔接：agentscope-runtime 内置 MCP 桥接，接入时优先评估复用（见存档「Spring AI Alibaba Sandbox 接入」条目）
   - 验收：模型可调用一个外部 MCP 工具完成真实任务 ✓

@@ -55,6 +55,8 @@ public class PromptAssembler {
     private final List<SkillSectionProvider> skillProviders;
     /** 画像段提供者（扩展点）：用户偏好画像全文注入，角色过滤由实现侧判定（general/lead） */
     private final List<UserProfileSectionProvider> profileProviders;
+    /** 显式记忆段提供者（扩展点）：用户明说「记住」的事实，优先级高于画像推断 */
+    private final List<ExplicitMemorySectionProvider> memoryProviders;
     /** 活跃目标段提供者（扩展点）：按会话注入跨轮长期目标，会话无目标时空段跳过 */
     private final List<ActiveGoalSectionProvider> goalProviders;
     /** 工具 Schema 延迟加载开关（与 ToolLazyManager 同源）：开启时工具索引段追加 expand_tool 使用引导 */
@@ -63,32 +65,46 @@ public class PromptAssembler {
     private final List<PromptSection> sections;
 
     public PromptAssembler(AgentService agentService, ToolAssignments toolAssignments) {
-        this(agentService, toolAssignments, List.of(), List.of(), List.of(), false);
+        this(agentService, toolAssignments, List.of(), List.of(), List.of(), List.of(), false);
     }
 
     public PromptAssembler(AgentService agentService, ToolAssignments toolAssignments,
                            List<SkillSectionProvider> skillProviders) {
-        this(agentService, toolAssignments, skillProviders, List.of(), List.of(), false);
+        this(agentService, toolAssignments, skillProviders, List.of(), List.of(), List.of(), false);
     }
 
     /**
+     * 五参兼容构造（无显式记忆段）：既有装配点与测试不需要感知新增扩展点。
+     */
+    public PromptAssembler(AgentService agentService, ToolAssignments toolAssignments,
+                           List<SkillSectionProvider> skillProviders,
+                           List<UserProfileSectionProvider> profileProviders,
+                           List<ActiveGoalSectionProvider> goalProviders, boolean lazyToolsEnabled) {
+        this(agentService, toolAssignments, skillProviders, List.of(), profileProviders,
+                goalProviders, lazyToolsEnabled);
+    }
+
+    /**
+     * @param memoryProviders 显式记忆段提供者（用户明说「记住」的事实）：为空时该段输出空串
      * @param lazyToolsEnabled 延迟加载是否开启（ToolLazyManager.isEnabled() 同源传入）：
      *                         开启时工具索引段追加「先 expand_tool 获取参数说明」引导，
      *                         与轻量态工具面（schema 置空）语义对齐；关闭时维持现状渲染
      */
     public PromptAssembler(AgentService agentService, ToolAssignments toolAssignments,
                            List<SkillSectionProvider> skillProviders,
+                           List<ExplicitMemorySectionProvider> memoryProviders,
                            List<UserProfileSectionProvider> profileProviders,
                            List<ActiveGoalSectionProvider> goalProviders, boolean lazyToolsEnabled) {
         this.agentService = agentService;
         this.toolAssignments = toolAssignments;
         this.skillProviders = skillProviders == null ? List.of() : List.copyOf(skillProviders);
+        this.memoryProviders = memoryProviders == null ? List.of() : List.copyOf(memoryProviders);
         this.profileProviders = profileProviders == null ? List.of() : List.copyOf(profileProviders);
         this.goalProviders = goalProviders == null ? List.of() : List.copyOf(goalProviders);
         this.lazyToolsEnabled = lazyToolsEnabled;
-        this.sections = List.of(new RoleSection(), new ProfileSection(), new ActiveGoalSection(),
-                new ToolIndexSection(), new ToolDisciplineSection(), new OutputConventionSection(),
-                new ChannelSection(), new SkillSection());
+        this.sections = List.of(new RoleSection(), new ExplicitMemorySection(), new ProfileSection(),
+                new ActiveGoalSection(), new ToolIndexSection(), new ToolDisciplineSection(),
+                new OutputConventionSection(), new ChannelSection(), new SkillSection());
     }
 
     /**
@@ -247,6 +263,31 @@ public class PromptAssembler {
     }
 
     /* ---------------- 内置段落（按 order 固定次序渲染） ---------------- */
+
+    /** 显式记忆段：用户明说「记住」的事实（排在画像之前，冲突时以它为准；角色过滤由 provider 判定） */
+    private class ExplicitMemorySection implements PromptSection {
+
+        @Override
+        public String name() {
+            return "显式记忆";
+        }
+
+        @Override
+        public int order() {
+            return 140;
+        }
+
+        @Override
+        public String render(PromptSection.Context context) {
+            for (ExplicitMemorySectionProvider provider : memoryProviders) {
+                String text = provider.provide(context.agentName());
+                if (text != null && !text.isBlank()) {
+                    return text;
+                }
+            }
+            return null;
+        }
+    }
 
     /** 画像段：用户偏好画像全文（角色过滤由 provider 实现侧判定，general/lead 以外为空段） */
     private class ProfileSection implements PromptSection {

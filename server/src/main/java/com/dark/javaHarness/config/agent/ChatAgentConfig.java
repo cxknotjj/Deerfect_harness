@@ -12,6 +12,7 @@ import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.ActiveGoalSectionProvider;
+import com.dark.javaHarness.prompt.ExplicitMemorySectionProvider;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.prompt.SkillManager;
 import com.dark.javaHarness.prompt.SkillSectionProvider;
@@ -69,11 +70,12 @@ public class ChatAgentConfig {
     public PromptAssembler promptAssembler(@Lazy AgentService agentService,
                                            ToolAssignments toolAssignments,
                                            List<SkillSectionProvider> skillProviders,
+                                           List<ExplicitMemorySectionProvider> memoryProviders,
                                            List<UserProfileSectionProvider> profileProviders,
                                            List<ActiveGoalSectionProvider> goalProviders,
                                            ToolLazyManager toolLazyManager) {
         return new PromptAssembler(agentService, toolAssignments, skillProviders,
-                profileProviders, goalProviders, toolLazyManager.isEnabled());
+                memoryProviders, profileProviders, goalProviders, toolLazyManager.isEnabled());
     }
 
     /**

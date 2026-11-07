@@ -36,7 +36,7 @@
 | HTTP 客户端 | OkHttp                     | 5.5.0  | CLI 端调用主服务 REST/SSE（`cli/api/ChatApiClient`）；模型调用经 Spring AI 内置 OkHttp 传输 |
 | 序列化      | Jackson                    | 3.x（随 Boot） | DTO 序列化 / SSE meta 解析 / 工具入参（`tools.jackson` 包）                          |
 | 代码生成     | Lombok                     | -      | 实体类简化                                                                          |
-| 测试       | JUnit 5 / Mockito          | 随 Boot | harness-api 5 类 / 39 例、服务端 101 类 / 893 例（另有 channel-qq 8/83、cli 3/28、wms-mcp-adapter 4/43，合计 121 类 / 1086 例）；除 `JavaHarnessApplicationTests` 需本机 MySQL 外不依赖真实 DB/网络，见 docs/guides/functional-testing.md（2026-11-06 核对） |
+| 测试       | JUnit 5 / Mockito          | 随 Boot | harness-api 5 类 / 40 例、服务端 106 类 / 949 例（另有 channel-qq 8/83、cli 3/28、wms-mcp-adapter 4/43，合计 126 类 / 1143 例）；除 `JavaHarnessApplicationTests` 需本机 MySQL 外不依赖真实 DB/网络，见 docs/guides/functional-testing.md（2026-11-07 核对） |
 | 日志       | SLF4J + Logback            | 随 Boot | Agent 执行状态日志                                                                   |
 | 初始化 SQL  | ~~schema.sql~~ 已移除         | -      | 由 Flyway 迁移脚本接管（见上）                                                            |
 

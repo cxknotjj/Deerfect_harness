@@ -57,8 +57,10 @@ Deerfect Harness 是一个基于 Spring AI 的双路径 Agent 平台：**Agentic
 - **混合检索**：向量召回 + BM25 关键词召回，RRF 融合排序；回答带【出处N】内联引用与来源尾注。
 - **知识库增强**：目录监听自动摄取、上传 / 删除 / 同步 / 调试检索、单文件管理页 `/knowledge.html`（[knowledge-rag.md](./guides/knowledge-rag.md)）。
 - **会话记忆**：多轮上下文自动组装并按 token 预算裁剪，超长历史从最旧丢弃。
+- **会话滚动摘要**：裁剪丢弃的旧轮次异步压缩为一段摘要（消息游标增量合并、失败不推进游标），下一轮作为 system 段注入——长会话问「开头说过的约束」仍能答上。
 - **用户画像**：空闲会话按消息游标**增量**提炼偏好（LLM 只输出新增/变更补丁、代码按 `[key]` 合并，既有条目不靠提示词自觉保留），写盘前备份 `.bak`；全局 Markdown 注入 `general` / `lead` 的 system prompt（默认关闭，`app.memory.profile-enabled` 开启）。
 - **历史归档召回**：快照裁剪的消息带稳定 ID 转存 `session_message_archive`；`recall_history` 默认 `scope=current` 只搜本会话，`scope=all` 跨全部历史会话按归档时间倒序召回并标注来源会话（V11 `idx_archive_time` 支撑排序）。
+- **显式记忆**：用户说「记住…」时由 `remember` 工具落 `memory` 表（跨会话），`forget` 软删、`list_memories` 查看；同 key 以最新为准（旧条目自动软删），过期条目不注入。注入段排在画像之前并声明「冲突以用户明说为准」——画像推断的旧值压不住用户明确记住的事实。CLI `/remember` `/memories` `/forget` 与 `GET/POST/DELETE /api/memories` 同源。
 - **Goal 台账与主动化**：目标全生命周期 `PENDING → RUNNING → SUCCEEDED/FAILED` 落库，失败按 1→2 分钟退避自动重投（上限 2 次）；定时调度、QQ 主动推送、对话内活跃目标注入，以及沙箱容器探活自愈与写/执行边界拦截均已落地。
 
 ## 七、可靠性护栏
@@ -92,11 +94,11 @@ Deerfect Harness 是一个基于 Spring AI 的双路径 Agent 平台：**Agentic
 - **模块化**：`harness-api` / `channel-qq` / `server` / `cli` / `wms-mcp-adapter` 五模块 + 独立 `web`。
 - **容器化**：Dockerfile + docker-compose（app + MySQL + pgvector），见 [docker-deploy.md](./guides/docker-deploy.md)。
 - **持续集成**：`.github/workflows/ci.yml`（backend / web / e2e 三 job）与 `docker-image.yml`（镜像发布）已落地；CD 自动部署与分支保护强制校验仍需人工配置，见 [dev.md](./dev.md#8-ci-与镜像发布github-actions)。
-- **测试**：121 个测试类 / 1086 个用例（harness-api 5/39、server 101/893、channel-qq 8/83、cli 3/28、wms-mcp-adapter 4/43），详见 [functional-testing.md](./guides/functional-testing.md)。
+- **测试**：126 个测试类 / 1143 个用例（harness-api 5/40、server 106/949、channel-qq 8/83、cli 3/28、wms-mcp-adapter 4/43），详见 [functional-testing.md](./guides/functional-testing.md)。
 
 ## 十、尚未实现（路线图未勾选项）
 
-接口级限流防刷、CD 自动部署与分支保护强制校验、OpenTelemetry 分布式链路追踪、Testcontainers 集成测试、Swagger/OpenAPI、Redis 会话缓存、消息队列、多实例水平扩展、子任务依赖编排、子任务失败重规划、长期记忆滚动摘要、对话历史向量化召回（跨会话关键词召回已支持，向量检索未做）、PDF 导出、多模态输入、Web 端分页与独立域名部署。
+接口级限流防刷、CD 自动部署与分支保护强制校验、OpenTelemetry 分布式链路追踪、Testcontainers 集成测试、Swagger/OpenAPI、Redis 会话缓存、消息队列、多实例水平扩展、子任务依赖编排、子任务失败重规划、对话历史向量化召回（跨会话关键词召回已支持，向量检索未做）、PDF 导出、多模态输入、Web 端分页与独立域名部署。
 
 > 完整清单与验收口径见 [HARNESS_TODO.md](./HARNESS_TODO.md)。
 

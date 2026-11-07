@@ -3,6 +3,7 @@ package com.dark.javaHarness.cli;
 import com.dark.javaHarness.cli.api.ChatApiClient;
 import com.dark.javaHarness.domain.Schedule;
 import com.dark.javaHarness.view.GoalView;
+import com.dark.javaHarness.view.MemoryView;
 import com.dark.javaHarness.view.ProviderAddResult;
 import com.dark.javaHarness.view.ProviderRowView;
 import java.io.IOException;
@@ -16,7 +17,8 @@ import java.util.regex.Pattern;
 
 /**
  * 斜杠命令解析与分发（自 {@link ChatCli} 拆出，超长类拆分 2026-11-05）：
- * /help、/new、/agent、/routing、/resume、/provider 与普通消息入口。
+ * /help、/new、/agent、/routing、/resume、/provider、/schedule、/goal、
+ * /remember、/memories、/forget 与普通消息入口。
  * 回合执行委托给 {@link StreamRenderer}，会话选择状态存放在 {@link ChatSessionState}。
  */
 final class CommandDispatcher {
@@ -59,10 +61,81 @@ final class CommandDispatcher {
             handleScheduleCommand(line);
         } else if (line.startsWith("/goal")) {
             handleGoalCommand(line);
+        } else if (line.startsWith("/remember")) {
+            handleRememberCommand(line);
+        } else if (line.startsWith("/memories")) {
+            handleMemoriesCommand(line);
+        } else if (line.startsWith("/forget")) {
+            handleForgetCommand(line);
         } else {
             streamRenderer.send(line);
         }
         return false;
+    }
+
+    /** /remember：把一件事写进显式记忆（服务端落库，跨会话注入） */
+    private void handleRememberCommand(String line) {
+        String content = line.substring("/remember".length()).strip();
+        if (content.isEmpty()) {
+            ui.get().println("用法: /remember <要记住的事>");
+            ui.get().println("  例: /remember 我的车牌是沪A12345");
+            return;
+        }
+        try {
+            MemoryView memory = api.rememberMemory(content);
+            ui.get().println("\033[32m✓ 已记住（id=" + memory.id() + "）：" + memory.content() + "\033[0m");
+        } catch (IOException e) {
+            ui.get().println("记住失败: " + e.getMessage());
+        }
+    }
+
+    /** /memories：按状态查看记忆（active 默认 / expired / deleted） */
+    private void handleMemoriesCommand(String line) {
+        String arg = line.substring("/memories".length()).strip().toLowerCase(Locale.ROOT);
+        String status = arg.isEmpty() ? "active" : arg;
+        if (!List.of("active", "expired", "deleted").contains(status)) {
+            ui.get().println("用法: /memories [active|expired|deleted]");
+            return;
+        }
+        try {
+            List<MemoryView> items = api.listMemories(status);
+            if (items.isEmpty()) {
+                ui.get().println("（没有 " + status + " 状态的记忆）");
+                return;
+            }
+            ui.get().println("共 " + items.size() + " 条（" + status + "）：");
+            for (MemoryView memory : items) {
+                String key = memory.key() == null ? "" : "[" + memory.key() + "] ";
+                String expiry = memory.expiresAt() == null ? "长期" : "至 " + memory.expiresAt();
+                ui.get().println("  id=" + memory.id() + " " + key + memory.content()
+                        + "（来源=" + memory.source() + "，" + memory.createdAt()
+                        + "，" + expiry + "，状态=" + memory.status() + "）");
+            }
+        } catch (IOException e) {
+            ui.get().println("查询失败: " + e.getMessage());
+        }
+    }
+
+    /** /forget：按 id 软删一条记忆（保留审计，不再注入） */
+    private void handleForgetCommand(String line) {
+        String arg = line.substring("/forget".length()).strip();
+        if (arg.isEmpty()) {
+            ui.get().println("用法: /forget <id>（先用 /memories 查看 id）");
+            return;
+        }
+        long id;
+        try {
+            id = Long.parseLong(arg);
+        } catch (NumberFormatException e) {
+            ui.get().println("id 必须是数字（先用 /memories 查看 id）");
+            return;
+        }
+        try {
+            api.forgetMemory(id);
+            ui.get().println("\033[32m✓ 已忘掉 id=" + id + "\033[0m");
+        } catch (IOException e) {
+            ui.get().println("忘掉失败: " + e.getMessage());
+        }
     }
 
     /** 帮助信息（命令名青色着色） */
@@ -81,6 +154,9 @@ final class CommandDispatcher {
         ui.get().println("  " + c + "/provider add" + r + "  新增供应商：/provider add <provider> <apiUrl> <模型1,模型2,...>");
         ui.get().println("  " + c + "/schedule" + r + "     定时任务：list（默认）| add \"<cron>\" <agent> <目标> | del <id>");
         ui.get().println("  " + c + "/goal" + r + "         长期目标：查看 | /goal <目标描述> 登记 | /goal done <id> 完成");
+        ui.get().println("  " + c + "/remember <内容>" + r + " 记住一件事（跨会话，之后每轮自动带上）");
+        ui.get().println("  " + c + "/memories" + r + "     查看记忆：active（默认）| expired | deleted");
+        ui.get().println("  " + c + "/forget <id>" + r + "   忘掉指定 id 的记忆（软删，保留审计）");
         ui.get().println("  " + c + "/exit" + r + "        退出");
     }
 

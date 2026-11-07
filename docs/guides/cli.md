@@ -21,6 +21,9 @@ CLI 是纯 HTTP 客户端（**不监听任何端口**），通过 REST 调用主
 | `/provider [add <provider> <apiUrl> <模型1,模型2,...>]` | 🔌 查看模型-服务商映射 / 新增供应商（服务端热刷新） |
 | `/schedule [list\|add "<cron>" <agent> <目标>\|del <id>]` | ⏰ 定时任务增删查，不传子命令等同 `list`；cron 为 Spring 六段表达式（秒 分 时 日 月 周），间隔须 ≥30 秒 |
 | `/goal [查看\|<目标描述> 登记\|done <id> 完成]` | 📌 长期目标：登记后每轮注入 system；`done` 手动收口（不做 LLM 自评完成） |
+| `/remember <内容>` | 🧠 记住一件事（跨会话，之后每轮自动带上；来源记为 cli） |
+| `/memories [active\|expired\|deleted]` | 🧠 查看记忆，含 id / 标签 / 来源 / 时间 / 状态 |
+| `/forget <id>` | 🧠 忘掉指定 id 的记忆（软删保留审计，不再注入） |
 | `/help` / `/exit` / `/quit` | ❓ 帮助 / 🚪 退出 |
 
 > `/goal` 与 `/schedule` 是两套独立机制：前者是「记得住你在追什么」（常驻上下文），

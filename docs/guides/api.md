@@ -24,6 +24,14 @@
 | `POST` | `/api/harness/sessions/{sessionId}/agent?agentId=` | 🎭 切换会话绑定的 Agent |
 | `GET` | `/api/harness/sessions/{sessionId}/messages` | 📜 会话历史消息（无历史返回空列表） |
 
+**记忆**
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/api/memories?status=&limit=` | 🧠 显式记忆列表：`status=active`（默认）/ `expired` / `deleted`，含来源、时间与状态 |
+| `POST` | `/api/memories` | 🧠 记住一件事（body：`content` 必填，`key` / `expiresAt` 可选；同 key 覆盖旧记忆，来源记为 `manual`） |
+| `DELETE` | `/api/memories/{id}` | 🧠 忘掉一条记忆（软删保留审计，不再注入；不存在返回 400） |
+
 **目标与定时任务**
 
 | 方法 | 路径 | 说明 |

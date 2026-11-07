@@ -8,7 +8,7 @@
 
 ## 一、总览
 
-> 121 个测试类 / 1086 个用例（harness-api 5 类 / 39 例、server 101 类 / 893 例、channel-qq 8 类 / 83 例、cli 3 类 / 28 例、wms-mcp-adapter 4 类 / 43 例；按 surefire 报告统计，含参数化展开，2026-11-06 核对）。
+> 126 个测试类 / 1143 个用例（harness-api 5 类 / 40 例、server 106 类 / 949 例、channel-qq 8 类 / 83 例、cli 3 类 / 28 例、wms-mcp-adapter 4 类 / 43 例；按 surefire 报告统计，含参数化展开，2026-11-07 核对）。
 
 **入口与异常**
 
@@ -23,6 +23,7 @@
 | `JavaHarnessApplicationTests` | Spring 容器冒烟（contextLoads） | 1 |
 | `ContextCompositionControllerTest` | 会话上下文构成监控端点 | 2 |
 | `SkillControllerTest` | 技能管理端点 | 1 |
+| `MemoryControllerTest` | 显式记忆接口（状态过滤 / 来源固定 manual / 删除校验） | 7 |
 
 **配置与安全**
 
@@ -47,7 +48,7 @@
 | `AgentServiceContractTest` | AgentService 端口行为契约 | 6 |
 | `GoalStateMachineTest` | Goal 状态机迁移合法性 | 9 |
 | `PortSignatureGuardTest` | 端口方法签名快照（防契约漂移） | 3 |
-| `SessionServiceContractTest` | SessionService 端口契约（含内存替身） | 9 |
+| `SessionServiceContractTest` | SessionService 端口契约（含内存替身） | 10 |
 | `ViewDtoJsonContractTest` | 视图 DTO 的 JSON 序列化契约 | 12 |
 
 **Service 层**
@@ -70,6 +71,7 @@
 | `ProviderRulesTest` | 服务商配置规则 | 4 |
 | `ScheduleServiceImplTest` | 定时任务扫描 / cron 校验 / 推进 | 19 |
 | `StaleGoalWatchdogTest` | 停滞 Goal 标记 FAILED | 3 |
+| `MemoryServiceImplTest` | 显式记忆：同 key 覆盖 / 软删 / 状态判定 / 关键词定位 | 18 |
 
 **Agent 层（调用与编排）**
 
@@ -101,10 +103,10 @@
 
 | 测试类 | 覆盖功能域 | 用例数 |
 | --- | --- | --- |
-| `ContextAssemblingAdvisorTest` | 上下文组装（过滤/归一化/token 预算） | 7 |
+| `ContextAssemblingAdvisorTest` | 上下文组装（过滤/归一化/token 预算） | 12 |
 | `PromptBudgetAdvisorTest` | 静态 prompt 预算（超限尾部截断+截断标记） | 8 |
 | `LlmRequestLogAdvisorTest` | 请求日志拦截器 | 3 |
-| `PromptAssemblerTest` | system 提示词分段组装（固定次序/优先级） | 18 |
+| `PromptAssemblerTest` | system 提示词分段组装（固定次序/优先级） | 19 |
 | `MemoryPolicyTest` | 会话记忆注入的角色策略（lead/general 注入，其余不注入） | 8 |
 | `SkillManagerTest` | skill 装配管理（索引段/热重载） | 22 |
 | `SkillRepositoryTest` | skill 文件仓库（front-matter 解析） | 19 |
@@ -130,6 +132,8 @@
 | `UserProfileSectionProviderTest` | 画像段注入 | 5 |
 | `RecallHistoryToolsTest` | recall_history 工具（scope / 关键词 / ID / 预算） | 9 |
 | `SessionHistoryArchiveServiceTest` | 归档检索（会话内 / 跨会话 / 排序 / 上限） | 6 |
+| `SessionSummaryServiceTest` | 会话滚动摘要（游标增量合并 / 失败不推进 / 空输出跳过） | 8 |
+| `ExplicitMemorySectionProviderTest` | 显式记忆段注入（角色过滤 / 截断 / 优先级提示） | 6 |
 
 **工具层**
 
@@ -154,6 +158,7 @@
 | `SandboxGuardsTest` | 沙箱路径归一化与危险命令拦截 | 12 |
 | `TextSanitizerTest` | 文本清洗 | 9 |
 | `TextToSpeechToolsTest` | text_to_speech 工具入口 | 7 |
+| `MemoryToolsTest` | remember / forget / list_memories（多命中不删 / 参数校验） | 11 |
 
 **QQ 渠道（channel/qq）**
 
@@ -181,7 +186,7 @@
 | `WmsToolListGuardTest` | WMS 工具白名单守卫 | 4 |
 | `WmsToolsTest` | WMS 语义工具集 | 20 |
 
-**合计：121 个测试类 / 1086 个用例（harness-api 5/39、server 101/893、channel-qq 8/83、cli 3/28、wms-mcp-adapter 4/43；按 surefire 报告统计，2026-11-06 核对）。表格按类名列 120 行——`RagPrefetcherTest` 在 Agentic / Graph 两个包各有一组，合并计 12 例。除 `JavaHarnessApplicationTests` 需本机 MySQL 外，其余不依赖真实 DB/外网。**
+**合计：126 个测试类 / 1143 个用例（harness-api 5/40、server 106/949、channel-qq 8/83、cli 3/28、wms-mcp-adapter 4/43；按 surefire 报告统计，2026-11-07 核对）。表格按类名列 125 行——`RagPrefetcherTest` 在 Agentic / Graph 两个包各有一组，合并计 12 例。除 `JavaHarnessApplicationTests` 需本机 MySQL 外，其余不依赖真实 DB/外网。**
 
 ***
 

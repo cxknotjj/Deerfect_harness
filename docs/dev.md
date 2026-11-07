@@ -8,12 +8,12 @@
 
 ## 1. 工具链（Windows 侧实测）
 
-| 工具         | 版本                                   | 说明                    |
-| ---------- | ------------------------------------ | --------------------- |
-| JDK        | 25（Microsoft build，`D:\env\jdk-25`）  | `JAVA_HOME` 必须指向它     |
-| Maven      | 3.9.4（`D:\apache-maven-3.9.4`）       | 仓库没有 `mvnw`，直接用 `mvn` |
+| 工具         | 版本                                   | 说明                          |
+| ---------- | ------------------------------------ | --------------------------- |
+| JDK        | 25（Microsoft build，`D:\env\jdk-25`）  | `JAVA_HOME` 必须指向它           |
+| Maven      | 3.9.4（`D:\apache-maven-3.9.4`）       | 仓库没有 `mvnw`，直接用 `mvn`       |
 | Node / npm | v22.20.0 / 10.9.3                    | 只给 `web/` 用；经 nvm 安装，见第 5 节 |
-| MySQL      | 8.4.5（`D:\mysql\mysql-8.4.5-winx64`） | 详见第 4 节               |
+| MySQL      | 8.4.5（`D:\mysql\mysql-8.4.5-winx64`） | 详见第 4 节                     |
 
 **所有 Maven 命令必须带** **`-s .mvn/settings.xml`**：该文件把本地仓库指向 `.mvn-repo/`（仓库内），并配置阿里云镜像。漏掉它会把依赖下载到默认 `~/.m2`、走公网 central，构建变慢且与启动脚本行为不一致。
 
@@ -43,15 +43,15 @@ mvn -s .mvn/settings.xml -pl cli -Pcli compile exec:exec
 
 ## 3. 端口与依赖服务
 
-| 组件            | 地址                            | 是否必需   | 说明                                                               |
-| ------------- | ----------------------------- | ------ | ---------------------------------------------------------------- |
-| server        | `8080`                        | 必需     | REST + SSE；MCP 端点在同端口 `/mcp`                                     |
-| Web 开发服务器     | `5173`                        | 只在调前端时 | vite，proxy 到 8080                                                |
-| MySQL         | `127.0.0.1:3306`，库 `harness`  | 必需     | 配置见 `application-datasource.yaml`                                |
-| PgVector      | `127.0.0.1:5432`，库 `postgres` | 可选     | 仅知识库（RAG）；未启用时 `/api/knowledge*` 返回 503                          |
-| Docker daemon | `127.0.0.1:2375`              | 可选     | 沙箱工具；**必须写** **`127.0.0.1`** **不要写** **`localhost`**（IPv6 解析会超时） |
-| NapCat        | `127.0.0.1:3000`              | 可选     | QQ 渠道；远程 NapCat 联调见 3.1；`napcat.enabled=false` 时整链不装配              |
-| Edge TTS      | Python 解释器（`TTS_PYTHON`）    | 可选     | QQ 语音工具；解释器需 `pip install edge-tts`，`app.tts.enabled=false` 时工具直接返回未启用 |
+| 组件            | 地址                            | 是否必需   | 说明                                                                     |
+| ------------- | ----------------------------- | ------ | ---------------------------------------------------------------------- |
+| server        | `8080`                        | 必需     | REST + SSE；MCP 端点在同端口 `/mcp`                                           |
+| Web 开发服务器     | `5173`                        | 只在调前端时 | vite，proxy 到 8080                                                      |
+| MySQL         | `127.0.0.1:3306`，库 `harness`  | 必需     | 配置见 `application-datasource.yaml`                                      |
+| PgVector      | `127.0.0.1:5432`，库 `postgres` | 可选     | 仅知识库（RAG）；未启用时 `/api/knowledge*` 返回 503                                |
+| Docker daemon | `127.0.0.1:2375`              | 可选     | 沙箱工具；**必须写** **`127.0.0.1`** **不要写** **`localhost`**（IPv6 解析会超时）       |
+| NapCat        | `127.0.0.1:3000`              | 可选     | QQ 渠道；远程 NapCat 联调见 3.1；`napcat.enabled=false` 时整链不装配                  |
+| Edge TTS      | Python 解释器（`TTS_PYTHON`）      | 可选     | QQ 语音工具；解释器需 `pip install edge-tts`，`app.tts.enabled=false` 时工具直接返回未启用 |
 
 ### 3.1 QQ 机器人联调前提（远程 NapCat）
 
@@ -83,10 +83,9 @@ socat TCP-LISTEN:8080,bind=172.17.0.1,fork,reuseaddr TCP:127.0.0.1:8080
 Test-NetConnection 127.0.0.1 -Port 3306
 ```
 
-- Flyway 随 server 启动自动迁移，**当前基线 `V11`**（V1–V11 共 11 个脚本，清单见 [project-structure.md](./project-structure.md)）；新增迁移从 `V12` 编号。
-- **迁移压平（2026-10-30，历史操作）**：原 V1~V43（42 个文件）已合并为单个 `V1__init_schema.sql`
-  （最终 schema + 迁移种子数据），之后结构变更从 V2 重新编号；全新空库从 V1 顺序执行到 V11。
-  V7–V11 依次落地定时任务 / 推送幂等 / Goal 重投 / 画像增量 / 归档跨会话索引。
+- Flyway 随 server 启动自动迁移，**当前基线 `V13`**（V1–V13 共 13 个脚本，清单见 [project-structure.md](./project-structure.md)）；新增迁移从 `V14` 编号
+- **迁移压平（2026-10-30，历史操作）**：原 V1\~V43（42 个文件）已合并为单个 `V1__init_schema.sql`
+  （最终 schema + 迁移种子数据）；之后从 V2 重新编号，V7–V13 依次落地定时任务 / 推送幂等 / Goal 重投 / 画像增量 / 归档跨会话索引 / 会话滚动摘要 / 显式记忆
 - **存量库升级（仅压平当时适用，勿再照做）**：当时先 `DROP TABLE flyway_schema_history;` 再启动，
   让 `baseline-on-migrate` 以 V1 为基线跳过 V1。现在历史表已在正常使用，**再删表会让 Flyway
   对已有库重跑迁移**，切勿执行。若因修改迁移脚本导致校验和不匹配，按
@@ -133,11 +132,11 @@ $env:PLAYWRIGHT_CHANNEL='chrome'; npm run test:e2e   # 系统 Chrome；Edge 用 
 
 [.github/workflows/ci.yml](../.github/workflows/ci.yml) 三个 job，push 到 `master` 与 PR 时触发：
 
-| job       | 内容                                                                                         |
-| --------- | ------------------------------------------------------------------------------------------ |
+| job       | 内容                                                                                                                                          |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | `backend` | temurin 25 + MySQL 8.4 service；`mvn -s .mvn/settings.xml -Dmaven.repo.local=$HOME/.m2/repository -B verify`。上下文测试启动时会跑全量 Flyway 迁移，迁移校验失败即红 |
-| `web`     | Node 22；`npm ci` → `npm run build`（含 vue-tsc 类型检查）→ `npm test`（vitest）                       |
-| `e2e`     | Node 22 + Chromium；`npm run test:e2e`（mock 模式，不需要后端与数据库，失败上传 `playwright-report`）               |
+| `web`     | Node 22；`npm ci` → `npm run build`（含 vue-tsc 类型检查）→ `npm test`（vitest）                                                                      |
+| `e2e`     | Node 22 + Chromium；`npm run test:e2e`（mock 模式，不需要后端与数据库，失败上传 `playwright-report`）                                                           |
 
 分支保护（required status checks = `backend` / `web` / `e2e`）需仓库管理员在 GitHub
 `Settings → Branches`（或 Gitee 保护分支）勾选，CLI 无法自动配置。
@@ -170,15 +169,15 @@ IMAGE_REPO=ghcr.io/cxknotjj/deerfect-harness IMAGE_TAG=sha-xxxxxxx \
 
 指标（`HarnessMetrics` 埋点，路径判定/LLM 台账/流控/编排降级四个位置）：
 
-| 指标                                   | 类型      | 说明 / PromQL 示例                                                                    |
-| ------------------------------------ | ------- | --------------------------------------------------------------------------------- |
-| `harness_sse_active`                 | gauge   | 活跃 SSE 连接数                                                                        |
-| `harness_llm_first_token_seconds`    | timer   | 首 token 延迟。P95：`histogram_quantile(0.95, sum by (le) (rate(harness_llm_first_token_seconds_bucket[5m])))` |
-| `harness_llm_duration_seconds`       | timer   | 单次调用耗时；route-judge P95 取 `{agent="route-judge"}`                                   |
-| `harness_llm_calls_total`            | counter | 按 `status=ok/error`；错误率 = `sum(rate(...{status="error"}[5m])) / sum(rate(...[5m]))`      |
-| `harness_graph_fallbacks_total`      | counter | `stage=to_agentic`（编排失败降级单 Agent）/ `digest`（聚合失败降级汇总）                                |
-| `harness_route_decisions_total`      | counter | 按 `path=graph/agentic`；Graph 降级率 = `fallbacks{stage="to_agentic"}` 速率 / `path="graph"` 速率 |
-| `harness_llm_tokens_total`           | counter | 按 `kind=prompt/completion/total`、`model`；每小时用量 `increase(harness_llm_tokens_total{kind="total"}[1h])` |
+| 指标                                | 类型      | 说明 / PromQL 示例                                                                                            |
+| --------------------------------- | ------- | --------------------------------------------------------------------------------------------------------- |
+| `harness_sse_active`              | gauge   | 活跃 SSE 连接数                                                                                                |
+| `harness_llm_first_token_seconds` | timer   | 首 token 延迟。P95：`histogram_quantile(0.95, sum by (le) (rate(harness_llm_first_token_seconds_bucket[5m])))` |
+| `harness_llm_duration_seconds`    | timer   | 单次调用耗时；route-judge P95 取 `{agent="route-judge"}`                                                          |
+| `harness_llm_calls_total`         | counter | 按 `status=ok/error`；错误率 = `sum(rate(...{status="error"}[5m])) / sum(rate(...[5m]))`                       |
+| `harness_graph_fallbacks_total`   | counter | `stage=to_agentic`（编排失败降级单 Agent）/ `digest`（聚合失败降级汇总）                                                     |
+| `harness_route_decisions_total`   | counter | 按 `path=graph/agentic`；Graph 降级率 = `fallbacks{stage="to_agentic"}` 速率 / `path="graph"` 速率                 |
+| `harness_llm_tokens_total`        | counter | 按 `kind=prompt/completion/total`、`model`；每小时用量 `increase(harness_llm_tokens_total{kind="total"}[1h])`     |
 
 成本由 token 用量 × 供应商单价换算（单价随供应商调整，不在代码里固化，避免过期价格变成伪指标）。
 
@@ -194,4 +193,3 @@ IMAGE_REPO=ghcr.io/cxknotjj/deerfect-harness IMAGE_TAG=sha-xxxxxxx \
 异步链路（route-judge / Agent 流式生成所在的 boundedElastic）经 `ContextPropagationConfig`
 开启自动传播后继承 MDC（模型 SDK 自建线程不在传播范围）。本地想恢复可读文本日志，启动
 参数加 `--logging.structured.format.console=`。
-

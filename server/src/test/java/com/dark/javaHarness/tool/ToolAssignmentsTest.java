@@ -57,6 +57,7 @@ class ToolAssignmentsTest {
     private final TextToSpeechTools textToSpeechTools = ttsTools();
 
     private ToolAssignments assignments;
+    private com.dark.javaHarness.tool.builtin.memory.MemoryTools memoryTools;
 
     /** 数据驱动实例：带 AgentConfigProvider，forAgent 优先读 tools 列声明 */
     private ToolAssignments dataDriven;
@@ -79,8 +80,13 @@ class ToolAssignmentsTest {
         lenient().when(sandbox.browserTools()).thenReturn(List.of(b1, b2, b3));
         lenient().when(mcp.toolCallbacks()).thenReturn(List.of(mcpInteractive));
         RecallHistoryTools recallTools = new RecallHistoryTools(mock(SessionHistoryArchiveService.class));
-        assignments = new ToolAssignments(webTools, sandbox, mcp, null, textToSpeechTools, recallTools);
-        dataDriven = new ToolAssignments(webTools, sandbox, mcp, agentConfigProvider, textToSpeechTools, recallTools);
+        // 两个实例共享同一个 memoryTools：ToolSet 是 record，annotated 列表按对象引用比较，
+        // 各建一个 mock 会让「legacy 分配逐字段一致」的断言因实例不同而失败
+        memoryTools = new com.dark.javaHarness.tool.builtin.memory.MemoryTools(
+                mock(com.dark.javaHarness.service.MemoryService.class));
+        assignments = new ToolAssignments(webTools, sandbox, mcp, null, textToSpeechTools, recallTools, memoryTools);
+        dataDriven = new ToolAssignments(webTools, sandbox, mcp, agentConfigProvider, textToSpeechTools,
+                recallTools, memoryTools);
     }
 
     private static TextToSpeechTools ttsTools() {
@@ -185,7 +191,7 @@ class ToolAssignmentsTest {
         // 收敛为只读探索者（网页抓取 + 沙箱只读文件 + 浏览器 + MCP 白名单），
         // 执行类（base）与写入类（write）只留给 lead 明确指派的 coder/analyst
         ToolAssignments.ToolSet set = assignments.forAgent("general");
-        assertEquals(List.of(webTools), set.annotated());
+        assertEquals(List.of(webTools, memoryTools), set.annotated(), "general = 网页抓取 + 显式记忆三工具");
         assertEquals(5, set.callbacks().size(), "general = 只读(2) + 浏览器(3) + MCP(0，重名被沙箱取代)");
         verify(sandbox, never()).baseTools();
         verify(sandbox, never()).writeTools();

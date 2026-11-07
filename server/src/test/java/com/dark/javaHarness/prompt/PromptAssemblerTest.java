@@ -58,7 +58,8 @@ class PromptAssemblerTest {
     void setUp() {
         toolAssignments = new ToolAssignments(new WebTools(), sandbox, mcp, null, ttsTools(),
                 new com.dark.javaHarness.tool.builtin.history.RecallHistoryTools(
-                        org.mockito.Mockito.mock(com.dark.javaHarness.service.impl.SessionHistoryArchiveService.class)));
+                        org.mockito.Mockito.mock(com.dark.javaHarness.service.impl.SessionHistoryArchiveService.class)),
+                new com.dark.javaHarness.tool.builtin.memory.MemoryTools(org.mockito.Mockito.mock(com.dark.javaHarness.service.MemoryService.class)));
         assembler = new PromptAssembler(agentService, toolAssignments);
         stubEmptyToolFaces();
     }
@@ -126,6 +127,24 @@ class PromptAssemblerTest {
         assertFalse(system.endsWith("\n"));
         assertFalse(system.contains("\n\n\n"), "不应出现连续多空行");
         assertFalse(system.contains("工具使用纪律"), "未分配工具的 agent 不渲染工具纪律段");
+    }
+
+    /** 显式记忆段：排在画像之前（冲突时以用户明说为准），无记忆时整段跳过 */
+    @Test
+    void assemble_explicitMemoryBeforeProfile() {
+        when(agentService.getAgentConfig("general"))
+                .thenReturn(Optional.of(new AgentConfig(1L, "m", "角色提示词", null)));
+        ExplicitMemorySectionProvider memoryProvider = name -> "【用户明确记住的事】\n- [车牌] 沪A12345";
+        UserProfileSectionProvider profileProvider = name -> "【用户偏好画像】\n- [技术栈] Java";
+
+        PromptAssembler withMemory = new PromptAssembler(agentService, toolAssignments, List.of(),
+                List.of(memoryProvider), List.of(profileProvider), List.of(), false);
+        String system = withMemory.assemble("general", null);
+
+        int memoryIndex = system.indexOf("【用户明确记住的事】");
+        int profileIndex = system.indexOf("【用户偏好画像】");
+        assertTrue(memoryIndex > 0, "显式记忆段应渲染");
+        assertTrue(profileIndex > memoryIndex, "显式记忆必须排在画像之前，冲突时才压得住旧推断");
     }
 
     /** 角色段优先级：agent 表 prompt &gt; 调用方兜底 &gt; 默认 system prompt；表 prompt 空白视同无 */
@@ -313,8 +332,11 @@ class PromptAssemblerTest {
 
         PromptAssembler.PromptAttachments att = assembler.attachmentsOf("general");
 
-        assertEquals(List.of("browser_click", "fetchUrl"), att.tools(),
-                "tools 应含 MCP 标注回调（browser_click）与 @Tool 注解工具（fetchUrl）");
+        assertEquals(5, att.tools().size(), "tools = MCP 回调(1) + 网页抓取(1) + 显式记忆(3)");
+        assertEquals(List.of("browser_click", "fetchUrl"), att.tools().subList(0, 2),
+                "回调在前、@Tool 注解工具在后");
+        assertTrue(att.tools().containsAll(List.of("remember", "forget", "list_memories")),
+                "显式记忆工具应进入 general 的工具名单");
         assertEquals(List.of("browser_click"), att.mcpTools(),
                 "mcpTools 仅含 ServerTaggedCallback 标注的工具");
         assertTrue(att.skills().isEmpty(), "无 skill 提供者时技能名单为空");

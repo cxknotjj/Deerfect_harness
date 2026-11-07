@@ -6,6 +6,9 @@ import com.dark.javaHarness.view.ChatRequest;
 import com.dark.javaHarness.view.ChatResponse;
 import com.dark.javaHarness.view.GoalView;
 import com.dark.javaHarness.view.GoalsView;
+import com.dark.javaHarness.view.MemoriesView;
+import com.dark.javaHarness.view.MemoryCreateRequest;
+import com.dark.javaHarness.view.MemoryView;
 import com.dark.javaHarness.view.ProviderAddRequest;
 import com.dark.javaHarness.view.ProviderAddResult;
 import com.dark.javaHarness.view.ProviderRowView;
@@ -288,6 +291,63 @@ public class ChatApiClient {
     public void deleteSchedule(String id) throws IOException {
         Request request = new Request.Builder()
                 .url(baseUrl + "/api/schedules/" + id)
+                .delete()
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            if (!resp.isSuccessful()) {
+                throw new ApiException(resp.code(), resp.body().string());
+            }
+        }
+    }
+
+    /**
+     * 调用 GET /api/memories 获取指定状态的记忆。
+     *
+     * @param status active / expired / deleted
+     * @throws IOException 网络错误或非 2xx 响应
+     */
+    public List<MemoryView> listMemories(String status) throws IOException {
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/memories?status=" + status)
+                .get()
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            String body = resp.body().string();
+            if (!resp.isSuccessful()) {
+                throw new IOException("HTTP " + resp.code() + ": " + body);
+            }
+            return mapper.readValue(body, MemoriesView.class).items();
+        }
+    }
+
+    /**
+     * 调用 POST /api/memories 记住一件事（source=manual）。
+     *
+     * @throws IOException 网络错误，或非 2xx 响应（内容为空 / 超长为 400）
+     */
+    public MemoryView rememberMemory(String content) throws IOException {
+        String json = mapper.writeValueAsString(new MemoryCreateRequest(content, null, null));
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/memories")
+                .post(RequestBody.create(json, JSON))
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            String body = resp.body().string();
+            if (!resp.isSuccessful()) {
+                throw new IOException("HTTP " + resp.code() + ": " + body);
+            }
+            return mapper.readValue(body, MemoryView.class);
+        }
+    }
+
+    /**
+     * 调用 DELETE /api/memories/{id} 忘掉一条记忆（软删）。
+     *
+     * @throws IOException 网络错误，或非 2xx 响应（不存在 / 已删为 400）
+     */
+    public void forgetMemory(long id) throws IOException {
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/memories/" + id)
                 .delete()
                 .build();
         try (Response resp = http.newCall(request).execute()) {

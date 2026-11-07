@@ -635,11 +635,39 @@ sequenceDiagram
   → ToolCallBudget 结果 token 预算
 ```
 
-**边界**：无 Trigger/Thread/Worker 引用图与多跳展开，未做摘要与向量化；归档检索按关键词/精确 ID，
+**边界**：无 Trigger/Thread/Worker 引用图与多跳展开，未做向量化；归档检索按关键词/精确 ID，
 `scope=all` 的跨会话召回靠时间倒序索引提前取够 10 条即停，关键词本身仍是 LIKE 顺序扫描。
+裁剪丢弃的轮次另由 `SessionSummaryService`（P2-3）压缩成 `session_summary` 摘要，与归档互补：
+摘要是常驻的短上下文（每轮注入），归档是按需取回的原文。
 
 **测试**：`SessionServiceImplTest`（ID 补齐/裁剪归档）、`ContextAssemblingAdvisorTest`（引用行）、
 `RecallHistoryToolsTest` + `SessionHistoryArchiveServiceTest`（会话隔离 / 条数钳制 / scope=all 跨会话与排序）。
+
+## 5k. 显式记忆：记住 / 忘掉 / 查看（2026-11-07）
+
+> 用户明说「记住…」的事实落 `memory` 表，跨会话注入；与画像（模型推断）分开存、分开注入，
+> 冲突时以用户明说为准。
+
+```text
+写入（两条通道，同一服务）
+  对话：remember 工具（source=user，sessionId 经 ToolContext 服务端注入）
+  CLI / 管理接口：POST /api/memories（source=manual）
+    → MemoryService.remember：同 key 先软删旧条目 → INSERT memory
+  删：forget 工具（id 精确删 / keyword 定位；多命中不删、返回候选）
+      DELETE /api/memories/{id} → 软删 deleted_at（保留审计）
+
+注入（PromptAssembler，每轮）
+  ExplicitMemorySectionProvider（order 140，排在画像 150 之前）
+    → activeForInjection：deleted_at IS NULL AND (expires_at IS NULL OR expires_at > now)
+    → 全量注入 + 条数/字符上限截断，段末声明「冲突以用户明说为准」
+```
+
+**边界**：全量注入（个人记忆量小），未做按相关度检索；过期/软删靠读取时过滤，不维护状态列、
+也不跑定时清理。`memory` 与 `user-profile` 是两套存储——前者用户声明、后者模型推断，同名不合并，
+靠注入顺序（140 先于 150）+ 段内声明保证显式记忆优先。
+
+**测试**：`MemoryServiceImplTest`（同 key 覆盖 / 软删 / 状态判定）、`MemoryToolsTest`（多命中不删）、
+`ExplicitMemorySectionProviderTest`（角色过滤 / 截断 / 优先级）、`MemoryControllerTest`（REST 契约）。
 
 ***
 

@@ -70,7 +70,7 @@ curl -X POST http://localhost:8080/api/knowledge/sync   # 需真实 QWEN_API_KEY
 ```
 
 > [!NOTE]
-> - 全新 MySQL 由 Flyway 建表 + 种子 agent（当前基线 V11，见 [project-structure.md](../project-structure.md)）；**仅压平前旧库**的数据搬迁（自调的 agent 行、聊天历史）用：`mysqldump -uroot harness --no-create-info --skip-triggers --ignore-table=harness.flyway_schema_history > seed.sql`，再 `docker exec -i harness-mysql mysql -uroot -p<口令> harness < seed.sql`
+> - 全新 MySQL 由 Flyway 建表 + 种子 agent（当前基线 V13，见 [project-structure.md](../project-structure.md)）；**仅压平前旧库**的数据搬迁（自调的 agent 行、聊天历史）用：`mysqldump -uroot harness --no-create-info --skip-triggers --ignore-table=harness.flyway_schema_history > seed.sql`，再 `docker exec -i harness-mysql mysql -uroot -p<口令> harness < seed.sql`
 > - 上述 `mysqldump` 只导数据、不含 schema 与 `flyway_schema_history`，适用于 2026-10-30 压平前的旧库；当前新库直接由 Flyway V1–V11 建表升级，不要手工导入 schema
 > - 知识库/技能/表情/MCP 配置已**默认外挂**（compose volumes：`../knowledge`、`../skills`、`../channel`、`../mcp-config.json`），改宿主机文件免重打镜像：`knowledge/` 改完调 sync 增量摄取（mtime 对比，免重启）；表情映射表改后 `restart app`、新增图片即时生效；`mcp-config.json` 改后 `up -d --force-recreate app`；批量调参写 `docker/config/application.yaml`（只写要改的键，改后 `restart app`，用法见该文件头注释）
 

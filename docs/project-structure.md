@@ -30,6 +30,7 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── ChatController.java       # 聊天接口（/api/chat、/stream、/resume、/goal-status）
 │   ├── HarnessController.java    # 管理接口（agents / submit / goals / sessions / 会话绑定 Agent）
 │   ├── ScheduleController.java   # 定时任务管理（/api/schedules 列表 / 创建 / 删除）
+│   ├── MemoryController.java    # 显式记忆管理（/api/memories 列表 / 新增 / 软删）
 │   ├── ProviderAdminController.java  # 模型映射管理（/api/providers 查看与热刷新新增）
 │   ├── KnowledgeAdminController.java # 知识库管理（文档列表/上传/删除/增量同步）
 │   ├── MonitorController.java    # 运行监控（/api/monitor 汇总快照）
@@ -51,6 +52,7 @@ server/src/main/java/com/dark/javaHarness/
 │       ├── ScheduleServiceImpl.java  # 定时任务：到期扫描 → 提交 goal → 推进 next_run_at（失败也推进，防卡调度器）
 │       ├── ActiveGoalSectionProviderImpl.java  # 活跃目标段渲染（objective 截断 200 字 + 天数 + /goal done 提示）
 │       ├── GoalRetryScheduler.java  # 失败重投：扫 next_retry_at 到期的 FAILED goal 重新提交（退避 1→2 分钟，上限 2 次）
+│       ├── MemoryServiceImpl.java  # 显式记忆：同 key 覆盖（软删旧的）、过期/软删过滤、关键词定位
 │       ├── SessionHistoryArchiveService.java  # 会话归档检索（recall_history 数据源；current 按会话过滤 / all 跨会话按时间倒序）
 │       └── route/                # LlmRouteJudge（主 Agent 路由判定）/ LlmSemanticTriggerJudge（渠道路由语义判定）
 ├── advisor/                      # Spring AI Advisor 拦截器（Agent 流程横切管理）
@@ -172,9 +174,11 @@ server/src/main/java/com/dark/javaHarness/
 ├── channel/qq/                   # 已整体迁出为独立模块 `channel-qq`（NapCat/OneBot 11，napcat.enabled 条件装配，单向依赖 core 端口）
 ├── message/                      # 主动推送（任务结果 / 失败告警外发）
 │   └── MessageSenderRegistry.java  # channel:target 路由到渠道实现；未注册渠道与实现违约一律 false
-├── memory/                       # 用户画像（跨会话长期记忆）
+├── memory/                       # 长期记忆（用户画像 + 显式记忆）
 │   ├── UserProfileService.java   # 增量提炼空闲会话的新消息 → 按 key 合并进全局画像（补丁式，非全文重写；原子写 + .bak）
-│   └── UserProfileSectionProviderImpl.java  # 画像段注入 general/lead 的 system prompt
+│   ├── UserProfileSectionProviderImpl.java  # 画像段注入 general/lead 的 system prompt（order 150）
+│   ├── SessionSummaryService.java  # 会话滚动摘要：裁剪丢弃的轮次压缩落库，游标增量合并（P2-3）
+│   └── ExplicitMemorySectionProviderImpl.java  # 显式记忆段注入（order 140，排在画像之前，冲突以用户明说为准）
 ├── cli/                          # 已独立为 `cli` 模块（`cli/src/main/java/com/dark/javaHarness/cli`，纯 HTTP 连 8080）
 ├── tool/                         # 工具层
     ├── WebTools.java             # 网页抓取门面（fetchUrl：抓取 + 30min 内容缓存 + 相关段落裁剪）
@@ -195,6 +199,7 @@ server/src/main/java/com/dark/javaHarness/
     ├── builtin/SandboxToolkit.java  # 沙箱工具包（Python/Shell/文件/浏览器回调集合）
     ├── builtin/DemoTools.java     # 内置演示工具（@Tool 注解通道样例）
     ├── builtin/history/RecallHistoryTools.java  # recall_history：按关键词/消息 ID 检索会话归档（scope=current|all）
+    ├── builtin/memory/MemoryTools.java  # remember / forget / list_memories：显式记忆读写（多命中不删，返回候选）
     ├── builtin/tts/TextToSpeechTools.java  # text_to_speech 工具入口：校验 + 合成 + 写工件
     ├── builtin/tts/EdgeTtsClient.java      # Edge TTS 子进程调用（超时杀进程 / 并发信号量）
     └── TokenEstimator.java       # 全项目统一 token 估算口径
@@ -226,6 +231,8 @@ server/src/main/java/com/dark/javaHarness/
 | V9 | Goal 失败重投三列（`agent_name` / `retry_count` / `next_retry_at`） |
 | V10 | 画像增量提炼（`profile_extracted` 一次性锁定 → `profile_extracted_at` + `last_extracted_message_id` 游标；存量会话标记已处理、不回溯） |
 | V11 | `idx_archive_time(archived_at, id)`，支撑 `scope=all` 跨会话时间倒序召回 |
+| V12 | `session_summary` 会话滚动摘要（游标 `covered_message_id`，滚动合并） |
+| V13 | `memory` 显式记忆表（key / content / source / expires_at / deleted_at 软删）+ general/lead 工具列追加 `memory` 组 |
 
 ---
 

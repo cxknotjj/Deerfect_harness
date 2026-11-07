@@ -2,7 +2,7 @@
 
 - 范围：`server` 主链路 + `harness-api` 端口 + `channel-qq` 推送 + `web` 入口；不改 `cli` 的命令行协议（仅加命令）
 - 创建：2026-11-06
-- 状态：共 14 项，已完成 9 项，待办 5 项
+- 状态：共 14 项，已完成 10 项，待办 4 项
 - 关系：`docs/HARNESS_TODO.md` 是技术路线图（工程化 / 编排智能化 / 多实例），本清单是**产品视角**的能力补齐。重叠 4 条（画像长青、归档 RAG、滚动摘要、Goal 重投）在此提前并给出可执行口径；其余为新增。两者冲突时以本清单的验收口径为准，完成后回写 HARNESS_TODO 勾选。
 
 ## 进度概览
@@ -11,10 +11,10 @@
 | -------------- | --- | -- | -- |
 | P0 主动化的安全前置   | 2   | 0  | 2  |
 | P1 存在感（自己开始）  | 4   | 0  | 4  |
-| P2 记忆连续性（人生级） | 3   | 1  | 4  |
+| P2 记忆连续性（人生级） | 4   | 0  | 4  |
 | P3 随身触达        | 0   | 2  | 2  |
 | P4 个人数据源       | 0   | 2  | 2  |
-| 合计             | 9   | 5  | 14 |
+| 合计             | 10  | 4  | 14 |
 
 ## 背景
 
@@ -100,11 +100,13 @@
   - 验收：构造超预算的 30 轮会话，摘要能答出第 1–3 轮的关键事实；摘要 token 不超上限；摘要失败时退化为现状（丢最旧轮次），主链不受影响
   - 结果（2026-11-07）：V12 新增 `session_summary` 表（`covered_message_id` 增量游标）；harness-api 新增 `SessionSummaryPort` 并由 `SessionService` 继承，`SessionServiceImpl` 委托 `SessionSummaryService`；裁剪点在 `ContextAssemblingAdvisor`——裁剪前把已有摘要并入 system 段（参与预算且不会被丢），裁剪后把被丢消息异步投递；`SessionSummaryService` 用轻量模型（`app.context.summary-model`）滚动合并「已有摘要 + 新增对话」，输出按 `app.context.summary-max-chars`（默认 600）截断，同会话串行、失败只 WARN 不写库不推进游标；AgentScope 路径经 `AgentRequestSpecFactory.trimHistory` 复用同一口径。测试：30 轮超预算会话早期事实进入摘要、摘要注入/投递、读写失败降级、游标增量、字符上限、异步不阻塞主链；server 全量 900 条 + harness-api 契约守卫全绿。
 
-- [ ] P2-4 记忆显式管理（记住 / 忘掉 / 查看）
+- [x] P2-4 记忆显式管理（记住 / 忘掉 / 查看）
   - 作用：用户要能说「记住这个」「忘掉那个」，否则记忆不可控也不可信
   - 位置：新增 `memory` 表 + `remember` / `forget` / `list_memories` 工具 + CLI 命令
   - 做法：显式记忆与画像分离（用户声明 vs 模型推断，来源不同、注入策略不同）；字段含 `content / source / created_at / expires_at / session_id`；注入先全量（量小），超过阈值改按相关度检索；删除为软删 + 可审计
   - 验收：说「记住我的车牌是 X」后新会话能答出；说「忘掉」后不再出现；`list` 能看到来源、时间与状态；显式记忆与画像同名条目不打架
+  - 结果（2026-11-07）：V13 建 `memory` 表（`memory_key` / `content` / `source` / `session_id` / `expires_at` / `deleted_at` 软删），与画像文件分离；`remember` / `forget` / `list_memories` 三工具经 V13 分配给 general/lead，`MemoryServiceImpl` 负责同 key 覆盖（写新时软删旧条目）与读取时状态判定；`ExplicitMemorySectionProvider` 以 order 140 注入（排在画像 150 之前，段内声明「冲突以用户明说为准」）；CLI `/remember` `/memories` `/forget` 与 `GET/POST/DELETE /api/memories` 同源，`forget` 多命中不删、返回候选。测试：`MemoryServiceImplTest` 18 + `MemoryToolsTest` 11 + `ExplicitMemorySectionProviderTest` 6 + `MemoryControllerTest` 7。
+  - 端到端（真机）：会话内「记住车牌是沪A12345」→ 新会话问车牌答「沪A12345」；`list_memories` 列出 id/来源/时间/状态；「忘掉车牌」后新会话答「我不知道你的车牌号」；画像已有 `[技术栈] Java` 时明说「记住技术栈是 Go」，问技术栈答「Go」；同 key 再写 Rust 时旧条目自动软删，工具回复明确「旧条目已替换」。
 
 ## P3 随身触达
 

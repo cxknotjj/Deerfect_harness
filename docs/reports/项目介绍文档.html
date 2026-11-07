@@ -281,7 +281,7 @@ svg text{font-family:var(--sans)}
         <tr><td>监控与成本管理</td><td>四张观测表、按轮次的 token 成本账本、四级预算护栏、观测数据保留期治理</td></tr>
       </tbody>
     </table>
-    <p><strong>技术基线</strong>：Java 25 / Spring Boot 4.1.2 / Spring AI 2.0.2 / AgentScope ReAct（Agentic 路径）+ 自研 ParallelOrchestrationEngine（Graph 编排路径，替代 StateGraph）与 agentscope 容器沙箱 / MySQL 8.4+（Flyway 管理 11 个迁移版本 V1–V11）+ PostgreSQL pgvector（向量库）/ MyBatis-Plus / Vue 3 Web 控制台。服务端 893 个自动化测试用例（另有 harness-api 39 / QQ 83 / CLI 28 / WMS 43，合计 1086），除 contextLoads 集成用例需本机 MySQL 外不依赖真实 DB 与外网。</p>
+    <p><strong>技术基线</strong>：Java 25 / Spring Boot 4.1.2 / Spring AI 2.0.2 / AgentScope ReAct（Agentic 路径）+ 自研 ParallelOrchestrationEngine（Graph 编排路径，替代 StateGraph）与 agentscope 容器沙箱 / MySQL 8.4+（Flyway 管理 13 个迁移版本 V1–V13）+ PostgreSQL pgvector（向量库）/ MyBatis-Plus / Vue 3 Web 控制台。服务端 949 个自动化测试用例（另有 harness-api 40 / QQ 83 / CLI 28 / WMS 43，合计 1143），除 contextLoads 集成用例需本机 MySQL 外不依赖真实 DB 与外网。</p>
   </div>
 </section>
 
@@ -461,6 +461,7 @@ svg text{font-family:var(--sans)}
       <li><strong>会话记忆</strong>：多轮上下文自动组装、按预算裁剪（MySQL 双表）；</li>
       <li><strong>用户画像</strong>：后台定时扫描空闲会话（≥30 分钟静默），按快照消息游标增量提炼——只喂新消息、LLM 只输出补丁、代码按 [key] 合并，写盘前备份 .bak 可恢复；注入 Agentic 与 Graph 编排，长青会话的新偏好不再丢。</li>
       <li><strong>历史归档召回</strong>：被预算裁掉的消息带稳定 ID 转存归档表，recall_history 传 scope=all 可跨全部历史会话按时间倒序检索并标注来源会话；向量化召回仍待做。</li>
+      <li><strong>显式记忆</strong>：用户明说「记住…」时落 memory 表（跨会话），forget 软删、list_memories 查看；同 key 以最新为准，注入段排在画像之前并声明冲突时以用户明说为准；CLI 与 REST 同源。</li>
     </ul>
     <h3>5.5 多端接入</h3>
     <p>Web 控制台（会话管理 / 思考折叠 / 轨迹观测）、REST API（同步 / SSE 流式）、Claude Code 风格终端 CLI、QQ 机器人（NapCat / OneBot 11，群聊 @ 触发、私聊白名单 + 限频、整段单条回复（超长截断）与表情包）。</p>
@@ -516,8 +517,8 @@ svg text{font-family:var(--sans)}
   <h2><span class="no">七</span>工程质量</h2>
   <div class="prose">
     <div class="stats">
-      <div class="stat"><b>1086</b><span>自动化测试用例（121 个测试类），除 contextLoads 外不依赖真实 DB 与外网</span></div>
-      <div class="stat"><b>11</b><span>Flyway 版本化迁移 V1–V11，存量库 baseline 无缝接入</span></div>
+      <div class="stat"><b>1143</b><span>自动化测试用例（126 个测试类），除 contextLoads 外不依赖真实 DB 与外网</span></div>
+      <div class="stat"><b>13</b><span>Flyway 版本化迁移 V1–V13，存量库 baseline 无缝接入</span></div>
       <div class="stat"><b>90</b><span>天观测数据保留期，低峰期自动分批清理</span></div>
       <div class="stat"><b>2</b><span>条鉴权通道（HttpOnly Cookie + X-API-Token），常量时间比较 + 限流锁定</span></div>
     </div>

@@ -6,6 +6,7 @@ import com.dark.javaHarness.tool.builtin.DemoTools;
 import com.dark.javaHarness.tool.builtin.SandboxToolProvider;
 import com.dark.javaHarness.tool.builtin.WebTools;
 import com.dark.javaHarness.tool.builtin.history.RecallHistoryTools;
+import com.dark.javaHarness.tool.builtin.memory.MemoryTools;
 import com.dark.javaHarness.tool.builtin.tts.TextToSpeechTools;
 import com.dark.javaHarness.tool.mcp.McpToolProvider;
 import java.util.ArrayList;
@@ -68,6 +69,9 @@ public class ToolAssignments {
             java.util.Map.entry("add", "计算两个整数相加"),
             java.util.Map.entry("text_to_speech", "把一段文字合成为语音（用户明确要求语音时使用）"),
             java.util.Map.entry("recall_history", "检索本会话已被上下文裁剪归档的更早消息（按关键词或消息 ID）"),
+            java.util.Map.entry("remember", "把用户明确要求长期记住的事实写入记忆（跨会话生效）"),
+            java.util.Map.entry("forget", "忘掉一条已记住的事实（按 id 或关键词定位，多命中不删）"),
+            java.util.Map.entry("list_memories", "查看当前有效记忆（id/标签/正文/来源/时间）"),
             // 沙箱执行类（base 容器）
             java.util.Map.entry("run_ipython_cell", "在沙箱容器内执行 Python 代码并返回输出"),
             java.util.Map.entry("run_shell_command", "在沙箱容器内执行 Shell 命令并返回输出"),
@@ -111,6 +115,8 @@ public class ToolAssignments {
     private final TextToSpeechTools textToSpeechTools;
     /** 会话历史归档召回工具（general / lead 按 tools 列数据分配） */
     private final RecallHistoryTools recallHistoryTools;
+    /** 显式记忆工具（general / lead 按 tools 列数据分配） */
+    private final MemoryTools memoryTools;
     private final DemoTools demoTools = new DemoTools();
     /** agent 表 tools 列读取器（数据驱动分配来源）；null=纯 legacy 路径（测试场景） */
     private final AgentConfigProvider agentConfigProvider;
@@ -120,13 +126,15 @@ public class ToolAssignments {
     public ToolAssignments(WebTools webTools, SandboxToolProvider sandbox, McpToolProvider mcp,
                            AgentConfigProvider agentConfigProvider,
                            TextToSpeechTools textToSpeechTools,
-                           RecallHistoryTools recallHistoryTools) {
+                           RecallHistoryTools recallHistoryTools,
+                           MemoryTools memoryTools) {
         this.webTools = webTools;
         this.sandbox = sandbox;
         this.mcp = mcp;
         this.agentConfigProvider = agentConfigProvider;
         this.textToSpeechTools = textToSpeechTools;
         this.recallHistoryTools = recallHistoryTools;
+        this.memoryTools = memoryTools;
     }
 
     /** 取某专家的工具：tools 列声明优先（数据驱动），无声明回退代码内置（legacy） */
@@ -165,7 +173,7 @@ public class ToolAssignments {
                     List.of(),
                     concat(List.of(sandbox.baseTools(), sandbox.readOnlyFileTools())));
             case "general" -> new ToolSet(
-                    List.of(webTools),
+                    List.of(webTools, memoryTools),
                     concat(List.of(sandbox.readOnlyFileTools(), sandbox.browserTools(), mcpTools())));
             default -> ToolSet.EMPTY;
         };
@@ -183,6 +191,7 @@ public class ToolAssignments {
         indexAnnotated(annotatedByToolName, demoTools);
         indexAnnotated(annotatedByToolName, textToSpeechTools);
         indexAnnotated(annotatedByToolName, recallHistoryTools);
+        indexAnnotated(annotatedByToolName, memoryTools);
         Map<String, ToolCallback> callbackByName = new LinkedHashMap<>();
         indexCallbacks(callbackByName, List.of(sandbox.baseTools(), sandbox.readOnlyFileTools(),
                 sandbox.writeTools(), sandbox.browserTools(), mcp.toolCallbacks()));
@@ -201,6 +210,7 @@ public class ToolAssignments {
                 case "web" -> addAnnotated(annotated, usedNames, webTools);
                 case "demo" -> addAnnotated(annotated, usedNames, demoTools);
                 case "history" -> addAnnotated(annotated, usedNames, recallHistoryTools);
+                case "memory" -> addAnnotated(annotated, usedNames, memoryTools);
                 case "sandbox.base" -> addCallbacks(callbacks, usedNames, sandbox.baseTools());
                 case "sandbox.read" -> addCallbacks(callbacks, usedNames, sandbox.readOnlyFileTools());
                 case "sandbox.write" -> addCallbacks(callbacks, usedNames, sandbox.writeTools());

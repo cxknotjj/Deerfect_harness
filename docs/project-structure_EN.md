@@ -123,7 +123,9 @@ server/src/main/java/com/dark/javaHarness/
 ├── channel/qq/                   # Moved out to the standalone `channel-qq` module (NapCat/OneBot 11, conditional on napcat.enabled)
 ├── memory/                       # User profile (cross-session long-term memory)
 │   ├── UserProfileService.java   # Incremental extraction of new messages from idle sessions (message-id cursor) → key-merged patch into global profile Markdown (atomic write + .bak)
-│   └── UserProfileSectionProviderImpl.java  # Profile section injected into general/lead system prompts
+│   ├── UserProfileSectionProviderImpl.java  # Profile section injected into general/lead system prompts (order 150)
+│   ├── SessionSummaryService.java  # Rolling summary of trimmed turns, cursor-based incremental merge (P2-3)
+│   └── ExplicitMemorySectionProviderImpl.java  # Explicit-memory section (order 140, before profile; user-stated facts win)
 ├── cli/                          # Moved out to the standalone `cli` module (`cli/src/main/java/com/dark/javaHarness/cli`, pure HTTP to 8080)
 └── tool/                         # Tools
     ├── WebTools.java             # Web fetch facade (fetchUrl: fetch + 30-min content cache + query-relevant clipping)
@@ -138,6 +140,7 @@ server/src/main/java/com/dark/javaHarness/
     ├── DefaultToolDecorators.java  # Default decorator-chain factory (single source of truth; new decorator = new class + one registration line)
     ├── TokenEstimator.java       # Project-wide token estimation standard
     ├── builtin/history/RecallHistoryTools.java  # recall_history: archive retrieval by keyword / message id (scope=current|all)
+    ├── builtin/memory/MemoryTools.java  # remember / forget / list_memories: explicit memory read-write
     └── DemoTools.java            # Demo toolset (time / calculator / weather)
 ```
 
@@ -164,6 +167,8 @@ server/src/main/java/com/dark/javaHarness/
 | V9 | Goal retry columns (`agent_name` / `retry_count` / `next_retry_at`) |
 | V10 | Incremental profile distillation (`profile_extracted_at` / `last_extracted_message_id` replaces the one-shot lock) |
 | V11 | `idx_archive_time(archived_at, id)` for `scope=all` cross-session time-desc recall |
+| V12 | `session_summary` rolling conversation summary (cursor `covered_message_id`) |
+| V13 | `memory` explicit-memory table (key / content / source / expires_at / soft delete) + `memory` tool group for general/lead |
 
 ---
 
