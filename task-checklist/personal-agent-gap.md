@@ -2,7 +2,7 @@
 
 - 范围：`server` 主链路 + `harness-api` 端口 + `channel-qq` 推送 + `web` 入口；不改 `cli` 的命令行协议（仅加命令）
 - 创建：2026-11-06
-- 状态：共 14 项，已完成 10 项，待办 4 项
+- 状态：共 14 项，已完成 11 项，待办 3 项
 - 关系：`docs/HARNESS_TODO.md` 是技术路线图（工程化 / 编排智能化 / 多实例），本清单是**产品视角**的能力补齐。重叠 4 条（画像长青、归档 RAG、滚动摘要、Goal 重投）在此提前并给出可执行口径；其余为新增。两者冲突时以本清单的验收口径为准，完成后回写 HARNESS_TODO 勾选。
 
 ## 进度概览
@@ -12,9 +12,9 @@
 | P0 主动化的安全前置   | 2   | 0  | 2  |
 | P1 存在感（自己开始）  | 4   | 0  | 4  |
 | P2 记忆连续性（人生级） | 4   | 0  | 4  |
-| P3 随身触达        | 0   | 2  | 2  |
+| P3 随身触达        | 1   | 1  | 2  |
 | P4 个人数据源       | 0   | 2  | 2  |
-| 合计             | 10  | 4  | 14 |
+| 合计             | 11  | 3  | 14 |
 
 ## 背景
 
@@ -110,11 +110,12 @@
 
 ## P3 随身触达
 
-- [ ] P3-1 PWA（手机主屏入口）
+- [x] P3-1 PWA（手机主屏入口）
   - 作用：Web 要开电脑，CLI 要开终端，QQ 要额外跑 NapCat；PWA 是成本最低的「随身」方案
   - 位置：`web/`（`vite-plugin-pwa`）+ `web/vite.config.ts`
   - 做法：`manifest` + service worker 离线壳；本轮只做「添加到主屏 + 全屏 + 离线页 + 未读角标」，Web Push（VAPID + HTTPS）等 P1-2 稳定后再评估
   - 验收：iOS Safari 与 Android Chrome 都能添加到主屏，全屏无地址栏；断网打开显示离线页不白屏；`npm run build` 产物含 manifest 与 sw
+  - 结果（2026-11-07）：`vite-plugin-pwa`（generateSW + autoUpdate）：manifest 声明 standalone 与 192/512/maskable 图标，SW 预缓存应用壳（JS/CSS/HTML/图标，字体 woff2 走运行时 CacheFirst 不进预缓存），`registerSW.js` 自动注册；`index.html` 补 apple-touch-icon 与 apple-mobile-web-app 系列、`viewport-fit=cover`。新增离线门 `OfflineView`（断网替代主界面，联网自动退出；启动即断网则恢复后重载，避免带着初始化失败的空壳继续用）与未读角标（Badging API：页面不可见时完成的回复累加、回前台清零，iOS 无此 API 时静默）。测试：`pwa.test.ts` 6 条 + E2E 断网用例；生产产物实测 manifest 可读、SW 已注册、断网重载显示离线门且 logo 从缓存加载、恢复联网自动退出。**已知限制**：SW 仅在 HTTPS 或 localhost 注册，手机经局域网 `http://IP:端口` 无法安装；iOS 无安装弹窗与角标，需手动「分享 → 添加到主屏」；Web Push 按清单延后。
 
 - [ ] P3-2 微信 / 企微渠道
   - 作用：QQ 的 NapCat 要单独跑容器，微信才是真实日常场景

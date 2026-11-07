@@ -4,7 +4,7 @@
 >
 > 改端口、改启动方式、换依赖服务时，同一次提交内更新本文件。
 >
-> 最后按代码核对：2026-11-06
+> 最后按代码核对：2026-11-07
 
 ## 1. 工具链（Windows 侧实测）
 
@@ -106,7 +106,7 @@ npm run typecheck  # vue-tsc --noEmit
 npm run build      # typecheck + vite build
 npm test           # vitest run（Node ≥ 22.12）
 npx playwright install chromium   # 首次跑 E2E 前装浏览器
-npm run test:e2e   # Playwright 冒烟 3 条，mock 模式，不需要后端
+npm run test:e2e   # Playwright 冒烟 5 条，mock 模式，不需要后端
 ```
 
 本地不想下载 Playwright 的 Chromium 时，可复用系统浏览器（CI 不设该变量，仍用自带 Chromium）：
@@ -114,6 +114,10 @@ npm run test:e2e   # Playwright 冒烟 3 条，mock 模式，不需要后端
 ```powershell
 $env:PLAYWRIGHT_CHANNEL='chrome'; npm run test:e2e   # 系统 Chrome；Edge 用 'msedge'
 ```
+
+PWA（P3-1）只在构建产物里生效：`npm run dev` 不注册 service worker（`vite-plugin-pwa` 的
+`devOptions` 默认关闭），本地验证 manifest / SW / 离线门用 `npm run build && npm run preview`。
+手机端必须 HTTPS 或 localhost 才能注册 SW，局域网 `http://IP:端口` 无法「添加到主屏」。
 
 ## 6. 密钥与环境变量
 
