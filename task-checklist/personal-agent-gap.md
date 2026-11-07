@@ -2,7 +2,7 @@
 
 - 范围：`server` 主链路 + `harness-api` 端口 + `channel-qq` 推送 + `web` 入口；不改 `cli` 的命令行协议（仅加命令）
 - 创建：2026-11-06
-- 状态：共 14 项，已完成 8 项，待办 6 项
+- 状态：共 14 项，已完成 9 项，待办 5 项
 - 关系：`docs/HARNESS_TODO.md` 是技术路线图（工程化 / 编排智能化 / 多实例），本清单是**产品视角**的能力补齐。重叠 4 条（画像长青、归档 RAG、滚动摘要、Goal 重投）在此提前并给出可执行口径；其余为新增。两者冲突时以本清单的验收口径为准，完成后回写 HARNESS_TODO 勾选。
 
 ## 进度概览
@@ -11,10 +11,10 @@
 | -------------- | --- | -- | -- |
 | P0 主动化的安全前置   | 2   | 0  | 2  |
 | P1 存在感（自己开始）  | 4   | 0  | 4  |
-| P2 记忆连续性（人生级） | 2   | 2  | 4  |
+| P2 记忆连续性（人生级） | 3   | 1  | 4  |
 | P3 随身触达        | 0   | 2  | 2  |
 | P4 个人数据源       | 0   | 2  | 2  |
-| 合计             | 8   | 6  | 14 |
+| 合计             | 9   | 5  | 14 |
 
 ## 背景
 
@@ -93,11 +93,12 @@
   - 结果（2026-11-06）：`SessionHistoryArchiveService.search` 加 `allSessions` 维度（默认 false = 原「按会话过滤」行为零变化），`ArchivedMessage` 携带 `sessionId`；`recall_history` 新增 `scope` 参数（current 默认 / all 跨会话，拼错直接拒绝而非静默退回 current）；跨会话结果标注「会话 N / messageId」，模型才能说清「是哪次对话里说的」；V11 加 `idx_archive_time(archived_at, id)` 支撑跨会话「时间倒序 + LIMIT」不走 filesort。
   - 端到端（真机）：会话 240 / 241 各造一条归档（分别含「蓝色鲸鱼计划」「橙色海豚计划」），在第三个会话（253）让模型 `scope=all, query=代号检索` → 命中 2 条并正确标出会话 240/241，按归档时间倒序（241 在前）；同会话再查一次默认 scope（不传参）→ 返回「未命中」，确认会话内范围未放宽。
 
-- [ ] P2-3 长期记忆滚动摘要
+- [x] P2-3 长期记忆滚动摘要
   - 作用：长会话被预算裁掉的最旧轮次直接丢失，用户问「开头说的那个约束」就答不上
   - 位置：[MemoryPolicy](../server/src/main/java/com/dark/javaHarness/prompt/MemoryPolicy.java) / [ContextAssemblingAdvisor](../server/src/main/java/com/dark/javaHarness/advisor/ContextAssemblingAdvisor.java) 的裁剪点
   - 做法：裁剪时把被丢弃的轮次压缩成摘要（轻量模型异步调用，失败不阻塞主链），落独立表或 `session_messages` 的 summary 行；组装时摘要作为 system 段注入；摘要自身有 token 上限并支持滚动合并
   - 验收：构造超预算的 30 轮会话，摘要能答出第 1–3 轮的关键事实；摘要 token 不超上限；摘要失败时退化为现状（丢最旧轮次），主链不受影响
+  - 结果（2026-11-07）：V12 新增 `session_summary` 表（`covered_message_id` 增量游标）；harness-api 新增 `SessionSummaryPort` 并由 `SessionService` 继承，`SessionServiceImpl` 委托 `SessionSummaryService`；裁剪点在 `ContextAssemblingAdvisor`——裁剪前把已有摘要并入 system 段（参与预算且不会被丢），裁剪后把被丢消息异步投递；`SessionSummaryService` 用轻量模型（`app.context.summary-model`）滚动合并「已有摘要 + 新增对话」，输出按 `app.context.summary-max-chars`（默认 600）截断，同会话串行、失败只 WARN 不写库不推进游标；AgentScope 路径经 `AgentRequestSpecFactory.trimHistory` 复用同一口径。测试：30 轮超预算会话早期事实进入摘要、摘要注入/投递、读写失败降级、游标增量、字符上限、异步不阻塞主链；server 全量 900 条 + harness-api 契约守卫全绿。
 
 - [ ] P2-4 记忆显式管理（记住 / 忘掉 / 查看）
   - 作用：用户要能说「记住这个」「忘掉那个」，否则记忆不可控也不可信

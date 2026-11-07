@@ -27,6 +27,7 @@ import com.dark.javaHarness.mapper.SessionMessageMapper;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.SessionBindingCleaner;
 import com.dark.javaHarness.service.SessionMessageEntry;
+import com.dark.javaHarness.service.SessionSummaryPort;
 import tools.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Optional;
@@ -62,6 +63,8 @@ class SessionServiceImplTest {
     private SessionBindingCleaner bindingCleaner;
     @Mock
     private ObjectProvider<SessionBindingCleaner> bindingCleanerProvider;
+    @Mock
+    private SessionSummaryPort summaryPort;
 
     private SessionServiceImpl sessionService;
 
@@ -69,7 +72,7 @@ class SessionServiceImplTest {
     void setUp() {
         lenient().when(bindingCleanerProvider.getIfAvailable()).thenReturn(bindingCleaner);
         sessionService = new SessionServiceImpl(sessionMapper, messageMapper, archiveMapper,
-                new ObjectMapper(), agentConfigProvider, bindingCleanerProvider, 200);
+                new ObjectMapper(), agentConfigProvider, bindingCleanerProvider, summaryPort, 200);
     }
 
     private SessionEntity session(long id, int agentId) {
@@ -197,7 +200,7 @@ class SessionServiceImplTest {
         existing.setContent("""
                 [{"role":"user","content":"old1"},{"role":"assistant","content":"old2"}]""");
         SessionServiceImpl svc = new SessionServiceImpl(sessionMapper, messageMapper, archiveMapper,
-                new ObjectMapper(), agentConfigProvider, bindingCleanerProvider, 2);
+                new ObjectMapper(), agentConfigProvider, bindingCleanerProvider, summaryPort, 2);
         when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
         when(messageMapper.selectOne(any())).thenReturn(existing);
 
@@ -330,7 +333,7 @@ class SessionServiceImplTest {
     void saveContext_serializeFailure_retriesOnce() throws Exception {
         ObjectMapper mapper = org.mockito.Mockito.mock(ObjectMapper.class);
         SessionServiceImpl svc = new SessionServiceImpl(sessionMapper, messageMapper, archiveMapper,
-                mapper, agentConfigProvider, bindingCleanerProvider, 200);
+                mapper, agentConfigProvider, bindingCleanerProvider, summaryPort, 200);
         when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
         when(messageMapper.selectOne(any())).thenReturn(null);
         when(mapper.writeValueAsString(any()))
@@ -348,7 +351,7 @@ class SessionServiceImplTest {
     void saveContext_serializeTwiceFails_skipsWriteQuietly() throws Exception {
         ObjectMapper mapper = org.mockito.Mockito.mock(ObjectMapper.class);
         SessionServiceImpl svc = new SessionServiceImpl(sessionMapper, messageMapper, archiveMapper,
-                mapper, agentConfigProvider, bindingCleanerProvider, 200);
+                mapper, agentConfigProvider, bindingCleanerProvider, summaryPort, 200);
         when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
         when(messageMapper.selectOne(any())).thenReturn(null);
         when(mapper.writeValueAsString(any()))
@@ -466,7 +469,7 @@ class SessionServiceImplTest {
         existing.setContent("""
                 [{"role":"user","content":"old1"},{"role":"assistant","content":"old2"}]""");
         SessionServiceImpl svc = new SessionServiceImpl(sessionMapper, messageMapper, archiveMapper,
-                new ObjectMapper(), agentConfigProvider, bindingCleanerProvider, 2);
+                new ObjectMapper(), agentConfigProvider, bindingCleanerProvider, summaryPort, 2);
         when(sessionMapper.selectOne(any())).thenReturn(session(9L, 1));
         when(messageMapper.selectOne(any())).thenReturn(existing);
 

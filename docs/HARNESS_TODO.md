@@ -3,7 +3,7 @@
 > 由原 `ROADMAP.md` 与 `HARNESS_TODO.md` 合并而成；2026-09-11 结构重构：未完成区只保留 `- [ ]` 条目（P0→P3），已完成全部归档（按主题分节），拆出遗留尾巴立条。
 > 约定：`- [ ]` 未开始，`- [x]` 已完成。**未完成在前（按优先级），已完成在后（存档备查）**。
 > 术语说明：历史条目中的「路径 A / SIMPLE」对应 **Agentic 路径**，「路径 B / COMPLEX」对应 **Graph 编排路径**。
-> 版本基线：Spring Boot 4.1.2 / Spring AI 2.0.2 / Java 25（以根 `pom.xml` 与 [TECH_STACK.md](./TECH_STACK.md) 为准）；升级任何 AI 相关依赖前先验证兼容性。
+> 版本基线：Spring Boot 4.1.2 / Spring AI 2.0.2 / Java 25（以根 `pom.xml` 与 [TECH\_STACK.md](./TECH_STACK.md) 为准）；升级任何 AI 相关依赖前先验证兼容性。
 > 首次可用性约定：新增功能/入口合入前按 `docs/guides/first-run-audit.md`「五、首次使用流程规则」复查，走查结论追加至该报告「六、走查记录」。
 > 产品视角的能力补齐进度（主动性 / 记忆 / 触达）见 [task-checklist/personal-agent-gap.md](../task-checklist/personal-agent-gap.md)：2026-11-06 为 8/14，P0 / P1 全完成，P2 完成 2/4。
 
@@ -85,13 +85,14 @@
   - 验收：mock 某专家首次失败，端到端能看到重试/换人后的成功聚合
 - [ ] **子任务依赖编排**：lead 拆解支持声明依赖（如 `depends_on`），有依赖的子任务串行、无依赖的并行，替代当前纯并行
   - 验收：「先调研 X 再基于结论写代码」类任务按依赖顺序执行
-- [x] **复杂路径 Checkpointer（落库断点）**：已落地（`orchestration_checkpoint`，LEAD_DONE / SUBTASKS_DONE / DONE 三阶段，见 [guides/resume.md](./guides/resume.md)）。
+- [x] **复杂路径 Checkpointer（落库断点）**：已落地（`orchestration_checkpoint`，LEAD\_DONE / SUBTASKS\_DONE / DONE 三阶段，见 [guides/resume.md](./guides/resume.md)）。
 - [x] **Goal 失败重投（2026-11-06 完成）**：失败 Goal 按 1→2 分钟退避自动重投，最多 2 次
   - 落地：V9 给 `goal` 补 `agent_name` / `retry_count` / `next_retry_at`（原设计笔记写的 V10 编号已重整为 V9；此前 goal 不记录执行 Agent，既没法重投也看不出谁跑的）；`GoalRetryScheduler` 每 30 秒扫到期项调 `AgentService.retry`，重投跑**同一个 goal**以保住 traceId 与会话归属
   - 取舍：不做「仅瞬态失败」精细分类——提交异常分支统一排期，取消类异常白名单排除；watchdog 只把停滞目标标 FAILED，两者不并发执行同一 Goal
   - 验收：端到端造 FAILED 到期 goal → 30 秒后受理「重投第 1/2 次」→ 执行成功，`retry_count=1`、标记清空；成功路径 `retry_count` 恒为 0
-- [ ] **长期记忆滚动摘要**：会话历史超预算被裁剪的最旧轮次，滚动压缩为一段摘要注入 system（`MemoryPolicy` 扩展），长会话不丢单
-  - 进度（2026-11-03）：已落地最小版「消息 ID + 裁剪转归档 + 历史引用行 + `recall_history` 单跳检索」；本条的滚动摘要压缩仍待做
+- [x] **长期记忆滚动摘要**：会话历史超预算被裁剪的最旧轮次，滚动压缩为一段摘要注入 system（`MemoryPolicy` 扩展），长会话不丢单
+  - 进度（2026-11-03）：已落地最小版「消息 ID + 裁剪转归档 + 历史引用行 + `recall_history` 单跳检索」
+  - 进度（2026-11-07）：滚动摘要压缩落地——`ContextAssemblingAdvisor` 裁剪时把丢弃消息投递给 `SessionSummaryPort`，`SessionSummaryService` 异步用轻量模型滚动合并（已有摘要 + 新增对话，≤`app.context.summary-max-chars`），落 `session_summary` 表（V12，`covered_message_id` 增量游标）；下一轮组装把摘要并入 system 段；LLM 失败不写库不阻塞主链
   - 验收：超长会话中早期关键信息（如用户自述偏好）仍能被引用
 - [ ] **对话历史长期归档（RAG 记忆库）**：旧会话原文跨会话归档 + 向量化，按 query 检索召回（解决「上个月的 bug 最后怎么解决的」类提问）——大语料、按需召回，是长期记忆 RAG 的正确挂载点（用户偏好画像为常驻小数据，全量注入即可，不走 RAG）
   - 进度（2026-11-06）：归档表 `session_message_archive` + `recall_history` 已落地；**跨会话召回已支持**（`scope=all`，按归档时间倒序 + 关键词，结果带来源 sessionId；新增 `idx_archive_time` 支撑跨会话排序）；向量化召回仍待做（当前关键词 LIKE 在语料变大后是全表扫描）
@@ -125,7 +126,7 @@
   - 验收：`mvn test` 全绿；`mvn -DskipTests package` 后 `server/target/*.jar` 可直接启动；`server` 主源码树零 `channel.qq` 引用；`docker compose build` 待在具备 Docker 的环境验证。
 - [x] **容器化交付**：Dockerfile + docker-compose（app + MySQL + pgvector）一键启动
   - 验收：`docker compose up` 后完整可访问
-- [ ] **CI/CD**：GitHub Actions / Gitee Go 自动流水线（2026-09-18 充实，检查项取自多模块拆分验收清单）
+- [x] **CI/CD**：GitHub Actions / Gitee Go 自动流水线（2026-09-18 充实，检查项取自多模块拆分验收清单）
   - CI（push/PR 触发）：`mvn -s .mvn/settings.xml clean package` 全模块编译 + 测试（当前 harness-api 39 / server 893 / channel-qq 83 / cli 28 / wms 43 例）→ 断言 server fat jar 无 `com/dark/javaHarness/cli/` 目录与 jline → 断言 cli 运行时 classpath 无 spring-ai/mybatis/reactor 传递依赖（harness-api 框架依赖为 optional）→ `docker build -f docker/Dockerfile .` 验证镜像可构建（基础镜像走 BUILD\_BASE/RUN\_BASE ARG，CI 侧按网络环境注入加速通道）
   - 缓存：`actions/setup-java` 内置 maven 缓存对齐 `.mvn-repo`（localRepository 由 `maven.multiModuleProjectDirectory` 定位项目根，CI 工作区即仓库）
   - CD（可选后置）：分支镜像打 tag 推送镜像仓库，服务器 `docker compose pull && up -d` 拉起；上线前是否人工确认决定 Delivery/Deployment 形态
@@ -142,7 +143,7 @@
   - 验收：一次多 Agent 任务完成后可导出排版正常的中文 PDF（标题/列表/代码块/表格不乱码、不缺字）
 - [ ] **消息队列**：RabbitMQ / Kafka 异步派发 Goal，长任务解耦
   - 验收：提交 Goal 后立即返回，执行与消费异步解耦
-- [ ] **安全**：Spring Security + JWT 接口鉴权；API Key 走 KMS/Vault 管理（现有双通道鉴权已落地：`X-API-Token` 机器通道 + HttpOnly Cookie 登录通道，见 [TECH_STACK.md](./TECH_STACK.md)；本条指更高阶的 JWT/KMS 方案）
+- [ ] **安全**：Spring Security + JWT 接口鉴权；API Key 走 KMS/Vault 管理（现有双通道鉴权已落地：`X-API-Token` 机器通道 + HttpOnly Cookie 登录通道，见 [TECH\_STACK.md](./TECH_STACK.md)；本条指更高阶的 JWT/KMS 方案）
   - 验收：未带 token 的请求被拒绝
 - [ ] **WebSocket**：如需全双工交互（如任务进度推送）可扩展
 - [ ] **多实例水平扩展**：解除单实例假设——`failAllRunning` 启动清理、本地 `goalExecutor`、GRAPH\_CHECKPOINT 单写者；分布式锁（如 ShedLock）或消息队列派发二选一，与「消息队列」条目同批评估
@@ -173,7 +174,7 @@
 
 > 本节按完成时点记录，保留当时的实现描述；部分技术选型已被后续重构替换
 > （StateGraph → 自研 `ParallelOrchestrationEngine`、Spring AI 1.1 → 2.0、Boot 3.5 → 4.1），
-> 现状以 [TECH_STACK.md](./TECH_STACK.md) 与 [features.md](./features.md) 为准。
+> 现状以 [TECH\_STACK.md](./TECH_STACK.md) 与 [features.md](./features.md) 为准。
 
 ## 两路径架构（2026-08 完成）
 
@@ -309,7 +310,7 @@
 - [x] **超长类拆分**（立项自「明确暂缓项」，源 docs/optimization-review-2026-09-25.md）：四类按职责簇拆分，新类全部包私有零 Spring 装配（先例 AggregateStreamGuard/CallTrace），行为契约逐字面等价搬迁
   - 落点：AgentChatCaller 749→478（拆出 `AgentChatPipeline` 管道核：streamAttempt/streamCore/tokenStream/watchdog/流帧记账/空响应防御；`CallContext` 观测值对象提升为顶层 record；`CallSpecAssembler` 角色装配策略；`recordEstimatedIfNoUsage` 并入 BudgetLedger 静态；noToolsVariant 下沉为 `Assembly.withoutTools()`；宿主留守 call/stream 门面、两重试循环、configOf、测试契约薄委托 tokenStreamWithWatchdog/attachmentsFor/buildSpec）；MultiAgentGraphAgent 645→413（拆出 `OrchestrationNodes` 三节点 + predict\* 桥接 + 流式聚合护栏所有权；状态键常量放宽包级留守宿主不动 MultiAgentStreamPipeline 契约；死代码 safe() 删除；宿主留守执行/续跑入口与图装配）；ChatServiceImpl 524→430（拆出 `SseEncoder` SSE 编码纯函数/metaEvent 参数化 sources、`RagPrefetcher` 共享预取池 + 会话知识绑定解析；agentId 切换重复收编 `bindAgentQuietly`；toSseBody 流生命周期编排、resolveAgentWithPrefetch 汇合胶水、route 簇留守）；OneBotEventServiceImpl 520→331（拆出 `ReplySplitter` 分段纯函数、`EventTextParser` 事件解析与触发判定；handle/chatWithTimeout/拟人延迟留守）
   - 测试适配仅 3 处静态调用改类名（OneBotEventServiceImplTest 16 处 splitXxx→ReplySplitter、AgentChatCallerTest/AgentChatCallerRetryTest 各 1 处 contentOf→AgentChatPipeline）；ChatServiceImplTest（33 例）/MultiAgentGraphAgentTest（23 例）/GeneralAssistantAgentScaffoldTest（等价性裁判）零改动全绿
-  - 验收 ✅：核心类职责单一、四类行数收敛 18%~36%（拆出 8 个新类均 <275 行）；全量 610 用例 0 失败 0 错误
+  - 验收 ✅：核心类职责单一、四类行数收敛 18%\~36%（拆出 8 个新类均 <275 行）；全量 610 用例 0 失败 0 错误
 
 ***
 

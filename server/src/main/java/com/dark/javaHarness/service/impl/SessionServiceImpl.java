@@ -15,6 +15,7 @@ import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.service.SessionBindingCleaner;
 import com.dark.javaHarness.service.SessionMessageEntry;
 import com.dark.javaHarness.service.SessionService;
+import com.dark.javaHarness.service.SessionSummaryPort;
 import com.dark.javaHarness.service.SessionSnapshotItem;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
@@ -80,6 +81,8 @@ public class SessionServiceImpl implements SessionService {
     private final AgentConfigProvider agentConfigProvider;
     /** 渠道会话绑定清理端口：删除会话时清理渠道侧绑定行（如 QQ），渠道未启用时无实现 */
     private final ObjectProvider<SessionBindingCleaner> bindingCleaner;
+    /** 长期记忆滚动摘要端口（P2-3）：读取/投递均由 SessionSummaryService 承载 */
+    private final SessionSummaryPort summaryPort;
     /** 快照保留消息条数上限（超出丢弃最旧；0 = 不限制） */
     private final int snapshotMaxMessages;
 
@@ -89,6 +92,7 @@ public class SessionServiceImpl implements SessionService {
                               ObjectMapper objectMapper,
                               AgentConfigProvider agentConfigProvider,
                               ObjectProvider<SessionBindingCleaner> bindingCleaner,
+                              SessionSummaryPort summaryPort,
                               @org.springframework.beans.factory.annotation.Value("${app.session.snapshot-max-messages:200}")
                               int snapshotMaxMessages) {
         this.sessionMapper = sessionMapper;
@@ -97,6 +101,7 @@ public class SessionServiceImpl implements SessionService {
         this.objectMapper = objectMapper;
         this.agentConfigProvider = agentConfigProvider;
         this.bindingCleaner = bindingCleaner;
+        this.summaryPort = summaryPort;
         this.snapshotMaxMessages = snapshotMaxMessages;
     }
 
@@ -497,6 +502,18 @@ public class SessionServiceImpl implements SessionService {
     }
 
     /* ---------------- Spring AI ChatMemory 接口实现（包装现有逻辑） ---------------- */
+
+    /** 长期记忆摘要读取（P2-3）：委托 SessionSummaryService，失败在实现侧降级为 null */
+    @Override
+    public String summaryOf(String sessionId) {
+        return summaryPort.summaryOf(sessionId);
+    }
+
+    /** 长期记忆摘要投递（P2-3）：异步合并被裁剪的历史，不阻塞调用方 */
+    @Override
+    public void requestSummary(String sessionId, List<Message> droppedMessages) {
+        summaryPort.requestSummary(sessionId, droppedMessages);
+    }
 
     /** ChatMemory.get：按会话ID读取历史，等价于 {@link #loadContext}。 */
     @Override

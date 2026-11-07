@@ -193,7 +193,7 @@ final class AgentRequestSpecFactory {
             if (history != null && !history.isEmpty()) {
                 spec.messages(history);
             }
-            spec.advisors(new ContextAssemblingAdvisor(budgets.getHistoryBudget()));
+            spec.advisors(new ContextAssemblingAdvisor(budgets.getHistoryBudget(), sessionId, memoryStore));
         }
         // 请求级 advisor 挂载（如 lead/聚合的 PromptBudgetAdvisor）：
         // 不用 default advisor——聚合与子任务共用同一客户端，default 挂载会连坐到无关调用
@@ -305,6 +305,18 @@ final class AgentRequestSpecFactory {
     /** 会话历史原始快照（未裁剪）：ChatClient 路径交给 ContextAssemblingAdvisor，AgentScope 路径自行裁剪。 */
     List<Message> loadHistory(String sessionId) {
         return memoryStore.get(sessionId);
+    }
+
+    /**
+     * AgentScope 路径的历史裁剪入口：与 ChatClient 路径共用同一组装口径
+     * （预算裁剪 + 归档引用 + 长期记忆摘要注入/投递）。
+     */
+    List<Message> trimHistory(String sessionId, List<Message> history) {
+        if (history == null || history.isEmpty()) {
+            return List.of();
+        }
+        return new ContextAssemblingAdvisor(budgets.getHistoryBudget(), sessionId, memoryStore)
+                .assemble(history);
     }
 
     /**

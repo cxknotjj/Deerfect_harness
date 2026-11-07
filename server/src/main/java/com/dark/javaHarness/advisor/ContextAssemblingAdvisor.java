@@ -1,6 +1,7 @@
 package com.dark.javaHarness.advisor;
 
 import com.dark.javaHarness.domain.ChatMessageMetadata;
+import com.dark.javaHarness.service.SessionSummaryPort;
 import com.dark.javaHarness.tool.TokenEstimator;
 import java.util.ArrayList;
 import java.util.List;
@@ -38,12 +39,22 @@ public class ContextAssemblingAdvisor implements CallAdvisor, StreamAdvisor {
 
     private final int tokenBudget;
 
+    /** 会话标识（摘要读写键；null = 无会话场景，摘要机制零行为） */
+    private final String sessionId;
+
+    /** 长期记忆摘要端口（P2-3）：注入已有摘要 + 投递被裁消息；null = 单测/无摘要场景 */
+    private final SessionSummaryPort summaryPort;
+
     /**
      * @param tokenBudget 会话历史 token 预算（生产由 GeneralAssistantAgent 从
      *                    app.context.history-budget 注入，yaml 为唯一数值源）；≤ 0 = 不裁剪
+     * @param sessionId   会话标识（非空且 summaryPort 非空时启用滚动摘要）
+     * @param summaryPort 长期记忆摘要端口（可 null）
      */
-    public ContextAssemblingAdvisor(int tokenBudget) {
+    public ContextAssemblingAdvisor(int tokenBudget, String sessionId, SessionSummaryPort summaryPort) {
         this.tokenBudget = tokenBudget;
+        this.sessionId = sessionId;
+        this.summaryPort = summaryPort;
     }
 
     @Override
@@ -102,7 +113,9 @@ public class ContextAssemblingAdvisor implements CallAdvisor, StreamAdvisor {
         List<Message> cleaned = filterNoise(raw);
         // 2. 归一化 role 顺序
         List<Message> normalized = normalizeRoles(cleaned);
-        // 3. token 预算从旧丢弃（保留 system + 最近消息）；预算 ≤ 0 = 不限制，跳过裁剪
+        // 3. 注入长期记忆摘要（system 段，参与预算；摘要本身不会被裁掉）
+        injectSummary(normalized);
+        // 4. token 预算从旧丢弃（保留 system + 最近消息）；预算 ≤ 0 = 不限制，跳过裁剪
         if (tokenBudget <= 0) {
             return normalized;
         }
@@ -162,8 +175,9 @@ public class ContextAssemblingAdvisor implements CallAdvisor, StreamAdvisor {
             return messages;
         }
         List<Message> out = new ArrayList<>(messages);
-        // 从最旧逐步丢弃（Skip system，予以保留）；记录被丢消息的 ID，供归档引用提示
+        // 从最旧逐步丢弃（Skip system，予以保留）；记录被丢消息的 ID 与原文，供归档引用与摘要
         List<String> droppedIds = new ArrayList<>();
+        List<Message> dropped = new ArrayList<>();
         while (out.size() > 1 && total > tokenBudget) {
             int dropIdx = -1;
             for (int i = 0; i < out.size(); i++) {
@@ -175,11 +189,13 @@ public class ContextAssemblingAdvisor implements CallAdvisor, StreamAdvisor {
             if (dropIdx < 0) {
                 break; // 全为 system，无法再丢
             }
-            String messageId = messageId(out.get(dropIdx));
+            Message victim = out.get(dropIdx);
+            String messageId = messageId(victim);
             if (messageId != null) {
                 droppedIds.add(messageId);
             }
-            total -= estimateTokens(out.get(dropIdx));
+            dropped.add(victim);
+            total -= estimateTokens(victim);
             out.remove(dropIdx);
         }
         if (!droppedIds.isEmpty()) {
@@ -187,10 +203,44 @@ public class ContextAssemblingAdvisor implements CallAdvisor, StreamAdvisor {
             String ref = "【历史引用】更早 " + droppedIds.size()
                     + " 条消息已移出当前窗口并归档（消息 ID 示例：" + droppedIds.get(0)
                     + "），可用 recall_history 工具按关键词或消息 ID 检索。";
-            appendReferenceToSystem(out, ref);
+            appendToSystem(out, ref);
         }
+        requestSummary(dropped);
         log.info("[context-assembler] 裁剪后消息数={}, 估算token={}/{}", out.size(), total, tokenBudget);
         return out;
+    }
+
+    /**
+     * 注入已有滚动摘要：裁剪前先放入 system 段（system 永不参与丢弃，摘要不会丢）。
+     * 读取失败按无摘要继续（降级到现状「丢最旧轮次」）。
+     */
+    private void injectSummary(List<Message> messages) {
+        if (summaryPort == null || sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        String summary;
+        try {
+            summary = summaryPort.summaryOf(sessionId);
+        } catch (Exception e) {
+            log.debug("[context-assembler] 摘要读取失败（按无摘要继续）: {}", e.getClass().getSimpleName());
+            return;
+        }
+        if (summary == null || summary.isBlank()) {
+            return;
+        }
+        appendToSystem(messages, "【历史摘要】" + summary.trim());
+    }
+
+    /** 投递本次被裁消息（异步 best-effort，任何异常不得影响组装结果） */
+    private void requestSummary(List<Message> dropped) {
+        if (summaryPort == null || sessionId == null || sessionId.isBlank() || dropped.isEmpty()) {
+            return;
+        }
+        try {
+            summaryPort.requestSummary(sessionId, dropped);
+        } catch (Exception e) {
+            log.debug("[context-assembler] 摘要投递失败（忽略）: {}", e.getClass().getSimpleName());
+        }
     }
 
     /** 消息 ID（快照读取时写入 metadata）；缺失（旧快照/非会话消息）返回 null */
@@ -199,8 +249,8 @@ public class ContextAssemblingAdvisor implements CallAdvisor, StreamAdvisor {
         return value instanceof String s && !s.isBlank() ? s : null;
     }
 
-    /** 归档引用追加到 system 消息（保持单条 system，避免 role 归一化被二次破坏） */
-    private static void appendReferenceToSystem(List<Message> messages, String ref) {
+    /** 摘要/归档引用追加到 system 消息（保持单条 system，避免 role 归一化被二次破坏） */
+    private static void appendToSystem(List<Message> messages, String ref) {
         if (!messages.isEmpty() && messages.get(0) instanceof SystemMessage system) {
             messages.set(0, new SystemMessage(system.getText() + "\n\n" + ref));
             return;

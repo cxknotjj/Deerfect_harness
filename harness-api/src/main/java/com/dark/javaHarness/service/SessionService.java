@@ -14,7 +14,7 @@ import org.springframework.ai.chat.messages.Message;
  * 写入统一由 ChatService 在调用结束后负责（saveContext）——会话快照只存
  * user/assistant 两类角色，system 角色提示词不入库（避免角色错位）。
  */
-public interface SessionService extends ChatMemory {
+public interface SessionService extends ChatMemory, SessionSummaryPort {
 
     /**
      * 创建新会话，会话名取首条提问（截断）。

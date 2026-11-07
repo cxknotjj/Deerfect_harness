@@ -12,6 +12,7 @@ import com.dark.javaHarness.view.SessionMessagesView;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -149,6 +150,14 @@ class SessionServiceContractTest {
     }
 
     @Test
+    void summaryPort_roundTripsDroppedMessages() {
+        String id = service.createSession("anonymous", "第一句");
+        service.requestSummary(id, List.of(new UserMessage("旧1"), new AssistantMessage("旧2")));
+        assertEquals("dropped:2", service.summaryOf(id));
+        assertNull(service.summaryOf("missing"), "无摘要返回 null");
+    }
+
+    @Test
     void chatMemoryAdapter_delegatesToContextOperations() {
         String id = service.createSession("anonymous", "第一句");
 
@@ -164,6 +173,7 @@ class SessionServiceContractTest {
 
         private final Map<String, SessionEntity> sessions = new LinkedHashMap<>();
         private final Map<String, List<Stored>> contexts = new LinkedHashMap<>();
+        private final Map<String, String> summaries = new HashMap<>();
         private final Set<Long> knownAgents = Set.of(1L, 2L);
         private long sequence;
 
@@ -281,6 +291,17 @@ class SessionServiceContractTest {
         public void deleteSession(String sessionId) {
             sessions.remove(sessionId);
             contexts.remove(sessionId);
+        }
+
+        @Override
+        public String summaryOf(String sessionId) {
+            return summaries.get(sessionId);
+        }
+
+        @Override
+        public void requestSummary(String sessionId, List<Message> droppedMessages) {
+            // 契约替身：把被裁消息条数记成摘要，供 summaryOf 读取
+            summaries.put(sessionId, "dropped:" + droppedMessages.size());
         }
 
         @Override

@@ -69,7 +69,10 @@ class PortSignatureGuardTest {
                         "add(String,List):void",
                         "add(String,Message):void",
                         "get(String):List",
-                        "clear(String):void")),
+                        "clear(String):void",
+                        // 长期记忆滚动摘要端口（SessionSummaryPort 继承，P2-3）
+                        "summaryOf(String):String",
+                        "requestSummary(String,List):void")),
                 signatures(SessionService.class),
                 "SessionService 公开签名（含 ChatMemory 端口）发生变化。" + AFFECTED);
     }

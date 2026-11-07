@@ -1,6 +1,5 @@
 package com.dark.javaHarness.agent;
 
-import com.dark.javaHarness.advisor.ContextAssemblingAdvisor;
 import com.dark.javaHarness.agent.BranchProgressListener;
 import com.dark.javaHarness.agent.agentic.AgentScopeModelFactory;
 import com.dark.javaHarness.agent.agentic.SpringAiToolBridge;
@@ -184,8 +183,7 @@ public class AgentScopeGeneralAgent implements Agent {
         SystemAssembly system = specFactory.assembleSystem(config, sessionId, agentName,
                 DEFAULT_SYSTEM_PROMPT, goal.objective(), trace);
         List<Message> history = specFactory.loadHistory(sessionId);
-        List<Message> trimmed = history == null ? List.of()
-                : new ContextAssemblingAdvisor(budgets.getHistoryBudget()).assemble(history);
+        List<Message> trimmed = specFactory.trimHistory(sessionId, history);
 
         // 2) 工具：装饰后的 Spring AI ToolCallback → AgentScope ToolBase（进度行仍由装饰链发射）
         Sinks.Many<String> content = Sinks.many().unicast().onBackpressureBuffer();
