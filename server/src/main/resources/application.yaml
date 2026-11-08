@@ -30,6 +30,7 @@ spring:
       - classpath:application-security.yaml
       - classpath:application-knowledge.yaml
       - classpath:application-qq.yaml
+      - classpath:application-channel.yaml
       - classpath:application-tts.yaml
 
 server:

@@ -50,7 +50,7 @@
 | --- | --- | --- |
 | [personal-agent-gap.md](./personal-agent-gap.md) | 能力补齐（主动性 / 记忆 / 触达） | 11/14 |
 | [project-hardening.md](./project-hardening.md) | 工程护栏与结构债（质量门禁 / 集成测试 / 部署默认项） | 13/14 |
-| [email-channel.md](./email-channel.md) | 邮件渠道模块（M1 后半） | 0/6 |
+| [email-channel.md](./email-channel.md) | 邮件渠道模块（M1 后半） | 5/6（E1-5 待真实 SMTP 验证） |
 | [channel-health.md](./channel-health.md) | 渠道探活告警（M2） | 0/4 |
 | [feishu-channel.md](./feishu-channel.md) | 飞书渠道：webhook（M3a）/ 事件订阅（M3b） | 0/9 |
 

@@ -146,6 +146,19 @@ PWA（P3-1）只在构建产物里生效：`npm run dev` 不注册 service worke
 - `run-wsl.sh` 会 `source .env.local`；**`run-win.bat`** **不会**，Windows 侧请用 `setx` 设系统环境变量。
 - 不要把密钥写进 yaml、脚本或提交记录。
 
+**邮件渠道（可选）**：`MAIL_USERNAME`（邮箱地址）、`MAIL_PASSWORD`（**授权码，不是登录密码**）。
+配置在 `application-channel.yaml` 的 `channel.email.*`，`enabled: false` 默认关闭；关闭时
+`server` 的依赖树里没有 mail starter（渠道模块是 runtime 依赖），注册表也不会出现 `email` 渠道。
+
+首次启用请按这个顺序检查，别跳过第 3 步：
+
+1. `channel.email.from` 与 `username` 一致（多数服务商强制要求，不一致会被拒信）
+2. 发件人加入服务商白名单；主题避免「中奖 / 免费」这类词
+3. **发一封测试邮件到你手机上的邮箱客户端，确认它不在垃圾箱**——「邮件能发出去」和
+   「你会看到它」是两件事，后者才是告警的意义
+4. 打开监控页确认渠道状态：邮件渠道的状态来自「最近一次投递结果」，从未投递时会显示
+   「未知（尚无投递记录）」，这是预期行为，不是故障
+
 ## 7. 已知问题（本机实测）
 
 - **GitHub 推送经常 408 超时**：默认推 Gitee，GitHub 失败不要反复重试。

@@ -2,7 +2,7 @@
 
 - 范围：新增 `channel-email` 模块 + 根 `pom.xml` / `server/pom.xml` 登记 + `application-channel.yaml`
 - 创建：2026-11-08
-- 状态：共 6 项，已完成 0 项，待办 6 项
+- 状态：共 6 项，已完成 5 项，待办 1 项（E1-5 只差真实 SMTP 验证）
 - 规划书：[docs/design/2026-11-08-delivery-reliability-feishu-email-plan.md](../docs/design/2026-11-08-delivery-reliability-feishu-email-plan.md) 第 6.3 节
 - 关系：依赖 `delivery-outbox.md` 的 D1-1（通道链）才能被降级链调用；本清单只做渠道实现，不含投递层
 
@@ -10,10 +10,10 @@
 
 | 分类 | 已完成 | 待办 | 小计 |
 | --- | --- | --- | --- |
-| 模块骨架 | 0 | 1 | 1 |
-| 实现 | 0 | 3 | 3 |
-| 部署与测试 | 0 | 2 | 2 |
-| 合计 | 0 | 6 | 6 |
+| 模块骨架 | 1 | 0 | 1 |
+| 实现 | 3 | 0 | 3 |
+| 部署与测试 | 1 | 1 | 2 |
+| 合计 | 5 | 1 | 6 |
 
 ## 背景
 
@@ -25,41 +25,47 @@
 
 ## 条目
 
-- [ ] E1-1 模块骨架与三处登记
+- [x] E1-1 模块骨架与三处登记
   - 作用：让邮件作为可选渠道独立打包、独立启停，不污染 core 依赖树
   - 位置：新增 `channel-email/pom.xml`；改根 `pom.xml` 的 `<modules>`、`server/pom.xml`
   - 做法：三处同步——① 根 `pom.xml` 加 `<module>channel-email</module>`；② `server/pom.xml` 加 `channel-email` 的 `runtime` 依赖，并在 enforcer `bannedDependencies` 里补 `com.dark:channel-email:*:*:compile` 排除（现有规则禁止 core 编译期依赖渠道模块）；③ 模块自身 pom 声明 `harness-api` + `spring-boot-starter-mail`，并设 `jacoco.line.minimum`（父 pom 默认 0.00 只出报告，初值可设 0.5，实测后按「实测下方约 2 点」调整）
   - 验收：`mvn -o -B verify` 通过；`mvn dependency:tree -pl server` 里 `channel-email` 是 runtime、`spring-boot-starter-mail` 不出现；`ArchitectureTest` 全绿
+  - 结果（2026-11-08）：新建 `channel-email` 模块（pom 声明 `harness-api` + `spring-boot-starter-mail`，不依赖 core）。三处登记全部完成：根 pom `<modules>`、server pom 的 `runtime` 依赖 + enforcer `bannedDependencies` 排除、模块自身 `jacoco.line.minimum`（实测 63.0% → 门槛 0.61）。`mvn dependency:tree -pl server` 里 mail starter 不出现。
 
-- [ ] E1-2 EmailProperties 与渠道配置
+- [x] E1-2 EmailProperties 与渠道配置
   - 作用：邮件配置归到 `channel.*` 命名空间，与 `channel.feishu.*` 对称；避免 `MailSenderAutoConfiguration` 的隐式装配
   - 位置：`channel-email/src/main/java/com/dark/javaHarness/channel/email/EmailProperties.java`、`server/src/main/resources/application-channel.yaml`
   - 做法：`@ConfigurationProperties(prefix = "channel.email")`，字段 `enabled / host / port / from / username / password / ssl / connectTimeoutMs`；`@ConditionalOnProperty(prefix="channel.email", name="enabled", havingValue="true")` 控制装配，默认关闭
   - 验收：`enabled=false` 时容器里没有 `EmailMessageSender`，`MessageSenderRegistry` 启动日志的渠道列表不含 `email`；`enabled=true` 且配置齐全时注册成功
+  - 结果（2026-11-08）：`channel.email.*` 共 8 个键，`@ConditionalOnProperty` 默认关闭；配置放新文件 `application-channel.yaml`（与 `application-qq.yaml` 并列，经 `application.yaml` 的 `spring.config.import` 引入）。未用 `spring.mail.*`，因此不会触发 `MailSenderAutoConfiguration` 的隐式装配。
 
-- [ ] E1-3 EmailMessageSender（发送 + 错误分流）
+- [x] E1-3 EmailMessageSender（发送 + 错误分流）
   - 作用：把「发出去」和「为什么没发出去」都变成可判定的事实
   - 位置：`channel-email/src/main/java/com/dark/javaHarness/channel/email/EmailMessageSender.java`
   - 做法：自建 `JavaMailSenderImpl`（不依赖自动配置），`channel()` 返回 `"email"`；覆盖 `sendForReceipt`；正文纯文本 + 固定头部（来源 / 目标 / 时间 / 错误原因），不做 HTML。失败分流：认证失败（`AuthenticationFailedException`）→ 终态，重试只会一直失败且可能触发服务商风控；连接超时 → 可重试；收件人拒绝（`SendFailedException` 的 invalid addresses）→ 终态
   - 验收：三类失败分别产生「终态 / 可重试 / 终态」三种回执，`reason` 含原始异常摘要；成功时 `sent=true`
+  - 结果（2026-11-08）：显式 new `JavaMailSenderImpl`（连接/读/写超时都可配）；主题取正文首行并截断到 40 字符，正文带「来源/目标/时间」头部。四类失败分流落地：认证失败与收件人无效 → `fatal`，超时与未知异常 → `failed`。
 
-- [ ] E1-4 EmailChannelHealth（真实流量当探针）
+- [x] E1-4 EmailChannelHealth（真实流量当探针）
   - 作用：让监控页能看到邮件渠道状态，同时不付出 SMTP 建连 + 认证的成本
   - 位置：`channel-email/src/main/java/com/dark/javaHarness/channel/email/EmailChannelHealth.java`
   - 做法：实现 `ChannelHealth`，`snapshot()` **只读最近一次投递结果与时间**，不发探活请求。超过 7 天无投递报「未知（无近期投递）」而不是假装健康
   - 验收：从未投递过 → `available=false` + `detail` 为「未知」；刚成功过 → `available=true`；`detail` 不含用户名密码
+  - 结果（2026-11-08）：只读 `EmailMessageSender.lastAttempt()`，不发探活请求；超 7 天无投递报「未知」而不是「可用」。`Clock` 可注入，测试用 `Clock.fixed` 造 8 天前的时间，不 sleep。
 
 - [ ] E1-5 环境变量与首次部署检查
   - 作用：凭据不进仓库；「邮件进垃圾箱」这件事在首次部署时就被确认，而不是等告警丢了才发现
   - 位置：`application-channel.yaml` 的占位符、`docs/dev.md` 的部署说明、`docs/guides/docker-deploy.md` 的环境变量清单
   - 做法：`username` / `password` 从 `MAIL_USERNAME` / `MAIL_PASSWORD` 注入；文档写清 SMTP 服务商选择（QQ 邮箱授权码 / 阿里云邮件推送等）与「发件人白名单」；首次部署检查清单加一条：**发一封测试邮件到你手机上的邮箱客户端，确认不在垃圾箱**
   - 验收：`grep -r "MAIL_PASSWORD" docs/` 能查到说明；仓库里无明文密码；首次部署后测试邮件在收件箱
+  - 进度（2026-11-08）：**代码与文档侧已就绪**——`MAIL_USERNAME` / `MAIL_PASSWORD` 占位符、`docs/dev.md` 的四步首次启用检查、`docker-deploy.md` 的渠道开关说明都已补。**验收未闭环**：没有 SMTP 凭据，无法验证「测试邮件落在收件箱而非垃圾箱」。需要你自己配一次并确认，这条才能勾选。
 
-- [ ] E1-6 单元测试
+- [x] E1-6 单元测试
   - 作用：避免邮件模块成为「写完就没人动、坏了不知道」的一角
   - 位置：`channel-email/src/test/java/com/dark/javaHarness/channel/email/`
   - 做法：`EmailMessageSenderTest`（成功 / 认证失败 / 超时 / 无效收件人 四类），`EmailChannelHealthTest`（无投递 / 近期成功 / 超 7 天）
   - 验收：两个测试类全绿；`channel-email` 行覆盖率不低于 `jacoco.line.minimum`
+  - 结果（2026-11-08）：`EmailMessageSenderTest` 9 条（成功 / 认证失败 / 收件人无效 / 超时 / 空目标 / 空正文 / 缺 from / 长主题截断 / lastAttempt 记录）、`EmailChannelHealthTest` 6 条，共 15 条全绿。
 
 ## 与投递层的接口约定
 

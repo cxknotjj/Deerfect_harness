@@ -31,6 +31,13 @@
             <version>${project.version}</version>
             <scope>runtime</scope>
         </dependency>
+        <!-- 邮件渠道同样是 runtime：不启用时 core 依赖树里没有 mail starter -->
+        <dependency>
+            <groupId>com.dark</groupId>
+            <artifactId>channel-email</artifactId>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -250,6 +257,7 @@
                                     <!-- core(server) 不得 compile 依赖渠道模块 -->
                                     <excludes>
                                         <exclude>com.dark:channel-qq:*:*:compile</exclude>
+                                        <exclude>com.dark:channel-email:*:*:compile</exclude>
                                     </excludes>
                                     <searchTransitive>false</searchTransitive>
                                 </bannedDependencies>
