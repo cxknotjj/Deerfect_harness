@@ -35,6 +35,11 @@ public class NapCatHealth implements ChannelHealth {
     }
 
     @Override
+    public String channelId() {
+        return "qq";
+    }
+
+    @Override
     public Snapshot snapshot() {
         if (!props.isEnabled()) {
             return new Snapshot(false, false, "napcat.enabled=false，QQ 渠道未装配");

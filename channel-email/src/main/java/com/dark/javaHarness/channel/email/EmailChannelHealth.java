@@ -37,17 +37,23 @@ public class EmailChannelHealth implements ChannelHealth {
     }
 
     @Override
+    public String channelId() {
+        return "email";
+    }
+
+    @Override
     public Snapshot snapshot() {
         if (!props.isEnabled()) {
             return new Snapshot(false, false, "channel.email.enabled=false，邮件渠道未装配");
         }
         EmailMessageSender.Attempt last = sender.lastAttempt();
         if (last == null) {
-            return new Snapshot(true, false, "未知（尚无投递记录）");
+            // UNKNOWN 而不是 DOWN：没发过信不等于发不出去，探活告警不该据此打扰
+            return new Snapshot(Status.UNKNOWN, "未知（尚无投递记录）");
         }
         Duration since = Duration.between(last.at(), clock.instant());
         if (since.compareTo(STALE_AFTER) > 0) {
-            return new Snapshot(true, false, "未知（最近一次投递在 " + since.toDays() + " 天前）");
+            return new Snapshot(Status.UNKNOWN, "未知（最近一次投递在 " + since.toDays() + " 天前）");
         }
         return last.sent()
                 ? new Snapshot(true, true, "最近一次投递成功")

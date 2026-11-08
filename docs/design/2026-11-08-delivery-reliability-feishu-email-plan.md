@@ -303,6 +303,13 @@ ChannelWatchdog  @Scheduled(fixedDelay = 5min)
 
 **「走非本渠道」是关键**：不能用 `feishu:xxx` 去告警「飞书挂了」。实现上给 `sendWithFallback` 加一个 `excludeChannel` 参数。
 
+> **落地时的两处修正（2026-11-08）**
+>
+> 1. 告警不是「直接发一次」，而是**剔除故障渠道后入队 outbox**（`source=alert`）。理由：outbox 的一行就是一条链，入队前定下来，重投才会遵守「不走坏渠道」；`excludeChannel` 只能管第一次发送。
+> 2. `ChannelHealth.Snapshot` 由 `(enabled, available)` 二元组扩成四态 `UP / DOWN / UNKNOWN / DISABLED`。邮件渠道 7 天没投递报「未知」，若按 `available=false` 判故障，会周期性发假警报。旧的三参构造保留，监控页与既有测试不受影响。
+>
+> 阈值没有新增 `channel-watchdog.fail-threshold`，直接复用 `app.alert.min-failures`——同一语义设两个键必然漂移。
+
 ### 7.2 为什么不做进程外心跳（取舍记录）
 
 「进程死亡无人知」是真实风险，但**本方案按需跳过**。理由：

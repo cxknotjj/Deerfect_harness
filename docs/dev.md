@@ -250,3 +250,23 @@ IMAGE_REPO=ghcr.io/cxknotjj/deerfect-harness IMAGE_TAG=sha-xxxxxxx \
   resume、也查不到归属的 `state_json`。
 - 删除会话时级联清：`session_messages`（快照）、`session_summary`（滚动摘要）、渠道绑定；
   `session_message_archive` 按上面的保留期走，**不随会话删除**（跨会话召回要用）。
+
+### 渠道探活告警（能报什么 / 不能报什么）
+
+`ChannelWatchdog` 每 `app.channel-watchdog.interval-ms`（默认 5 分钟）读一次各渠道的
+`ChannelHealth`，连续 `app.alert.min-failures`（默认 3）次 `DOWN` 才发告警；恢复后补一条
+「已恢复」；同一渠道 `app.alert.throttle-hours`（默认 24 小时）内不重复提醒。
+告警本身写 `delivery_outbox`（`source=alert`），所以发失败还会按退避重投，可在表里查。
+
+两条判定口径值得记住：
+
+- **只对「确认不可用」告警**：`ChannelHealth.Status` 四态里，`UNKNOWN` 不是故障。邮件渠道
+  用「最近一次投递」当探针，7 天没投递只能报 `UNKNOWN`——把它当故障会每周发一条假警报。
+- **告警不走故障渠道**：入队前会把 `alert-chain` 里该渠道的段删掉（`qq` 挂了走
+  `email:me@example.com`）。删完为空时只记 ERROR 日志——此时确实没有可用通道。
+
+**边界（刻意不做进程外心跳）**：本层只覆盖「进程活着、渠道发不出去」。进程/主机死亡不在
+范围内，理由：单实例个人部署下进程死了你通常会自己察觉；`restart: unless-stopped` 已覆盖
+崩溃拉起；外部观察者本身是需要长期维护、失效时无人监控的依赖。**残余风险**：容器一直起不来
+（镜像损坏、磁盘满、端口占用）时所有通知一起停，发现方式退化为「你注意到今天没收到消息」。
+将来若确实需要，接一个外部探活调 `/actuator/health` 即可，不需要改本层结构。

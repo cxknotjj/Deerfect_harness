@@ -102,5 +102,13 @@ app:
 
   # 告警抑制：避免「每次失败发一条」把自己练成不看告警的人
   alert:
-    min-failures: 3                              # 连续失败几次才发第一条
+    min-failures: 3                              # 连续失败几次才发第一条（探活告警共用此阈值）
     throttle-hours: 24                           # 同类告警的抑制窗口
+
+  # 渠道探活告警（ChannelWatchdog）：定时问各渠道「你还能用吗」，连续失败达阈值后通知。
+  # 告警走 alert-chain 上「非本渠道」的那一段——不能用飞书报「飞书挂了」。
+  # 只对「确认不可用」告警；邮件那种「7 天没投递 = 不知道」的状态不算故障。
+  channel-watchdog:
+    enabled: true
+    interval-ms: 300000                          # 探活节拍；判定耗时 ≈ app.alert.min-failures × 本值
+    alert-chain: ""                              # 例：email:me@example.com；留空则只记日志（不探活）
