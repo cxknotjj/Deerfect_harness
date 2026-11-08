@@ -132,6 +132,15 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-dummy-deepseek-key}
       NAPCAT_API_TOKEN: ${NAPCAT_API_TOKEN:-napcat123}
       NAPCAT_EVENT_SECRET: ${NAPCAT_EVENT_SECRET:-}
+      # —— 可选推送渠道（默认关闭；启用时把对应 ENABLED 置 true）——
+      # 邮件：MAIL_PASSWORD 是授权码不是登录密码
+      CHANNEL_EMAIL_ENABLED: ${CHANNEL_EMAIL_ENABLED:-false}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      # 飞书群机器人：webhook URL 与签名密钥都是凭证，只走 .env
+      CHANNEL_FEISHU_ENABLED: ${CHANNEL_FEISHU_ENABLED:-false}
+      FEISHU_WEBHOOK_URL: ${FEISHU_WEBHOOK_URL:-}
+      FEISHU_WEBHOOK_SECRET: ${FEISHU_WEBHOOK_SECRET:-}
     volumes:
       # 沙箱工具（DooD）：应用经宿主 Docker 守护进程拉起沙箱容器。
       # 沙箱在容器内默认走 unix socket 标准发现，无需配 DOCKER_HOST；

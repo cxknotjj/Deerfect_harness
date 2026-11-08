@@ -358,6 +358,8 @@ POST https://open.feishu.cn/open-apis/bot/v2/hook/<token>
 
 实现：`FeishuWebhookSender implements MessageSender`，就是一个带签名的 HTTP POST，约 80 行，零 SDK 依赖。
 
+> **落地（2026-11-08）**：`channel-feishu` 只依赖 `harness-api` + `spring-boot-starter` + `jackson-databind`（无 web starter、无 lark SDK）。请求体与错误码用 Jackson 解析，不手写字符串拼接。测试用 JDK `HttpServer` 起本地桩，断言「实际发出的 JSON」与「响应怎么翻译」，不 mock `HttpClient`；签名向量由 Python `hmac` 独立算出后硬编码，避免测试与被测代码共用同一份实现而一起错。HTTP 维度比初稿多分了一层：429 / 5xx 可重试，其余 4xx 终态。
+
 ### 8.3 M3b：事件订阅（3 人日，可选）
 
 两条路，按「有没有域名」二选一：

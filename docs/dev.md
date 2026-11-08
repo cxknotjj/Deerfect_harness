@@ -159,6 +159,19 @@ PWA（P3-1）只在构建产物里生效：`npm run dev` 不注册 service worke
 4. 打开监控页确认渠道状态：邮件渠道的状态来自「最近一次投递结果」，从未投递时会显示
    「未知（尚无投递记录）」，这是预期行为，不是故障
 
+**飞书渠道（可选）**：`FEISHU_WEBHOOK_URL`、`FEISHU_WEBHOOK_SECRET`。配置在
+`application-channel.yaml` 的 `channel.feishu.*`，`enabled: false` 默认关闭；关闭时注册表里
+不会出现 `feishu` 渠道。启用步骤：
+
+1. 飞书里建一个只有自己的群 → 群设置 → 群机器人 → 添加「自定义机器人」
+2. 复制 webhook 地址，开启**签名校验**并复制密钥（`secret`）
+3. `channel.feishu.enabled: true`，`notify_channel` 写 `feishu:main`——**别名**，不是 URL；
+   URL 与 secret 是凭证，只放环境变量，不进业务表也不进 git
+4. 缺 secret 时应用会**拒绝启动**：不签名的 webhook 等于对任何拿到 URL 的人开放
+
+M3a 是单向推送：不能接收消息、不能当对话入口，也没有 `message_id`（查不了已读、撤不回）。
+请求体上限 20 KB，超长正文由投递层自动改走邮件（不截断）。
+
 ## 7. 已知问题（本机实测）
 
 - **GitHub 推送经常 408 超时**：默认推 Gitee，GitHub 失败不要反复重试。

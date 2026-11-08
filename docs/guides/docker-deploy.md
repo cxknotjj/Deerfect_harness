@@ -53,6 +53,7 @@ compose 启动时自动读取 compose 文件同目录的 `docker/.env`（`-f` �
 - **基础镜像**：`BUILD_BASE` / `RUN_BASE` 仅 `--build` 重建镜像时生效，默认已指向 daocloud 加速通道
 - **QQ 渠道**：不用 QQ 就设 `NAPCAT_ENABLED=false`；`NAPCAT_API_TOKEN` / `NAPCAT_EVENT_SECRET` 必须与 NapCat 侧配置一致，否则消息收不到/上报被拒
 - **邮件渠道**：不用就保持 `CHANNEL_EMAIL_ENABLED=false`（默认）；启用需设 `MAIL_USERNAME` / `MAIL_PASSWORD`（**授权码，不是登录密码**），并在 `channel.email.from` 填同一个地址。首次启用先发一封测试邮件确认收件箱而非垃圾箱——「能发出去」和「你会看到」是两件事
+- **飞书渠道**：不用就保持 `CHANNEL_FEISHU_ENABLED=false`（默认）；启用需设 `FEISHU_WEBHOOK_URL` / `FEISHU_WEBHOOK_SECRET`（群自定义机器人，开启签名校验）。`notify_channel` 写 `feishu:main` 别名，URL 不进业务表；缺 secret 时应用拒绝启动，这是刻意的不容错
 
 | 服务 | 容器名 | 说明 |
 |---|---|---|
@@ -62,7 +63,7 @@ compose 启动时自动读取 compose 文件同目录的 `docker/.env`（`-f` �
 
 **compose 相对路径规则**：volumes 里的相对路径一律以 **docker-compose.yml 所在目录（`docker/`）为基准**，与在哪个目录执行命令无关（项目根 `-f docker/docker-compose.yml` 跑也一样）。因此 `../knowledge` = 项目根/knowledge（`../` 从 docker/ 上跳一级到项目根），`./config` = `docker/config`、`./pg-init` = `docker/pg-init`；容器内挂载点全部对齐 WORKDIR `/workspace`，与 jar 内相对路径配置（`app.knowledge.dir: knowledge`、`napcat.emoji.dir: channel/emojis`）正好衔接。`docker/.env` 能被自动读取也是同一条规则（compose 固定在自己的目录找 `.env`）。
 
-常用环境变量：`DEEPSEEK_API_KEY`；QQ 渠道 `NAPCAT_API_TOKEN` / `NAPCAT_EVENT_SECRET`，不用 QQ 设 `NAPCAT_ENABLED=false`；NapCat 在远端机器时设 `NAPCAT_BASE_URL=http://<host>:3000`（默认经 host-gateway 连宿主 Docker 里的 NapCat）。
+常用环境变量：`DEEPSEEK_API_KEY`；QQ 渠道 `NAPCAT_API_TOKEN` / `NAPCAT_EVENT_SECRET`，不用 QQ 设 `NAPCAT_ENABLED=false`；NapCat 在远端机器时设 `NAPCAT_BASE_URL=http://<host>:3000`（默认经 host-gateway 连宿主 Docker 里的 NapCat）；可选推送渠道 `CHANNEL_EMAIL_ENABLED` + `MAIL_USERNAME` / `MAIL_PASSWORD`、`CHANNEL_FEISHU_ENABLED` + `FEISHU_WEBHOOK_URL` / `FEISHU_WEBHOOK_SECRET`。
 
 **3️⃣ 验证与知识库初始化**
 

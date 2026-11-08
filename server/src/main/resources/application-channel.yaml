@@ -15,3 +15,13 @@ channel:
     password: ${MAIL_PASSWORD:}        # 授权码，不是登录密码；不得进 git
     ssl: true
     timeout-ms: 10000                  # 连接 / 读 / 写超时：SMTP 挂起时不能把投递线程按住太久
+
+  # 飞书渠道（M3a）：群自定义机器人 webhook，单向推送。
+  # 不需要建应用、申请权限、审核或公网回调；20 KB 上限由投递层自动转邮件。
+  # URL 就是凭证（泄露即可被冒名发消息），所以 secret 必填、签名强制开启。
+  feishu:
+    enabled: false                     # 未配 webhook 就不装配：注册表里也不会出现 feishu 渠道
+    alias: main                        # notify_channel 写 feishu:main，业务表里不存 URL
+    webhook-url: ${FEISHU_WEBHOOK_URL:}        # 群设置 → 群机器人 → 自定义机器人
+    webhook-secret: ${FEISHU_WEBHOOK_SECRET:}  # 开启「签名校验」后飞书给的密钥；缺少则拒绝启动
+    timeout-ms: 10000

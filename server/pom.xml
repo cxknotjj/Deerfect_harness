@@ -38,6 +38,13 @@
             <version>${project.version}</version>
             <scope>runtime</scope>
         </dependency>
+        <!-- 飞书渠道：runtime，不启用时 core 依赖树里没有 jackson 之外的任何东西 -->
+        <dependency>
+            <groupId>com.dark</groupId>
+            <artifactId>channel-feishu</artifactId>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -258,6 +265,7 @@
                                     <excludes>
                                         <exclude>com.dark:channel-qq:*:*:compile</exclude>
                                         <exclude>com.dark:channel-email:*:*:compile</exclude>
+                                        <exclude>com.dark:channel-feishu:*:*:compile</exclude>
                                     </excludes>
                                     <searchTransitive>false</searchTransitive>
                                 </bannedDependencies>

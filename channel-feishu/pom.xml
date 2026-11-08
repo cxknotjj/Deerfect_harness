@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.dark</groupId>
+        <artifactId>java-harness</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+    <artifactId>channel-feishu</artifactId>
+    <name>channel-feishu</name>
+    <description>飞书渠道（群机器人 webhook）：仅出站推送，不引入 lark SDK 与 web starter</description>
+
+    <properties>
+        <!-- 覆盖率门槛（LINE）：实测 84.5%（2026-11-08 全量测试），留约 2 个点余量。
+             低于此值 mvn verify 失败；改动后按实测定，不要为通过而放水 -->
+        <jacoco.line.minimum>0.82</jacoco.line.minimum>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.dark</groupId>
+            <artifactId>harness-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- 只要 Spring 容器能力（@Component / @ConfigurationProperties / @ConditionalOnProperty），
+             不引 spring-boot-starter-web：M3a 是单向出站，没有任何入站端点 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+        <!-- 请求体序列化与错误码解析：webhook 协议就是 JSON，手写转义比引一个已在依赖树里的库更危险 -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

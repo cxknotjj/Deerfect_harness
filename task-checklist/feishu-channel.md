@@ -2,7 +2,7 @@
 
 - 范围：新增 `channel-feishu` 模块；M3a 只做出站推送，M3b 才有入站对话
 - 创建：2026-11-08
-- 状态：共 9 项，已完成 0 项；其中 **M3a 5 项待办**、**M3b 4 项待评估**（等 M3a 跑一两周再决定）
+- 状态：共 9 项，已完成 4 项；其中 **M3a 4/5**（F2-5 只差真实群验证）、**M3b 4 项待评估**（等 M3a 跑一两周再决定）
 - 规划书：[docs/design/2026-11-08-delivery-reliability-feishu-email-plan.md](../docs/design/2026-11-08-delivery-reliability-feishu-email-plan.md) 第 5.3 / 8 节
 - 关系：依赖 `delivery-outbox.md`（错误码要能落到 `markFailed(retryable)`）；与 `email-channel.md` 结构对称，登记方式相同
 
@@ -10,9 +10,9 @@
 
 | 分类 | 已完成 | 待办 | 小计 |
 | --- | --- | --- | --- |
-| M3a 出站推送 | 0 | 5 | 5 |
+| M3a 出站推送 | 4 | 1 | 5 |
 | M3b 事件订阅（未启动） | 0 | 4 | 4 |
-| 合计 | 0 | 9 | 9 |
+| 合计 | 4 | 5 | 9 |
 
 ## 背景
 
@@ -25,35 +25,40 @@ M3a 做完，「主通道可换、失败原因可分类」就成立了。M3b 是
 
 ## M3a：群机器人 webhook
 
-- [ ] F2-1 模块骨架与三处登记
+- [x] F2-1 模块骨架与三处登记
   - 作用：飞书作为可选渠道独立打包，不启用时 core 依赖里没有任何 lark / http 相关库
   - 位置：新增 `channel-feishu/pom.xml`；改根 `pom.xml`、`server/pom.xml`
   - 做法：与 `channel-email` 同一套登记动作（根 pom `<modules>` / server pom `runtime` 依赖 + enforcer `bannedDependencies` 排除 / 自身 pom 的 `jacoco.line.minimum`）。M3a **只依赖 `harness-api` + JDK `HttpClient`**，不要引入 `spring-boot-starter-web`（那是 M3b 回调才需要）
   - 验收：`mvn -o -B verify` 通过；`dependency:tree -pl channel-feishu` 里没有 web starter、没有 `lark-oapi`
+  - 结果（2026-11-08）：新建 `channel-feishu`，依赖只有 `harness-api` + `spring-boot-starter`（容器能力）+ `jackson-databind`（请求体与错误码），**没有** web starter、没有 `lark-oapi`。三处登记完成：根 pom `<modules>`、server pom 的 `runtime` 依赖 + enforcer 排除、自身 `jacoco.line.minimum`（实测 84.5% → 门槛 0.82）。
 
-- [ ] F2-2 FeishuProperties 与 webhook 配置
+- [x] F2-2 FeishuProperties 与 webhook 配置
   - 作用：让 `notify_channel` 只写别名，凭证不进业务表
   - 位置：`channel-feishu/.../FeishuProperties.java`、`server/src/main/resources/application-channel.yaml`
   - 做法：`@ConfigurationProperties(prefix = "channel.feishu")`，M3a 字段 `enabled / webhookAlias / webhookUrl / webhookSecret`；`webhook-url` 与 `webhook-secret` 从环境变量注入（`FEISHU_WEBHOOK_URL` / `FEISHU_WEBHOOK_SECRET`）；`@ConditionalOnProperty` 默认关闭
   - 验收：`enabled=false` 时无 Bean；`enabled=true` 且缺 secret 时启动即报配置缺失（不要静默按无签名发送）；`notify_channel` 里出现的是 `feishu:main` 而不是 URL
+  - 结果（2026-11-08）：字段为 `enabled / alias / webhookUrl / webhookSecret / timeoutMs`，默认 `alias=main`、`enabled=false`。`FeishuChannelConfig` 在 `enabled=true` 时校验 URL 与 secret，缺任一直接抛 `IllegalStateException` 拒绝启动（`FeishuChannelConfigTest` 三例覆盖）。顺手补了 `docker-compose.yml` 的渠道环境变量透传——此前只有文档写了 `CHANNEL_EMAIL_ENABLED`，compose 并未注入，等于文档说不通。
 
-- [ ] F2-3 FeishuWebhookSender（签名 + 错误映射）
+- [x] F2-3 FeishuWebhookSender（签名 + 错误映射）
   - 作用：把飞书的结构化错误码翻译成「可重试 / 终态」，让 outbox 能自动补救
   - 位置：`channel-feishu/.../FeishuWebhookSender.java`
   - 做法：`channel()` 返回 `"feishu"`；`target` 是配置里的别名（如 `main`），不是 URL；签名 `sign = Base64(HMAC-SHA256(key = timestamp + "\n" + secret, data = ""))`，**timestamp 用秒级**；请求体 `{"msg_type":"text","content":{"text":"..."}}`。映射：`code=0` → 成功；`code=9499` → 终态（请求体非法，含超 20 KB）；`code=11232` → 可重试；返回体提示 sign / timestamp → 终态并提示查时钟
   - 验收：单测覆盖四类分支；签名用固定 `timestamp + secret` 能算出与飞书文档一致的 base64；本机时钟偏 10 分钟时给出可读错误而不是笼统失败
+  - 结果（2026-11-08）：`FeishuWebhookSenderTest` 13 条，用 JDK `HttpServer` 起本地桩验证「发出去的 JSON」与「响应怎么翻译」，不 mock HttpClient。签名向量由 Python `hmac` 独立算出并硬编码（`1700000000` + `test-secret` → `mbm4Y4o…PL84=`），锁住「key 是 timestamp+secret、data 为空、秒级时间戳」三件事。分流补齐 HTTP 维度：429 / 5xx 可重试，其余 4xx 终态；超 20 KB 在发送前就判终态，不浪费一次必然失败的请求。
 
-- [ ] F2-4 FeishuHealth
+- [x] F2-4 FeishuHealth
   - 作用：让 `ChannelWatchdog` 能发现飞书不可达
   - 位置：`channel-feishu/.../FeishuHealth.java`
   - 做法：实现 `ChannelHealth`，读最近一次投递结果与时间（与邮件同一策略：不发主动探活，避免为了探活往群里发测试消息）；超 7 天无投递报「未知」
   - 验收：`channelName()` 为「飞书 / Webhook」；从未投递 → `available=false` + 「未知」；`detail` 不含 webhook URL 与 secret
+  - 结果（2026-11-08）：`channelId()=feishu`（探活告警靠它排除本渠道），四态与邮件一致：从未投递 / 超 7 天 → `UNKNOWN`，最近一次失败 → `DOWN`。`FeishuHealthTest` 7 条，其中一条专门断言 `detail` 不含 URL 与 secret——监控页是浏览器能打开的页面。
 
 - [ ] F2-5 真机验证（含真实群与限流实验）
   - 作用：证明「换个通道就能拿到可分类的失败原因」不是纸面结论
   - 位置：飞书客户端 + 本机运行中的服务
   - 做法：建一个只有自己的群 → 群设置 → 群机器人 → 添加自定义机器人 → 开启签名校验 → 拿到 URL 与 secret；配进 `application-channel.yaml`；把某条定时任务的 `notify_channel` 改成 `feishu:main|email:...`
   - 验收：① 正常推送在飞书群可见；② 故意写错 secret → outbox 该行 `DEAD` 且 `last_error` 提示签名；③ 停 NepCat 后任务结果从飞书收到（`chain_index=0`）；④ 20 KB 以上正文走邮件（D1-8）
+  - 进度（2026-11-08）：**代码侧就绪，验收未闭环**。签名、错误分流、20 KB 预检都有单测覆盖，但没有真实 webhook URL 与 secret，无法验证「消息真的出现在飞书群」。需要你建一个只有自己的群、加自定义机器人、开启签名校验，把 URL 与 secret 配进环境变量后按上面四步验一遍。
 
 ## M3b：事件订阅（未启动，等 M3a 跑一两周再决定）
 
