@@ -1,6 +1,6 @@
 # 主动投递可靠性改造：飞书 + 邮箱（规划书）
 
-> 状态：待实施（v2，2026-11-08 修订：邮件由 `server` 内实现改为独立模块 `channel-email`，见 6.3）　|　日期：2026-11-08　|　影响模块：`harness-api` / `server` / 新增 `channel-email` / 新增 `channel-feishu` / `channel-qq`
+> 状态：待实施（v3，2026-11-08 两次修订：① 邮件改为独立模块 `channel-email`，见 6.3；② 去掉多实例假设，明确单实例前提，见 6.2）　|　日期：2026-11-08　|　影响模块：`harness-api` / `server` / 新增 `channel-email` / 新增 `channel-feishu` / `channel-qq`
 >
 > 前置阅读：[project-structure.md](../project-structure.md) 的 Flyway 迁移表（当前基线 V13，本方案从 V14 起）、[data-flow.md](../data-flow.md) 第九节主动推送链路。
 
@@ -34,7 +34,7 @@
 | 不做「消息已读」的自动追问 | 飞书能力支持，但它属于产品增强不是可靠性修复，M3 列为可选 |
 | 不做消息去重的持久化 | 飞书事件重推窗口是分钟级，进程内存 LRU 够用；持久化会让每次接收多一次写库 |
 | 不做完整的告警平台 | 目标是自己用。告警抑制用内存计数即可，重启重置可接受 |
-| 不引入 ShedLock | outbox 用「条件更新抢占租约」天然防多实例重复发送（见 6.2），不需要分布式锁 |
+| 不引入 ShedLock | 单实例部署，本方案不为多实例做任何设计。outbox 的条件更新只用于「发送前原子计数 + 崩溃恢复」，不是并发控制（见 6.2） |
 | 不做 HTML 邮件 | 纯文本更不容易被判垃圾，且不必维护模板 |
 
 ## 3. 总体设计：三层各管一段故障
@@ -180,20 +180,33 @@ QQ 渠道的失败是 `null`——分不清网络、超长、风控。飞书返�
 - 入队前校验链（5.2 的 `chainOf`），非法链直接拒绝写库并抛 `IllegalArgumentException`——配置错误要在创建任务时就报。
 - 新增 `DeliveryOutboxService`：`enqueue` / `claimDue` / `markSent` / `markFailed` / `advanceChain`。
 
-### 6.2 重投与抢占（多实例安全，无需分布式锁）
+### 6.2 重投与领取（单实例前提）
+
+**前提先写清：本项目是个人 agent，单实例部署，本方案不为多实例做任何设计**——不引 ShedLock、不加分布式锁、不写并发测试。`project-hardening.md` 的 **H2-3（多实例防护）仍然待办，且与本方案无关**。
+
+那为什么还要一条带条件更新的 `UPDATE`？理由不是并发，是**「发送前计数」**：
 
 ```sql
--- 抢占：只有改到 1 行才继续发送，天然防重复
+-- 领取：先原子地「记账 + 推迟下次重试」，领取成功才发送
 UPDATE delivery_outbox
    SET attempts = attempts + 1,
        next_retry_at = DATE_ADD(NOW(), INTERVAL 60 SECOND)
  WHERE id = #{id} AND status = 'PENDING' AND next_retry_at <= NOW()
 ```
 
+`attempts` 必须在发送**之前**递增，否则「发送中进程被杀」会永远不计次、无限重试。而「发送前原子递增 + 推迟下次时间」这个动作，本身就写成了一条 `UPDATE`。多出来的 `WHERE` 条件不是为多实例准备的，是为了让这次领取**幂等于「这一行还没被领取」**——它只多一个条件，成本为零，顺带也让「同一行不会被两轮同时处理」变成了数据库层的保证，而不是依赖 `notifying` 那个内存标志。
+
+它实际保护的两个故障，都发生在单实例上：
+
+| 故障 | 条件更新的作用 |
+| --- | --- |
+| 发送中进程被杀（SMTP 卡住时 `docker restart`） | `attempts` 已递增、`next_retry_at` 在未来；重启后到期自动重试，不会永远卡在「发送中」 |
+| 上一轮还没跑完就来了下一轮 tick | `notifying` 标志挡住 apply 层，`WHERE` 挡住行级——两处都不依赖对方 |
+
 - 扫描节拍：`@Scheduled(fixedDelay = 30s)`，每轮 `LIMIT 50`。
 - 重试上限：单通道 3 次（60s / 180s / 600s 退避），耗尽后 `chain_index+1`。
 - 链耗尽：`status=DEAD`，触发元告警（6.4）。
-- **这点顺带缓解了 H2-3**：outbox 的抢占是条件更新，多实例部署不会重复发送。但 `@Scheduled` 的其它任务（画像提炼、Goal 派发）仍是单实例假设，H2-3 本身不解。
+- **将来若真要扩容**：这套写法天然可用（条件更新本身就是乐观锁），但届时还要处理 `@Scheduled` 的其它任务、事件分发、渠道连接数——那是 H2-3 的范围，不是这里。
 
 ### 6.3 邮件通道（独立模块 `channel-email`）
 
@@ -358,7 +371,7 @@ app:
     chain-default: "feishu:ou_xxx|email:me@example.com"  # 未显式配置 notify_channel 时的默认链
     retry: 3                          # 单通道重投次数上限
     backoff-seconds: [60, 180, 600]   # 重投退避
-    lease-seconds: 60                 # 抢占租约（兼作多实例防重）
+    lease-seconds: 60                 # 领取租约：发送中崩溃时，到期后自动重试
     batch: 50                         # 单轮扫描上限
     scan-interval-ms: 30000
   retention:
@@ -416,7 +429,7 @@ channel:
 | 3 | 调度语义不串轮 | 发送期间 dispatch 换 `last_goal_id`，旧行不被新轮标记（现有 `markNotified` 条件更新测试继续通过） |
 | 4 | 探活告警走非本渠道 | 停 NapCat，5 分钟内邮箱收到「QQ 渠道不可达」；恢复后收到「已恢复」 |
 | 5 | 进程死亡可发现 | 停掉整个服务，外部探活 2 小时内发出告警 |
-| 6 | 多实例不重复发 | 两个实例同时启动，同一条 outbox 只被发送一次 |
+| 6 | 发送中崩溃可恢复 | 把 SMTP 指向黑洞地址（连接挂起）后 `docker restart`，重启后该行 `attempts` 已递增并在租约到期后重试，不会卡在「发送中」 |
 | 7 | 飞书 3 秒不超时 | 长连接下发一条需要 30 秒生成的消息 → 飞书无「超时重推」，回复正常送达 |
 | 8 | 存量零迁移 | 现有 `qq:xxx` 单值配置不改也能正常推送 |
 
@@ -445,6 +458,6 @@ channel:
 
 ## 14. 与现有清单的关系
 
-- 本方案覆盖 `project-hardening.md` 中未做的 **H2-3** 的一部分（outbox 抢占解决投递重复），但 `@Scheduled` 的其它任务仍是单实例假设，H2-3 不收口。
+- **H2-3（多实例防护）仍待办，本方案不涉及**：单实例是既定前提，outbox 的领取写法只是不做额外假设，不构成对 H2-3 的部分完成。
 - `personal-agent-gap.md` 的 **P3-2（微信/企微渠道）** 由本方案的飞书渠道替代：同样解决「国内直连 + 官方 API + 主动推送」，且免公网回调。建议在 P3-2 条目下注明「改由飞书实现，理由：长连接免公网 + 官方错误码」。
 - `NapCatHealth` 已存在，M2 不重写探活，只补「告警」这一段。
