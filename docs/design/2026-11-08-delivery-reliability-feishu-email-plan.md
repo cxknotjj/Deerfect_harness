@@ -1,6 +1,6 @@
 # 主动投递可靠性改造：飞书 + 邮箱（规划书）
 
-> 状态：待实施（v4，2026-11-08 三次修订：① 邮件改为独立模块 `channel-email`，见 6.3；② 去掉多实例假设，明确单实例前提，见 6.2；③ 删除进程外心跳，进程死亡列为残余风险，见 7.2）　|　日期：2026-11-08　|　影响模块：`harness-api` / `server` / 新增 `channel-email` / 新增 `channel-feishu` / `channel-qq`
+> 状态：待实施（v5，2026-11-08 四次修订：① 邮件改为独立模块 `channel-email`，见 6.3；② 去掉多实例假设，见 6.2；③ 删除进程外心跳，见 7.2；④ M3 拆为 M3a 群机器人 webhook（0.5 天）/ M3b 事件订阅（可选），见 8.1）　|　日期：2026-11-08　|　影响模块：`harness-api` / `server` / 新增 `channel-email` / 新增 `channel-feishu` / `channel-qq`
 >
 > 前置阅读：[project-structure.md](../project-structure.md) 的 Flyway 迁移表（当前基线 V13，本方案从 V14 起）、[data-flow.md](../data-flow.md) 第九节主动推送链路。
 
@@ -22,7 +22,7 @@
 ### 2.1 目标（三句话，逐条可验收）
 
 1. **每一条主动消息都有记录和终态**：一条推送要么 `SENT`（有渠道确认），要么 `DEAD`（重投耗尽，带最后一次错误原因），不存在「发没发不知道」。
-2. **主通道失败能自动走备用通道**：`feishu:ou_xxx|email:me@x.com` 按序降级，降级本身发生在注册表层，渠道实现互不感知。
+2. **主通道失败能自动走备用通道**：`feishu:main|email:me@x.com` 按序降级，降级本身发生在注册表层，渠道实现互不感知。
 3. **渠道不可达能被发现**：渠道连续探活失败时，不依赖你打开监控页，而是通过其它渠道主动告警。（进程死亡不在本方案范围，见 7.2）
 
 ### 2.2 明确不做
@@ -57,7 +57,7 @@
   → 写 delivery_outbox（PENDING，chain_index=0，next_retry_at=now）
   → 标记 schedule.notified_at（语义从「已通知」改为「已入队」）
   → DeliveryRetryScheduler 扫到期行
-      → 条件更新抢占（attempts+1，next_retry_at=now+60s）
+      → 条件更新领取（attempts+1，next_retry_at=now+60s）
       → 按 channel_chain[chain_index] 发送
           ├ 成功 → SENT，parent_ref 留空
           ├ 可重试失败 → 保持 PENDING，退避后排下一轮
@@ -81,7 +81,7 @@ CREATE TABLE `delivery_outbox` (
   `status`        VARCHAR(16)  NOT NULL COMMENT 'PENDING / SENT / DEAD',
   `attempts`      INT          NOT NULL DEFAULT 0 COMMENT '总尝试次数（跨通道累加）',
   `last_error`    VARCHAR(512)          DEFAULT NULL COMMENT '最后一次失败原因（含渠道原始错误码）',
-  `next_retry_at` DATETIME              DEFAULT NULL COMMENT '下次可尝试时刻，兼作抢占租约',
+  `next_retry_at` DATETIME              DEFAULT NULL COMMENT '下次可尝试时刻，兼作领取租约',
   `sent_at`       DATETIME              DEFAULT NULL,
   `created_at`    DATETIME     NOT NULL,
   PRIMARY KEY (`id`),
@@ -93,7 +93,7 @@ CREATE TABLE `delivery_outbox` (
 设计说明：
 
 - **`content` 存全文而非摘要**：消息量极小（个人 agent 每天几条到几十条），存全文换来「重投时不需要回查 goal」这个简化，也支持事后核对「上周那条日报原文是什么」。
-- **不用 `SENDING` 状态**：用 `next_retry_at` 推到未来 60 秒充当租约，条件更新抢占。少一个状态，少一类「卡在 SENDING」的脏数据。
+- **不用 `SENDING` 状态**：用 `next_retry_at` 推到未来 60 秒充当租约，条件更新领取。少一个状态，少一类「卡在 SENDING」的脏数据。
 - **`channel_chain` 存原文而不是拆表**：链最多 2–3 跳，拆表会让「看一条消息的完整投递过程」变成 join。原文 + `chain_index` 足够定位。
 - **保留期**：`SENT` 行保留 7 天（审计用，正好覆盖「上周的日报发了没」），`DEAD` 保留 30 天。接入已有的 `DataRetentionCleaner`，新增 `app.retention.outbox-sent-days` / `outbox-dead-days`。
 
@@ -144,8 +144,10 @@ public interface MessageSender {
 
 ```text
 qq:123456                      # 单通道（现有数据，行为不变）
-feishu:ou_xxx|email:me@x.com   # 两跳降级
+feishu:main|email:me@x.com     # 两跳降级；feishu 的 target 在 M3a 是别名，M3b 是 open_id
 ```
+
+`feishu:` 之后的 target 有两种形态，由渠道实现自己解释（注册表不管）：M3a 是配置里的 webhook 别名（如 `main`），M3b 是 `ou_` 开头的 `open_id`。注册表只负责「按 `|` 拆、逐个找渠道、失败换下一个」。
 
 改造点（不新增类，避免又多一层间接）：
 
@@ -159,20 +161,31 @@ feishu:ou_xxx|email:me@x.com   # 两跳降级
 
 ### 5.3 飞书渠道的错误可编程性（本方案的核心价值）
 
-QQ 渠道的失败是 `null`——分不清网络、超长、风控。飞书返回 HTTP 状态 + 业务错误码，可以分流：
+QQ 渠道的失败是 `null`——分不清网络、超长、风控。飞书返回结构化错误码，可以分流。**两种接入方式的错误码不同，要分别映射。**
 
-| 飞书错误 | 含义 | outbox 处置 |
+M3a（群机器人 webhook，出站）：
+
+| 返回 | 含义 | outbox 处置 |
 | --- | --- | --- |
+| `code=0` | 成功 | `SENT` |
+| `code=9499` | 请求体非法（超 20 KB / JSON 错） | `DEAD`（配置或代码 bug，重试无意义），错误信息带「检查正文长度」 |
+| `code=11232` | 触发限流 | `PENDING`，退避 1s → 2s → 4s，本轮内重试 |
+| 返回体提示 sign / timestamp | 签名或时钟偏移 | `DEAD` + 提示「检查 webhook-secret 与服务器时钟（timestamp 必须秒级）」 |
 | 网络异常 / 5xx | 瞬时 | `PENDING`，退避 60s 重投 |
-| 频率限制（99991400 类） | 瞬时 | 退避 1s → 2s → 4s，本轮内重试 |
-| token 失效（99991663 类） | 可自愈 | 刷新 tenant_access_token 后立即重试一次 |
-| 用户不在可见范围（230002 类） | **配置错** | 直接 `DEAD`，重试无意义，错误信息带「检查应用可用范围」 |
-| 机器人不在群（230013 类） | **配置错** | 直接 `DEAD`，同上 |
-| 内容触发审核 | 内容问题 | `DEAD` + 该条内容存档，不自动重投（重投会再次触发） |
 
-这张表是「换飞书」的真正收益：**失败原因可分类，因此补救策略可编程**。QQ 渠道只能统一走兜底。
+M3b（应用 API，双向，仅第二阶段适用）：
 
-## 6. M1：投递层 + 邮件通道（1.5 人日）
+| 返回 | 含义 | outbox 处置 |
+| --- | --- | --- |
+| 频率限制（99991400 类） | 瞬时 | 退避 1s → 2s → 4s |
+| token 失效（99991663 类） | 可自愈 | 刷新 `tenant_access_token` 后立即重试一次 |
+| 用户不在可见范围（230002 类） | **配置错** | `DEAD`，提示「检查应用可用范围」 |
+| 机器人不在群（230013 类） | **配置错** | `DEAD`，同上 |
+| 内容触发审核 | 内容问题 | `DEAD` + 内容存档，不自动重投（重投会再次触发） |
+
+这两张表是「换飞书」的真正收益：**失败原因可分类，因此补救策略可编程**。QQ 渠道只能统一走兜底。
+
+## 6. M1：投递层 + 邮件通道（2 人日）
 
 ### 6.1 写入与状态流转
 
@@ -302,63 +315,110 @@ ChannelWatchdog  @Scheduled(fixedDelay = 5min)
 
 将来若确实需要，接一个外部探活即可——**它不需要改本方案的任何结构**，只是多一个使用者调用 `/actuator/health`。这也是现在不做的好理由：接入成本不随时间增加。
 
-## 8. M3：飞书渠道（4 人日）
+## 8. M3：飞书渠道（0.5 + 3 人日，分两阶段）
 
-### 8.1 模块与依赖
+### 8.1 两条路线：先做单向，再决定是否双向
 
-本方案共新增**两个**渠道模块（`channel-email` 见 6.3），与 `channel-qq` 平级：
+判据只有一句：**投递可靠性只需要「发得出去」，不需要「收得进来」。** 这两件事在飞书上对应两套完全不同的接入方式，成本差 6 倍。
 
-```text
-channel-feishu/pom.xml                   lark-oapi SDK + harness-api（不依赖 core）
-channel-feishu/.../FeishuProperties.java      app_id / app_secret / enabled / allowed_users
-channel-feishu/.../FeishuMessageSender.java   MessageSender + sendForReceipt
-channel-feishu/.../FeishuHealth.java          ChannelHealth
-channel-feishu/.../ws/FeishuWsClient.java     长连接生命周期（启动/重连/关闭）
-channel-feishu/.../ws/FeishuEventRouter.java  事件分发 → 入队
-channel-feishu/.../ws/MessageDedup.java       event_id 去重（LRU，5 分钟窗口）
-channel-feishu/.../reply/FeishuReplyService.java  复用 core 的 ChatService
-```
+| 能力 | 接入方式 | 需要域名 | 需要 SDK | 成本 |
+| --- | --- | --- | --- | --- |
+| **单向推送**（本方案需要） | 群自定义机器人 webhook | 不需要 | 不需要 | 0.5 人日 |
+| 双向对话（可选） | 事件订阅 · Webhook 回调 | 需要 HTTPS | 不需要 | 3 人日 |
+| 双向对话（备选） | 事件订阅 · 长连接 WS | 不需要 | 需要，Java 25 兼容性待验 | 4 人日 |
 
-模块登记的三处同步点见 6.3 的清单（`pom.xml` modules / `server/pom.xml` runtime + enforcer 排除 / 模块自身 pom）。**两个模块都要登记**，漏一处就是编译失败或守卫报错——这是模块化必须付的一次性成本，换来的是「加渠道不动 core 依赖树」。
+M3a 是 outbox 的自然延伸：它只需要「一个有错误码的出站通道」，webhook 就够。M3b 才有「对话入口」——能不能做、值不值得做，等 M3a 跑一两周再判断。
 
-`ArchitectureTest` 的分层守卫需要确认新模块是否触发规则——`channel-qq` 能过，同样结构应该也能过，但要跑一遍验证。同时确认 enforcer 的 `bannedDependencies` 排除项对两个新模块都写上（现有规则禁止 core 以 compile scope 依赖渠道模块）。
+### 8.2 M3a：群机器人 webhook（0.5 人日）
 
-### 8.2 长连接（免公网，但有 3 秒硬约束）
-
-官方文档确认：长连接**仅支持企业自建应用**，需要服务器能**出站**访问公网，不需要公网 IP / 域名 / 内网穿透；收到事件后 **3 秒内必须处理完且不抛异常，否则触发超时重推**。
-
-3 秒对聊天链路是致命的——一次 agent 对话几十秒。所以入站结构必须是：
+不需要建应用、不需要申请权限、不需要任何审核——在飞书里建一个只有自己的群，加「自定义机器人」，拿到 webhook 地址即可：
 
 ```text
-收到事件 → 解析 → 去重 → 入队（有界队列，满了丢弃并回提示）→ 立即返回 200
-                                                              ↓
-                                          后台线程池消费（复用 OneBotEventServiceImpl 的
-                                          队列 + 背压 + 超时中断结构，不重新发明）
+POST https://open.feishu.cn/open-apis/bot/v2/hook/<token>
+{"msg_type":"text","content":{"text":"..."}}
+→ {"code":0,"msg":"success"}
 ```
 
-这条约束同时决定了**必须复用现有结构而不是另写一套**：`OneBotEventServiceImpl` 里的「有界队列 + 背压丢弃 + 超时 cancel(true) + 失败静默」已经在 QQ 上验证过，飞书照抄语义即可。
+约束（每一条都影响 outbox 设计）：
 
-### 8.3 事件去重与幂等
+- **请求体 ≤ 20 KB** → 超长正文必须转邮件，不能截断（见 8.4）
+- **频率 100 次/分钟、5 次/秒** → 个人用量无感，但 `11232` 仍要按退避处理
+- **没有 message_id** → 不能查已读、不能撤回（那是 M3b 的事）
+- **单向**：不能接收消息，不能当对话入口
+- **URL 本身就是凭证**：泄露即被滥用，必须开签名校验
+
+签名：`sign = Base64(HMAC-SHA256(timestamp + "\n" + secret, 空字符串))`，`timestamp` 用**秒级**（毫秒会导致校验失败）。secret 走环境变量。
+
+实现：`FeishuWebhookSender implements MessageSender`，就是一个带签名的 HTTP POST，约 80 行，零 SDK 依赖。
+
+### 8.3 M3b：事件订阅（3 人日，可选）
+
+两条路，按「有没有域名」二选一：
+
+| | Webhook 回调（推荐） | 长连接 WS（备选） |
+| --- | --- | --- |
+| 前置 | 域名 + 有效 HTTPS 证书（Let's Encrypt 免费） | 服务器能出站访问公网即可 |
+| 依赖 | 零 SDK，Spring `@PostMapping` | `lark-oapi` 的 WS 客户端 |
+| 代码 | URL challenge 握手 + 验签解密 + 路由 | 连接生命周期 + 重连 + 心跳 |
+| 攻击面 | **公网暴露端点**，必须验签 | 无入站端口 |
+
+> 云服务器 + 独立 IP 不等于「有可用回调地址」：飞书要求能通过验证的 **HTTPS 地址**，纯 IP 通常过不了证书校验。没有域名又不想买，就只剩长连接这一条路（回到 SDK 兼容性问题）。
+
+**3 秒约束两种模式都有**：回调要求 3 秒内返回 HTTP 200，长连接要求 3 秒内处理完不抛异常，超时都会重推。所以入站结构相同：
+
+```text
+收到事件 → 验签 → 解析 → event_id 去重 → 入队（有界队列）→ 立即 200
+                                                        ↓
+                                    后台线程池消费（复用 OneBotEventServiceImpl 的
+                                    队列 + 背压 + 超时中断结构，不重新发明）
+```
+
+3 秒对聊天链路是致命的（一次对话几十秒），所以「收到即入队」是**硬要求**，不是优化。
+
+### 8.4 推送目标与长文处理
+
+- **M3a 的目标是「群」**：webhook URL 本身指向那个群，`notify_channel` 写 `feishu:main`（别名），别名到 URL 的映射在配置里，**不把 URL 存进业务表**——凭证不该躺在数据库里。
+- **M3b 的目标是 `open_id`**（`ou_` 前缀）：需要一次配对——用户给机器人发一句话，日志打印其 `open_id`，复制进 `notify_channel`。不做自动发现（否则任何能给机器人发消息的人都能收你的通知）。
+- `allowed_users` 白名单：不在白名单的消息直接丢弃。个人 agent 的默认姿态是拒绝，不是接受。
+- **长文分流**：webhook 上限 20 KB。入队时按内容长度决定链的顺序——超过阈值（建议 6000 字符）就把 `email` 排到前面。**截断会丢信息，转邮件不丢**；这条也顺带解释了为什么邮件不只是兜底通道。
+
+### 8.5 事件去重与幂等（M3b）
 
 - 飞书事件头带唯一 `event_id`，重推时不变。
 - `MessageDedup` 用 `LinkedHashMap` + 5 分钟 TTL（复用 `MessageDedupCache` 的写法），命中直接返回 200 不处理。
-- 取舍：不持久化。进程重启后飞书可能重放分钟级内的事件，接受少量重复（用户会看到两条，但不会丢消息）。持久化会让每次接收多一次写库，不值。
+- 取舍：不持久化。进程重启后飞书可能重放分钟级内的事件，接受少量重复（会看到两条，但不会丢消息）。持久化会让每次接收多一次写库，不值。
 
-### 8.4 主动推送
+### 8.6 模块与依赖（分阶段，M3a 不需要 SDK）
 
-- 目标标识用 `open_id`（`ou_` 前缀），存在 `notify_channel` 的 `feishu:` 之后。
-- 首次对接需要一次「配对」：用户给机器人发一句话，日志打印其 `open_id`，复制到 `notify_channel`。**不做自动发现**（自动发现等于让任何能给机器人发消息的人都能收你的通知）。
-- `allowed_users` 白名单：不在白名单的消息直接丢弃。个人 agent 的默认姿态应该是拒绝，不是接受。
+M3a 阶段：
 
-### 8.5 可选增强（做完主链路再评估）
+```text
+channel-feishu/pom.xml                          harness-api + spring-boot-starter-web（无 lark-oapi）
+channel-feishu/.../FeishuProperties.java        enabled / webhook-url / webhook-secret / allowed-users
+channel-feishu/.../FeishuWebhookSender.java     MessageSender：签名 + POST + 错误码映射
+channel-feishu/.../FeishuHealth.java            最近一次投递结果（同 email，不做主动探活）
+```
 
-| 项 | 价值 | 成本 |
+M3b 阶段追加：
+
+```text
+channel-feishu/.../event/FeishuEventController.java   回调入口（长连接路线则是 ws/FeishuWsClient.java）
+channel-feishu/.../event/FeishuEventRouter.java        事件 → 验签 → 入队
+channel-feishu/.../event/MessageDedup.java             event_id 去重
+channel-feishu/.../reply/FeishuReplyService.java       复用 core 的 ChatService
+```
+
+模块登记的三处同步点见 6.3（根 pom modules / server pom runtime + enforcer 排除 / 自身 pom 的 jacoco 门槛）。`ArchitectureTest` 的分层守卫要跑一遍确认。
+
+### 8.7 可选增强（M3a 稳定后再评估）
+
+| 项 | 价值 | 前置条件 |
 | --- | --- | --- |
-| 已读追查 | 日报发出 2 小时未读则追一条 | 0.5d（订阅 `im.message.message_read_v1` + 定时查） |
-| 卡片消息按钮 | 「要不要执行」类确认可点选 | 1d（卡片 JSON + 回调 + 与 agent 的确认流程对接） |
-| 长文转邮件 | 超过 N 字符自动改走邮件 | 0.5d（在链上按长度分流） |
+| 已读追查 | 日报发出 2 小时未读则追一条 | M3b（webhook 模式没有 message_id） |
+| 卡片按钮 | 「要不要执行」类确认可点选 | M3b + 卡片回传回调 |
+| 长文转邮件 | 超阈值自动走邮件 | M3a 即可（见 8.4） |
 
-**默认不做**，除非 M1/M2 上线后确认主链路稳定。
+**默认不做**，除非 M3a 上线后确认主链路稳定。
 
 ## 9. 配置项清单
 
@@ -393,8 +453,16 @@ channel:
     connect-timeout-ms: 10000
   feishu:
     enabled: false
+    # —— M3a：群机器人 webhook（单向推送，无需建应用/审核） ——
+    webhook-alias: main               # notify_channel 里写 feishu:main
+    webhook-url: ${FEISHU_WEBHOOK_URL}
+    webhook-secret: ${FEISHU_WEBHOOK_SECRET}   # 签名校验；URL 泄露时这是唯一防线
+    # —— M3b（可选）：事件订阅 ——
+    event-mode: callback              # callback（需域名 + HTTPS）/ websocket（需 lark-oapi）
     app-id: ${FEISHU_APP_ID}
     app-secret: ${FEISHU_APP_SECRET}
+    verification-token: ${FEISHU_VERIFICATION_TOKEN}
+    encrypt-key: ${FEISHU_ENCRYPT_KEY}
     allowed-users: []                 # open_id 白名单，空 = 全部拒绝
 ```
 
@@ -403,39 +471,43 @@ channel:
 | 层 | 测试类 | 覆盖 |
 | --- | --- | --- |
 | 链路解析 | `MessageSenderRegistryTest`（改造） | 单值兼容 / 两跳 / 空段拒绝 / 未知前缀拒绝 / `excludeChannel` |
-| outbox | `DeliveryOutboxServiceTest` | 入队 / 抢占互斥（并发两次只成功一次）/ 重投退避 / 链推进 / DEAD |
+| outbox | `DeliveryOutboxServiceTest` | 入队 / 领取幂等（同一行第二次领取不命中）/ 重投退避 / 链推进 / DEAD |
 | 重投调度 | `DeliveryRetrySchedulerTest` | 到期扫描 / 失败分流 / 不重复发 |
 | 抑制 | `AlertGateTest` | 连续 N 次才发 / 24h 抑制 / 恢复补发 |
 | 邮件（`channel-email`） | `EmailMessageSenderTest` | 成功 / 认证失败→DEAD / 超时→重投 / 未启用时不装配 |
 | 探活 | `ChannelWatchdogTest` | 连续不可达触发 / 走非本渠道 / 恢复通知 |
-| 飞书（`channel-feishu`） | `FeishuMessageSenderTest` | 错误码映射六种分支 / 回执带 message_id |
-| 飞书（入站） | `FeishuEventRouterTest` | 3 秒内返回 / 重复 event_id 丢弃 / 队列满背压 |
-| 集成 | `DeliveryOutboxIntegrationTest`（真实 MySQL） | 抢占条件更新的原子性（这条只能真库验） |
+| 飞书 M3a（`channel-feishu`） | `FeishuWebhookSenderTest` | 签名用秒级 timestamp / `0`·`9499`·`11232` 三分支 / 超长转邮件的链顺序 |
+| 飞书 M3b（入站） | `FeishuEventRouterTest` | 3 秒内返回 / 重复 event_id 丢弃 / 队列满背压 / 验签失败拒绝 |
+| 集成 | `DeliveryOutboxIntegrationTest`（真实 MySQL） | 领取条件更新的原子性（这条只能真库验） |
 
 **必做的有效性验证**（沿用项目习惯）：
 
 - 把 `deliver()` 里的 `markNotified` 改回「失败也标记」，`DeliveryOutboxServiceTest` 必须失败。
-- 把抢占 SQL 的 `status='PENDING'` 条件去掉，并发用例必须失败（证明防重生效）。
+- 把领取 SQL 的 `status='PENDING'` 条件去掉，重复领取用例必须失败（证明幂等生效）。
 
 ## 11. 验收标准
 
-| # | 验收项 | 判据 |
-| --- | --- | --- |
-| 1 | 一条推送有终态 | 手动把 SMTP 配置改错 + 飞书 target 改成非法 open_id → outbox 出现 `DEAD` 行，`last_error` 含飞书错误码 |
-| 2 | 降级生效 | 停 NapCat 但保留邮件 → 定时任务结果从邮箱收到，outbox 该行 `chain_index=1`、`status=SENT` |
-| 3 | 调度语义不串轮 | 发送期间 dispatch 换 `last_goal_id`，旧行不被新轮标记（现有 `markNotified` 条件更新测试继续通过） |
-| 4 | 探活告警走非本渠道 | 停 NapCat，5 分钟内邮箱收到「QQ 渠道不可达」；恢复后收到「已恢复」 |
-| 5 | 发送中崩溃可恢复 | 把 SMTP 指向黑洞地址（连接挂起）后 `docker restart`，重启后该行 `attempts` 已递增并在租约到期后重试，不会卡在「发送中」 |
-| 6 | 飞书 3 秒不超时 | 长连接下发一条需要 30 秒生成的消息 → 飞书无「超时重推」，回复正常送达 |
-| 7 | 存量零迁移 | 现有 `qq:xxx` 单值配置不改也能正常推送 |
+| # | 阶段 | 验收项 | 判据 |
+| --- | --- | --- | --- |
+| 1 | M1 | 一条推送有终态 | 手动把 SMTP 配置改错 + 飞书 target 改成非法别名 → outbox 出现 `DEAD` 行，`last_error` 含渠道原始错误 |
+| 2 | M1 | 降级生效 | 停 NapCat 但保留邮件 → 定时任务结果从邮箱收到，outbox 该行 `chain_index=1`、`status=SENT` |
+| 3 | M1 | 调度语义不串轮 | 发送期间 dispatch 换 `last_goal_id`，旧行不被新轮标记（现有 `markNotified` 条件更新测试继续通过） |
+| 4 | M1 | 发送中崩溃可恢复 | 把 SMTP 指向黑洞地址（连接挂起）后 `docker restart`，重启后该行 `attempts` 已递增并在租约到期后重试，不会卡在「发送中」 |
+| 5 | M2 | 探活告警走非本渠道 | 停 NapCat，5 分钟内邮箱收到「QQ 渠道不可达」；恢复后收到「已恢复」 |
+| 6 | M3a | 限流退避 | 用假 webhook 固定返回 `11232` → outbox 保持 `PENDING`，按 1s/2s/4s 退避，3 次后转下一个通道 |
+| 7 | M3a | 长文转邮件 | 正文 8000 字符 → 链顺序变为 `email` 优先，webhook 不被调用；正文 500 字符 → 正常走 `feishu:main` |
+| 8 | M3b | 3 秒不超时 | 长连接/回调下发一条需要 30 秒生成的消息 → 飞书无「超时重推」，回复正常送达 |
+| 9 | M1 | 存量零迁移 | 现有 `qq:xxx` 单值配置不改也能正常推送 |
 
 ## 12. 风险与取舍
 
 | 风险 | 判断 | 缓解 |
 | --- | --- | --- |
-| 飞书应用审核 | 个人「飞书个人版」可建自建应用，权限多为免审，可用范围选「仅自己」 | 首次先用测试企业；发布选「仅管理员/自己可用」，避免全组织可见 |
-| `lark-oapi` SDK 版本与 Java 25 | 需实测；SDK 若滞后则退回「自己实现 WS 客户端 + 裸 HTTP 调 OpenAPI」 | M3 第一步先做 15 分钟连通性验证，再投入 |
-| 3 秒约束下队列积压 | 个人用量极低（自己一个人发消息），队列满的概率接近 0 | 队列满时回一句「忙，稍等」而不是静默丢弃 |
+| 飞书账号归属 | M3a 完全不需要建应用。M3b 才需要，而个人账号可建「企业自建应用」（组织=你自己），个人未认证账号发布免审 | 若当前账号属于某公司且无建应用权限，用另一手机号注册独立账号；发布时可用范围选「仅自己」 |
+| webhook URL 泄露 | 真实：URL 本身就是凭证，泄露即被冒名发消息 | 必须开签名校验（HMAC-SHA256 + 秒级 timestamp），secret 走环境变量，URL 不进数据库（`notify_channel` 只存别名） |
+| `lark-oapi` SDK 与 Java 25 | 仅**长连接**路线需要；Webhook 回调与 M3a 都不依赖它 | M3a 先做（零 SDK），把 SDK 风险推迟到 M3b 且只在「没有域名」时才需要面对 |
+| 3 秒约束下队列积压（M3b） | 个人用量极低（自己一个人发消息），队列满的概率接近 0 | 队列满时回一句「忙，稍等」而不是静默丢弃 |
+| 回调端点暴露公网（M3b） | 任何人知道 URL 就能伪造事件 | 校验 `verification_token` + `encrypt_key` 解密 + `allowed_users` 白名单，三关缺一不可；不为「先跑通」而临时关掉验签 |
 | 邮件被判垃圾 | 真实存在 | 用邮箱服务商授权码 SMTP + 发件人白名单；**把「邮件是否进垃圾箱」写进首次部署检查清单**，不假设它一定到达 |
 | outbox 表膨胀 | 消息量极小；SENT 7 天清理 | 接入 `DataRetentionCleaner`，与归档/goal 同一套机制 |
 | 进程/主机死亡无人知 | 真实残余风险，本方案不解决（见 7.2） | `restart: unless-stopped` 覆盖崩溃自动拉起；剩余场景靠「你注意到没收到消息」发现。将来接外部探活不需要改本方案结构 |
@@ -448,13 +520,15 @@ channel:
 | --- | --- | --- | --- |
 | M1 | outbox + 重投 + 降级链 + `channel-email` 模块 | 2 | 失败可追踪；QQ 挂了邮件兜底 |
 | M2 | 渠道探活告警 | 0.5 | 渠道断了会主动通知你，不用打开监控页 |
-| M3 | 飞书渠道（长连接 + 推送 + 错误映射） | 4 | 主通道可换，失败原因可编程 |
-| 合计 | | 6.5 | |
+| M3a | 群机器人 webhook（单向推送 + 错误码映射 + 长文转邮件） | 0.5 | 飞书可当主通道，失败原因可分类 |
+| —— | **M1 + M2 + M3a 小计** | **3** | 可靠投递闭环，够用就可停在这里 |
+| M3b | 事件订阅（对话入口：回调 3 / 长连接 4） | 3~4 | 1:1 对话、已读追查、卡片交互 |
+| 合计（含 M3b） | | 6~7 | |
 
-**执行顺序的理由**：M1 之后，「消息丢了会知道」已经成立，与主通道是 QQ 还是飞书无关。M3 的收益（查已读、卡片、免风控）是升级，不是修 bug——所以先做 M1/M2，用一到两周的真实告警数据判断 M3 是否值得。
+**执行顺序的理由**：M1 之后，「消息丢了会知道」已经成立，与主通道是 QQ 还是飞书无关。**M3a 之后，「主通道可换、失败原因可分类」也成立了**——而它只要半天。M3b 的收益（对话入口、查已读、卡片）是产品升级，不是可靠性修复，所以用一到两周的真实数据再判断。
 
 ## 14. 与现有清单的关系
 
 - **H2-3（多实例防护）仍待办，本方案不涉及**：单实例是既定前提，outbox 的领取写法只是不做额外假设，不构成对 H2-3 的部分完成。
-- `personal-agent-gap.md` 的 **P3-2（微信/企微渠道）** 由本方案的飞书渠道替代：同样解决「国内直连 + 官方 API + 主动推送」，且免公网回调。建议在 P3-2 条目下注明「改由飞书实现，理由：长连接免公网 + 官方错误码」。
+- `personal-agent-gap.md` 的 **P3-2（微信/企微渠道）** 由本方案的飞书渠道替代：M3a 的群机器人 webhook **不需要建应用、不需要审核、不需要公网回调**，就实现了「国内直连 + 主动推送」这个原目标。建议在 P3-2 条目下注明「改由飞书 webhook 实现（M3a），理由：零审核 + 结构化错误码」。
 - `NapCatHealth` 已存在，M2 不重写探活，只补「告警」这一段。
