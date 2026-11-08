@@ -1,6 +1,6 @@
 # 主动投递可靠性改造：飞书 + 邮箱（规划书）
 
-> 状态：待实施　|　日期：2026-11-08　|　影响模块：`harness-api` / `server` / 新增 `channel-feishu` / `channel-qq`
+> 状态：待实施（v2，2026-11-08 修订：邮件由 `server` 内实现改为独立模块 `channel-email`，见 6.3）　|　日期：2026-11-08　|　影响模块：`harness-api` / `server` / 新增 `channel-email` / 新增 `channel-feishu` / `channel-qq`
 >
 > 前置阅读：[project-structure.md](../project-structure.md) 的 Flyway 迁移表（当前基线 V13，本方案从 V14 起）、[data-flow.md](../data-flow.md) 第九节主动推送链路。
 
@@ -30,6 +30,7 @@
 | 不做 | 理由 |
 | --- | --- |
 | 不改 `MessageSender.send()` 的签名 | 现有 `QqMessageSender` 与契约守卫都依赖它；回执能力用 `default` 方法扩展（见 5.1） |
+| 不把任何渠道实现放进 `server` | 判据不是「有没有入站」，是「外部依赖会不会被 core 继承」+「实现会不会被替换」。邮件两条都成立（见 6.3） |
 | 不做「消息已读」的自动追问 | 飞书能力支持，但它属于产品增强不是可靠性修复，M3 列为可选 |
 | 不做消息去重的持久化 | 飞书事件重推窗口是分钟级，进程内存 LRU 够用；持久化会让每次接收多一次写库 |
 | 不做完整的告警平台 | 目标是自己用。告警抑制用内存计数即可，重启重置可接受 |
@@ -194,22 +195,57 @@ UPDATE delivery_outbox
 - 链耗尽：`status=DEAD`，触发元告警（6.4）。
 - **这点顺带缓解了 H2-3**：outbox 的抢占是条件更新，多实例部署不会重复发送。但 `@Scheduled` 的其它任务（画像提炼、Goal 派发）仍是单实例假设，H2-3 本身不解。
 
-### 6.3 邮件通道（`server` 内的 builtin 实现）
+### 6.3 邮件通道（独立模块 `channel-email`）
 
-不新建 maven 模块——邮件没有入站需求，不需要独立生命周期，放 `server` 的 `message` 包即可：
+**修正一处初稿判断**：初稿写「邮件没有入站需求，放 `server` 的 `message` 包即可」——这是错的，混淆了**运行时角色**和**部署单元**。邮件在运行时就是一个渠道：实现 `MessageSender`、`channel()` 返回 `email`、被注册表按 `email:` 前缀路由、可被 `notify_channel` 指名。既然 `channel-qq` 是模块，它就该是模块。
+
+真正的判据不是「有没有入站」，是这两条：
+
+1. **外部依赖是否会被 core 继承**：`spring-boot-starter-mail` 放在 `server/pom.xml`，等于此后所有部署都带着 mail 依赖，哪怕只跑 QQ。
+2. **实现是否会变**：邮件服务商可换（QQ 邮箱授权码 / 阿里云邮件推送 / SendGrid / SES），换的时候不该动 core 的依赖树。
+
+「可选功能」这个理由本身不足——`@ConditionalOnProperty` 放在 core 里也能关。但**依赖隔离**关不掉，只有模块能做到。
 
 ```text
-server/src/main/java/com/dark/javaHarness/message/
-├── MessageSenderRegistry.java      （改造）
-├── DeliveryRetryScheduler.java     （新增）
-├── EmailMessageSender.java         （新增）
-└── AlertGate.java                  （新增，告警抑制）
+channel-email/src/main/java/com/dark/javaHarness/channel/email/
+├── EmailProperties.java          channel.email.*（host/port/from/username/password/enabled）
+├── EmailMessageSender.java       MessageSender，channel() = "email"
+└── EmailChannelHealth.java       ChannelHealth（只读最近一次投递结果，不做 SMTP 探活）
+
+channel-email/pom.xml             spring-boot-starter-mail + harness-api（不依赖 core）
 ```
 
-- 依赖：`spring-boot-starter-mail`（`server` 模块），配置走 `spring.mail.*`。
-- 凭据：`SPRING_MAIL_USERNAME` / `SPRING_MAIL_PASSWORD` 环境变量，yaml 只写 host/port 与占位符。**密码不得进仓库**。
-- 正文：纯文本 + 固定头部（来源、目标、时间、错误原因），便于在手机上看清。
-- 失败分流：认证失败 → `DEAD`（配置错，重试会一直失败且可能触发服务商风控）；连接超时 → 重试；收件人拒绝 → `DEAD`。
+**分界线（重要）**：编排在 core，实现在模块。
+
+| 留在 `server` 的 `message` 包 | 去 `channel-email` |
+| --- | --- |
+| `MessageSenderRegistry`（改造：通道链） | `EmailMessageSender` |
+| `DeliveryOutboxService` / `DeliveryRetryScheduler` | `EmailProperties` |
+| `AlertGate`（告警抑制） | `EmailChannelHealth` |
+
+理由：注册表、重投、抑制都是**跨渠道的编排**，它们只认 `MessageSender` 接口，与「发的是邮件还是飞书」无关。一旦某个渠道的实现细节渗进这些类，加第三个渠道时就要改两处。
+
+**模块登记的三处同步点**（漏一处就编译不过或守卫不过）：
+
+```text
+pom.xml          <modules> 增加 channel-email
+server/pom.xml   runtime 依赖 + enforcer 的 bannedDependencies 排除
+                 （现有规则：禁止 core 以 compile scope 依赖渠道模块）
+channel-email/pom.xml  jacoco.line.minimum（父 pom 默认 0.00 只出报告，不设门槛也可，但建议设）
+```
+
+**配置走 `channel.email.*` 而非 `spring.mail.*`**：
+
+- 渠道配置统一在 `channel.*` 命名空间下，和 `channel.feishu.*` 对称。
+- 用 `spring.mail.*` 会触发 `MailSenderAutoConfiguration` 的隐式装配——「哪个 Bean 从哪来」变得不好追。自己 new `JavaMailSenderImpl` 多 15 行，换来显式。
+- 凭据：`channel.email.username` / `password` 从环境变量取（`MAIL_USERNAME` / `MAIL_PASSWORD`），yaml 只写占位符。**密码不得进仓库**。
+
+**默认关闭**：`channel.email.enabled: false`。未配置 SMTP 时模块照常打包但不装配任何 Bean，`MessageSenderRegistry` 的日志里也就不会出现 `email` 渠道——**「没配就别喊」**比「配了但发不出去」好排查。
+
+**为什么不做 SMTP 探活**：每次探活要建一次 TCP + 认证，成本远高于 HTTP，而且会占用服务商的连接额度。改为「用真实流量当探针」——`EmailChannelHealth.snapshot()` 只返回最近一次投递的结果与时间，超过 7 天无投递则报「未知（无近期投递）」，而不是假装健康。
+
+- 正文：纯文本 + 固定头部（来源、目标、时间、错误原因），便于手机上看清。不做 HTML（更容易被判垃圾，且要维护模板）。
+- 失败分流：认证失败 → `DEAD`（配置错，重试只会一直失败且可能触发服务商风控）；连接超时 → 重试；收件人拒绝 → `DEAD`。
 
 ### 6.4 告警抑制与元告警
 
@@ -260,12 +296,10 @@ M1 的重投发生在进程内。进程死了，重投逻辑本身也死了。**
 
 ### 8.1 模块与依赖
 
-新建 `channel-feishu`，与 `channel-qq` 平级：
+本方案共新增**两个**渠道模块（`channel-email` 见 6.3），与 `channel-qq` 平级：
 
 ```text
-pom.xml                                  modules 增加 channel-feishu
-server/pom.xml                           runtime 依赖（与 channel-qq 同）
-channel-feishu/pom.xml                   lark-oapi SDK
+channel-feishu/pom.xml                   lark-oapi SDK + harness-api（不依赖 core）
 channel-feishu/.../FeishuProperties.java      app_id / app_secret / enabled / allowed_users
 channel-feishu/.../FeishuMessageSender.java   MessageSender + sendForReceipt
 channel-feishu/.../FeishuHealth.java          ChannelHealth
@@ -275,7 +309,9 @@ channel-feishu/.../ws/MessageDedup.java       event_id 去重（LRU，5 分钟�
 channel-feishu/.../reply/FeishuReplyService.java  复用 core 的 ChatService
 ```
 
-`ArchitectureTest` 的分层守卫需要确认新模块是否触发规则——`channel-qq` 能过，同样结构应该也能过，但要跑一遍验证。
+模块登记的三处同步点见 6.3 的清单（`pom.xml` modules / `server/pom.xml` runtime + enforcer 排除 / 模块自身 pom）。**两个模块都要登记**，漏一处就是编译失败或守卫报错——这是模块化必须付的一次性成本，换来的是「加渠道不动 core 依赖树」。
+
+`ArchitectureTest` 的分层守卫需要确认新模块是否触发规则——`channel-qq` 能过，同样结构应该也能过，但要跑一遍验证。同时确认 enforcer 的 `bannedDependencies` 排除项对两个新模块都写上（现有规则禁止 core 以 compile scope 依赖渠道模块）。
 
 ### 8.2 长连接（免公网，但有 3 秒硬约束）
 
@@ -335,17 +371,16 @@ app:
     interval-ms: 300000               # 探活扫描节拍
     fail-threshold: 3                 # 连续几次不可达才算故障
 
-spring:
-  mail:
+channel:
+  email:
+    enabled: false                    # 未配 SMTP 就不装配，注册表里也不会出现 email 渠道
     host: smtp.example.com
     port: 465
-    username: ${MAIL_USERNAME}
+    from: me@example.com
+    username: ${MAIL_USERNAME}        # 环境变量注入，密码不得进仓库
     password: ${MAIL_PASSWORD}
-    properties:
-      mail.smtp.auth: true
-      mail.smtp.ssl.enable: true
-
-channel:
+    ssl: true
+    connect-timeout-ms: 10000
   feishu:
     enabled: false
     app-id: ${FEISHU_APP_ID}
@@ -361,9 +396,9 @@ channel:
 | outbox | `DeliveryOutboxServiceTest` | 入队 / 抢占互斥（并发两次只成功一次）/ 重投退避 / 链推进 / DEAD |
 | 重投调度 | `DeliveryRetrySchedulerTest` | 到期扫描 / 失败分流 / 不重复发 |
 | 抑制 | `AlertGateTest` | 连续 N 次才发 / 24h 抑制 / 恢复补发 |
-| 邮件 | `EmailMessageSenderTest` | 成功 / 认证失败→DEAD / 超时→重投 |
+| 邮件（`channel-email`） | `EmailMessageSenderTest` | 成功 / 认证失败→DEAD / 超时→重投 / 未启用时不装配 |
 | 探活 | `ChannelWatchdogTest` | 连续不可达触发 / 走非本渠道 / 恢复通知 |
-| 飞书（单测） | `FeishuMessageSenderTest` | 错误码映射六种分支 / 回执带 message_id |
+| 飞书（`channel-feishu`） | `FeishuMessageSenderTest` | 错误码映射六种分支 / 回执带 message_id |
 | 飞书（入站） | `FeishuEventRouterTest` | 3 秒内返回 / 重复 event_id 丢弃 / 队列满背压 |
 | 集成 | `DeliveryOutboxIntegrationTest`（真实 MySQL） | 抢占条件更新的原子性（这条只能真库验） |
 
@@ -394,16 +429,17 @@ channel:
 | 3 秒约束下队列积压 | 个人用量极低（自己一个人发消息），队列满的概率接近 0 | 队列满时回一句「忙，稍等」而不是静默丢弃 |
 | 邮件被判垃圾 | 真实存在 | 用邮箱服务商授权码 SMTP + 发件人白名单；**把「邮件是否进垃圾箱」写进首次部署检查清单**，不假设它一定到达 |
 | outbox 表膨胀 | 消息量极小；SENT 7 天清理 | 接入 `DataRetentionCleaner`，与归档/goal 同一套机制 |
-| 增加一个模块的维护成本 | 真实 | 飞书是可选渠道（`enabled=false` 默认关闭），不启用时不装配任何 Bean |
+| 新增两个模块的维护成本 | 真实：每个模块有 3 处登记点（根 pom / server pom + enforcer / 自身 pom），漏一处就是构建失败 | 接受。换来的是「加渠道不动 core 依赖树」——邮件和飞书都不启用时，`server` 的依赖里没有任何 mail / lark 相关的库 |
+| 渠道默认关闭导致「以为配好了」 | 真实 | `MessageSenderRegistry` 启动日志打印已注册渠道；`channel.email.enabled=false` 时该渠道不出现，配错的 target 会在入队校验阶段被拒绝（5.2） |
 
 ## 13. 里程碑
 
 | 阶段 | 内容 | 人日 | 交付物 |
 | --- | --- | --- | --- |
-| M1 | outbox + 重投 + 降级链 + 邮件通道 | 1.5 | 失败可追踪；QQ 挂了邮件兜底 |
+| M1 | outbox + 重投 + 降级链 + `channel-email` 模块 | 2 | 失败可追踪；QQ 挂了邮件兜底 |
 | M2 | 探活告警 + 进程外心跳 | 0.5 | 「该响没响」可发现 |
 | M3 | 飞书渠道（长连接 + 推送 + 错误映射） | 4 | 主通道可换，失败原因可编程 |
-| 合计 | | 6 | |
+| 合计 | | 6.5 | |
 
 **执行顺序的理由**：M1 之后，「消息丢了会知道」已经成立，与主通道是 QQ 还是飞书无关。M3 的收益（查已读、卡片、免风控）是升级，不是修 bug——所以先做 M1/M2，用一到两周的真实告警数据判断 M3 是否值得。
 
