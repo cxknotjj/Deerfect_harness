@@ -40,9 +40,18 @@ class DataRetentionCleanerTest {
     private GoalMapper goalMapper;
     @Mock
     private OrchestrationCheckpointMapper checkpointMapper;
+    @Mock
+    private com.dark.javaHarness.mapper.DeliveryOutboxMapper outboxMapper;
 
     private DataRetentionCleaner cleaner(int archiveDays, int goalDays) {
-        return new DataRetentionCleaner(archiveMapper, goalMapper, checkpointMapper, archiveDays, goalDays);
+        // outbox 保留期在这组用例里关闭（0 = 禁用），避免干扰「归档 / goal」的断言
+        return new DataRetentionCleaner(archiveMapper, goalMapper, checkpointMapper, outboxMapper,
+                archiveDays, goalDays, 0, 0);
+    }
+
+    private DataRetentionCleaner cleanerWithOutbox(int sentDays, int deadDays) {
+        return new DataRetentionCleaner(archiveMapper, goalMapper, checkpointMapper, outboxMapper,
+                0, 0, sentDays, deadDays);
     }
 
     private static GoalEntity goal(String id) {
@@ -115,5 +124,43 @@ class DataRetentionCleanerTest {
 
         assertEquals(0, cleaner(180, 0).purgeArchive(LocalDateTime.now()));
         verify(archiveMapper, atLeastOnce()).delete(any());
+    }
+
+    // ---------- 投递记录（outbox） ----------
+
+    /** 只清终态，且按 created_at 分批：PENDING 是还没送出去的消息，任何情况下都不该删 */
+    @Test
+    void purgeOutbox_onlyTerminalStatuses() {
+        when(outboxMapper.delete(any())).thenReturn(3);
+
+        assertEquals(3, cleanerWithOutbox(7, 30).purgeOutbox("SENT", LocalDateTime.now().minusDays(7)));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Wrapper<com.dark.javaHarness.domain.entity.DeliveryOutboxEntity>> captor =
+                ArgumentCaptor.forClass(Wrapper.class);
+        verify(outboxMapper).delete(captor.capture());
+        // delete() 收的是 Wrapper，实际传入的是 QueryWrapper（条件构造器的参数在 AbstractWrapper 上）
+        com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<com.dark.javaHarness.domain.entity.DeliveryOutboxEntity> qw =
+                (com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<com.dark.javaHarness.domain.entity.DeliveryOutboxEntity>) captor.getValue();
+        qw.getSqlSegment();
+        assertTrue(qw.getParamNameValuePairs().containsValue("SENT"),
+                "状态条件要落到 SENT，不能扫全表：" + qw.getSqlSegment());
+        assertTrue(qw.getSqlSegment().contains("created_at"), "按入队时间分批：" + qw.getSqlSegment());
+    }
+
+    @Test
+    void purgeOutbox_disabled_neverTouchesMapper() {
+        // 全部关闭时 cleanOnce 什么都不该碰（严格 mock 会抓「多打了多余的 SQL」）
+        cleanerWithOutbox(0, 0).cleanOnce();
+
+        verify(outboxMapper, never()).delete(any());
+    }
+
+    @Test
+    void purgeOutbox_failure_swallowed() {
+        when(outboxMapper.delete(any())).thenThrow(new IllegalStateException("db down"));
+
+        assertEquals(0, cleanerWithOutbox(7, 30).purgeOutbox("DEAD", LocalDateTime.now().minusDays(30)),
+                "清理失败只告警，不能抛给调度器");
     }
 }

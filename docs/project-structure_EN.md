@@ -171,6 +171,7 @@ server/src/main/java/com/dark/javaHarness/
 | V11 | `idx_archive_time(archived_at, id)` for `scope=all` cross-session time-desc recall |
 | V12 | `session_summary` rolling conversation summary (cursor `covered_message_id`) |
 | V13 | `memory` explicit-memory table (key / content / source / expires_at / soft delete) + `memory` tool group for general/lead |
+| V14 | `delivery_outbox` delivery outbox (PENDING/SENT/DEAD, per-hop attempts + claim lease; failures retried and auditable) |
 
 ---
 

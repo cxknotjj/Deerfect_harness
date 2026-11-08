@@ -57,13 +57,17 @@ class ScheduleServiceImplTest {
     @Mock
     private MessageSender qqSender;
 
+    @Mock
+    private com.dark.javaHarness.message.DeliveryOutboxService outbox;
+
     private ScheduleServiceImpl service;
 
     @BeforeEach
     void setUp() {
         lenient().when(qqSender.channel()).thenReturn("qq");
+        // 改造后调度侧不再直发：推送只负责入队，发送由 outbox 的重投调度器完成
         service = new ScheduleServiceImpl(mapper, agentService, goalService,
-                new MessageSenderRegistry(List.of(qqSender)));
+                new MessageSenderRegistry(List.of(qqSender)), outbox);
     }
 
     private void agentExists() {
@@ -224,11 +228,11 @@ class ScheduleServiceImplTest {
         Goal done = new Goal("goal-old", "早报");
         done.succeed("上一轮的结果");
         when(goalService.get("goal-old")).thenReturn(Optional.of(done));
-        when(qqSender.send(any(), any())).thenReturn(true);
 
         service.tick();
 
-        verify(qqSender, org.mockito.Mockito.timeout(2_000)).send(eq("10001"), contains("上一轮的结果"));
+        verify(outbox, org.mockito.Mockito.timeout(2_000))
+                .enqueue(eq("schedule"), any(), eq("qq:10001"), contains("上一轮的结果"));
     }
 
     /** tick 是调度入口：派发同步做，推送甩到独立线程（慢渠道不拖住下一轮派发） */
@@ -260,7 +264,7 @@ class ScheduleServiceImplTest {
         when(goalService.get("goal-s1")).thenReturn(Optional.of(running));
 
         assertEquals(0, service.notifyFinished());
-        verify(qqSender, never()).send(any(), any());
+        verify(outbox, never()).enqueue(any(), any(), any(), any());
         verify(mapper, never()).update(isNull(), any());
     }
 
@@ -273,14 +277,13 @@ class ScheduleServiceImplTest {
         Goal done = new Goal("goal-s2", "早报");
         done.succeed("昨天完成 3 个任务");
         when(goalService.get("goal-s2")).thenReturn(Optional.of(done));
-        when(qqSender.send(any(), any())).thenReturn(true);
 
         assertEquals(1, service.notifyFinished());
 
-        ArgumentCaptor<String> target = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> chain = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
-        verify(qqSender).send(target.capture(), text.capture());
-        assertEquals("10001", target.getValue(), "channel:target 的 target 应原样交给渠道实现");
+        verify(outbox).enqueue(any(), any(), chain.capture(), text.capture());
+        assertEquals("qq:10001", chain.getValue(), "整条链原样入队，由 outbox 逐跳解析与降级");
         assertTrue(text.getValue().contains("【定时任务】每日早报"), text.getValue());
         assertTrue(text.getValue().contains("结果：成功"), text.getValue());
         assertTrue(text.getValue().contains("昨天完成 3 个任务"), text.getValue());
@@ -299,27 +302,25 @@ class ScheduleServiceImplTest {
         when(goalService.get("goal-s3")).thenReturn(Optional.empty());
 
         assertEquals(0, service.notifyFinished());
-        verify(qqSender, never()).send(any(), any());
+        verify(outbox, never()).enqueue(any(), any(), any(), any());
         ArgumentCaptor<UpdateWrapper> captor = ArgumentCaptor.forClass(UpdateWrapper.class);
         verify(mapper).update(isNull(), captor.capture());
         assertTrue(captor.getValue().getSqlSet().contains("notified_at"));
     }
 
-    /** 发送失败也标记：每 10 秒重试同一条会把渠道刷爆，失败原因已在注册表告警 */
+    /** 入队失败不标记：下一轮会重新收集这条，不能因为一次写库抖动就丢消息 */
     @Test
     @SuppressWarnings({"unchecked", "rawtypes"})
-    void notifyFinished_sendFails_stillMarks() {
+    void notifyFinished_enqueueFails_notMarked() {
         ScheduleEntity row = pendingNotify("s4");
         when(mapper.selectList(any())).thenReturn(List.of(row));
         Goal done = new Goal("goal-s4", "早报");
         done.fail("模型超时");
         when(goalService.get("goal-s4")).thenReturn(Optional.of(done));
-        when(qqSender.send(any(), any())).thenReturn(false);
+        when(outbox.enqueue(any(), any(), any(), any())).thenThrow(new IllegalStateException("db down"));
 
-        assertEquals(0, service.notifyFinished(), "未送达不计入成功数");
-        ArgumentCaptor<UpdateWrapper> captor = ArgumentCaptor.forClass(UpdateWrapper.class);
-        verify(mapper).update(isNull(), captor.capture());
-        assertTrue(captor.getValue().getSqlSet().contains("notified_at"), "失败也要标记，避免重试刷屏");
+        assertEquals(0, service.notifyFinished(), "入队失败不计入成功数");
+        verify(mapper, never()).update(isNull(), any());
     }
 
     @Test
@@ -327,7 +328,7 @@ class ScheduleServiceImplTest {
         when(mapper.selectList(any())).thenReturn(List.of());
 
         assertEquals(0, service.notifyFinished());
-        verify(qqSender, never()).send(any(), any());
+        verify(outbox, never()).enqueue(any(), any(), any(), any());
     }
 
     @Test

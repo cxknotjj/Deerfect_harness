@@ -175,7 +175,10 @@ server/src/main/java/com/dark/javaHarness/
 │   └── KnowledgeRetriever.java   # 检索注入器：user 文本→top-k 命中→【出处N】知识段（预算截断）
 ├── channel/qq/                   # 已整体迁出为独立模块 `channel-qq`（NapCat/OneBot 11，napcat.enabled 条件装配，单向依赖 core 端口）
 ├── message/                      # 主动推送（任务结果 / 失败告警外发）
-│   └── MessageSenderRegistry.java  # channel:target 路由到渠道实现；未注册渠道与实现违约一律 false
+│   ├── MessageSenderRegistry.java  # channel:target 路由；降级链 chainOf（严格）/ sendWithFallback（宽松）/ sendOnce（单跳）
+│   ├── DeliveryOutboxService.java  # 投递 outbox：入队 / 领取（发送前计数 + 租约）/ 结案 / 换跳 / 长文转邮件
+│   ├── DeliveryRetryScheduler.java  # 30s 扫到期消息：送达 / 退避 / 换下一跳 / 终态
+│   └── AlertGate.java              # 告警抑制：连续 N 次才发、24h 窗口、恢复补发
 ├── memory/                       # 长期记忆（用户画像 + 显式记忆）
 │   ├── UserProfileService.java   # 增量提炼空闲会话的新消息 → 按 key 合并进全局画像（补丁式，非全文重写；原子写 + .bak）
 │   ├── UserProfileSectionProviderImpl.java  # 画像段注入 general/lead 的 system prompt（order 150）
@@ -235,6 +238,7 @@ server/src/main/java/com/dark/javaHarness/
 | V11 | `idx_archive_time(archived_at, id)`，支撑 `scope=all` 跨会话时间倒序召回 |
 | V12 | `session_summary` 会话滚动摘要（游标 `covered_message_id`，滚动合并） |
 | V13 | `memory` 显式记忆表（key / content / source / expires_at / deleted_at 软删）+ general/lead 工具列追加 `memory` 组 |
+| V14 | `delivery_outbox` 主动投递 outbox（PENDING/SENT/DEAD，`hop_attempts` 本跳次数 + 领取租约，失败可重投可审计） |
 
 ---
 

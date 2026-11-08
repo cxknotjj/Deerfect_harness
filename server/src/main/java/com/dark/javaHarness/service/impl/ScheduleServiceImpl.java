@@ -7,6 +7,7 @@ import com.dark.javaHarness.domain.Schedule;
 import com.dark.javaHarness.domain.entity.ScheduleEntity;
 import com.dark.javaHarness.enums.GoalStatus;
 import com.dark.javaHarness.mapper.ScheduleMapper;
+import com.dark.javaHarness.message.DeliveryOutboxService;
 import com.dark.javaHarness.message.MessageSenderRegistry;
 import com.dark.javaHarness.service.AgentService;
 import com.dark.javaHarness.service.GoalService;
@@ -63,6 +64,8 @@ public class ScheduleServiceImpl implements ScheduleService {
     private final AgentService agentService;
     private final GoalService goalService;
     private final MessageSenderRegistry senders;
+    /** 投递 outbox：推送不再直发，而是「先入队」——送达状态只由 outbox 表达 */
+    private final DeliveryOutboxService outbox;
 
     /**
      * 推送专用单线程（守护）：渠道 HTTP 会超时重试，放在调度线程上会把「下一轮派发」
@@ -78,11 +81,13 @@ public class ScheduleServiceImpl implements ScheduleService {
     private final AtomicBoolean notifying = new AtomicBoolean();
 
     public ScheduleServiceImpl(ScheduleMapper mapper, AgentService agentService,
-                               GoalService goalService, MessageSenderRegistry senders) {
+                               GoalService goalService, MessageSenderRegistry senders,
+                               DeliveryOutboxService outbox) {
         this.mapper = mapper;
         this.agentService = agentService;
         this.goalService = goalService;
         this.senders = senders;
+        this.outbox = outbox;
     }
 
     /**
@@ -103,9 +108,9 @@ public class ScheduleServiceImpl implements ScheduleService {
         }
         notifyExecutor.execute(() -> {
             try {
-                deliver(pending);
+                enqueue(pending);
             } catch (Throwable t) {
-                log.warn("[schedule] 推送轮次异常: {}", t.toString());
+                log.warn("[schedule] 入队轮次异常: {}", t.toString());
             } finally {
                 notifying.set(false);
             }
@@ -148,7 +153,12 @@ public class ScheduleServiceImpl implements ScheduleService {
         row.setAgentName(agentName.trim());
         row.setCron(cron.trim());
         row.setEnabled(1);
-        row.setNotifyChannel(blankToNull(notifyChannel));
+        String channelRef = blankToNull(notifyChannel);
+        if (channelRef != null) {
+            // 校验提前到创建时：配错（未知渠道 / 缺 target / 空段）当场报，不等到真触发任务
+            senders.chainOf(channelRef);
+        }
+        row.setNotifyChannel(channelRef);
         row.setNextRunAt(next);
         row.setCreatedAt(now);
         mapper.insert(row);
@@ -202,12 +212,13 @@ public class ScheduleServiceImpl implements ScheduleService {
      * <p>为什么轮询而不发事件：Goal 的完成点有三处（直跑、流式成功、流式失败），事件容易
      * 漏发或重发；轮询 + notified_at 幂等标记只需读两张表，且失败天然下一轮补上。
      *
-     * <p>发送失败也标记已通知：否则每 10 秒重试同一条会把渠道刷爆，而失败原因已经在
-     * {@link MessageSenderRegistry} 里告警。重试的语义属于「任务本身要不要重跑」（P1-4）。
+     * <p>`notified_at` 的语义是「已入队」而不是「已送达」：投递成败由
+     * {@link DeliveryOutboxService} 记录并按退避重投，调度侧不再关心。
+     * 入队失败时才不标记——下一轮会重新收集同一条，不会丢。
      */
     @Override
     public int notifyFinished() {
-        return deliver(collectPending());
+        return enqueue(collectPending());
     }
 
     /** 待推送快照：查询时就把 goal 终态与正文定下来，发送阶段不再读库（避免派发覆盖导致串行错乱） */
@@ -248,16 +259,27 @@ public class ScheduleServiceImpl implements ScheduleService {
         return pending;
     }
 
-    /** 实际发送并标记；失败也标记（避免每轮重试刷屏渠道），重试语义属于任务本身（P1-4） */
-    private int deliver(List<PendingNotify> pending) {
-        int delivered = 0;
+    /**
+     * 写入投递 outbox 并标记「已入队」。
+     *
+     * <p>与改造前的关键差别：不再在这里发送，也不再看发送结果。发送、重试、降级、
+     * 终态全部交给 outbox —— 一条消息的投递过程有唯一事实来源。
+     */
+    private int enqueue(List<PendingNotify> pending) {
+        int queued = 0;
         for (PendingNotify item : pending) {
-            if (senders.send(item.channelRef(), item.text())) {
-                delivered++;
+            try {
+                outbox.enqueue("schedule", item.scheduleId() + "/" + item.goalId(),
+                        item.channelRef(), item.text());
+            } catch (Exception e) {
+                // 入队失败不标记：下一轮会重新收集这条，属于「可恢复失败」
+                log.warn("[schedule] 任务 {} 入队失败，下轮重试: {}", item.scheduleId(), e.toString());
+                continue;
             }
             markNotified(item.scheduleId(), item.goalId());
+            queued++;
         }
-        return delivered;
+        return queued;
     }
 
     /**

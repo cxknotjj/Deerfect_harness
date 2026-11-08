@@ -227,7 +227,7 @@ IMAGE_REPO=ghcr.io/cxknotjj/deerfect-harness IMAGE_TAG=sha-xxxxxxx \
 | 任务 | 覆盖表 | 保留期配置（默认） | 时间基准 |
 | --- | --- | --- | --- |
 | `ObservabilityLogCleaner` | `llm_call_log` / `tool_call_log` / `kb_retrieval_log` / `mcp_server_log` | `app.observability.retention-days`（90） | `created_at` |
-| `DataRetentionCleaner` | `session_message_archive` / `goal`（级联 `orchestration_checkpoint`） | `app.retention.archive-days` / `goal-days`（180） | `archived_at` / `finished_at` |
+| `DataRetentionCleaner` | `session_message_archive` / `goal`（级联 `orchestration_checkpoint`）/ `delivery_outbox`（仅终态） | `app.retention.archive-days` / `goal-days`（180）、`outbox-sent-days`（7）/ `outbox-dead-days`（30） | `archived_at` / `finished_at` / `created_at` |
 
 - 两者都分批删除（观测 1000 行/批、业务 500 行/批），失败仅 warn 不抛，下一轮调度重试；
   cron 错开（03:00 / 03:30）。

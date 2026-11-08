@@ -84,4 +84,23 @@ app:
                                                  # 意味着 recall_history 只能查到期内数据
     goal-days: 180                               # 已结束（SUCCEEDED/FAILED）目标保留天数：
                                                  # 清理时级联删其编排检查点，PENDING/RUNNING 不动
+    outbox-sent-days: 7                          # 已送达投递记录保留天数（审计窗口：够查
+                                                 # 「上周那条日报发了没」）；0 = 禁用
+    outbox-dead-days: 30                         # 投递失败（DEAD）记录保留天数；0 = 禁用
     clean-cron: "0 30 3 * * ?"                   # 清理时刻（错开观测清理的 03:00）
+
+  # 主动投递：outbox 重投与降级链（V14）。单实例部署，这些参数只影响「重试节奏」，
+  # 不涉及分布式协调
+  delivery:
+    scan-interval-ms: 30000                      # 扫描到期消息的节拍
+    batch: 50                                    # 单轮最多领取条数
+    lease-seconds: 60                            # 领取租约：发送中进程被杀时，到期后自动重试
+    max-per-hop: 3                               # 单个通道最多尝试几次，用尽后换链上下一跳
+    backoff-seconds: 60,180,600                  # 同通道重试退避（逗号分隔，按尝试次数取）
+    long-text-threshold: 6000                    # 正文超此长度且有 email 时，把 email 提到链首
+                                                 # （截断会丢信息，转邮件不丢）
+
+  # 告警抑制：避免「每次失败发一条」把自己练成不看告警的人
+  alert:
+    min-failures: 3                              # 连续失败几次才发第一条
+    throttle-hours: 24                           # 同类告警的抑制窗口
