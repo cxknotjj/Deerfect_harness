@@ -43,3 +43,18 @@
   - 做法：按 name.toLowerCase() 检测冲突，保留入口路径排序第一条
   - 验收：同名技能只返回一条，日志能看出被跳过的目录
 ```
+
+## 当前清单
+
+| 清单 | 主题 | 进度 |
+| --- | --- | --- |
+| [personal-agent-gap.md](./personal-agent-gap.md) | 能力补齐（主动性 / 记忆 / 触达） | 11/14 |
+| [project-hardening.md](./project-hardening.md) | 工程护栏与结构债（质量门禁 / 集成测试 / 部署默认项） | 13/14 |
+| [delivery-outbox.md](./delivery-outbox.md) | 投递层：outbox 与降级链（M1 前半） | 0/9 |
+| [email-channel.md](./email-channel.md) | 邮件渠道模块（M1 后半） | 0/6 |
+| [channel-health.md](./channel-health.md) | 渠道探活告警（M2） | 0/4 |
+| [feishu-channel.md](./feishu-channel.md) | 飞书渠道：webhook（M3a）/ 事件订阅（M3b） | 0/9 |
+
+> 上表只列仍有待办的清单。`session-context-composition.md`（11/11）、`super-agent-adoption.md`（14/14）、`skill-optimization.md`（17/17）、`project-optimization.md`（15/15）已全部验收，按约定留档、不再回填。
+>
+> 后四份来自同一份规划书 [2026-11-08-delivery-reliability-feishu-email-plan.md](../docs/design/2026-11-08-delivery-reliability-feishu-email-plan.md)，拆成四个文件是因为它们**能独立提交、独立验收**：投递层不依赖邮件实现（用测试替身就能验），邮件不依赖飞书，飞书 M3a 也不依赖 M3b。拆开的边界是「一次提交能完整说明一件事」，不是按代码目录切。
