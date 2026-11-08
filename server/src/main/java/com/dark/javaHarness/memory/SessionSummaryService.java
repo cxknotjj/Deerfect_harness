@@ -100,6 +100,20 @@ public class SessionSummaryService implements SessionSummaryPort {
     }
 
     @Override
+    public void deleteBySessionId(String sessionId) {
+        Long sid = parseSessionId(sessionId);
+        if (sid == null) {
+            return;
+        }
+        try {
+            mapper.deleteById(sid);
+        } catch (Exception e) {
+            // 清理是旁路：失败只告警，不阻断会话删除
+            log.warn("[memory-summary] 会话 {} 摘要删除失败（忽略）：{}", sessionId, describe(e));
+        }
+    }
+
+    @Override
     public void requestSummary(String sessionId, List<Message> droppedMessages) {
         if (sessionId == null || sessionId.isBlank() || droppedMessages == null) {
             return;

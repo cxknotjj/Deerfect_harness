@@ -25,4 +25,10 @@ public interface SessionSummaryPort {
      * @param droppedMessages 本次裁剪丢弃的消息（应含快照消息 ID metadata，用于增量游标）
      */
     void requestSummary(String sessionId, List<Message> droppedMessages);
+
+    /**
+     * 删除会话摘要（会话删除时级联清理，避免 summary 表留下找不到会话的孤儿行）。
+     * 幂等、失败不抛——清理是旁路，不能阻断删除会话本身。
+     */
+    void deleteBySessionId(String sessionId);
 }

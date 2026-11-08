@@ -34,3 +34,44 @@
 @import './login.css';
 @import './offline.css';
 @import './monitor.css';
+
+/* ============================================================
+   全局错误横幅:组件抛错/异步未捕获时的可见提示
+   fixed 顶部,自带底色不依赖主题变量(深浅主题下都必须可读);
+   文本单行省略,完整堆栈仍在 console
+   ============================================================ */
+.global-error-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #8a1f11;
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
+}
+.global-error-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.global-error-close {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.8;
+}
+.global-error-close:hover {
+  opacity: 1;
+}

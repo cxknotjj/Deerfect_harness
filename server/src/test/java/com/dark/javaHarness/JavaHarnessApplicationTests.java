@@ -44,4 +44,18 @@ class JavaHarnessApplicationTests {
         assertEquals("qwen3.8-27b", environment.getProperty("app.context.summary-model"));
         assertEquals("mcp-config.json", environment.getProperty("spring.ai.mcp.client.stdio-config-file"));
     }
+
+    /**
+     * 运行上限需与部署形态匹配：Hikari 默认 minimum-idle = maximum-pool-size = 10（启动即占满），
+     * Tomcat 默认 200 线程 / 8192 连接——在 600m 容器 + 50 条 SSE 上限的负载下都偏大。
+     * 这里断言配置真的被绑定（键名写错时 getProperty 返回 null，测试失败），
+     * 防止有人为了「临时提并发」把它悄悄改回默认。
+     */
+    @Test
+    void runtimeLimits_areConfigured() {
+        assertEquals("100", environment.getProperty("server.tomcat.threads.max"));
+        assertEquals("50", environment.getProperty("server.tomcat.accept-count"));
+        assertEquals("2", environment.getProperty("spring.datasource.hikari.minimum-idle"));
+        assertEquals("5000", environment.getProperty("spring.datasource.hikari.connection-timeout"));
+    }
 }

@@ -423,6 +423,8 @@ class SessionServiceImplTest {
         verify(messageMapper).delete(msgCaptor.capture());
         assertTrue(msgCaptor.getValue().getTargetSql().contains("session_id"), "快照删除应限定在该会话");
         verify(bindingCleaner).deleteBySessionId(9L);
+        // 滚动摘要按会话唯一：不删会留下查不到会话的孤儿行
+        verify(summaryPort).deleteBySessionId("9");
     }
 
     /** deleteSession：渠道未启用（无 SessionBindingCleaner 实现）时跳过绑定清理不报错 */

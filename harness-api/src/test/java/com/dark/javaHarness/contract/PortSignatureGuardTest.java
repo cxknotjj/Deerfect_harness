@@ -64,6 +64,8 @@ class PortSignatureGuardTest {
                         "getSession(String):SessionEntity",
                         "switchAgent(String,Long):void",
                         "page(long,long):Page",
+                        // 会话删除时级联清摘要（P1 数据生命周期，2026-11-08）
+                        "deleteBySessionId(String):void",
                         "deleteSession(String):void",
                         // ChatMemory 端口（Spring AI 继承）
                         "add(String,List):void",

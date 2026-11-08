@@ -34,6 +34,17 @@ spring:
 
 server:
   port: 8080
+  # 线程与连接上限按「小内存机 + 明确并发上限」配置（默认 max-threads=200 / max-connections=8192
+  # 是通用服务器口径，在 600m 容器里偏大：
+  # - 每条 SSE 流占一个 Tomcat 线程，实际并发由 app.chat.max-stream-connections=50 约束
+  # - 100 线程覆盖「50 条流 + 普通请求 + 余量」，更高并发该在上游限流，而不是继续加线程
+  tomcat:
+    threads:
+      max: 100
+      min-spare: 10
+    # 排队上限：满了直接拒绝（快速失败），不无限堆积请求占内存
+    accept-count: 50
+    max-connections: 200
   # 优雅停机：Spring Boot 默认 immediate —— 重启/滚动更新时直接断开在途请求，
   # SSE 流会表现为「连接被重置」。graceful 会停止接收新请求并等待在途请求完成
   # （上限见 spring.lifecycle.timeout-per-shutdown-phase）。

@@ -157,7 +157,8 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── ObserveQueryService / ObserveQueryServiceImpl  # 三表查询收口（controller 不直连 mapper）
 │   ├── HarnessMetrics            # 指标埋点（路径判定 / LLM 台账 / 流控 / 编排降级）
 │   ├── MonitorService / ComponentStatusService / RuntimeMetricsService  # 运行监控聚合（模型、工具、组件状态、JVM 指标）
-│   ├── ObservabilityLogCleaner  # 观测表保留期清理
+│   ├── ObservabilityLogCleaner  # 观测表保留期清理（llm/tool/kb/mcp 四表，默认 90 天）
+│   ├── DataRetentionCleaner  # 业务数据保留期清理（归档 / 终态 goal + 级联检查点，默认 180 天）
 │   └── StaleGoalWatchdog       # Goal 停滞看门狗（RUNNING 无进展 → FAILED，默认关闭）
 ├── validation/                   # 纯规则（无状态、不查库）
 │   ├── FileNameRules.java        # 上传文件名/大小/kb 命名

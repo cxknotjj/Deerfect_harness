@@ -141,6 +141,11 @@ class ContextAssemblingAdvisorTest {
             if (fail) throw new IllegalStateException("summary llm down");
             dropped.addAll(droppedMessages);
         }
+
+        @Override
+        public void deleteBySessionId(String sessionId) {
+            dropped.clear(); // 本测试只关心投递，删除按空实现
+        }
     }
 
     @Test

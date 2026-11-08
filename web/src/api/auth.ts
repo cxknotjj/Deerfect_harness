@@ -1,7 +1,7 @@
 /**
  * 登录通道：登录态探测、口令换 Cookie、登出。
  */
-import { request, requestVoid } from './http'
+import { fetchWithTimeout, request, requestVoid } from './http'
 
 /** 登录态探测（GET /api/auth/me）：enabled=服务端是否启用登录通道，authenticated=当前浏览器是否已登录 */
 export interface AuthStateView {
@@ -15,10 +15,12 @@ export function authState(): Promise<AuthStateView> {
 
 /**
  * 登录（POST /api/auth/login）：成功后浏览器持有 HttpOnly Cookie。
- * 独立 fetch 而非 request()：登录自身的 401（口令错误）不得触发全局未登录钩子。
+ *
+ * <p>不走 request()：登录自身的 401（口令错误）不得触发全局未登录钩子。
+ * 但仍走 fetchWithTimeout——后端挂起时登录按钮不能永远转圈。
  */
 export async function login(password: string): Promise<void> {
-  const resp = await fetch('/api/auth/login', {
+  const resp = await fetchWithTimeout('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password }),

@@ -237,6 +237,8 @@ public class SessionServiceImpl implements SessionService {
         }
         sessionMapper.deleteById(sid);
         snapshotStore.deleteBySessionId(String.valueOf(sid));
+        // 滚动摘要按会话唯一：不删会留下找不到会话的孤儿行
+        summaryPort.deleteBySessionId(String.valueOf(sid));
         SessionBindingCleaner cleaner = bindingCleaner.getIfAvailable();
         if (cleaner != null) {
             cleaner.deleteBySessionId(sid);
@@ -256,6 +258,12 @@ public class SessionServiceImpl implements SessionService {
     @Override
     public void requestSummary(String sessionId, List<Message> droppedMessages) {
         summaryPort.requestSummary(sessionId, droppedMessages);
+    }
+
+    /** 摘要删除（端口方法）：与 {@link #deleteSession} 内的级联清理同一个实现 */
+    @Override
+    public void deleteBySessionId(String sessionId) {
+        summaryPort.deleteBySessionId(sessionId);
     }
 
     /** ChatMemory.get：按会话ID读取历史，等价于 {@link #loadContext}。 */

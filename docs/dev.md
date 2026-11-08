@@ -130,6 +130,16 @@ PWA（P3-1）只在构建产物里生效：`npm run dev` 不注册 service worke
 `devOptions` 默认关闭），本地验证 manifest / SW / 离线门用 `npm run build && npm run preview`。
 手机端必须 HTTPS 或 localhost 才能注册 SW，局域网 `http://IP:端口` 无法「添加到主屏」。
 
+### 请求超时与错误提示
+
+- 普通 REST 统一走 `fetchWithTimeout`（默认 30s，`VITE_API_TIMEOUT_MS` 覆盖）：后端挂起时抛
+  `请求超时（30s）：/api/...` 并带原始 `cause`，不会无限等待。`login` 虽然单独 `fetch`
+  （为了不触发 401 全局钩子），也走同一条超时封装。
+- 三处异常入口收敛到 `web/src/composables/globalError.ts`：`app.config.errorHandler`
+  （根组件/渲染）、`unhandledrejection`（异步未捕获）、根组件 `onErrorCaptured`（子树，
+  返回 false 阻止向上）。顶部红色横幅显示「类型: 首行消息」，8s 自动消失、可手动关闭；
+  完整堆栈仍打 console。有横幅时页面其余部分照常可用，不再整页白屏。
+
 ## 6. 密钥与环境变量
 
 - 本地密钥与远程地址放仓库根 `.env.local`（未纳入版本控制），如 `QWEN_API_KEY`、`DEEPSEEK_API_KEY`、`NAPCAT_REMOTE_HOST`（远程 NapCat 服务器地址，见 3.1）、`TTS_PYTHON`（已装 edge-tts 的 Python 解释器路径）。
@@ -211,3 +221,19 @@ IMAGE_REPO=ghcr.io/cxknotjj/deerfect-harness IMAGE_TAG=sha-xxxxxxx \
 异步链路（route-judge / Agent 流式生成所在的 boundedElastic）经 `ContextPropagationConfig`
 开启自动传播后继承 MDC（模型 SDK 自建线程不在传播范围）。本地想恢复可读文本日志，启动
 参数加 `--logging.structured.format.console=`。
+
+### 数据保留期（两个清理任务，均可配、0 = 禁用该表）
+
+| 任务 | 覆盖表 | 保留期配置（默认） | 时间基准 |
+| --- | --- | --- | --- |
+| `ObservabilityLogCleaner` | `llm_call_log` / `tool_call_log` / `kb_retrieval_log` / `mcp_server_log` | `app.observability.retention-days`（90） | `created_at` |
+| `DataRetentionCleaner` | `session_message_archive` / `goal`（级联 `orchestration_checkpoint`） | `app.retention.archive-days` / `goal-days`（180） | `archived_at` / `finished_at` |
+
+- 两者都分批删除（观测 1000 行/批、业务 500 行/批），失败仅 warn 不抛，下一轮调度重试；
+  cron 错开（03:00 / 03:30）。
+- 业务数据与日志分开配的理由：归档是 `recall_history` 的数据源，`goal` 含 objective/summary
+  正文，和「丢了不心疼」的日志共用保留期会把两件事混在一起。
+- `goal` 只清终态（`SUCCEEDED` / `FAILED`）且必须先级联删检查点——只删 goal 会留下既不能被
+  resume、也查不到归属的 `state_json`。
+- 删除会话时级联清：`session_messages`（快照）、`session_summary`（滚动摘要）、渠道绑定；
+  `session_message_archive` 按上面的保留期走，**不随会话删除**（跨会话召回要用）。

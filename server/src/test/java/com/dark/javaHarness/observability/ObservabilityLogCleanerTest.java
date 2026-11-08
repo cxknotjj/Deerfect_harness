@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.dark.javaHarness.mapper.KbRetrievalLogMapper;
 import com.dark.javaHarness.mapper.LlmCallLogMapper;
+import com.dark.javaHarness.mapper.McpServerLogMapper;
 import com.dark.javaHarness.mapper.ToolCallLogMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -29,10 +30,12 @@ class ObservabilityLogCleanerTest {
     private ToolCallLogMapper toolCallLogMapper;
     @Mock
     private KbRetrievalLogMapper kbRetrievalLogMapper;
+    @Mock
+    private McpServerLogMapper mcpServerLogMapper;
 
     private ObservabilityLogCleaner cleaner(int retentionDays) {
         return new ObservabilityLogCleaner(llmCallLogMapper, toolCallLogMapper, kbRetrievalLogMapper,
-                retentionDays);
+                mcpServerLogMapper, retentionDays);
     }
 
     /** retention-days=0：禁用清理，三个 mapper 均不被触碰 */
@@ -42,20 +45,24 @@ class ObservabilityLogCleanerTest {
         verify(llmCallLogMapper, never()).delete(any());
         verify(toolCallLogMapper, never()).delete(any());
         verify(kbRetrievalLogMapper, never()).delete(any());
+        verify(mcpServerLogMapper, never()).delete(any());
     }
 
-    /** 正常清理：三张表各删一批（返回量 < 单批上限即收尾） */
+    /** 正常清理：四张表各删一批（返回量 < 单批上限即收尾） */
     @Test
     void cleanOnce_deletesAllTables() {
         when(llmCallLogMapper.delete(any())).thenReturn(3);
         when(toolCallLogMapper.delete(any())).thenReturn(0);
         when(kbRetrievalLogMapper.delete(any())).thenReturn(5);
+        when(mcpServerLogMapper.delete(any())).thenReturn(7);
 
         cleaner(90).cleanOnce();
 
         verify(llmCallLogMapper, times(1)).delete(any());
         verify(toolCallLogMapper, times(1)).delete(any());
         verify(kbRetrievalLogMapper, times(1)).delete(any());
+        // mcp_server_log 此前漏在清理清单外，与其余观测表同一保留期
+        verify(mcpServerLogMapper, times(1)).delete(any());
     }
 
     /** 分批循环：单批满 1000 行则继续删下一批，直到不足量收尾；总数累计正确 */
@@ -64,6 +71,7 @@ class ObservabilityLogCleanerTest {
         when(llmCallLogMapper.delete(any())).thenReturn(ObservabilityLogCleaner.BATCH_LIMIT, 3);
         when(toolCallLogMapper.delete(any())).thenReturn(0);
         when(kbRetrievalLogMapper.delete(any())).thenReturn(0);
+        when(mcpServerLogMapper.delete(any())).thenReturn(0);
 
         cleaner(90).cleanOnce();
 
@@ -77,6 +85,7 @@ class ObservabilityLogCleanerTest {
         when(llmCallLogMapper.delete(any())).thenReturn(0);
         when(toolCallLogMapper.delete(any())).thenReturn(0);
         when(kbRetrievalLogMapper.delete(any())).thenReturn(0);
+        when(mcpServerLogMapper.delete(any())).thenReturn(0);
 
         cleaner(90).cleanOnce();
 
@@ -96,10 +105,12 @@ class ObservabilityLogCleanerTest {
         when(llmCallLogMapper.delete(any())).thenThrow(new RuntimeException("db down"));
         when(toolCallLogMapper.delete(any())).thenReturn(0);
         when(kbRetrievalLogMapper.delete(any())).thenReturn(0);
+        when(mcpServerLogMapper.delete(any())).thenReturn(0);
 
         cleaner(90).cleanOnce();
 
         verify(toolCallLogMapper, times(1)).delete(any());
         verify(kbRetrievalLogMapper, times(1)).delete(any());
+        verify(mcpServerLogMapper, times(1)).delete(any());
     }
 }

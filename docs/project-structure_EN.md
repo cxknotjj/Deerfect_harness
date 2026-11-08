@@ -112,7 +112,8 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── LlmCallRecorder / KbRetrievalRecorder / McpServerRecorder  # Async persistence of the three observation tables
 │   ├── LlmCallObserver / LlmRequestLogAdvisor  # Call-side accounting and request-start logging
 │   ├── ObserveQueryService / ObserveQueryServiceImpl  # Unified three-table queries (controllers never touch mappers)
-│   └── ObservabilityLogCleaner  # Observation-table retention cleanup
+│   ├── ObservabilityLogCleaner  # Observation-table retention (llm/tool/kb/mcp, 90d default)
+│   └── DataRetentionCleaner  # Business-data retention (archive / terminal goals + cascaded checkpoints, 180d default)
 ├── validation/                   # Pure rules (stateless, no DB access)
 │   ├── FileNameRules.java        # Upload filename / size / kb naming
 │   └── ProviderRules.java        # provider / apiUrl / model-name format

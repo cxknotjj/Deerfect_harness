@@ -77,3 +77,11 @@ app:
   observability:
     retention-days: 90                           # 观测数据保留天数
     clean-cron: "0 0 3 * * ?"                    # 清理时刻（每日凌晨 3 点低峰期）
+  # 业务数据保留期：与观测日志分开配——归档是 recall_history 的数据源、goal 含 objective/summary
+  # 正文，生命周期比「丢了不心疼」的日志长；0 = 禁用该表清理
+  retention:
+    archive-days: 180                            # 会话归档保留天数：超期按 archived_at 分批删除，
+                                                 # 意味着 recall_history 只能查到期内数据
+    goal-days: 180                               # 已结束（SUCCEEDED/FAILED）目标保留天数：
+                                                 # 清理时级联删其编排检查点，PENDING/RUNNING 不动
+    clean-cron: "0 30 3 * * ?"                   # 清理时刻（错开观测清理的 03:00）

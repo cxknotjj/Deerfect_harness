@@ -36,7 +36,7 @@ describe('http 基础设施', () => {
   it('request 解析 JSON 并携带公共头', async () => {
     fetchMock.mockResolvedValue(response({ ok: true }))
     await expect(request<{ ok: boolean }>('/api/x')).resolves.toEqual({ ok: true })
-    expect(fetchMock).toHaveBeenCalledWith('/api/x', { headers: {} })
+    expect(fetchMock).toHaveBeenCalledWith('/api/x', expect.objectContaining({ headers: {}, signal: expect.any(AbortSignal) }))
   })
 
   it('VITE_API_KEY 已配置时注入 X-API-Token', () => {
@@ -56,7 +56,7 @@ describe('http 基础设施', () => {
   it('requestVoid 只校验 2xx，不解析 JSON', async () => {
     fetchMock.mockResolvedValue(response('', 204))
     await expect(requestVoid('/api/x', 'DELETE')).resolves.toBeUndefined()
-    expect(fetchMock).toHaveBeenCalledWith('/api/x', { method: 'DELETE', headers: {} })
+    expect(fetchMock).toHaveBeenCalledWith('/api/x', expect.objectContaining({ method: 'DELETE', headers: {}, signal: expect.any(AbortSignal) }))
   })
 
   it('requestVoid 非 2xx 抛错', async () => {
@@ -75,11 +75,13 @@ describe('auth 端点', () => {
   it('login 发送口令 JSON 并在 2xx 时静默成功', async () => {
     fetchMock.mockResolvedValue(response('', 204))
     await expect(login('口令')).resolves.toBeUndefined()
-    expect(fetchMock).toHaveBeenCalledWith('/api/auth/login', {
+    expect(fetchMock).toHaveBeenCalledWith('/api/auth/login', expect.objectContaining({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password: '口令' }),
-    })
+      // 普通请求也带超时信号（此前是裸 fetch，后端挂起会无限等待）
+      signal: expect.any(AbortSignal),
+    }))
   })
 
   it('login 按状态码给出可读错误', async () => {
@@ -94,7 +96,7 @@ describe('auth 端点', () => {
   it('logout 走 POST /api/auth/logout', async () => {
     fetchMock.mockResolvedValue(response('', 204))
     await logout()
-    expect(fetchMock).toHaveBeenCalledWith('/api/auth/logout', { method: 'POST', headers: {} })
+    expect(fetchMock).toHaveBeenCalledWith('/api/auth/logout', expect.objectContaining({ method: 'POST', headers: {}, signal: expect.any(AbortSignal) }))
   })
 })
 
@@ -111,13 +113,13 @@ describe('sessions 端点', () => {
     await createSession('会话 名')
     expect(fetchMock.mock.calls.at(-1)).toEqual([
       `/api/harness/sessions?name=${encodeURIComponent('会话 名')}`,
-      { method: 'POST', headers: {} },
+      expect.objectContaining({ method: 'POST', headers: {}, signal: expect.any(AbortSignal) }),
     ])
 
     await bindAgent('s/1', 7)
     expect(fetchMock.mock.calls.at(-1)).toEqual([
       '/api/harness/sessions/s%2F1/agent?agentId=7',
-      { method: 'POST', headers: {} },
+      expect.objectContaining({ method: 'POST', headers: {}, signal: expect.any(AbortSignal) }),
     ])
 
     await listMessages('s 1')
@@ -126,7 +128,7 @@ describe('sessions 端点', () => {
     await deleteSession('s 1')
     expect(fetchMock.mock.calls.at(-1)).toEqual([
       '/api/harness/sessions/s%201',
-      { method: 'DELETE', headers: {} },
+      expect.objectContaining({ method: 'DELETE', headers: {}, signal: expect.any(AbortSignal) }),
     ])
   })
 })

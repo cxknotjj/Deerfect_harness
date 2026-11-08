@@ -11,7 +11,7 @@
  * - 占位交互(附件/工作区权限/消息反馈/搜索/设置)统一顶栏轻提示「功能开发中」
  */
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onErrorCaptured, onMounted, ref, watch } from 'vue'
 import SessionList from './components/SessionList.vue'
 import ChatWindow from './components/ChatWindow.vue'
 import AgentSelect from './components/AgentSelect.vue'
@@ -26,6 +26,15 @@ import { useSessions } from './composables/useSessions'
 import { useChat } from './composables/useChat'
 import { useAgents } from './composables/useAgents'
 import { useOfflineGate, useUnreadBadge } from './composables/pwa'
+import { reportGlobalError, useGlobalError } from './composables/globalError'
+
+const { message: globalError, dismiss: dismissGlobalError } = useGlobalError()
+
+// 子树异常在这里接住：返回 false 阻止继续向上，页面其余部分仍可用（而非整页白屏）
+onErrorCaptured((err, _instance, info) => {
+  reportGlobalError(err, `组件异常（${info}）`)
+  return false
+})
 
 const {
   sessions,
@@ -301,6 +310,11 @@ function downloadSessionLog(): void {
 </script>
 
 <template>
+  <!-- 全局错误横幅:组件抛错/异步失败时的可见提示。fixed 定位,不占布局;可手动关闭，8s 自动消失 -->
+  <div v-if="globalError" class="global-error-bar" role="alert">
+    <span class="global-error-text">{{ globalError }}</span>
+    <button class="global-error-close" type="button" aria-label="关闭提示" @click="dismissGlobalError">✕</button>
+  </div>
   <!-- 离线门优先于登录门:断网时先告知不可用,恢复联网后再走登录/主界面 -->
   <OfflineView v-if="offline" @retry="retryConnection" />
   <!-- 登录门:服务端启用登录且未登录时替代主界面(静态资源公开,门只锁数据接口) -->

@@ -2,7 +2,7 @@
 
 - 范围：根 `pom.xml` 与 `.github/workflows`、`web/` 前端工程、`server` 测试与运行配置、`docker/docker-compose.yml`；P2 另含 `SessionServiceImpl` 与两个超大类
 - 创建：2026-11-07
-- 状态：共 11 项，已完成 10 项，待办 1 项
+- 状态：共 14 项，已完成 13 项，待办 1 项
 - 关系：`project-optimization.md`（2026-11-03，15 项全完成）处理的是当时热路径的重复读写与结构清理，与本清单不重叠；本清单是 2026-11-07 新一轮体检的结论。能力补齐（主动性 / 记忆 / 触达）见 `personal-agent-gap.md`，本清单只处理工程护栏与结构债。
 
 ## 进度概览
@@ -12,7 +12,8 @@
 | 体检与分级         | 1   | 0  | 1  |
 | P1 尽快（低成本高收益） | 5   | 0  | 5  |
 | P2 结构性（择机）    | 4   | 1  | 5  |
-| 合计            | 10  | 1  | 11 |
+| P3 数据与运行期健壮性  | 3   | 0  | 3  |
+| 合计            | 13  | 1  | 14 |
 
 ## 背景
 
@@ -110,6 +111,32 @@
     - `OrchestrationNodes`（620 行）：三节点共享同一份状态键、预算账本与取消令牌，拆开后跨节点改动要同时改三处并对齐约定，语义漂移风险高于阅读成本；行数里相当比重是拆解 JSON 的容错解析与 prompt 拼装，分支并不密。触发拆分条件：节点数增加，或各节点长出独立的重试/降级策略。
     - `OneBotEventServiceImpl`（578 行）：整条链路是「一条上报消息的顺序处理」，顺序本身即语义（限频先于调用、绑定先于建档、超时清理先于回复），拆成 pipeline 后顺序不再一眼可见，且每步要搬运同一组上下文。触发拆分条件：同一条链路要复用到其他渠道。
   - 结论：本轮不拆。与 `project-optimization.md` P3-2 的做法一致（补「不拆理由」而非硬拆）。
+
+## P3 数据与运行期健壮性（2026-11-08 第二轮体检）
+
+> P1 补的是「工程护栏」（覆盖率 / lint / 真实仓储 / 时间依赖 / 部署默认项），
+> P2 补的是「结构债」。这一轮体检发现剩下的是**上线后才会咬人**的运行期问题：
+> 数据只写不删、前端异常白屏、连接池与线程池沿用通用默认值。
+
+- [x] P3-1 数据生命周期补齐
+  - 作用：三处「只写不删」与一处「删除不级联」——① `mcp_server_log` 漏在观测清理清单外；② `session_message_archive` 是 recall_history 的数据源，无保留期会无界增长；③ `goal` 含 objective/summary 正文，终态也永久保留；④ 删除会话只清 session + 快照 + 渠道绑定，`session_summary` 留下孤儿行
+  - 位置：`ObservabilityLogCleaner`、新增 `DataRetentionCleaner`、`SessionSummaryPort` / `SessionSummaryService`、`SessionServiceImpl.deleteSession`
+  - 做法：观测清理纳入 `mcp_server_log`（四张表同一保留期）；新增业务数据清理器，归档按 `archived_at`、goal 按 `finished_at`（只删 SUCCEEDED/FAILED）分批删除，删 goal 前先级联删 `orchestration_checkpoint`（否则留下既不能 resume、也查不到归属的 state_json）；保留期独立可配（`app.retention.archive-days` / `goal-days`，默认 180 天，0 = 禁用）；摘要端口加 `deleteBySessionId`，会话删除时级联
+  - 验收：清理器 5 条单测（禁用开关 / 分批 / 级联 / 空批 / 失败不抛）+ 观测清理补 `mcp_server_log` 断言 + 会话删除断言摘要被清；全量 1162 条 0 失败
+  - 结果（2026-11-08）：新增 `DataRetentionCleaner` 与 `DataRetentionCleanerTest`（5 条）；`ObservabilityLogCleaner` 构造加 `McpServerLogMapper`、清理日志含四表计数；`SessionSummaryPort` 加 `deleteBySessionId`（实现幂等、失败仅告警），`deleteSession` 调用它。契约守卫 `PortSignatureGuardTest` 与 `InMemorySessionService` / `RecordingSummaryPort` 同步更新（测试按设计在此报错，不是回归）
+
+- [x] P3-2 前端全局错误处理与请求超时
+  - 作用：组件渲染抛错或 Promise 未捕获时整页白屏，用户除了刷新没有任何信息；普通 REST 请求是裸 `fetch`，后端挂起时无限等待（SSE 链路本来就有超时，只有普通请求没有）
+  - 位置：`web/src/composables/globalError.ts`（新增）、`main.ts`、`App.vue`、`web/src/api/http.ts`、`web/src/api/auth.ts`
+  - 做法：`app.config.errorHandler` + `unhandledrejection` + 根组件 `onErrorCaptured`（返回 false 阻止向上）三处收敛到同一个 `reportGlobalError`，顶部横幅显示「类型: 首行消息」（堆栈仍在 console），8s 自动消失、可手动关闭；`fetch` 统一走 `fetchWithTimeout`（默认 30s，`VITE_API_TIMEOUT_MS` 可配），超时抛「请求超时（30s）：/api/...」并带 `cause`；**`login` 原本是裸 fetch，一并接入**（登录按钮不能永远转圈）
+  - 验收：新增 `http.test.ts` 5 条（超时中断 / 正常响应 / 环境变量覆盖 / 网络错误不误报 / 401 仍触发钩子）+ `globalError.test.ts` 7 条（首行摘要 / 上下文前缀 / 非 Error 值 / 自动消失 / 计时重置 / 手动关闭 / console 保留堆栈）
+  - 结果（2026-11-08）：顺手修掉一个真 bug——`fetchWithTimeout` 起初用 `headers: baseHeaders()` 覆盖调用方头，会把 login 的 `Content-Type: application/json` 吞掉；改为 `mergeHeaders`（调用方优先，支持 Headers 实例）。前端 89 条单测全绿（+12），lint 0 error，build 通过
+
+- [x] P3-3 运行参数按部署形态配置
+  - 作用：Hikari 默认 `minimum-idle = maximum-pool-size = 10`（启动即占满且不释放）；Tomcat 默认 200 线程 / 8192 连接，而容器是 `mem_limit: 600m` + `-Xmx256m`，并发上限由 `max-stream-connections: 50` 约束——默认值是通用服务器口径，与部署形态不匹配
+  - 位置：`application-datasource.yaml`（hikari）、`application.yaml`（tomcat）
+  - 做法：`minimum-idle: 2` / `maximum-pool-size: 10`；`connection-timeout: 5000`（默认 30s，与前端 30s 超时同长会让两边一起等到超时，收窄后后端先给出可读错误）；`max-lifetime: 1800000` / `keepalive-time: 60000`；Tomcat `threads.max: 100` / `min-spare: 10` / `accept-count: 50` / `max-connections: 200`，每项都写明依据
+  - 验收：`JavaHarnessApplicationTests.runtimeLimits_areConfigured` 断言四个键被 Spring 绑定（键名写错时 getProperty 返回 null，测试失败）；4 条测试通过
 
 ## 边界：不在本清单内
 

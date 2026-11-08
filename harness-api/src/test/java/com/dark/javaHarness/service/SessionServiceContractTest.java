@@ -305,6 +305,12 @@ class SessionServiceContractTest {
         }
 
         @Override
+        public void deleteBySessionId(String sessionId) {
+            // 契约替身：摘要按会话唯一，删除会话时一并清掉
+            summaries.remove(sessionId);
+        }
+
+        @Override
         public List<Message> get(String conversationId) {
             return loadContext(conversationId);
         }
