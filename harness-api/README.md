@@ -62,6 +62,9 @@ harness-api --compile--> server / channel-* ❌ Maven 反应堆禁止成环
 混在一个 `service` 包里时，`MessageSender`（渠道实现、core 调用）和 `ChatService`（core 实现、
 渠道调用）看起来是同一类东西，新增渠道时容易漏掉要实现的接口。
 
+每个 `contract` 包都带一个 `package-info.java`，写清方向与准入规则——在 IDE 里导航到包即可看到，
+不需要翻到本文件。
+
 `contract.model` 只放端口的入参/出参。持久化实体、只在 server 内部流转的元数据不进契约：
 `SessionEntity` 已搬回 server，`ChatMessageMetadata` 同样回到 server；端口改为返回
 `SessionInfo`，改数据库列名不再波及渠道与 CLI。
