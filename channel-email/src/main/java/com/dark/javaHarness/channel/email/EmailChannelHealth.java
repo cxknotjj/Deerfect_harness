@@ -1,6 +1,6 @@
 package com.dark.javaHarness.channel.email;
 
-import com.dark.javaHarness.channel.ChannelHealth;
+import com.dark.javaHarness.contract.spi.ChannelHealth;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;

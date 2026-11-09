@@ -7,11 +7,13 @@ import com.dark.javaHarness.domain.ChatMessageMetadata;
 import com.dark.javaHarness.domain.entity.SessionEntity;
 import com.dark.javaHarness.mapper.SessionMapper;
 import com.dark.javaHarness.service.AgentConfigProvider;
-import com.dark.javaHarness.service.SessionBindingCleaner;
-import com.dark.javaHarness.service.SessionMessageEntry;
-import com.dark.javaHarness.service.SessionService;
-import com.dark.javaHarness.service.SessionSnapshotItem;
-import com.dark.javaHarness.service.SessionSummaryPort;
+import com.dark.javaHarness.contract.spi.SessionBindingCleaner;
+import com.dark.javaHarness.contract.model.SessionInfo;
+import com.dark.javaHarness.contract.model.SessionMessageEntry;
+import com.dark.javaHarness.contract.api.SessionService;
+import com.dark.javaHarness.contract.model.SessionSnapshotItem;
+import com.dark.javaHarness.contract.api.SessionSummaryPort;
+import com.dark.javaHarness.view.PageResult;
 import com.dark.javaHarness.view.SessionMessagesView;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -177,14 +179,32 @@ public class SessionServiceImpl implements SessionService {
 
     /** 查询会话（非法或空 sessionId 返回 null） */
     @Override
-    public SessionEntity getSession(String sessionId) {
+    public SessionInfo getSession(String sessionId) {
         Long sid = parseSessionId(sessionId);
         if (sid == null) {
             return null;
         }
         QueryWrapper<SessionEntity> qw = new QueryWrapper<>();
         qw.eq("session_id", sid);
-        return sessionMapper.selectOne(qw);
+        return toInfo(sessionMapper.selectOne(qw));
+    }
+
+    /**
+     * 实体 → 契约视图。只映射调用方需要的字段：is_delete（逻辑删除）、
+     * last_extracted_message_id / profile_extracted_at（画像提炼游标）都是持久化细节，
+     * 不出现在 {@link SessionInfo} 里。
+     */
+    private static SessionInfo toInfo(SessionEntity e) {
+        if (e == null) {
+            return null;
+        }
+        return new SessionInfo(
+                e.getSessionId(),
+                e.getSessionName(),
+                e.getCreator(),
+                e.getLastQuestion(),
+                e.getAgentId(),
+                e.getLastActiveAt());
     }
 
     /** 会话内切换 Agent：agentId 存在性校验 + 会话存在性校验后更新 agent_id（与当前值相同跳过写库） */
@@ -197,13 +217,13 @@ public class SessionServiceImpl implements SessionService {
         if (agentId == null) {
             throw new IllegalArgumentException("agentId 不能为空");
         }
-        SessionEntity session = getSession(sessionId);
+        SessionInfo session = getSession(sessionId);
         if (session == null) {
             throw new IllegalArgumentException("会话不存在: " + sessionId);
         }
         String agentName = agentConfigProvider.findAgentNameById(agentId)
                 .orElseThrow(() -> new IllegalArgumentException("agent 不存在: " + agentId));
-        if (session.getAgentId() != null && session.getAgentId().longValue() == agentId) {
+        if (session.agentId() != null && session.agentId().longValue() == agentId) {
             log.debug("会话已绑定该 Agent，跳过更新 sessionId={} agentId={}", sessionId, agentId);
             return;
         }
@@ -216,10 +236,16 @@ public class SessionServiceImpl implements SessionService {
 
     /** 分页查询会话（软删除的不会返回），按会话ID降序（最新在前） */
     @Override
-    public Page<SessionEntity> page(long current, long size) {
+    public PageResult<SessionInfo> page(long current, long size) {
         QueryWrapper<SessionEntity> qw = new QueryWrapper<>();
         qw.orderByDesc("session_id");
-        return sessionMapper.selectPage(new Page<>(Math.max(current, 1), Math.max(size, 1)), qw);
+        Page<SessionEntity> p = sessionMapper.selectPage(
+                new Page<>(Math.max(current, 1), Math.max(size, 1)), qw);
+        return new PageResult<>(
+                p.getRecords().stream().map(SessionServiceImpl::toInfo).toList(),
+                p.getTotal(),
+                p.getCurrent(),
+                p.getSize());
     }
 
     /**

@@ -1,6 +1,6 @@
 package com.dark.javaHarness.observability;
 
-import com.dark.javaHarness.channel.ChannelHealth;
+import com.dark.javaHarness.contract.spi.ChannelHealth;
 import com.dark.javaHarness.domain.dto.ComponentStatus;
 import com.dark.javaHarness.tool.builtin.SandboxToolProvider;
 import com.dark.javaHarness.tool.mcp.McpToolProvider;

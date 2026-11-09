@@ -1,4 +1,4 @@
-package com.dark.javaHarness.domain;
+package com.dark.javaHarness.view;
 
 import java.time.LocalDateTime;
 

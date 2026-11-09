@@ -12,7 +12,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.dark.javaHarness.channel.ChannelHealth;
+import com.dark.javaHarness.contract.spi.ChannelHealth;
 import com.dark.javaHarness.support.MutableClock;
 import java.time.Duration;
 import java.time.Instant;

@@ -2,9 +2,9 @@ package com.dark.javaHarness.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.dark.javaHarness.domain.entity.GoalEntity;
-import com.dark.javaHarness.enums.GoalStatus;
+import com.dark.javaHarness.contract.model.GoalStatus;
 import com.dark.javaHarness.mapper.GoalMapper;
-import com.dark.javaHarness.service.AgentService;
+import com.dark.javaHarness.contract.api.AgentService;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.slf4j.Logger;

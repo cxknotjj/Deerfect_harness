@@ -14,11 +14,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
-import com.dark.javaHarness.domain.Goal;
+import com.dark.javaHarness.contract.model.Goal;
 import com.dark.javaHarness.domain.entity.LlmCallLogEntity;
 import com.dark.javaHarness.mapper.LlmCallLogMapper;
-import com.dark.javaHarness.service.AgentService;
-import com.dark.javaHarness.service.SessionService;
+import com.dark.javaHarness.contract.api.AgentService;
+import com.dark.javaHarness.contract.api.SessionService;
 import com.dark.javaHarness.observability.LlmCallRecorder;
 import java.time.Duration;
 import java.util.List;

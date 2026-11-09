@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.dark.javaHarness.channel.ChannelHealth;
+import com.dark.javaHarness.contract.spi.ChannelHealth;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;

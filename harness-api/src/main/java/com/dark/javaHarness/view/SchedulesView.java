@@ -1,6 +1,6 @@
 package com.dark.javaHarness.view;
 
-import com.dark.javaHarness.domain.Schedule;
+import com.dark.javaHarness.view.Schedule;
 import java.util.List;
 
 /**

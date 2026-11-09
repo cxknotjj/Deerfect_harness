@@ -48,9 +48,9 @@
 | `void saveContext(String sessionId, Message message, Long ts)` | 追加一条消息并指定真实时刻 | —— |
 | `void saveContextBatch(String sessionId, List<SessionMessageEntry> entries)` | 一轮对话批量写入（推荐） | —— |
 | `void touchSession(String sessionId, String lastQuestion)` | 更新「最近提问」 | —— |
-| `SessionEntity getSession(String sessionId)` | 查会话（软删除不返回） | 不存在或 id 非法返回 **null** |
+| `SessionInfo getSession(String sessionId)` | 查会话（软删除不返回） | 不存在或 id 非法返回 **null** |
 | `void switchAgent(String sessionId, Long agentId)` | 会话内切换 Agent（幂等） | 会话/Agent 不存在抛 `IllegalArgumentException` |
-| `Page<SessionEntity> page(long current, long size)` | 会话分页（id 降序） | MyBatis-Plus 分页对象 |
+| `PageResult<SessionInfo> page(long current, long size)` | 会话分页（id 降序） | 页数由调用方按 `total / size` 计算 |
 | `void deleteSession(String sessionId)` | 软删会话 + 删快照 + 通知渠道清绑定 | 幂等，不存在也成功 |
 
 继承自 `ChatMemory`（一般不需要渠道直接调用）：`add(String, List<Message>)`、
@@ -58,7 +58,8 @@
 
 继承自 `SessionSummaryPort`：`summaryOf` / `requestSummary` / `deleteBySessionId`，见下文。
 
-> `getSession` 返回的是 MyBatis 实体 `SessionEntity`，属于已知的接口泄漏；新代码不要依赖它的字段。
+> `getSession` / `page` 返回契约自己的 `SessionInfo`，与 `session` 表结构解耦；
+> 逻辑删除标记、画像提炼游标等持久化字段不会出现在返回值里。
 
 ### AgentService
 
@@ -249,6 +250,8 @@ record AgentItemView(Long id, String name)
 ### 会话相关记录
 
 ```java
+record SessionInfo(Long id, String name, String creator, String lastQuestion,
+                   Integer agentId, LocalDateTime lastActiveAt)
 record SessionSnapshotItem(String id, String role, String content, Long ts)
 record SessionMessageEntry(Message message, Long ts)
 record SessionMessagesView.Item(String role, String content, Long ts)
@@ -256,6 +259,7 @@ record SessionMessagesView.Item(String role, String content, Long ts)
 
 `ts` 为 epoch 毫秒；user 是发送时刻、assistant 是完成时刻；旧快照可能为 null。
 `SessionSnapshotItem.id` 是快照条目的稳定 id，用于增量消费定位游标。
+`SessionInfo.agentId` 为 null 表示会话未绑定 Agent；`lastActiveAt` 旧数据可能为 null。
 
 ---
 

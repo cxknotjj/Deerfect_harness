@@ -8,7 +8,7 @@
 
 | Module | Responsibility | Depends on |
 |---|---|---|
-| `harness-api` | Shared contracts for channels and core: port interfaces (`service/`), domain models & state machine (`domain/`), outward DTOs (`view/`), shared enums, `ReplyPostProcessor` SPI | no reactor-internal deps |
+| `harness-api` | Shared contracts for channels and core: `contract.api` (callable ports), `contract.spi` (implementation SPIs), `contract.model` (port payloads), `view` (outward DTOs) | no reactor-internal deps |
 | `server` | Spring Boot main service, core implementation, fat-jar host | compile → `harness-api`; runtime → `channel-qq` |
 | `channel-qq` | QQ channel (NapCat/OneBot 11): client / events / replies / persistence | compile → `harness-api` |
 | `cli` | Terminal client, pure HTTP + SSE | compile → `harness-api` |
@@ -79,7 +79,7 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── LlmCallLog.java           # Observability record of one LLM call (latency/tokens/outcome)
 │   ├── KbRetrievalLog / McpServerLog / ToolCallLog  # Remaining observability records
 │   └── entity/                   # DB entities (agent / goal / session_message / model_provider / observability log tables)
-├── enums/                        # Shared constants: AgentConstants (GoalStatus / SseProtocol moved to harness-api)
+├── enums/                        # Shared constants: AgentConstants (GoalStatus → contract.model, SseProtocol → view)
 ├── exception/                    # Global exception handling (@RestControllerAdvice, uniform {code, message})
 ├── agent/                        # Agent abstractions, orchestration & LLM calls
 │   ├── Agent.java / AgentRegistry.java    # Agent interface and registry

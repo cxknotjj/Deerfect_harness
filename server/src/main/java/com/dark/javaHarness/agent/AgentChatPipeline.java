@@ -2,7 +2,7 @@ package com.dark.javaHarness.agent;
 
 import com.dark.javaHarness.agent.BudgetLedger;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
-import com.dark.javaHarness.domain.AgentConfig;
+import com.dark.javaHarness.contract.model.AgentConfig;
 import java.time.Duration;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BooleanSupplier;

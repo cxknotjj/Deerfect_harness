@@ -1,4 +1,4 @@
-package com.dark.javaHarness.service;
+package com.dark.javaHarness.contract.api;
 
 import com.dark.javaHarness.view.ChatRequest;
 import com.dark.javaHarness.view.ChatResponse;

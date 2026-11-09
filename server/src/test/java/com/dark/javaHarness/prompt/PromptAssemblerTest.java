@@ -10,8 +10,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.anyString;
 
-import com.dark.javaHarness.domain.AgentConfig;
-import com.dark.javaHarness.service.AgentService;
+import com.dark.javaHarness.contract.model.AgentConfig;
+import com.dark.javaHarness.contract.api.AgentService;
 import com.dark.javaHarness.tool.ToolAssignments;
 import com.dark.javaHarness.tool.builtin.SandboxToolProvider;
 import com.dark.javaHarness.tool.builtin.WebTools;

@@ -1,14 +1,14 @@
 package com.dark.javaHarness.service.impl;
 
-import com.dark.javaHarness.domain.Goal;
+import com.dark.javaHarness.contract.model.Goal;
 import com.dark.javaHarness.domain.RoutePlan;
 import com.dark.javaHarness.view.ChatRequest;
 import com.dark.javaHarness.view.ChatResponse;
 import com.dark.javaHarness.view.RouteInfo;
 import com.dark.javaHarness.enums.AgentConstants;
-import com.dark.javaHarness.enums.GoalStatus;
+import com.dark.javaHarness.contract.model.GoalStatus;
 import com.dark.javaHarness.observability.HarnessMetrics;
-import com.dark.javaHarness.service.AgentService;
+import com.dark.javaHarness.contract.api.AgentService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;

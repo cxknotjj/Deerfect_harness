@@ -1,5 +1,6 @@
 package com.dark.javaHarness.voice;
 
+import com.dark.javaHarness.contract.api.VoiceArtifactStore;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;

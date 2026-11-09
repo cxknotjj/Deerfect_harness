@@ -7,7 +7,7 @@ import com.dark.javaHarness.config.OpenAiClients;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.knowledge.KnowledgeService;
 import com.dark.javaHarness.knowledge.KnowledgeServiceImpl;
-import com.dark.javaHarness.service.AgentService;
+import com.dark.javaHarness.contract.api.AgentService;
 import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

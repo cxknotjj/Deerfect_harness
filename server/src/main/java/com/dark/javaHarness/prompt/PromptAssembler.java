@@ -1,7 +1,7 @@
 package com.dark.javaHarness.prompt;
 
-import com.dark.javaHarness.domain.AgentConfig;
-import com.dark.javaHarness.service.AgentService;
+import com.dark.javaHarness.contract.model.AgentConfig;
+import com.dark.javaHarness.contract.api.AgentService;
 import com.dark.javaHarness.tool.TokenEstimator;
 import com.dark.javaHarness.tool.ToolAssignments;
 import com.dark.javaHarness.tool.mcp.ServerTaggedCallback;

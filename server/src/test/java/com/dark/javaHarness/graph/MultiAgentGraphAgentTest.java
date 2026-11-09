@@ -26,11 +26,11 @@ import com.dark.javaHarness.state.OrchestrationCheckpoint;
 import com.dark.javaHarness.state.OrchestrationStage;
 import com.dark.javaHarness.state.persistence.OrchestrationCheckpointStore;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
-import com.dark.javaHarness.domain.Goal;
+import com.dark.javaHarness.contract.model.Goal;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.service.AgentConfigProvider;
-import com.dark.javaHarness.service.AgentService;
-import com.dark.javaHarness.service.SessionService;
+import com.dark.javaHarness.contract.api.AgentService;
+import com.dark.javaHarness.contract.api.SessionService;
 import com.dark.javaHarness.tool.ToolAssignments;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -288,9 +288,9 @@ class MultiAgentGraphAgentTest {
         stubChat(leadJson); // 默认客户端：lead + 聚合（get(any()) 兜底）
         // 专家行有配置 → 子任务按专家部署模型 id 取对应客户端
         when(agentService.getAgentConfig(eq("researcher")))
-                .thenReturn(java.util.Optional.of(new com.dark.javaHarness.domain.AgentConfig(101L, "qwen-plus", "调研提示词", null)));
+                .thenReturn(java.util.Optional.of(new com.dark.javaHarness.contract.model.AgentConfig(101L, "qwen-plus", "调研提示词", null)));
         when(agentService.getAgentConfig(eq("analyst")))
-                .thenReturn(java.util.Optional.of(new com.dark.javaHarness.domain.AgentConfig(102L, "deepseek-chat", "分析提示词", null)));
+                .thenReturn(java.util.Optional.of(new com.dark.javaHarness.contract.model.AgentConfig(102L, "deepseek-chat", "分析提示词", null)));
         // 先建好独立 stub 的专家客户端，再注册（避免在 when() 求值内嵌套 stubbing）
         ChatClient researcherClient = newStubbedClient("调研结果");
         ChatClient analystClient = newStubbedClient("分析结果");
@@ -353,7 +353,7 @@ class MultiAgentGraphAgentTest {
                 + "\"brief\":\"目标：对比定价\\n背景：竞品 A/B/C\\n约束：只看国内市场\\n交付物：报告\"}]}";
         stubChat(leadJson); // 默认客户端：lead + 聚合（get(any()) 兜底）
         when(agentService.getAgentConfig(eq("researcher")))
-                .thenReturn(java.util.Optional.of(new com.dark.javaHarness.domain.AgentConfig(201L, "qwen-plus", "调研提示词", null)));
+                .thenReturn(java.util.Optional.of(new com.dark.javaHarness.contract.model.AgentConfig(201L, "qwen-plus", "调研提示词", null)));
         java.util.List<String> researcherUsers = new java.util.ArrayList<>();
         ChatClient researcherClient = newCapturingClient("调研结果", researcherUsers);
         when(clientRegistry.get(eq(201L))).thenReturn(researcherClient);
@@ -394,7 +394,7 @@ class MultiAgentGraphAgentTest {
                 + "\"brief\":\"目标：对比定价策略，输出完整报告\"}]}";
         stubChat(leadJson);
         when(agentService.getAgentConfig(eq("researcher")))
-                .thenReturn(java.util.Optional.of(new com.dark.javaHarness.domain.AgentConfig(202L, "qwen-plus", "调研提示词", null)));
+                .thenReturn(java.util.Optional.of(new com.dark.javaHarness.contract.model.AgentConfig(202L, "qwen-plus", "调研提示词", null)));
         java.util.List<String> researcherUsers = new java.util.ArrayList<>();
         ChatClient researcherClient = newCapturingClient("调研结果", researcherUsers);
         when(clientRegistry.get(eq(202L))).thenReturn(researcherClient);
@@ -419,7 +419,7 @@ class MultiAgentGraphAgentTest {
                 + "\"brief\":\"目标：对比定价策略，输出完整报告\"}]}";
         stubChat(leadJson);
         when(agentService.getAgentConfig(eq("researcher")))
-                .thenReturn(java.util.Optional.of(new com.dark.javaHarness.domain.AgentConfig(204L, "qwen-plus", "调研提示词", null)));
+                .thenReturn(java.util.Optional.of(new com.dark.javaHarness.contract.model.AgentConfig(204L, "qwen-plus", "调研提示词", null)));
         java.util.List<String> researcherUsers = new java.util.ArrayList<>();
         ChatClient researcherClient = newCapturingClient("调研结果", researcherUsers);
         when(clientRegistry.get(eq(204L))).thenReturn(researcherClient);
@@ -444,7 +444,7 @@ class MultiAgentGraphAgentTest {
         String leadJson = "{\"subtasks\":[{\"desc\":\"查库存\",\"agent\":\"wms\"}]}";
         stubChat(leadJson); // 默认客户端：lead + 聚合（get(any()) 兜底）
         when(agentService.getAgentConfig(eq("wms")))
-                .thenReturn(java.util.Optional.of(new com.dark.javaHarness.domain.AgentConfig(203L, "wms-model", "wms提示词", null)));
+                .thenReturn(java.util.Optional.of(new com.dark.javaHarness.contract.model.AgentConfig(203L, "wms-model", "wms提示词", null)));
         java.util.List<String> wmsUsers = new java.util.ArrayList<>();
         ChatClient wmsClient = newCapturingClient("库存结果", wmsUsers);
         when(clientRegistry.get(eq(203L))).thenReturn(wmsClient);

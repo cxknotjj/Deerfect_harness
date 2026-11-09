@@ -1,7 +1,7 @@
 package com.dark.javaHarness.message;
 
-import com.dark.javaHarness.service.MessageSender;
-import com.dark.javaHarness.service.MessageSender.DeliveryReceipt;
+import com.dark.javaHarness.contract.spi.MessageSender;
+import com.dark.javaHarness.contract.spi.MessageSender.DeliveryReceipt;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;

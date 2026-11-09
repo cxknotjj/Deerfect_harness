@@ -4,8 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
-import com.dark.javaHarness.domain.Goal;
-import com.dark.javaHarness.enums.GoalStatus;
+import com.dark.javaHarness.contract.model.Goal;
+import com.dark.javaHarness.contract.model.GoalStatus;
 import com.dark.javaHarness.service.GoalService;
 import java.time.LocalDateTime;
 import java.util.Optional;

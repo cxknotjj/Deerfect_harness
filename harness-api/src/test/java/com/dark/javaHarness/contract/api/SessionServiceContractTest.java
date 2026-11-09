@@ -1,4 +1,4 @@
-package com.dark.javaHarness.service;
+package com.dark.javaHarness.contract.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -6,8 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dark.javaHarness.domain.entity.SessionEntity;
+import com.dark.javaHarness.contract.model.SessionInfo;
+import com.dark.javaHarness.contract.model.SessionMessageEntry;
+import com.dark.javaHarness.contract.model.SessionSnapshotItem;
+import com.dark.javaHarness.view.PageResult;
 import com.dark.javaHarness.view.SessionMessagesView;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -30,6 +32,9 @@ import org.springframework.ai.chat.messages.UserMessage;
  * <p>替身按既有实现（server SessionServiceImpl）的可观察语义实现：建档返回字符串主键、
  * 批量写回保留逐条时间戳、历史视图还原 user/assistant 角色、切换 Agent 做存在性校验、
  * 会话分页按 ID 倒序、删除幂等。
+ *
+ * <p>替身内部用自己的可变行对象（{@code Row}），对外只吐 {@link SessionInfo}——
+ * 与实现侧「实体留 server、契约只暴露视图」保持一致。
  */
 class SessionServiceContractTest {
 
@@ -45,10 +50,10 @@ class SessionServiceContractTest {
         String id = service.createSession("anonymous", "第一句提问");
 
         assertNotNull(id);
-        SessionEntity session = service.getSession(id);
+        SessionInfo session = service.getSession(id);
         assertNotNull(session);
-        assertEquals("anonymous", session.getCreator());
-        assertEquals("第一句提问", session.getSessionName());
+        assertEquals("anonymous", session.creator());
+        assertEquals("第一句提问", session.name());
         assertTrue(service.listMessages(id).isEmpty(), "新会话不应有历史消息");
     }
 
@@ -100,7 +105,7 @@ class SessionServiceContractTest {
 
         service.touchSession(id, "最新提问");
 
-        assertEquals("最新提问", service.getSession(id).getLastQuestion());
+        assertEquals("最新提问", service.getSession(id).lastQuestion());
     }
 
     @Test
@@ -112,10 +117,10 @@ class SessionServiceContractTest {
         assertThrows(IllegalArgumentException.class, () -> service.switchAgent(id, 99L));
 
         service.switchAgent(id, 2L);
-        assertEquals(2, service.getSession(id).getAgentId().intValue());
+        assertEquals(2, service.getSession(id).agentId().intValue());
         // 幂等：重复绑定同值不报错
         service.switchAgent(id, 2L);
-        assertEquals(2, service.getSession(id).getAgentId().intValue());
+        assertEquals(2, service.getSession(id).agentId().intValue());
     }
 
     @Test
@@ -124,16 +129,16 @@ class SessionServiceContractTest {
         String second = service.createSession("anonymous", "b");
         String third = service.createSession("anonymous", "c");
 
-        Page<SessionEntity> page = service.page(1, 2);
+        PageResult<SessionInfo> page = service.page(1, 2);
 
-        assertEquals(3, page.getTotal(), "总数应覆盖全部会话");
-        assertEquals(List.of(third, second), page.getRecords().stream()
-                .map(s -> String.valueOf(s.getSessionId()))
+        assertEquals(3, page.total(), "总数应覆盖全部会话");
+        assertEquals(List.of(third, second), page.list().stream()
+                .map(s -> String.valueOf(s.id()))
                 .toList(), "按会话ID降序（最新在前）");
 
-        Page<SessionEntity> next = service.page(2, 2);
-        assertEquals(List.of(first), next.getRecords().stream()
-                .map(s -> String.valueOf(s.getSessionId()))
+        PageResult<SessionInfo> next = service.page(2, 2);
+        assertEquals(List.of(first), next.list().stream()
+                .map(s -> String.valueOf(s.id()))
                 .toList());
     }
 
@@ -171,7 +176,17 @@ class SessionServiceContractTest {
     /** 内存替身：仅实现契约测试需要的可观察语义，不模拟持久化 */
     private static final class InMemorySessionService implements SessionService {
 
-        private final Map<String, SessionEntity> sessions = new LinkedHashMap<>();
+        /** 可变行：替代此前的 MyBatis 实体，契约测试不需要数据库注解 */
+        private static final class Row {
+            Long id;
+            String name;
+            String creator;
+            String lastQuestion;
+            Integer agentId;
+            LocalDateTime lastActiveAt;
+        }
+
+        private final Map<String, Row> sessions = new LinkedHashMap<>();
         private final Map<String, List<Stored>> contexts = new LinkedHashMap<>();
         private final Map<String, String> summaries = new HashMap<>();
         private final Set<Long> knownAgents = Set.of(1L, 2L);
@@ -183,14 +198,13 @@ class SessionServiceContractTest {
         @Override
         public String createSession(String creator, String firstQuestion) {
             String id = String.valueOf(++sequence);
-            SessionEntity session = new SessionEntity();
-            session.setSessionId(Long.valueOf(id));
-            session.setSessionName(firstQuestion);
-            session.setCreator(creator);
-            session.setLastQuestion(firstQuestion);
-            session.setLastActiveAt(LocalDateTime.now());
-            session.setIsDelete(0);
-            sessions.put(id, session);
+            Row row = new Row();
+            row.id = Long.valueOf(id);
+            row.name = firstQuestion;
+            row.creator = creator;
+            row.lastQuestion = firstQuestion;
+            row.lastActiveAt = LocalDateTime.now();
+            sessions.put(id, row);
             return id;
         }
 
@@ -241,15 +255,16 @@ class SessionServiceContractTest {
 
         @Override
         public void touchSession(String sessionId, String lastQuestion) {
-            SessionEntity session = sessions.get(sessionId);
-            if (session != null) {
-                session.setLastQuestion(lastQuestion);
+            Row row = sessions.get(sessionId);
+            if (row != null) {
+                row.lastQuestion = lastQuestion;
             }
         }
 
         @Override
-        public SessionEntity getSession(String sessionId) {
-            return sessions.get(sessionId);
+        public SessionInfo getSession(String sessionId) {
+            Row row = sessions.get(sessionId);
+            return row == null ? null : toInfo(row);
         }
 
         @Override
@@ -261,30 +276,32 @@ class SessionServiceContractTest {
             if (agentId == null) {
                 throw new IllegalArgumentException("agentId 不能为空");
             }
-            SessionEntity session = sessions.get(sessionId);
-            if (session == null) {
+            Row row = sessions.get(sessionId);
+            if (row == null) {
                 throw new IllegalArgumentException("会话不存在: " + sessionId);
             }
             if (!knownAgents.contains(agentId)) {
                 throw new IllegalArgumentException("agent 不存在: " + agentId);
             }
-            if (session.getAgentId() != null && session.getAgentId().longValue() == agentId) {
+            if (row.agentId != null && row.agentId.longValue() == agentId) {
                 return; // 幂等：已绑定同值跳过
             }
-            session.setAgentId(agentId.intValue());
+            row.agentId = agentId.intValue();
         }
 
         @Override
-        public Page<SessionEntity> page(long current, long size) {
-            List<SessionEntity> sorted = sessions.values().stream()
-                    .sorted(Comparator.comparing(SessionEntity::getSessionId).reversed())
+        public PageResult<SessionInfo> page(long current, long size) {
+            List<Row> sorted = sessions.values().stream()
+                    .sorted(Comparator.comparing((Row r) -> r.id).reversed())
                     .toList();
             long from = Math.min((current - 1) * size, sorted.size());
             long to = Math.min(from + size, sorted.size());
-            Page<SessionEntity> page = new Page<>(current, size);
-            page.setRecords(sorted.subList((int) from, (int) to));
-            page.setTotal(sorted.size());
-            return page;
+            return new PageResult<>(
+                    sorted.subList((int) from, (int) to).stream()
+                            .map(InMemorySessionService::toInfo).toList(),
+                    sorted.size(),
+                    current,
+                    size);
         }
 
         @Override
@@ -325,6 +342,11 @@ class SessionServiceContractTest {
         @Override
         public void clear(String conversationId) {
             contexts.remove(conversationId);
+        }
+
+        private static SessionInfo toInfo(Row row) {
+            return new SessionInfo(row.id, row.name, row.creator, row.lastQuestion,
+                    row.agentId, row.lastActiveAt);
         }
 
         private static String roleOf(Message message) {

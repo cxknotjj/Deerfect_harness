@@ -2,8 +2,8 @@ package com.dark.javaHarness.service.impl;
 
 import com.dark.javaHarness.view.KnowledgeSource;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
-import com.dark.javaHarness.service.ReplyPostProcessor;
-import com.dark.javaHarness.voice.VoiceArtifactStore;
+import com.dark.javaHarness.contract.spi.ReplyPostProcessor;
+import com.dark.javaHarness.contract.api.VoiceArtifactStore;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;

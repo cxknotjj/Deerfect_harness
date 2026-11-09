@@ -1,4 +1,4 @@
-package com.dark.javaHarness.channel;
+package com.dark.javaHarness.contract.spi;
 
 /**
  * 渠道健康端口：由 channel 模块实现，core 只读消费。
@@ -18,7 +18,7 @@ public interface ChannelHealth {
 
     /**
      * 渠道标识（{@code qq} / {@code email} / {@code feishu}），与 {@link
-     * com.dark.javaHarness.service.MessageSender#channel()} 取值一致。
+     * com.dark.javaHarness.contract.spi.MessageSender#channel()} 取值一致。
      *
      * <p>唯一用途：渠道故障时，告警链要排除「本渠道」——不能用飞书去报「飞书挂了」。
      * 未覆盖此方法的实现仍能工作，只是告警不会排除本渠道（退化为「碰运气」）。

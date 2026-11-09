@@ -1,6 +1,6 @@
 package com.dark.javaHarness.service;
 
-import com.dark.javaHarness.domain.Goal;
+import com.dark.javaHarness.contract.model.Goal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;

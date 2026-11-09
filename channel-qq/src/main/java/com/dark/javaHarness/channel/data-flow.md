@@ -108,7 +108,7 @@ sequenceDiagram
 
 ### 只读依赖 core `AgentService`
 
-`/agent` 指令需要 Agent 列表与「名称 → id」映射，故 `OneBotEventServiceImpl` 构造新增只读依赖 core 接口 `com.dark.javaHarness.service.AgentService`（仅调用 `agentItems()`；**未修改 core 定义**）。会话切换仍走既有 `SessionService.switchAgent`。构造签名现为 `OneBotEventServiceImpl(ChatService, SessionService, AgentService, OneBotSessionBindingMapper, NapCatApiClient, NapCatProperties)`。
+`/agent` 指令需要 Agent 列表与「名称 → id」映射，故 `OneBotEventServiceImpl` 构造新增只读依赖 core 接口 `com.dark.javaHarness.contract.api.AgentService`（仅调用 `agentItems()`；**未修改 core 定义**）。会话切换仍走既有 `SessionService.switchAgent`。构造签名现为 `OneBotEventServiceImpl(ChatService, SessionService, AgentService, OneBotSessionBindingMapper, NapCatApiClient, NapCatProperties)`。
 
 ## 五、撤回与已发消息记录
 

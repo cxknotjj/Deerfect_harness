@@ -53,16 +53,18 @@ harness-api --compile--> server / channel-* ❌ Maven 反应堆禁止成环
 
 | 包 | 内容 | 方向 |
 | --- | --- | --- |
-| `service` | 调用型端口与少量共享记录 | server 实现，消费者调用 |
-| `channel` | 实现型 SPI | 渠道实现，server 调用 |
-| `view` | 跨端 DTO（含 HTTP 传输对象） | 纯数据 |
-| `domain` | 共享模型（`Goal` / `AgentConfig` / `Schedule` / `ChatMessageMetadata`） | 纯数据 |
-| `domain.entity` | 持久化实体（当前仅 `SessionEntity`） | 经 `SessionService.getSession` 暴露 |
-| `enums` | 共享枚举与协议常量（`GoalStatus` / `SseProtocol` / `AgentConstants`） | 纯常量 |
-| `voice` | 语音工件桥（工具写、渠道读） | server 写，渠道消费 |
+| `contract.api` | 调用型端口 + 语音工件桥 | server 实现，消费者调用 |
+| `contract.spi` | 实现型 SPI | 渠道实现，server 调用 |
+| `contract.model` | 端口载荷（`Goal` / `GoalStatus` / `AgentConfig` / `SessionInfo` / `SessionSnapshotItem` / `SessionMessageEntry`） | 纯数据 |
+| `view` | 跨端 DTO（含 HTTP 传输对象，以及 `Schedule` / `SseProtocol`） | 纯数据 |
 
-`domain.entity` 里的 `SessionEntity` 是 MyBatis 实体，出现在 `SessionService` 签名里属于已知的
-接口泄漏（数据库字段变更会波及消费者）。新增端口请返回 `record`，不要再把实体带进契约。
+**为什么 api 与 spi 分开**：两者唯一的区别是「谁实现」，而这恰恰是调用方最需要一眼看出的信息。
+混在一个 `service` 包里时，`MessageSender`（渠道实现、core 调用）和 `ChatService`（core 实现、
+渠道调用）看起来是同一类东西，新增渠道时容易漏掉要实现的接口。
+
+`contract.model` 只放端口的入参/出参。持久化实体、只在 server 内部流转的元数据不进契约：
+`SessionEntity` 已搬回 server，`ChatMessageMetadata` 同样回到 server；端口改为返回
+`SessionInfo`，改数据库列名不再波及渠道与 CLI。
 
 ## 变更规则
 
@@ -71,6 +73,7 @@ harness-api --compile--> server / channel-* ❌ Maven 反应堆禁止成环
 2. 新增 public 类型：先判断它是否在端口闭包内；不在闭包内，考虑放回实现模块。
 3. 修改 `view/*`：检查 `cli` 与各渠道是否引用（`grep -rn "com.dark.javaHarness.view" cli channel-*`）。
 4. 不在本模块引入实现依赖（Spring Bean、MyBatis Mapper、HTTP 客户端等）。
+   端口返回 `record`，不要返回 MyBatis 实体——实体的字段即数据库列，改列名等于改契约。
 
 ## 构建与测试
 

@@ -5,8 +5,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.view.SessionMessagesView;
-import com.dark.javaHarness.service.AgentService;
-import com.dark.javaHarness.service.SessionService;
+import com.dark.javaHarness.contract.api.AgentService;
+import com.dark.javaHarness.contract.api.SessionService;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;

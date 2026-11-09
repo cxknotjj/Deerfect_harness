@@ -1,4 +1,4 @@
-package com.dark.javaHarness.enums;
+package com.dark.javaHarness.view;
 
 /**
  * SSE 流式协议常量：服务端（ChatServiceImpl）与 CLI（ChatApiClient）跨进程共用的

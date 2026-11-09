@@ -1,6 +1,6 @@
 package com.dark.javaHarness.message;
 
-import com.dark.javaHarness.channel.ChannelHealth;
+import com.dark.javaHarness.contract.spi.ChannelHealth;
 import java.time.Clock;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;

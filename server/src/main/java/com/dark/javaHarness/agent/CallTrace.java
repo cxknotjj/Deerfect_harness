@@ -23,12 +23,12 @@ public record CallTrace(String turnId, String traceId, String parentSpan, String
     }
 
     /** 从 Goal 取轮次/调用链/渠道标识构造（路径 A 直答与 fallback 重答为根调用，parentSpan 恒 null） */
-    static CallTrace fromGoal(com.dark.javaHarness.domain.Goal goal) {
+    static CallTrace fromGoal(com.dark.javaHarness.contract.model.Goal goal) {
         return new CallTrace(goal.turnId(), goal.traceId(), null, null, goal.channel());
     }
 
     /** 编排派生调用：同一执行链（Goal 的 turn/trace）+ 指定父调用 span（lead 的 spanId） */
-    static CallTrace derived(com.dark.javaHarness.domain.Goal goal, String parentSpan) {
+    static CallTrace derived(com.dark.javaHarness.contract.model.Goal goal, String parentSpan) {
         return new CallTrace(goal.turnId(), goal.traceId(), parentSpan, null, goal.channel());
     }
 

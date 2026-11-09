@@ -1,6 +1,6 @@
 package com.dark.javaHarness.controller;
 
-import com.dark.javaHarness.domain.Schedule;
+import com.dark.javaHarness.view.Schedule;
 import com.dark.javaHarness.service.ScheduleService;
 import com.dark.javaHarness.view.ScheduleCreateRequest;
 import com.dark.javaHarness.view.SchedulesView;

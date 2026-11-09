@@ -1,4 +1,4 @@
-package com.dark.javaHarness.service;
+package com.dark.javaHarness.contract.api;
 
 /**
  * 渠道事件语义层判断端口（Slow Path）：对程序层标记为「候选」的事件，

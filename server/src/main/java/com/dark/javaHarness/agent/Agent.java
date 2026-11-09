@@ -1,6 +1,6 @@
 package com.dark.javaHarness.agent;
 
-import com.dark.javaHarness.domain.Goal;
+import com.dark.javaHarness.contract.model.Goal;
 import java.util.function.Consumer;
 import reactor.core.publisher.Flux;
 

@@ -19,23 +19,23 @@ import static org.mockito.Mockito.when;
 import com.dark.javaHarness.agent.ProgressLine;
 import com.dark.javaHarness.agent.RagPrefetcher;
 import com.dark.javaHarness.config.StreamConnectionLimiter;
-import com.dark.javaHarness.domain.AgentConfig;
-import com.dark.javaHarness.domain.Goal;
+import com.dark.javaHarness.contract.model.AgentConfig;
+import com.dark.javaHarness.contract.model.Goal;
 import com.dark.javaHarness.domain.RoutePlan;
 import com.dark.javaHarness.view.ChatRequest;
 import com.dark.javaHarness.view.ChatResponse;
-import com.dark.javaHarness.domain.entity.SessionEntity;
-import com.dark.javaHarness.enums.GoalStatus;
+import com.dark.javaHarness.contract.model.SessionInfo;
+import com.dark.javaHarness.contract.model.GoalStatus;
 import com.dark.javaHarness.exception.ConcurrentRequestException;
 import com.dark.javaHarness.exception.ResumeConflictException;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
-import com.dark.javaHarness.service.AgentService;
+import com.dark.javaHarness.contract.api.AgentService;
 import com.dark.javaHarness.service.GoalService;
-import com.dark.javaHarness.service.ReplyPostProcessor;
+import com.dark.javaHarness.contract.spi.ReplyPostProcessor;
 import com.dark.javaHarness.service.RouteJudge;
-import com.dark.javaHarness.service.SessionMessageEntry;
-import com.dark.javaHarness.service.SessionService;
-import com.dark.javaHarness.voice.VoiceArtifactStore;
+import com.dark.javaHarness.contract.model.SessionMessageEntry;
+import com.dark.javaHarness.contract.api.SessionService;
+import com.dark.javaHarness.contract.api.VoiceArtifactStore;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -341,8 +341,7 @@ class ChatServiceImplTest {
     void streamReactive_withAgentId_directAnswer_skipsJudge() {
         // 路由策略（2026-09-27）：绑定专属 Agent（≠general）跳过 routeJudge，由该 Agent 携带自身工具直答
         ChatRequest req = new ChatRequest("hi", "50", 2L);
-        SessionEntity session = new SessionEntity();
-        session.setAgentId(2);
+        SessionInfo session = sessionInfo(2);
         when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("writer"));
         when(agentService.executeStreamReactive(eq("writer"), eq("hi"), eq("50"), any(), any(), any()))
@@ -376,8 +375,7 @@ class ChatServiceImplTest {
     void streamReactive_withAgentId_complexWording_stillDirectAnswerWithoutJudge() {
         // 显式指定 Agent（绑定成功）固定走该 Agent 的 agentic 链路：即便措辞像 COMPLEX 也不再判定
         ChatRequest req = new ChatRequest("调研竞品", "50", 2L);
-        SessionEntity session = new SessionEntity();
-        session.setAgentId(2);
+        SessionInfo session = sessionInfo(2);
         when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("writer"));
         when(agentService.executeStreamReactive(eq("writer"), eq("调研竞品"), eq("50"), any(), any(), any()))
@@ -395,8 +393,7 @@ class ChatServiceImplTest {
     void streamReactive_withAgentId_general_skipsJudgeAndKeepsDirectBanner() {
         // 显式指定 general 同样跳过判定（仍属 agentic 链路），首帧直接是「直答」而非「判定中…」
         ChatRequest req = new ChatRequest("hi", "50", 1L);
-        SessionEntity session = new SessionEntity();
-        session.setAgentId(1);
+        SessionInfo session = sessionInfo(1);
         when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(1L)).thenReturn(Optional.of("general"));
         when(agentService.executeStreamReactive(eq("general"), eq("hi"), eq("50"), any(), any(), any()))
@@ -428,8 +425,7 @@ class ChatServiceImplTest {
     void chat_withAgentId_directAnswer_skipsJudge() {
         // 路由策略（2026-09-27）：绑定专属 Agent（≠general）跳过 routeJudge，由该 Agent 直答
         ChatRequest req = new ChatRequest("hi", "50", 2L);
-        SessionEntity session = new SessionEntity();
-        session.setAgentId(2);
+        SessionInfo session = sessionInfo(2);
         when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("writer"));
         when(agentService.executeSync(eq("writer"), eq("hi"), eq("50"), any(), any(), any()))
@@ -465,8 +461,7 @@ class ChatServiceImplTest {
     void chat_withAgentId_complexWording_stillDirectAnswerWithoutJudge() {
         // 显式指定 Agent + COMPLEX 措辞：不再进 multi-agent 编排，固定由指定 Agent 直答
         ChatRequest req = new ChatRequest("调研竞品", "50", 2L);
-        SessionEntity session = new SessionEntity();
-        session.setAgentId(2);
+        SessionInfo session = sessionInfo(2);
         when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("writer"));
         when(agentService.executeSync(eq("writer"), eq("调研竞品"), eq("50"), any(), any(), any()))
@@ -607,8 +602,7 @@ class ChatServiceImplTest {
     @Test
     void streamReactive_simple_shouldRouteToSessionBoundAgent() {
         ChatRequest req = new ChatRequest("你好啊", "50", null);
-        SessionEntity session = new SessionEntity();
-        session.setAgentId(10);
+        SessionInfo session = sessionInfo(10);
         when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(10L)).thenReturn(Optional.of("coder"));
         when(agentService.executeStreamReactive(eq("coder"), eq("你好啊"), eq("50"), any(), any(), any()))
@@ -627,8 +621,7 @@ class ChatServiceImplTest {
     @Test
     void streamReactive_sessionAgentMissing_shouldFallbackToGeneral() {
         ChatRequest req = new ChatRequest("hi", "50", null);
-        SessionEntity session = new SessionEntity();
-        session.setAgentId(10);
+        SessionInfo session = sessionInfo(10);
         when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(10L)).thenReturn(Optional.empty());
         when(routeJudge.plan(eq("hi"), any(), any())).thenReturn(agenticPlan());
@@ -645,8 +638,7 @@ class ChatServiceImplTest {
     void streamReactive_onError_emitsErrorEvent() {
         // 绑定专属 Agent（跳过 Agentic→Graph 升级：升级会先尝试编排，掩盖原始错误事件断言）
         ChatRequest req = new ChatRequest("hi", "50", null);
-        SessionEntity session = new SessionEntity();
-        session.setAgentId(2);
+        SessionInfo session = sessionInfo(2);
         when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("writer"));
         when(agentService.executeStreamReactive(eq("writer"), eq("hi"), eq("50"), any(), any(), any()))
@@ -691,8 +683,7 @@ class ChatServiceImplTest {
     @Test
     void streamReactive_agentIdPath_emitsAgentProgressWithResolvedName() {
         ChatRequest req = new ChatRequest("hi", "50", 2L);
-        SessionEntity session = new SessionEntity();
-        session.setAgentId(2);
+        SessionInfo session = sessionInfo(2);
         when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("writer"));
         when(agentService.executeStreamReactive(eq("writer"), eq("hi"), eq("50"), any(), any(), any()))
@@ -826,8 +817,7 @@ class ChatServiceImplTest {
     void chat_withKnowledgeBinding_shouldPrefetchBeforeJudge() {
         stubRealPrefetcher();
         chatService = buildChatService(new StreamConnectionLimiter(0), knowledgeRetriever);
-        SessionEntity session = new SessionEntity();
-        session.setAgentId(1);
+        SessionInfo session = sessionInfo(1);
         when(sessionService.getSession("42")).thenReturn(session);
         when(agentService.findAgentNameById(1L)).thenReturn(Optional.of("general"));
         when(agentService.getAgentConfig("general")).thenReturn(Optional.of(
@@ -847,8 +837,7 @@ class ChatServiceImplTest {
     void streamReactive_withKnowledgeBinding_shouldPrefetchBeforeJudge() {
         stubRealPrefetcher();
         chatService = buildChatService(new StreamConnectionLimiter(0), knowledgeRetriever);
-        SessionEntity session = new SessionEntity();
-        session.setAgentId(1);
+        SessionInfo session = sessionInfo(1);
         when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(1L)).thenReturn(Optional.of("general"));
         when(agentService.getAgentConfig("general")).thenReturn(Optional.of(
@@ -866,8 +855,7 @@ class ChatServiceImplTest {
     void chat_prefetchFails_shouldNotBreakChat() {
         stubRealPrefetcher();
         chatService = buildChatService(new StreamConnectionLimiter(0), knowledgeRetriever);
-        SessionEntity session = new SessionEntity();
-        session.setAgentId(1);
+        SessionInfo session = sessionInfo(1);
         when(sessionService.getSession("42")).thenReturn(session);
         when(agentService.findAgentNameById(1L)).thenReturn(Optional.of("general"));
         when(agentService.getAgentConfig("general")).thenReturn(Optional.of(
@@ -920,8 +908,7 @@ class ChatServiceImplTest {
     @Test
     void streamReactive_boundAgentWithGraphOverride_shouldStaySingleAgent() {
         ChatRequest req = new ChatRequest("查仓库库存", "50", null, "graph");
-        SessionEntity session = new SessionEntity();
-        session.setAgentId(2);
+        SessionInfo session = sessionInfo(2);
         when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("wms-agent"));
         when(agentService.executeStreamReactive(eq("wms-agent"), eq("查仓库库存"), eq("50"), any(), any(), any()))
@@ -986,4 +973,9 @@ class ChatServiceImplTest {
                 .orElseThrow(() -> new AssertionError(
                         "批量写回缺少 " + (assistant ? "assistant" : "user") + " 消息"));
     }
+    /** 会话视图替身：本测试只关心「会话绑定到哪个 Agent」，其余字段留空 */
+    private static SessionInfo sessionInfo(Integer agentId) {
+        return new SessionInfo(50L, "会话", "test", null, agentId, null);
+    }
+
 }

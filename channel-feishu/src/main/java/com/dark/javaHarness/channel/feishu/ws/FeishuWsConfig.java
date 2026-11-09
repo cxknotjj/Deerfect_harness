@@ -2,8 +2,8 @@ package com.dark.javaHarness.channel.feishu.ws;
 
 import com.dark.javaHarness.channel.feishu.FeishuProperties;
 import com.dark.javaHarness.channel.feishu.persistence.FeishuSessionBindingMapper;
-import com.dark.javaHarness.service.ChatService;
-import com.dark.javaHarness.service.SessionService;
+import com.dark.javaHarness.contract.api.ChatService;
+import com.dark.javaHarness.contract.api.SessionService;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;

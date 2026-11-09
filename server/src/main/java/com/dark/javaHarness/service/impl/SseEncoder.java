@@ -3,7 +3,7 @@ package com.dark.javaHarness.service.impl;
 import com.dark.javaHarness.agent.ProgressLine;
 import com.dark.javaHarness.view.KnowledgeSource;
 import com.dark.javaHarness.view.SseMeta;
-import com.dark.javaHarness.enums.SseProtocol;
+import com.dark.javaHarness.view.SseProtocol;
 import tools.jackson.databind.ObjectMapper;
 import java.util.List;
 import reactor.core.publisher.Flux;

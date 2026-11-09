@@ -11,9 +11,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.dark.javaHarness.domain.AgentConfig;
+import com.dark.javaHarness.contract.model.AgentConfig;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
-import com.dark.javaHarness.service.AgentService;
+import com.dark.javaHarness.contract.api.AgentService;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;

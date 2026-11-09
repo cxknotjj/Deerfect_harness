@@ -1,4 +1,4 @@
-package com.dark.javaHarness.channel;
+package com.dark.javaHarness.contract.spi;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;

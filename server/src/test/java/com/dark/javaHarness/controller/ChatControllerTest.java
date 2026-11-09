@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.view.ChatRequest;
-import com.dark.javaHarness.service.ChatService;
+import com.dark.javaHarness.contract.api.ChatService;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

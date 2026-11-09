@@ -17,14 +17,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
-import com.dark.javaHarness.domain.Goal;
-import com.dark.javaHarness.domain.Schedule;
+import com.dark.javaHarness.contract.model.Goal;
+import com.dark.javaHarness.view.Schedule;
 import com.dark.javaHarness.domain.entity.ScheduleEntity;
 import com.dark.javaHarness.mapper.ScheduleMapper;
 import com.dark.javaHarness.message.MessageSenderRegistry;
-import com.dark.javaHarness.service.AgentService;
+import com.dark.javaHarness.contract.api.AgentService;
 import com.dark.javaHarness.service.GoalService;
-import com.dark.javaHarness.service.MessageSender;
+import com.dark.javaHarness.contract.spi.MessageSender;
 import com.dark.javaHarness.view.AgentItemView;
 import java.time.LocalDateTime;
 import java.util.List;

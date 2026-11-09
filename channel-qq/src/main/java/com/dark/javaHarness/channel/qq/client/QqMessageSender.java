@@ -1,7 +1,7 @@
 package com.dark.javaHarness.channel.qq.client;
 
 import com.dark.javaHarness.channel.qq.dto.MessageSegment;
-import com.dark.javaHarness.service.MessageSender;
+import com.dark.javaHarness.contract.spi.MessageSender;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;

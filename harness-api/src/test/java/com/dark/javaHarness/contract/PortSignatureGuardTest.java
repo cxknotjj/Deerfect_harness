@@ -2,9 +2,9 @@ package com.dark.javaHarness.contract;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import com.dark.javaHarness.domain.Goal;
-import com.dark.javaHarness.service.AgentService;
-import com.dark.javaHarness.service.SessionService;
+import com.dark.javaHarness.contract.model.Goal;
+import com.dark.javaHarness.contract.api.AgentService;
+import com.dark.javaHarness.contract.api.SessionService;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -61,9 +61,9 @@ class PortSignatureGuardTest {
                         "saveContext(String,Message,Long):void",
                         "saveContextBatch(String,List):void",
                         "touchSession(String,String):void",
-                        "getSession(String):SessionEntity",
+                        "getSession(String):SessionInfo",
                         "switchAgent(String,Long):void",
-                        "page(long,long):Page",
+                        "page(long,long):PageResult",
                         // 会话删除时级联清摘要（P1 数据生命周期，2026-11-08）
                         "deleteBySessionId(String):void",
                         "deleteSession(String):void",

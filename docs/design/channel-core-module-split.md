@@ -81,7 +81,7 @@
    `flags`），而不是塞进渠道专有字段；
 3. **不得修改 core** 去识别任何渠道私有约定。
 
-SPI 定义（`harness-api`，`com.dark.javaHarness.service.ReplyPostProcessor`）：
+SPI 定义（`harness-api`，`com.dark.javaHarness.contract.spi.ReplyPostProcessor`）：
 
 ```java
 public interface ReplyPostProcessor {

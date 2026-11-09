@@ -1,8 +1,10 @@
-package com.dark.javaHarness.service;
+package com.dark.javaHarness.contract.api;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dark.javaHarness.contract.model.SessionInfo;
+import com.dark.javaHarness.contract.model.SessionMessageEntry;
+import com.dark.javaHarness.contract.model.SessionSnapshotItem;
+import com.dark.javaHarness.view.PageResult;
 import com.dark.javaHarness.view.SessionMessagesView;
-import com.dark.javaHarness.domain.entity.SessionEntity;
 import java.util.List;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.Message;
@@ -73,8 +75,12 @@ public interface SessionService extends ChatMemory, SessionSummaryPort {
     /** 更新会话的最近一次提问 */
     void touchSession(String sessionId, String lastQuestion);
 
-    /** 查询会话（软删除的不会返回） */
-    SessionEntity getSession(String sessionId);
+    /**
+     * 查询会话（软删除的不会返回）。
+     *
+     * @return 会话视图；sessionId 非法或会话不存在时返回 <b>null</b>
+     */
+    SessionInfo getSession(String sessionId);
 
     /**
      * 会话内切换 Agent：校验 agentId 在 agent 表存在后，更新 session 表 agent_id。
@@ -88,9 +94,9 @@ public interface SessionService extends ChatMemory, SessionSummaryPort {
      * 分页查询会话（软删除的不会返回），按会话ID降序（最新在前）。
      * @param current 页码，从 1 开始
      * @param size    每页条数
-     * @return MyBatis-Plus 分页结果（含总数与页数）
+     * @return 分页结果；页数由调用方按 {@code total / size} 自行计算
      */
-    Page<SessionEntity> page(long current, long size);
+    PageResult<SessionInfo> page(long current, long size);
 
     /**
      * 删除会话：软删 session 行 + 物理删该会话的上下文快照行 + 清 QQ 会话绑定行。

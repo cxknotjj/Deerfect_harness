@@ -1,6 +1,6 @@
-package com.dark.javaHarness.domain;
+package com.dark.javaHarness.contract.model;
 
-import com.dark.javaHarness.enums.GoalStatus;
+import com.dark.javaHarness.contract.model.GoalStatus;
 import java.time.LocalDateTime;
 
 /**

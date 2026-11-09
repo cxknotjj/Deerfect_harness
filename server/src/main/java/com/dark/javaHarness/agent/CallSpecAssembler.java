@@ -3,7 +3,7 @@ package com.dark.javaHarness.agent;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.prompt.MemoryPolicy;
 import com.dark.javaHarness.prompt.PromptAssembler;
-import com.dark.javaHarness.service.SessionService;
+import com.dark.javaHarness.contract.api.SessionService;
 
 /**
  * 角色策略装配（自 {@link AgentChatCaller} 拆出，超长类拆分 2026-09-25）：

@@ -1,4 +1,4 @@
-package com.dark.javaHarness.domain;
+package com.dark.javaHarness.contract.model;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.dark.javaHarness.enums.GoalStatus;
+import com.dark.javaHarness.contract.model.GoalStatus;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
 

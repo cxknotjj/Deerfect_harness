@@ -1,7 +1,7 @@
-package com.dark.javaHarness.service;
+package com.dark.javaHarness.contract.api;
 
-import com.dark.javaHarness.domain.AgentConfig;
-import com.dark.javaHarness.domain.Goal;
+import com.dark.javaHarness.contract.model.AgentConfig;
+import com.dark.javaHarness.contract.model.Goal;
 import java.util.Optional;
 import java.util.Set;
 import reactor.core.publisher.Flux;

@@ -2,7 +2,7 @@ package com.dark.javaHarness.service.impl.route;
 
 import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
-import com.dark.javaHarness.service.SemanticTriggerJudge;
+import com.dark.javaHarness.contract.api.SemanticTriggerJudge;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;

@@ -1,4 +1,4 @@
-package com.dark.javaHarness.domain;
+package com.dark.javaHarness.contract.model;
 
 /**
  * Agent 运行配置（部署模型 + 系统提示词 + 知识库绑定 + 思考显示开关），来自 agent 表 JOIN model_provider。

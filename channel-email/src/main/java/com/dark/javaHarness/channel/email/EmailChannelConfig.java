@@ -1,7 +1,7 @@
 package com.dark.javaHarness.channel.email;
 
-import com.dark.javaHarness.channel.ChannelHealth;
-import com.dark.javaHarness.service.MessageSender;
+import com.dark.javaHarness.contract.spi.ChannelHealth;
+import com.dark.javaHarness.contract.spi.MessageSender;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

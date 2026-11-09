@@ -7,7 +7,7 @@ import com.dark.javaHarness.domain.LlmCallLog;
 import com.dark.javaHarness.domain.entity.SessionSummaryEntity;
 import com.dark.javaHarness.mapper.SessionSummaryMapper;
 import com.dark.javaHarness.observability.LlmCallRecorder;
-import com.dark.javaHarness.service.SessionSummaryPort;
+import com.dark.javaHarness.contract.api.SessionSummaryPort;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;

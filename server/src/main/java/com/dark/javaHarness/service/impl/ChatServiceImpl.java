@@ -2,7 +2,7 @@ package com.dark.javaHarness.service.impl;
 
 import com.dark.javaHarness.view.ChatRequest;
 import com.dark.javaHarness.view.ChatResponse;
-import com.dark.javaHarness.service.ChatService;
+import com.dark.javaHarness.contract.api.ChatService;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 

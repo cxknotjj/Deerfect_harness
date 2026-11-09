@@ -1,4 +1,4 @@
-package com.dark.javaHarness.service;
+package com.dark.javaHarness.contract.spi;
 
 /**
  * 外部渠道会话绑定清理端口：删除 harness 会话时通知各渠道清理自己的绑定行。

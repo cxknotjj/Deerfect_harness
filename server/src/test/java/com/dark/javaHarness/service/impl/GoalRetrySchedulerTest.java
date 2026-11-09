@@ -10,7 +10,7 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.dark.javaHarness.domain.entity.GoalEntity;
 import com.dark.javaHarness.mapper.GoalMapper;
-import com.dark.javaHarness.service.AgentService;
+import com.dark.javaHarness.contract.api.AgentService;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.apache.ibatis.builder.MapperBuilderAssistant;

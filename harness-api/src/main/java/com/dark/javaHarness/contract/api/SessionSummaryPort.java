@@ -1,4 +1,4 @@
-package com.dark.javaHarness.service;
+package com.dark.javaHarness.contract.api;
 
 import java.util.List;
 import org.springframework.ai.chat.messages.Message;

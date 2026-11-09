@@ -1,7 +1,7 @@
 package com.dark.javaHarness.channel.qq.persistence;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.dark.javaHarness.service.SessionBindingCleaner;
+import com.dark.javaHarness.contract.spi.SessionBindingCleaner;
 
 /**
  * {@link SessionBindingCleaner} 的 QQ 渠道实现：按 harness 会话删绑定行。

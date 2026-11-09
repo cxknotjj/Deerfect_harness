@@ -1,14 +1,14 @@
 package com.dark.javaHarness.service.impl;
 
-import com.dark.javaHarness.domain.Goal;
-import com.dark.javaHarness.domain.entity.SessionEntity;
+import com.dark.javaHarness.contract.model.Goal;
+import com.dark.javaHarness.contract.model.SessionInfo;
 import com.dark.javaHarness.enums.AgentConstants;
-import com.dark.javaHarness.enums.GoalStatus;
+import com.dark.javaHarness.contract.model.GoalStatus;
 import com.dark.javaHarness.exception.ResumeConflictException;
-import com.dark.javaHarness.service.AgentService;
+import com.dark.javaHarness.contract.api.AgentService;
 import com.dark.javaHarness.service.GoalService;
-import com.dark.javaHarness.service.SessionMessageEntry;
-import com.dark.javaHarness.service.SessionService;
+import com.dark.javaHarness.contract.model.SessionMessageEntry;
+import com.dark.javaHarness.contract.api.SessionService;
 import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -90,11 +90,11 @@ class TurnPersistence {
         if (sessionId == null || sessionId.isBlank()) {
             return AgentConstants.DEFAULT_AGENT;
         }
-        SessionEntity session = sessionService.getSession(sessionId);
-        if (session == null || session.getAgentId() == null) {
+        SessionInfo session = sessionService.getSession(sessionId);
+        if (session == null || session.agentId() == null) {
             return AgentConstants.DEFAULT_AGENT;
         }
-        return agentService.findAgentNameById(session.getAgentId().longValue())
+        return agentService.findAgentNameById(session.agentId().longValue())
                 .orElse(AgentConstants.DEFAULT_AGENT);
     }
 

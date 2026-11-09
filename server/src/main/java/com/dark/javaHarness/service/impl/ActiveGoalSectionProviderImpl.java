@@ -1,6 +1,6 @@
 package com.dark.javaHarness.service.impl;
 
-import com.dark.javaHarness.domain.Goal;
+import com.dark.javaHarness.contract.model.Goal;
 import com.dark.javaHarness.prompt.ActiveGoalSectionProvider;
 import com.dark.javaHarness.service.GoalService;
 import java.time.LocalDateTime;

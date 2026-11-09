@@ -1,11 +1,10 @@
 package com.dark.javaHarness.controller;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dark.javaHarness.domain.Goal;
-import com.dark.javaHarness.domain.entity.SessionEntity;
-import com.dark.javaHarness.service.AgentService;
+import com.dark.javaHarness.contract.model.Goal;
+import com.dark.javaHarness.contract.model.SessionInfo;
+import com.dark.javaHarness.contract.api.AgentService;
 import com.dark.javaHarness.service.GoalService;
-import com.dark.javaHarness.service.SessionService;
+import com.dark.javaHarness.contract.api.SessionService;
 import com.dark.javaHarness.view.ActiveGoalRequest;
 import com.dark.javaHarness.view.AgentsView;
 import com.dark.javaHarness.view.GoalView;
@@ -155,22 +154,22 @@ public class HarnessController {
         return new GoalView(goal.id(), goal.objective(), goal.status().name(), goal.summary());
     }
 
-    private static SessionPageView sessionPageView(Page<SessionEntity> p) {
+    private static SessionPageView sessionPageView(com.dark.javaHarness.view.PageResult<SessionInfo> p) {
         return new SessionPageView(
-                p.getCurrent(),
-                p.getSize(),
-                p.getTotal(),
-                p.getPages(),
-                p.getRecords().stream().map(HarnessController::sessionItem).toList());
+                p.page(),
+                p.size(),
+                p.total(),
+                p.size() <= 0 ? 0 : (p.total() + p.size() - 1) / p.size(),
+                p.list().stream().map(HarnessController::sessionItem).toList());
     }
 
-    private static SessionPageView.Item sessionItem(SessionEntity e) {
-        java.time.LocalDateTime active = e.getLastActiveAt();
+    private static SessionPageView.Item sessionItem(SessionInfo s) {
+        java.time.LocalDateTime active = s.lastActiveAt();
         return new SessionPageView.Item(
-                e.getSessionId() == null ? null : String.valueOf(e.getSessionId()),
-                e.getSessionName(),
-                e.getCreator(),
-                e.getLastQuestion(),
+                s.id() == null ? null : String.valueOf(s.id()),
+                s.name(),
+                s.creator(),
+                s.lastQuestion(),
                 active == null ? null : active.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli());
     }
 }

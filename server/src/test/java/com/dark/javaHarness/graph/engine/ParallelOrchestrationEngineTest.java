@@ -16,7 +16,7 @@ import com.dark.javaHarness.graph.OrchestrationBudget;
 import com.dark.javaHarness.graph.OrchestrationNodes;
 import com.dark.javaHarness.state.OrchestrationStage;
 import com.dark.javaHarness.state.persistence.OrchestrationCheckpointStore;
-import com.dark.javaHarness.domain.Goal;
+import com.dark.javaHarness.contract.model.Goal;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 

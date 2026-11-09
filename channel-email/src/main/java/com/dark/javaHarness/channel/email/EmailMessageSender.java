@@ -1,6 +1,6 @@
 package com.dark.javaHarness.channel.email;
 
-import com.dark.javaHarness.service.MessageSender;
+import com.dark.javaHarness.contract.spi.MessageSender;
 import jakarta.mail.SendFailedException;
 import java.time.Clock;
 import java.time.Instant;

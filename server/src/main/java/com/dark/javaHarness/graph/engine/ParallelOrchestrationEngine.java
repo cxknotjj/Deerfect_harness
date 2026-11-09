@@ -10,7 +10,7 @@ import com.dark.javaHarness.state.OrchestrationCheckpoint;
 import com.dark.javaHarness.state.OrchestrationStage;
 import com.dark.javaHarness.state.OrchestrationStateKeys;
 import com.dark.javaHarness.state.persistence.OrchestrationCheckpointStore;
-import com.dark.javaHarness.domain.Goal;
+import com.dark.javaHarness.contract.model.Goal;
 import com.dark.javaHarness.observability.HarnessMetrics;
 import java.util.ArrayList;
 import java.util.Collections;

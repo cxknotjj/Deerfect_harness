@@ -1,7 +1,7 @@
 package com.dark.javaHarness.cli;
 
 import com.dark.javaHarness.cli.api.ChatApiClient;
-import com.dark.javaHarness.domain.Schedule;
+import com.dark.javaHarness.view.Schedule;
 import com.dark.javaHarness.view.GoalView;
 import com.dark.javaHarness.view.MemoryView;
 import com.dark.javaHarness.view.ProviderAddResult;

@@ -1,8 +1,8 @@
 package com.dark.javaHarness.agent;
 
-import com.dark.javaHarness.domain.AgentConfig;
+import com.dark.javaHarness.contract.model.AgentConfig;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
-import com.dark.javaHarness.service.AgentService;
+import com.dark.javaHarness.contract.api.AgentService;
 import java.util.List;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;

@@ -12,7 +12,7 @@ import java.util.List;
  * 智能分流结果都从这里透出，调用方无需猜「这条回答是谁生成的」。
  *
  * <p>{@code flags} 为渠道无关的通用标志集合（如 "voice:&lt;id&gt;"）：由 core 的
- * {@link com.dark.javaHarness.service.ReplyPostProcessor} 等扩展点声明而来，无实现时为空集。
+ * {@link com.dark.javaHarness.contract.spi.ReplyPostProcessor} 等扩展点声明而来，无实现时为空集。
  *
  * <p>{@code route} 为本轮路由决策快照（路径/置信度/工作流/来源）。
  */

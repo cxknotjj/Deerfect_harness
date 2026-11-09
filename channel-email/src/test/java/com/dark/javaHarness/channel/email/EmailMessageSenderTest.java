@@ -8,7 +8,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
-import com.dark.javaHarness.service.MessageSender.DeliveryReceipt;
+import com.dark.javaHarness.contract.spi.MessageSender.DeliveryReceipt;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;

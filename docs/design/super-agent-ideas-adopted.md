@@ -112,7 +112,7 @@
 
 - `channel-qq` 是独立 Maven 模块，core 编译期不依赖渠道（`maven-enforcer-plugin` 守护），渠道只依赖 `harness-api`；
 - 渠道侧输出控制走通用 SPI [ReplyPostProcessor.java](../../harness-api/src/main/java/com/dark/javaHarness/service/ReplyPostProcessor.java)：core 在写回记忆与构造响应前调用，渠道可清洗文本、声明 flag（如语音工件）；
-- SSE 协议与进度行（[SseProtocol.java](../../harness-api/src/main/java/com/dark/javaHarness/enums/SseProtocol.java)、[ProgressLine.java](../../server/src/main/java/com/dark/javaHarness/agent/ProgressLine.java)）让 CLI / Web 拿到 token、阶段进度、meta，而 QQ 只收到最终文本；
+- SSE 协议与进度行（[SseProtocol.java](../../harness-api/src/main/java/com/dark/javaHarness/view/SseProtocol.java)、[ProgressLine.java](../../server/src/main/java/com/dark/javaHarness/agent/ProgressLine.java)）让 CLI / Web 拿到 token、阶段进度、meta，而 QQ 只收到最终文本；
 - 渠道侧有独立的输出参数：长度上限、是否 @ 提问者、引用回复、表情发送、语音 flag、限频与聊天超时（[NapCatProperties.java](../../channel-qq/src/main/java/com/dark/javaHarness/channel/qq/client/NapCatProperties.java)）。
 
 **边界**：已通过 `ChatRequest.channel` → `Goal` → `CallTrace` 把来源渠道贯通到 `PromptAssembler`，按 qq / cli / web / api 生成「信道规范」段（IM 限 100 词、异步端允许结构化交付）；发送层的长度、表情、语音仍由各渠道自行控制。

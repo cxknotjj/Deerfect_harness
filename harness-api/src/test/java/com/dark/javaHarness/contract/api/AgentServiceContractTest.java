@@ -1,11 +1,11 @@
-package com.dark.javaHarness.service;
+package com.dark.javaHarness.contract.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.dark.javaHarness.domain.AgentConfig;
-import com.dark.javaHarness.domain.Goal;
-import com.dark.javaHarness.enums.GoalStatus;
+import com.dark.javaHarness.contract.model.AgentConfig;
+import com.dark.javaHarness.contract.model.Goal;
+import com.dark.javaHarness.contract.model.GoalStatus;
 import com.dark.javaHarness.view.AgentItemView;
 import java.util.HashMap;
 import java.util.LinkedHashMap;

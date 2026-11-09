@@ -1,4 +1,4 @@
-package com.dark.javaHarness.service;
+package com.dark.javaHarness.contract.spi;
 
 /**
  * 主动消息发送端口（渠道无关）：任务在**没有人开口**的时候找到用户。

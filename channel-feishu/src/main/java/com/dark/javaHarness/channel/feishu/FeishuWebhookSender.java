@@ -1,6 +1,6 @@
 package com.dark.javaHarness.channel.feishu;
 
-import com.dark.javaHarness.service.MessageSender;
+import com.dark.javaHarness.contract.spi.MessageSender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;

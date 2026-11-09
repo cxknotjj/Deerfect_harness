@@ -2,7 +2,7 @@ package com.dark.javaHarness.agent.agentic;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dark.javaHarness.config.agent.ChatClientFactory;
-import com.dark.javaHarness.domain.AgentConfig;
+import com.dark.javaHarness.contract.model.AgentConfig;
 import com.dark.javaHarness.domain.entity.ModelProviderEntity;
 import com.dark.javaHarness.mapper.ModelProviderMapper;
 import io.agentscope.core.model.GenerateOptions;

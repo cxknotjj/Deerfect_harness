@@ -23,7 +23,8 @@
              需要这些类型的模块（server / channel-qq）自行声明，避免契约模块污染 CLI 的 classpath。
              - spring-ai-client-chat：SessionService extends ChatMemory、Message
              - reactor-core：ChatService/AgentService 返回 Flux
-             - mybatis-plus-extension：SessionService 分页返回 Page、SessionEntity 注解 -->
+             注：持久化依赖（mybatis-plus）已移出——SessionEntity 搬回 server，
+                 分页改用 view.PageResult，契约层不再需要任何 ORM 类型 -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-client-chat</artifactId>
@@ -32,11 +33,6 @@
         <dependency>
             <groupId>io.projectreactor</groupId>
             <artifactId>reactor-core</artifactId>
-            <optional>true</optional>
-        </dependency>
-        <dependency>
-            <groupId>com.baomidou</groupId>
-            <artifactId>mybatis-plus-extension</artifactId>
             <optional>true</optional>
         </dependency>
         <!-- ChatRequest 的 @NotBlank -->

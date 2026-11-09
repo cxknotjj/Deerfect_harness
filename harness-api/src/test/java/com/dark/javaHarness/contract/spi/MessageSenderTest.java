@@ -1,11 +1,11 @@
-package com.dark.javaHarness.service;
+package com.dark.javaHarness.contract.spi;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.dark.javaHarness.service.MessageSender.DeliveryReceipt;
+import com.dark.javaHarness.contract.spi.MessageSender.DeliveryReceipt;
 import org.junit.jupiter.api.Test;
 
 /**

@@ -8,7 +8,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
-import com.dark.javaHarness.service.AgentService;
+import com.dark.javaHarness.contract.api.AgentService;
 import com.dark.javaHarness.tool.ToolAssignments;
 import java.util.List;
 import java.util.concurrent.CancellationException;

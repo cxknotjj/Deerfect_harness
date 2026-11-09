@@ -1,4 +1,4 @@
-package com.dark.javaHarness.enums;
+package com.dark.javaHarness.contract.model;
 
 /**
  * Goal 生命周期状态。

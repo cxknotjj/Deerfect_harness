@@ -9,7 +9,7 @@ import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
-import com.dark.javaHarness.domain.AgentConfig;
+import com.dark.javaHarness.contract.model.AgentConfig;
 import com.dark.javaHarness.domain.RoutePlan;
 import com.dark.javaHarness.service.AgentConfigProvider;
 import java.util.List;

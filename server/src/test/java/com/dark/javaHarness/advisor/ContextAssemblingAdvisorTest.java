@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dark.javaHarness.domain.ChatMessageMetadata;
-import com.dark.javaHarness.service.SessionSummaryPort;
+import com.dark.javaHarness.contract.api.SessionSummaryPort;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;

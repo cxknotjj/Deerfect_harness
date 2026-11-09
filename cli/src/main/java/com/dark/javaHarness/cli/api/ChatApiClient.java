@@ -1,6 +1,6 @@
 package com.dark.javaHarness.cli.api;
 
-import com.dark.javaHarness.domain.Schedule;
+import com.dark.javaHarness.view.Schedule;
 import com.dark.javaHarness.view.ActiveGoalRequest;
 import com.dark.javaHarness.view.ChatRequest;
 import com.dark.javaHarness.view.ChatResponse;
@@ -15,7 +15,7 @@ import com.dark.javaHarness.view.ProviderRowView;
 import com.dark.javaHarness.view.ScheduleCreateRequest;
 import com.dark.javaHarness.view.SchedulesView;
 import com.dark.javaHarness.view.SessionPageView;
-import com.dark.javaHarness.enums.SseProtocol;
+import com.dark.javaHarness.view.SseProtocol;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 import java.io.BufferedReader;

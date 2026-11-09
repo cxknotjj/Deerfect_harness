@@ -1,4 +1,4 @@
-package com.dark.javaHarness.service;
+package com.dark.javaHarness.contract.model;
 
 /**
  * 会话上下文快照中的一条消息（读侧视图）。

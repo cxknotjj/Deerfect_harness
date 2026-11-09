@@ -1,6 +1,6 @@
 package com.dark.javaHarness.channel.qq.client;
 
-import com.dark.javaHarness.channel.ChannelHealth;
+import com.dark.javaHarness.contract.spi.ChannelHealth;
 import com.dark.javaHarness.channel.qq.dto.ApiResult;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;

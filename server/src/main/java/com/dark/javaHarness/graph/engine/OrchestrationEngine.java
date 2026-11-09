@@ -1,6 +1,6 @@
 package com.dark.javaHarness.graph.engine;
 
-import com.dark.javaHarness.domain.Goal;
+import com.dark.javaHarness.contract.model.Goal;
 import reactor.core.publisher.Flux;
 
 /**

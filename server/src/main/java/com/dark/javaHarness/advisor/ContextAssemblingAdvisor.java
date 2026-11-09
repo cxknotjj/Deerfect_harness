@@ -1,7 +1,7 @@
 package com.dark.javaHarness.advisor;
 
 import com.dark.javaHarness.domain.ChatMessageMetadata;
-import com.dark.javaHarness.service.SessionSummaryPort;
+import com.dark.javaHarness.contract.api.SessionSummaryPort;
 import com.dark.javaHarness.tool.TokenEstimator;
 import java.util.ArrayList;
 import java.util.List;
