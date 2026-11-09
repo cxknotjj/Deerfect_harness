@@ -25,11 +25,13 @@ FROM ${BUILD_BASE} AS build
 WORKDIR /build
 
 # 先拷贝全部模块 pom 与 Maven 配置：依赖层与源码层分离，改代码不重下依赖。
-# 根 pom 的 <modules> 声明了 5 个模块，即使 -pl 只构建 server，Maven 读取反应堆时
+# 根 pom 的 <modules> 声明了 7 个模块，即使 -pl 只构建 server，Maven 读取反应堆时
 # 也要求每个模块目录存在——因此所有 pom 必须在此拷贝（cli/wms 只建目录、不参与构建）。
 COPY pom.xml ./
 COPY harness-api/pom.xml ./harness-api/pom.xml
 COPY channel-qq/pom.xml ./channel-qq/pom.xml
+COPY channel-email/pom.xml ./channel-email/pom.xml
+COPY channel-feishu/pom.xml ./channel-feishu/pom.xml
 COPY server/pom.xml ./server/pom.xml
 COPY cli/pom.xml ./cli/pom.xml
 COPY wms-mcp-adapter/pom.xml ./wms-mcp-adapter/pom.xml
@@ -40,8 +42,11 @@ RUN mvn -s .mvn/settings.xml -B -q dependency:go-offline || true
 
 COPY harness-api/src ./harness-api/src
 COPY channel-qq/src ./channel-qq/src
+COPY channel-email/src ./channel-email/src
+COPY channel-feishu/src ./channel-feishu/src
 COPY server/src ./server/src
-# 仅构建 server（-am 连带 harness-api 与 runtime 依赖 channel-qq；cli/wms 不进服务端镜像）
+# 仅构建 server（-am 连带 harness-api 与 runtime 依赖 channel-qq / channel-email / channel-feishu；
+# cli/wms 不进服务端镜像）
 # 测试需真实数据库环境，镜像构建跳过（本地全量回归单独跑）
 RUN mvn -s .mvn/settings.xml -B -q -DskipTests -pl server -am package
 
