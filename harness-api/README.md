@@ -14,6 +14,30 @@ harness 的能力契约包：**server 提供实现，channel-\* / cli / web 消�
 判断一个类型该不该放进来，只问一句：**从某个端口/SPI 的签名出发，能不能走到它？**
 走不到的类型，要么是别的模块的实现细节，要么是 HTTP 传输对象——即使暂时放在这里，也不属于契约。
 
+## 目录结构
+
+```text
+harness-api/
+├── README.md                 # 本文件：定位、方向、能力目录、变更规则
+├── API.md                    # 方法手册：参数、阻塞性、失败行为
+├── pom.xml                   # 依赖只有 Spring AI / Reactor / Validation / Jackson
+└── src/
+    ├── main/java/com/dark/javaHarness/
+    │   ├── contract/api/     # 调用型端口（server 实现，消费者调用）
+    │   ├── contract/spi/     # 实现型 SPI（渠道实现，server 调用）
+    │   ├── contract/model/   # 端口载荷：record 与枚举
+    │   └── view/             # 对外 DTO（HTTP 传输对象）
+    └── test/java/com/dark/javaHarness/
+        ├── contract/         # PortSignatureGuardTest：公开签名快照
+        ├── contract/api/     # 端口契约测试（内存替身，不连数据库）
+        ├── contract/spi/     # SPI 约定（不得抛异常、健康四态映射）
+        ├── contract/model/   # 状态机测试
+        └── view/             # DTO 的 JSON 字段名守卫
+```
+
+每个 `contract.*` 包都带 `package-info.java`，写清方向与准入规则——IDE 里导航到包即可看到。
+
+
 ## 依赖方向
 
 ```text

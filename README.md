@@ -16,7 +16,7 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.x-6DB33F?logo=springboot\&logoColor=white)](https://spring.io/projects/spring-boot)
 [![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.x-6DB33F?logo=spring\&logoColor=white)](https://spring.io/projects/spring-ai)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
-[![Tests](https://img.shields.io/badge/tests-1162-brightgreen?logo=junit5\&logoColor=white)](#-运行测试)
+[![Tests](https://img.shields.io/badge/tests-1302-brightgreen?logo=junit5\&logoColor=white)](#-运行测试)
 
 *Agentic 单 Agent 自主执行 · Graph 多 Agent 编排 · 全程流式可视化*
 
@@ -168,13 +168,25 @@ curl -s -X POST http://localhost:8080/api/chat \
 
 ## 技术架构
 
-Maven 多模块：`harness-api`（渠道与 core 共用的契约层：端口接口 / DTO / 共享枚举 / `ReplyPostProcessor` SPI）+ `server`（Spring Boot 主服务与 fat jar 宿主）+ `channel-qq`（QQ 渠道，仅依赖 `harness-api`）+ `cli`（终端客户端，纯 HTTP + SSE，复用 `harness-api` 契约）+ `web`（Vue3 自包含前端）+ `wms-mcp-adapter`（领域 MCP 适配范例）。`server` 以 **runtime** scope 装配 `channel-qq`，core 编译期看不到渠道代码（`maven-enforcer-plugin` 守护）；渠道输出控制走通用 `ReplyPostProcessor` SPI。核心链路：`ChatController` 入口 → `RouteJudge` 在两条执行路径间分流 → **Agentic 路径**（AgentScope ReAct，单 Agent 自主推理-行动，工具经 Spring AI 桥接）或 **Graph 编排路径**（自研并行引擎：Lead → 专家并行 → Aggregator）→ 统一出口。
+Maven 多模块，每个模块的职责与目录结构见各自 README：
+
+| 模块 | 定位 | 依赖方向 |
+| --- | --- | --- |
+| [`harness-api`](./harness-api/README.md) | 契约层：调用型端口、实现型 SPI、端口载荷、对外 DTO | 不依赖任何实现模块 |
+| [`server`](./server/README.md) | Spring Boot 主服务、core 实现、fat jar 宿主 | compile → `harness-api`；runtime → `channel-*` |
+| [`channel-qq`](./channel-qq/README.md) | QQ 渠道（NapCat / OneBot 11），双向 | compile → `harness-api` |
+| [`channel-email`](./channel-email/README.md) | 邮件渠道，只出不进 | compile → `harness-api` |
+| [`channel-feishu`](./channel-feishu/README.md) | 飞书：群 webhook（出）+ 应用长连接（双向） | compile → `harness-api` |
+| [`cli`](./cli/README.md) | 终端客户端，纯 HTTP + SSE | compile → `harness-api` |
+| [`wms-mcp-adapter`](./wms-mcp-adapter/README.md) | WMS 只读 MCP 适配范例，独立进程 | 独立 |
+
+`server` 以 **runtime** scope 装配 `channel-*`，core 编译期看不到任何渠道代码（`maven-enforcer-plugin` 守护）；渠道输出控制走通用 `ReplyPostProcessor` SPI。核心链路：`ChatController` 入口 → `RouteJudge` 在两条执行路径间分流 → **Agentic 路径**（AgentScope ReAct，单 Agent 自主推理-行动，工具经 Spring AI 桥接）或 **Graph 编排路径**（自研并行引擎：Lead → 专家并行 → Aggregator）→ 统一出口。
 
 架构图与数据流细节见 **[`docs/architecture.md`](./docs/architecture.md)** 与 **[`docs/data-flow.md`](./docs/data-flow.md)**。
 
 ## 🧪 运行测试
 
-单元测试基于 JUnit 5 + Mockito，**除** **`JavaHarnessApplicationTests`** **的 contextLoads 需本机 MySQL 外，不依赖真实数据库 / 网络 / API Key**（当前 1162 个用例：harness-api 40 / server 968 / channel-qq 83 / cli 28 / wms-mcp-adapter 43）：
+单元测试基于 JUnit 5 + Mockito，**除** **`JavaHarnessApplicationTests`** **的 contextLoads 需本机 MySQL 外，不依赖真实数据库 / 网络 / API Key**（当前 1302 个用例：harness-api 52 / server 1020 / channel-qq 83 / channel-email 15 / channel-feishu 61 / cli 28 / wms-mcp-adapter 43）：
 
 ```bash
 mvn test

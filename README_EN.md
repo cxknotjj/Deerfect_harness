@@ -16,7 +16,7 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.x-6DB33F?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
 [![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.x-6DB33F?logo=spring&logoColor=white)](https://spring.io/projects/spring-ai)
 [![MySQL](https://img.shields.io/badge/MySQL-Flyway%20Managed-4479A1?logo=mysql&logoColor=white)](https://www.mysql.com/)
-[![Tests](https://img.shields.io/badge/tests-1162-brightgreen?logo=junit5&logoColor=white)](#-running-tests)
+[![Tests](https://img.shields.io/badge/tests-1302-brightgreen?logo=junit5&logoColor=white)](#-running-tests)
 [![Docker](https://img.shields.io/badge/sandbox-Docker%20Isolated-2496ED?logo=docker&logoColor=white)](#-prerequisites)
 
 *Agentic single-agent execution · Graph multi-agent orchestration · Fully streaming, end to end*
@@ -301,14 +301,24 @@ The tool ecosystem is extended via MCP: the client supports stdio (local process
 
 ## 📁 Project Structure
 
-A multi-module Maven project: `harness-api` (shared contracts: port interfaces / DTOs / shared enums / `ReplyPostProcessor` SPI) + `server` (Spring Boot main service and fat-jar host) + `channel-qq` (QQ channel, depends only on `harness-api`) + `cli` (command-line client, pure HTTP + SSE, reusing `harness-api` contracts) + `web` (self-contained Vue3 frontend) + `wms-mcp-adapter` (domain MCP adapter example). `server` wires `channel-qq` with **runtime** scope, so core cannot see channel code at compile time (guarded by `maven-enforcer-plugin`); channel output controls go through the generic `ReplyPostProcessor` SPI. The server follows the classic layered architecture (Controller → Service → Mapper/Entity) with domain models grouped under the `domain` parent package.
+A multi-module Maven project. Each module documents its responsibilities and folder layout in its own README:
+
+| Module | Role | Depends on |
+| --- | --- | --- |
+| [`harness-api`](./harness-api/README.md) | Contracts: callable ports, implementation SPIs, port payloads, outward DTOs | nothing in the reactor |
+| [`server`](./server/README.md) | Spring Boot service, core implementation, fat-jar host | compile → `harness-api`; runtime → `channel-*` |
+| [`channel-qq`](./channel-qq/README.md) | QQ channel (NapCat / OneBot 11), bidirectional | compile → `harness-api` |
+| [`channel-email`](./channel-email/README.md) | Email channel, outbound only | compile → `harness-api` |
+| [`channel-feishu`](./channel-feishu/README.md) | Feishu: group webhook (out) + app long connection (bidirectional) | compile → `harness-api` |
+| [`cli`](./cli/README.md) | Terminal client, pure HTTP + SSE | compile → `harness-api` |
+| [`wms-mcp-adapter`](./wms-mcp-adapter/README.md) | WMS read-only MCP adapter example, separate process | standalone | `server` wires `channel-*` with **runtime** scope, so core cannot see any channel code at compile time (guarded by `maven-enforcer-plugin`); channel output controls go through the generic `ReplyPostProcessor` SPI. The server follows the classic layered architecture (Controller → Service → Mapper/Entity) with domain models grouped under the `domain` parent package.
 
 > [!TIP]
 > Full server-side directory tree with per-file notes: **[`docs/project-structure_EN.md`](./docs/project-structure_EN.md)**.
 
 ## 🧪 Running Tests
 
-Unit tests run on JUnit 5 + Mockito and need **no real database / network / API keys** (currently 1162 test cases: harness-api 40 / server 968 / channel-qq 83 / cli 28 / wms-mcp-adapter 43; `JavaHarnessApplicationTests#contextLoads` is the only exception and needs local MySQL):
+Unit tests run on JUnit 5 + Mockito and need **no real database / network / API keys** (currently 1302 test cases: harness-api 52 / server 1020 / channel-qq 83 / channel-email 15 / channel-feishu 61 / cli 28 / wms-mcp-adapter 43; `JavaHarnessApplicationTests#contextLoads` is the only exception and needs local MySQL):
 
 ```bash
 mvn -s .mvn/settings.xml test
