@@ -144,15 +144,16 @@ PWA（P3-1）只在构建产物里生效：`npm run dev` 不注册 service worke
 
 - 本地密钥与远程地址放仓库根 `.env.local`（未纳入版本控制），如 `QWEN_API_KEY`、`DEEPSEEK_API_KEY`、`NAPCAT_REMOTE_HOST`（远程 NapCat 服务器地址，见 3.1）、`TTS_PYTHON`（已装 edge-tts 的 Python 解释器路径）。
 - `run-wsl.sh` 会 `source .env.local`；**`run-win.bat`** **不会**，Windows 侧请用 `setx` 设系统环境变量。
+- 手工 `mvn` / `java` 启动时先 `set -a; source .env.local; set +a`：`set -a` 让变量自动 `export` 给子进程，否则只存在于当前 shell，JVM 读不到。
 - 不要把密钥写进 yaml、脚本或提交记录。
 
-**邮件渠道（可选）**：`MAIL_USERNAME`（邮箱地址）、`MAIL_PASSWORD`（**授权码，不是登录密码**）。
-配置在 `application-channel.yaml` 的 `channel.email.*`，`enabled: false` 默认关闭；关闭时
+**邮件渠道（可选）**：五个环境变量——`CHANNEL_EMAIL_ENABLED=true`、`MAIL_HOST`（QQ 邮箱为 `smtp.qq.com`）、`MAIL_USERNAME`（完整发件地址）、`MAIL_PASSWORD`（**授权码，不是登录密码**）、`MAIL_FROM`（可省略，默认等于 `MAIL_USERNAME`）。
+配置在 `application-channel.yaml` 的 `channel.email.*`，占位符已接好，**不用改 yaml**；关闭时
 `server` 的依赖树里没有 mail starter（渠道模块是 runtime 依赖），注册表也不会出现 `email` 渠道。
 
 首次启用请按这个顺序检查，别跳过第 3 步：
 
-1. `channel.email.from` 与 `username` 一致（多数服务商强制要求，不一致会被拒信）
+1. `MAIL_FROM` 不设时自动等于 `MAIL_USERNAME`；若单独设置，两者必须一致（多数服务商强制要求，不一致会被拒信）
 2. 发件人加入服务商白名单；主题避免「中奖 / 免费」这类词
 3. **发一封测试邮件到你手机上的邮箱客户端，确认它不在垃圾箱**——「邮件能发出去」和
    「你会看到它」是两件事，后者才是告警的意义
