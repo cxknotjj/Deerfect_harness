@@ -373,6 +373,8 @@ POST https://open.feishu.cn/open-apis/bot/v2/hook/<token>
 
 > 云服务器 + 独立 IP 不等于「有可用回调地址」：飞书要求能通过验证的 **HTTPS 地址**，纯 IP 通常过不了证书校验。没有域名又不想买，就只剩长连接这一条路（回到 SDK 兼容性问题）。
 
+> **落地（2026-11-09）**：选了长连接（无可用 HTTPS 域名）。`oapi-sdk 2.4.19` 在 JDK 25 上能连，但 SDK 没有 stop、`pingLoop` 吞中断、OkHttp 线程非守护，JVM 不会自然退出——`FeishuWsClient` 断开后延迟 3 秒 `Runtime.halt(0)`，这是已知且必须保留的妥协。入站另做了群聊 @ 扩展：`chatType=group` + `mentions` 非空才处理，回复用 `chat_id`；需要额外权限 `im:message.group_at_msg`。实测单聊与群聊均通。
+
 **3 秒约束两种模式都有**：回调要求 3 秒内返回 HTTP 200，长连接要求 3 秒内处理完不抛异常，超时都会重推。所以入站结构相同：
 
 ```text

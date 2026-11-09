@@ -13,9 +13,11 @@
     <description>飞书渠道（群机器人 webhook）：仅出站推送，不引入 lark SDK 与 web starter</description>
 
     <properties>
-        <!-- 覆盖率门槛（LINE）：实测 84.5%（2026-11-08 全量测试），留约 2 个点余量。
+        <!-- 覆盖率门槛（LINE）：实测 76.6%（2026-11-09 全量测试），留约 2 个点余量。
+             M3b 的 SDK 建连段（SdkFeishuWsTransport.start）需要真实网络与凭据，不做单测，
+             由真机验证覆盖；其余入站/去重/回复/生命周期均有测试。
              低于此值 mvn verify 失败；改动后按实测定，不要为通过而放水 -->
-        <jacoco.line.minimum>0.82</jacoco.line.minimum>
+        <jacoco.line.minimum>0.74</jacoco.line.minimum>
     </properties>
 
     <dependencies>
@@ -23,6 +25,12 @@
             <groupId>com.dark</groupId>
             <artifactId>harness-api</artifactId>
             <version>${project.version}</version>
+        </dependency>
+        <!-- harness-api 的框架类型依赖为 optional（不向下游传递）：SessionService 的签名
+             间接引用 ChatMemory，渠道侧需自行声明（版本由 spring-ai-bom 管理） -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-client-chat</artifactId>
         </dependency>
         <!-- 只要 Spring 容器能力（@Component / @ConfigurationProperties / @ConditionalOnProperty），
              不引 spring-boot-starter-web：M3a 是单向出站，没有任何入站端点 -->
@@ -35,6 +43,19 @@
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
         </dependency>
+        <!-- M3b 长连接：飞书没有公开 WS 协议（pbbp2），只能走官方 SDK。
+             编译目标是 Java 8，JDK 25 上可用性已单独验证（见 docs/dev.md）。
+             只做入站事件与回复，不用它的 HTTP client 发 webhook（那条路由 M3a 自己实现） -->
+        <dependency>
+            <groupId>com.larksuite.oapi</groupId>
+            <artifactId>oapi-sdk</artifactId>
+            <version>2.4.19</version>
+        </dependency>
+        <!-- 入站会话绑定表（feishu_session_binding）：渠道私有持久化，与 channel-qq 同构 -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-configuration-processor</artifactId>
@@ -43,6 +64,16 @@
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

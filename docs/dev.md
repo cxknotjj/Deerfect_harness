@@ -284,3 +284,39 @@ IMAGE_REPO=ghcr.io/cxknotjj/deerfect-harness IMAGE_TAG=sha-xxxxxxx \
 崩溃拉起；外部观察者本身是需要长期维护、失效时无人监控的依赖。**残余风险**：容器一直起不来
 （镜像损坏、磁盘满、端口占用）时所有通知一起停，发现方式退化为「你注意到今天没收到消息」。
 将来若确实需要，接一个外部探活调 `/actuator/health` 即可，不需要改本层结构。
+
+### 飞书长连接（M3b 事件订阅）
+
+与 M3a 的群 webhook 是两条独立链路：webhook 是「往固定群发通知」，长连接是「收消息 + 回复」。
+开关也分开：`CHANNEL_FEISHU_ENABLED`（出站）/ `CHANNEL_FEISHU_WS_ENABLED`（入站）。
+
+`.env.local` 里需要：
+
+```bash
+export CHANNEL_FEISHU_WS_ENABLED=true
+export FEISHU_APP_ID=cli_xxx
+export FEISHU_APP_SECRET=xxx
+export CHANNEL_FEISHU_WS_ALLOWED_USERS=ou_xxx   # 多个用逗号分隔
+```
+
+自建应用侧要开三件事（缺一条就是「连上了但收不到」）：
+
+1. 权限 `im:message`（单聊）、`im:message.group_at_msg`（群聊 @ 机器人）、`im:message:send_as_bot`（回复）
+2. 事件与回调 → 事件配置 → **使用长连接接收事件**，添加 `im.message.receive_v1`
+3. 创建版本并发布；可用范围要包含使用者
+
+**配对**：`allowed-users` 为空时进入配对模式——收到消息只把 `open_id` 打进日志，不回复、不调模型。
+把日志里的 `open_id` 加进白名单并重启，才能对话。这是刻意的：长连接没有回调端点，
+白名单是机器人被拉进陌生群后唯一能拦住「对所有人开口」的闸。
+
+**群聊**：群里必须 @ 机器人（依赖飞书只推送 @ 消息的语义），回复走 `receive_id_type=chat_id`；
+会话按 `(open_id, chat_id)` 绑定，同一个人在单聊和不同群里各自独立上下文。
+
+两个必须知道的坑：
+
+- **SDK 无法停止**：oapi-sdk 2.4.19 的 `Client` 没有公开 stop，`pingLoop` 是死循环且吞中断，
+  OkHttp 线程也不是守护线程——JVM 不会自然退出。`FeishuWsClient.stop()` 在断开后延迟 3 秒
+  调用 `Runtime.halt(0)`；升级 SDK 后必须重跑一次「启动 → Ctrl+C」确认行为。
+- **fat jar 不重打**：只改 `channel-*` 模块、`server` 源码没变时，`mvn -pl server -am package`
+  会复用旧的 `server/target/*.jar`，跑起来还是旧代码。改渠道模块后一律加 `clean`。
+

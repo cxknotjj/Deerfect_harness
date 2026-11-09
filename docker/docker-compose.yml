@@ -141,6 +141,11 @@ services:
       CHANNEL_FEISHU_ENABLED: ${CHANNEL_FEISHU_ENABLED:-false}
       FEISHU_WEBHOOK_URL: ${FEISHU_WEBHOOK_URL:-}
       FEISHU_WEBHOOK_SECRET: ${FEISHU_WEBHOOK_SECRET:-}
+      # 飞书长连接（M3b）：自建应用凭据；入站开关与出站 webhook 独立
+      CHANNEL_FEISHU_WS_ENABLED: ${CHANNEL_FEISHU_WS_ENABLED:-false}
+      FEISHU_APP_ID: ${FEISHU_APP_ID:-}
+      FEISHU_APP_SECRET: ${FEISHU_APP_SECRET:-}
+      CHANNEL_FEISHU_WS_ALLOWED_USERS: ${CHANNEL_FEISHU_WS_ALLOWED_USERS:-}
     volumes:
       # 沙箱工具（DooD）：应用经宿主 Docker 守护进程拉起沙箱容器。
       # 沙箱在容器内默认走 unix socket 标准发现，无需配 DOCKER_HOST；

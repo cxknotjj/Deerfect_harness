@@ -53,7 +53,7 @@ compose 启动时自动读取 compose 文件同目录的 `docker/.env`（`-f` �
 - **基础镜像**：`BUILD_BASE` / `RUN_BASE` 仅 `--build` 重建镜像时生效，默认已指向 daocloud 加速通道
 - **QQ 渠道**：不用 QQ 就设 `NAPCAT_ENABLED=false`；`NAPCAT_API_TOKEN` / `NAPCAT_EVENT_SECRET` 必须与 NapCat 侧配置一致，否则消息收不到/上报被拒
 - **邮件渠道**：不用就保持 `CHANNEL_EMAIL_ENABLED=false`（默认）；启用需设 `MAIL_HOST`（如 `smtp.qq.com`）、`MAIL_USERNAME` / `MAIL_PASSWORD`（**授权码，不是登录密码**），`MAIL_FROM` 可省略（默认等于 `MAIL_USERNAME`）。首次启用先发一封测试邮件确认收件箱而非垃圾箱——「能发出去」和「你会看到」是两件事
-- **飞书渠道**：不用就保持 `CHANNEL_FEISHU_ENABLED=false`（默认）；启用需设 `FEISHU_WEBHOOK_URL` / `FEISHU_WEBHOOK_SECRET`（群自定义机器人，开启签名校验）。`notify_channel` 写 `feishu:main` 别名，URL 不进业务表；缺 secret 时应用拒绝启动，这是刻意的不容错
+- **飞书渠道**：不用就保持 `CHANNEL_FEISHU_ENABLED=false`（默认）；启用需设 `FEISHU_WEBHOOK_URL` / `FEISHU_WEBHOOK_SECRET`（群自定义机器人，开启签名校验）。`notify_channel` 写 `feishu:main` 别名，URL 不进业务表；缺 secret 时应用拒绝启动，这是刻意的不容错；长连接（在群里 @ 机器人对话）另设 `CHANNEL_FEISHU_WS_ENABLED=true` + `FEISHU_APP_ID` / `FEISHU_APP_SECRET`，并在自建应用里开通 `im:message` / `im:message.group_at_msg` / `im:message:send_as_bot` 后发布
 
 | 服务 | 容器名 | 说明 |
 |---|---|---|

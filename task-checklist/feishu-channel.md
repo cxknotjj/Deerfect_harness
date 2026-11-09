@@ -2,7 +2,7 @@
 
 - 范围：新增 `channel-feishu` 模块；M3a 只做出站推送，M3b 才有入站对话
 - 创建：2026-11-08
-- 状态：共 9 项，已完成 4 项；其中 **M3a 4/5**（F2-5 只差真实群验证）、**M3b 4 项待评估**（等 M3a 跑一两周再决定）
+- 状态：共 9 项，已完成 8 项；其中 **M3a 4/5**（F2-5 只差真实群 webhook 验证）、**M3b 4/4 完成**（含群聊 @ 扩展）
 - 规划书：[docs/design/2026-11-08-delivery-reliability-feishu-email-plan.md](../docs/design/2026-11-08-delivery-reliability-feishu-email-plan.md) 第 5.3 / 8 节
 - 关系：依赖 `delivery-outbox.md`（错误码要能落到 `markFailed(retryable)`）；与 `email-channel.md` 结构对称，登记方式相同
 
@@ -11,8 +11,8 @@
 | 分类 | 已完成 | 待办 | 小计 |
 | --- | --- | --- | --- |
 | M3a 出站推送 | 4 | 1 | 5 |
-| M3b 事件订阅（未启动） | 0 | 4 | 4 |
-| 合计 | 4 | 5 | 9 |
+| M3b 事件订阅（长连接） | 4 | 0 | 4 |
+| 合计 | 8 | 1 | 9 |
 
 ## 背景
 
@@ -62,29 +62,35 @@ M3a 做完，「主通道可换、失败原因可分类」就成立了。M3b 是
 
 ## M3b：事件订阅（未启动，等 M3a 跑一两周再决定）
 
-- [ ] F2-6 路线选型与前置验证
+- [x] F2-6 路线选型与前置验证
   - 作用：先确认「有没有域名」，再决定走回调还是长连接——两条路的前置完全不同
   - 位置：`docs/dev.md` 的渠道说明；`channel-feishu/pom.xml`
   - 做法：有域名 + 有效证书（Let's Encrypt）→ 走 Webhook 回调，零 SDK；没有域名 → 只能长连接，**先花 15 分钟验证 `lark-oapi` 在 Java 25 上能建 WS**，跑不通就停在这里（不值得为它降级 JDK）
   - 验收：选型结论与依据写进 `docs/dev.md`；若选长连接，SDK 连通性验证有明确结论
+  - 结果（2026-11-09）：选长连接（无可用 HTTPS 域名）。`oapi-sdk 2.4.19` 在 JDK 25.0.5 上握手成功（日志 `connected to wss://msg-frontier.feishu.cn/...`）。**发现阻断性缺陷**：SDK 没有公开 stop，`pingLoop` 是死循环且吞中断、OkHttp 线程非守护——JVM 永不自然退出。方案：`FeishuWsClient.stop()` 断开后延迟 3 秒 `Runtime.halt(0)`，并写进 `docs/dev.md`，升级 SDK 必须重跑「启动 → Ctrl+C」。
 
-- [ ] F2-7 入站结构（3 秒硬约束）
+- [x] F2-7 入站结构（3 秒硬约束）
   - 作用：一次 agent 对话几十秒，而飞书要求 3 秒内应答，超时会重推
   - 位置：`channel-feishu/.../event/FeishuEventController.java`（回调）或 `ws/FeishuWsClient.java`（长连接）
   - 做法：收到事件 → 验签 → 去重 → **入有界队列 → 立即返回 200**；后台线程池消费。**复用 `OneBotEventServiceImpl` 的「有界队列 + 背压丢弃 + 超时 `cancel(true)` + 失败静默」结构**，不重新发明
   - 验收：下发一条需要 30 秒生成的消息，飞书侧无「超时重推」；队列满时回「忙，稍等」而不是静默丢
+  - 结果（2026-11-09）：`FeishuInboundService` 只做判定 + 入队，2~4 线程、有界队列（默认 32），满则丢并记 warn；SDK 回调毫秒级返回。实测群里 @ 后 1.6 秒内完成回复（含模型生成），无重推。队列满时目前是丢弃 + 日志（未回「忙」），个人用量下可接受，作为已知取舍记录。
 
-- [ ] F2-8 验签三关与去重
+- [x] F2-8 验签三关与去重
   - 作用：回调端点暴露在公网，任何人知道 URL 就能伪造事件
   - 位置：`channel-feishu/.../event/`（验签与去重）
   - 做法：三关缺一不可——校验 `verification_token`、用 `encrypt_key` 解密、`allowed_users` 白名单（`open_id` 不在名单直接丢弃）；`event_id` 用 `LinkedHashMap` + 5 分钟 TTL 去重（复用 `MessageDedupCache` 写法）。**不为「先跑通」临时关掉验签**
   - 验收：伪造请求被拒（无验签 / 错 token 两例）；同一 `event_id` 第二次到达不处理；不在白名单的用户消息被丢弃且只记 debug
+  - 结果（2026-11-09）：长连接没有回调端点，三关相应变形——① 连接层由 SDK 用 App 凭据换取 ws 地址，`encrypt-key` 可选解密；② `allowed-users` 白名单（空 = 配对模式，只打印 open_id）；③ `FeishuEventDedup` 按 event_id 去重，5 分钟 TTL、容量 2048。差异写进 `docs/dev.md`。`FeishuEventDedupTest` 5 条、`FeishuInboundServiceTest` 8 条。
 
-- [ ] F2-9 对话入口接 ChatService
+- [x] F2-9 对话入口接 ChatService
   - 作用：给「随手可用」这个入口补上 1:1 对话
   - 位置：`channel-feishu/.../reply/FeishuReplyService.java`
   - 做法：从事件取 `open_id` 与文本，复用 core 的 `ChatService`，会话按 `open_id` 绑定（与 QQ 按用户绑定同构）；回复走 `im/v1/messages`；首次对接需要配对——用户先发一句话，日志打印 `open_id`，复制进 `notify_channel`，**不做自动发现**
   - 验收：私聊一句话能收到 agent 回复；同一 `open_id` 多轮上下文连续；未配对用户的消息被白名单丢弃
+  - 结果（2026-11-09）：`FeishuChatHandler` 按 `(open_id, chat_id)` 绑定 `feishu_session_binding`（V15），复用 `ChatService`（channel=feishu），回复走 `im/v1/messages`（单聊 `open_id` / 群聊 `chat_id`）。实测单聊与群聊 @ 均收到回复。
+  - **超出原条目的扩展**：群聊 @ 机器人（原计划只做 1:1）。入站接受 `chatType=group` 且 `mentions` 非空，剥掉 `@_user_N` 占位符；会话按人 + 群隔离。需要额外权限 `im:message.group_at_msg`。
+  - **实测发现的两个 bug**：① `session.creator` 只有 varchar(30)，`feishu:` + 35 字符 open_id 超长，建会话报 `Data too long`——V16 放宽到 64；② `mvn -pl server -am package` 在只改渠道模块时不重打 fat jar，必须 `clean`，否则跑的是旧代码。
 
 ## 安全前提
 

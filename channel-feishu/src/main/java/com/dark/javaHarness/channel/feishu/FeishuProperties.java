@@ -1,5 +1,7 @@
 package com.dark.javaHarness.channel.feishu;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -32,6 +34,9 @@ public class FeishuProperties {
 
     /** 连接与读超时（毫秒）：webhook 挂起时不能把投递线程按住太久 */
     private int timeoutMs = 10_000;
+
+    /** M3b 事件订阅（长连接）配置；与出站 webhook 独立开关 */
+    private Ws ws = new Ws();
 
     public boolean isEnabled() {
         return enabled;
@@ -71,5 +76,105 @@ public class FeishuProperties {
 
     public void setTimeoutMs(int timeoutMs) {
         this.timeoutMs = timeoutMs;
+    }
+
+    public Ws getWs() {
+        return ws;
+    }
+
+    public void setWs(Ws ws) {
+        this.ws = ws;
+    }
+
+    /**
+     * 长连接（事件订阅）配置。
+     *
+     * <p>与 {@code channel.feishu.enabled} 分开：出站 webhook 只用 URL + secret，
+     * 入站事件必须建自建应用拿 App ID / Secret。两者可以只开一个。
+     */
+    public static class Ws {
+
+        /** 入站总开关（false 时不建立任何 WS 连接） */
+        private boolean enabled;
+
+        /** 自建应用 App ID（{@code FEISHU_APP_ID}） */
+        private String appId;
+
+        /** 自建应用 App Secret（{@code FEISHU_APP_SECRET}） */
+        private String appSecret;
+
+        /** 事件加密密钥：控制台开启加密时必填，否则留空 */
+        private String encryptKey;
+
+        /**
+         * open_id 白名单。
+         *
+         * <p>为空时进入「配对模式」：只把收到消息的 open_id 打进日志，不回复、不调模型。
+         * 长连接没有回调端点，验签由 SDK 的 App 凭据握手完成，白名单是第二道闸——
+         * 机器人被拉进陌生群时，不至于对所有人开口。
+         */
+        private List<String> allowedUsers = new ArrayList<>();
+
+        /** 入站队列容量：满了直接丢弃并记日志，不做无界堆积 */
+        private int queueCapacity = 32;
+
+        /** 单条消息的生成上限（秒）；超时放弃回复，但会话记忆仍会落库 */
+        private int chatTimeoutSeconds = 300;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getAppId() {
+            return appId;
+        }
+
+        public void setAppId(String appId) {
+            this.appId = appId;
+        }
+
+        public String getAppSecret() {
+            return appSecret;
+        }
+
+        public void setAppSecret(String appSecret) {
+            this.appSecret = appSecret;
+        }
+
+        public String getEncryptKey() {
+            return encryptKey;
+        }
+
+        public void setEncryptKey(String encryptKey) {
+            this.encryptKey = encryptKey;
+        }
+
+        public List<String> getAllowedUsers() {
+            return allowedUsers;
+        }
+
+        public void setAllowedUsers(List<String> allowedUsers) {
+            this.allowedUsers = allowedUsers == null ? new ArrayList<>() : allowedUsers;
+        }
+
+        public int getQueueCapacity() {
+            return queueCapacity;
+        }
+
+        public void setQueueCapacity(int queueCapacity) {
+            this.queueCapacity = queueCapacity;
+        }
+
+        public int getChatTimeoutSeconds() {
+            return chatTimeoutSeconds;
+        }
+
+        public void setChatTimeoutSeconds(int chatTimeoutSeconds) {
+            this.chatTimeoutSeconds = chatTimeoutSeconds;
+        }
     }
 }
