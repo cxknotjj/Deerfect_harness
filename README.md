@@ -168,7 +168,7 @@ curl -s -X POST http://localhost:8080/api/chat \
 
 ## 技术架构
 
-Maven 多模块，每个模块的职责与目录结构见各自 README：
+Maven 多模块 + 独立前端，每个模块的职责与目录结构见各自 README：
 
 | 模块 | 定位 | 依赖方向 |
 | --- | --- | --- |
@@ -178,6 +178,7 @@ Maven 多模块，每个模块的职责与目录结构见各自 README：
 | [`channel-email`](./channel-email/README.md) | 邮件渠道，只出不进 | compile → `harness-api` |
 | [`channel-feishu`](./channel-feishu/README.md) | 飞书：群 webhook（出）+ 应用长连接（双向） | compile → `harness-api` |
 | [`cli`](./cli/README.md) | 终端客户端，纯 HTTP + SSE | compile → `harness-api` |
+| [`web`](./web/README.md) | Vue 3 前端控制台，独立构建部署（不在 Maven 反应堆内） | 只通过 HTTP 访问 `server` |
 | [`wms-mcp-adapter`](./wms-mcp-adapter/README.md) | WMS 只读 MCP 适配范例，独立进程 | 独立 |
 
 `server` 以 **runtime** scope 装配 `channel-*`，core 编译期看不到任何渠道代码（`maven-enforcer-plugin` 守护）；渠道输出控制走通用 `ReplyPostProcessor` SPI。核心链路：`ChatController` 入口 → `RouteJudge` 在两条执行路径间分流 → **Agentic 路径**（AgentScope ReAct，单 Agent 自主推理-行动，工具经 Spring AI 桥接）或 **Graph 编排路径**（自研并行引擎：Lead → 专家并行 → Aggregator）→ 统一出口。

@@ -301,7 +301,7 @@ The tool ecosystem is extended via MCP: the client supports stdio (local process
 
 ## 📁 Project Structure
 
-A multi-module Maven project. Each module documents its responsibilities and folder layout in its own README:
+A multi-module Maven project plus a standalone frontend. Each module documents its responsibilities and folder layout in its own README:
 
 | Module | Role | Depends on |
 | --- | --- | --- |
@@ -311,6 +311,7 @@ A multi-module Maven project. Each module documents its responsibilities and fol
 | [`channel-email`](./channel-email/README.md) | Email channel, outbound only | compile → `harness-api` |
 | [`channel-feishu`](./channel-feishu/README.md) | Feishu: group webhook (out) + app long connection (bidirectional) | compile → `harness-api` |
 | [`cli`](./cli/README.md) | Terminal client, pure HTTP + SSE | compile → `harness-api` |
+| [`web`](./web/README.md) | Vue 3 console, built and deployed separately (not in the Maven reactor) | HTTP only, talks to `server` |
 | [`wms-mcp-adapter`](./wms-mcp-adapter/README.md) | WMS read-only MCP adapter example, separate process | standalone | `server` wires `channel-*` with **runtime** scope, so core cannot see any channel code at compile time (guarded by `maven-enforcer-plugin`); channel output controls go through the generic `ReplyPostProcessor` SPI. The server follows the classic layered architecture (Controller → Service → Mapper/Entity) with domain models grouped under the `domain` parent package.
 
 > [!TIP]
