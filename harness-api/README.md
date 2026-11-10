@@ -59,6 +59,7 @@ harness-api --compile--> server / channel-* ❌ Maven 反应堆禁止成环
 | Agent 列表 / 目标提交 / 流式执行 | `AgentService` | server | channel-* / cli / web | 稳定 |
 | 渠道事件语义判断 | `SemanticTriggerJudge` | server | channel-* | 稳定 |
 | 会话滚动摘要 | `SessionSummaryPort` | server | core 内部 | 稳定 |
+| 渠道/组件状态 | `HarnessStatusPort` | server | channel-*（/status 类指令） | 稳定 |
 | 主动外发 | `MessageSender` | channel-* | server（outbox） | 稳定 |
 | 渠道健康 | `ChannelHealth` | channel-* | server（watchdog / 监控） | 稳定 |
 | 回复文本后处理 | `ReplyPostProcessor` | channel-* | server（回复链路） | 稳定 |
@@ -79,7 +80,7 @@ harness-api --compile--> server / channel-* ❌ Maven 反应堆禁止成环
 | --- | --- | --- |
 | `contract.api` | 调用型端口 + 语音工件桥 | server 实现，消费者调用 |
 | `contract.spi` | 实现型 SPI | 渠道实现，server 调用 |
-| `contract.model` | 端口载荷（`Goal` / `GoalStatus` / `AgentConfig` / `SessionInfo` / `SessionSnapshotItem` / `SessionMessageEntry`） | 纯数据 |
+| `contract.model` | 端口载荷（`Goal` / `GoalStatus` / `AgentConfig` / `SessionInfo` / `SessionSnapshotItem` / `SessionMessageEntry` / `ComponentStatus`） | 纯数据 |
 | `view` | 跨端 DTO（含 HTTP 传输对象，以及 `Schedule` / `SseProtocol`） | 纯数据 |
 
 **为什么 api 与 spi 分开**：两者唯一的区别是「谁实现」，而这恰恰是调用方最需要一眼看出的信息。

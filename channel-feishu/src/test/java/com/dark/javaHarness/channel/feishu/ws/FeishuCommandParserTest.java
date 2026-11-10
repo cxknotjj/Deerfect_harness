@@ -44,6 +44,11 @@ class FeishuCommandParserTest {
         assertEquals("多 空格", parsed.arg());
     }
 
+    @Test
+    void status_isKnownCommand() {
+        assertEquals("status", FeishuCommandParser.parse("/status").name());
+    }
+
     /** 不认识的斜杠开头消息交回聊天：用户可能只是发了条以 / 开头的普通文本 */
     @Test
     void unknownCommand_isNotACommand() {

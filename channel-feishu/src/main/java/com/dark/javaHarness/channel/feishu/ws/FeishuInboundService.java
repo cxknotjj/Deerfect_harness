@@ -51,6 +51,9 @@ public class FeishuInboundService {
     private final FeishuEventDedup dedup;
     private final FeishuMessageHandler handler;
     private final ThreadPoolExecutor executor;
+
+    /** 最近一次收到事件的时间（毫秒）；0 = 自启动以来没有收到过。只给健康快照读 */
+    private volatile long lastEventAt;
     private final ObjectMapper json = new ObjectMapper();
     private final Set<String> pairingHints = ConcurrentHashMap.newKeySet();
     private final AtomicInteger threadSeq = new AtomicInteger();
@@ -74,6 +77,8 @@ public class FeishuInboundService {
      * SDK 线程调用：无论后面多慢，这里必须在毫秒级返回。
      */
     public void onEvent(P2MessageReceiveV1 event) {
+        // 收到即记账：即使后面判定丢弃，也证明长连接活着——健康快照只看这个时间
+        lastEventAt = System.currentTimeMillis();
         String eventId = null;
         try {
             if (event == null || event.getHeader() == null) {
@@ -300,4 +305,9 @@ public class FeishuInboundService {
     /** 解析结果：正文 + 待下载的资源键 */
     private record Parsed(String text, List<String> imageKeys) {
     }
+    /** 最近一次收到事件的时间（毫秒）；0 = 从未收到 */
+    public long lastEventAtMillis() {
+        return lastEventAt;
+    }
+
 }

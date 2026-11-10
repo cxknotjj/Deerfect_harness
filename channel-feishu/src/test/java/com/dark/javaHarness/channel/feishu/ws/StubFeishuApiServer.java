@@ -28,6 +28,13 @@ final class StubFeishuApiServer implements AutoCloseable {
     private volatile int imageStatus = 200;
     private final List<String> resourceRequests = new CopyOnWriteArrayList<>();
     private final List<String> uploadRequests = new CopyOnWriteArrayList<>();
+    private final List<String> reactionRequests = new CopyOnWriteArrayList<>();
+    private volatile String reactionBody = "{\"code\":0,\"msg\":\"success\",\"data\":{\"reaction_id\":\"re_1\"}}";
+    /** 接下来 N 次发消息强制失败：用来验重试与 401 刷新 */
+    private final java.util.concurrent.atomic.AtomicInteger remainingFailures =
+            new java.util.concurrent.atomic.AtomicInteger();
+    private volatile int failureStatus;
+    private volatile String failureBody = "{}";
     private volatile String uploadBody = "{\"code\":0,\"msg\":\"success\",\"data\":{\"image_key\":\"img_test\"}}";
     private volatile int uploadStatus = 200;
 
@@ -39,6 +46,10 @@ final class StubFeishuApiServer implements AutoCloseable {
         });
         server.createContext("/open-apis/im/v1/messages", exchange -> {
             messageRequests.add(exchange.getRequestURI().getQuery() + "|" + read(exchange.getRequestBody().readAllBytes()));
+            if (remainingFailures.getAndUpdate(n -> n > 0 ? n - 1 : 0) > 0) {
+                respond(exchange, failureStatus, failureBody);
+                return;
+            }
             respond(exchange, messageStatus, messageBody);
         });
         server.createContext("/open-apis/im/v1/images", exchange -> {
@@ -49,7 +60,18 @@ final class StubFeishuApiServer implements AutoCloseable {
         });
         // 更长前缀优先：/messages/{id}/resources/{key} 落到这里，发消息仍走上面那个
         server.createContext("/open-apis/im/v1/messages/", exchange -> {
-            resourceRequests.add(exchange.getRequestURI().getQuery() + "|" + exchange.getRequestURI().getPath());
+            String path = exchange.getRequestURI().getPath();
+            if (path.contains("/reactions")) {
+                reactionRequests.add(exchange.getRequestMethod() + " " + path + "|"
+                        + read(exchange.getRequestBody().readAllBytes()));
+                if ("DELETE".equals(exchange.getRequestMethod())) {
+                    respond(exchange, 200, "{\"code\":0,\"msg\":\"success\"}");
+                } else {
+                    respond(exchange, 200, reactionBody);
+                }
+                return;
+            }
+            resourceRequests.add(exchange.getRequestURI().getQuery() + "|" + path);
             respondBytes(exchange, imageStatus, imageBytes, imageContentType);
         });
         server.start();
@@ -93,6 +115,17 @@ final class StubFeishuApiServer implements AutoCloseable {
 
     List<String> uploadRequests() {
         return uploadRequests;
+    }
+
+    List<String> reactionRequests() {
+        return reactionRequests;
+    }
+
+    /** 接下来 times 次发消息返回指定错误（其余请求正常） */
+    void failNextMessages(int times, int status, String body) {
+        this.failureStatus = status;
+        this.failureBody = body;
+        this.remainingFailures.set(times);
     }
 
     @Override

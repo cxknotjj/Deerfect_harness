@@ -1,5 +1,6 @@
 package com.dark.javaHarness.domain.dto;
 
+import com.dark.javaHarness.contract.model.ComponentStatus;
 import java.util.List;
 
 /**

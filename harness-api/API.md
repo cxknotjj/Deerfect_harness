@@ -100,6 +100,20 @@ boolean shouldRespond(String channel, String conversationKey, String message);
 - `conversationKey`：渠道内会话键，用于限频与上下文（如 `qq:group:gid:uid`）。
 - 返回 `true` 表示值得主动介入；实现异常或无实现时，调用方应按「不响应」处理。
 
+### HarnessStatusPort
+
+只读状态：渠道 / 沙箱 / MCP 当前是否可用。给 IM 渠道的 `/status` 类指令用。
+
+```java
+List<ComponentStatus> components();
+```
+
+`ComponentStatus(name, enabled, available, detail)`：`enabled` 是配置层面是否启用，
+`available` 是当前是否就绪，`detail` 为展示文案（不含密钥与 URL query）。
+
+实现约定：**只读快照，不得触发新的探活或连接**——一条聊天指令不该变成一次对外部系统的探测。
+实现可选，渠道侧用 `ObjectProvider` 注入；缺位时指令应明确说「不可用」而不是编数据。
+
 ### SessionSummaryPort
 
 上下文裁剪时的滚动摘要。一般由 core 的上下文组装调用，渠道无需直接使用。

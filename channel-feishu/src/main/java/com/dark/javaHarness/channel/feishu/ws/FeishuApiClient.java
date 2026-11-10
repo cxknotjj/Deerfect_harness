@@ -104,27 +104,50 @@ public class FeishuApiClient {
         return sendMessage(receiveIdType, receiveId, "image", Map.of("image_key", imageKey));
     }
 
-    /** 发消息公共段：校验接收者 → 换 token → content 二次序列化 → POST */
+    /**
+     * 发消息公共段：校验接收者 → 序列化 content → POST（必要时重试一次）。
+     *
+     * <p>只重试两类可恢复失败：令牌提前失效（401 / 99991661·99991663，清缓存重取）
+     * 与限流、服务端错误（429 / 5xx，等 300ms 再试）。其余失败重试没有意义——
+     * 参数错、无权限、内容超限，再发一次结果一样，只会拖慢报错。
+     */
     private Result sendMessage(String receiveIdType, String receiveId, String msgType, Object content) {
         if (receiveId == null || receiveId.isBlank()) {
             return new Result(false, null, receiveIdType + " 为空");
         }
+        String contentJson;
+        try {
+            // content 是「JSON 字符串」而不是对象：飞书要求二次序列化
+            contentJson = json.writeValueAsString(content);
+        } catch (IOException e) {
+            return new Result(false, null, "回复内容序列化失败：" + e.getMessage());
+        }
+        Attempt attempt = postMessage(receiveIdType, receiveId, msgType, contentJson);
+        if (!attempt.result().sent() && attempt.retryable()) {
+            if (attempt.refreshToken()) {
+                token = null; // 令牌被提前吊销：清缓存，下一次调用会重取
+            }
+            if (!sleepBeforeRetry()) {
+                return attempt.result();
+            }
+            attempt = postMessage(receiveIdType, receiveId, msgType, contentJson);
+        }
+        return attempt.result();
+    }
+
+    private Attempt postMessage(String receiveIdType, String receiveId, String msgType, String contentJson) {
         String accessToken;
         try {
             accessToken = tenantAccessToken();
         } catch (Exception e) {
-            return new Result(false, null, "获取 tenant_access_token 失败：" + e.getMessage());
+            return new Attempt(new Result(false, null, "获取 tenant_access_token 失败：" + e.getMessage()),
+                    false, false);
         }
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("receive_id", receiveId);
         body.put("msg_type", msgType);
-        try {
-            // content 是「JSON 字符串」而不是对象：飞书要求二次序列化
-            body.put("content", json.writeValueAsString(content));
-        } catch (IOException e) {
-            return new Result(false, null, "回复内容序列化失败：" + e.getMessage());
-        }
+        body.put("content", contentJson);
 
         HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl
                         + "/open-apis/im/v1/messages?receive_id_type=" + receiveIdType))
@@ -139,15 +162,40 @@ public class FeishuApiClient {
             int code = node == null ? -1 : node.path("code").asInt(-1);
             if (response.statusCode() / 100 == 2 && code == 0) {
                 String messageId = node.path("data").path("message_id").asText(null);
-                return new Result(true, messageId, null);
+                return new Attempt(new Result(true, messageId, null), false, false);
             }
             String msg = node == null ? response.body() : node.path("msg").asText("");
-            return new Result(false, null, "HTTP " + response.statusCode() + " code=" + code + "：" + abbreviate(msg));
+            int status = response.statusCode();
+            boolean refresh = isTokenProblem(status, code);
+            return new Attempt(
+                    new Result(false, null, "HTTP " + status + " code=" + code + "：" + abbreviate(msg)),
+                    refresh || isTransient(status), refresh);
         } catch (IOException e) {
-            return new Result(false, null, "发送请求失败：" + e);
+            return new Attempt(new Result(false, null, "发送请求失败：" + e), false, false);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return new Result(false, null, "发送被中断");
+            return new Attempt(new Result(false, null, "发送被中断"), false, false);
+        }
+    }
+
+    /** 令牌失效：HTTP 401，或飞书的 token 类错误码（过期/无效） */
+    private static boolean isTokenProblem(int status, int code) {
+        return status == 401 || code == 99991661 || code == 99991663;
+    }
+
+    /** 值得重试的瞬时失败：限流与服务端错误 */
+    private static boolean isTransient(int status) {
+        return status == 429 || status / 100 == 5;
+    }
+
+    /** 重试前的短等待；被中断则放弃重试（线程已准备退出） */
+    private static boolean sleepBeforeRetry() {
+        try {
+            Thread.sleep(300);
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 
@@ -231,16 +279,26 @@ public class FeishuApiClient {
         if (data == null || data.length == 0) {
             return new Upload(false, null, "图片内容为空");
         }
-        String accessToken;
-        try {
-            accessToken = tenantAccessToken();
-        } catch (Exception e) {
-            return new Upload(false, null, "获取 tenant_access_token 失败：" + e.getMessage());
-        }
         String boundary = "----harness" + UUID.randomUUID().toString().replace("-", "");
         String safeName = fileName == null || fileName.isBlank()
                 ? "emoji"
                 : fileName.replace("\"", "").replace("\r", "").replace("\n", "");
+        byte[] body = multipartBody(boundary, safeName, data);
+        UploadAttempt attempt = postUpload(boundary, body);
+        if (!attempt.upload().ok() && attempt.retryable()) {
+            if (attempt.refreshToken()) {
+                token = null;
+            }
+            if (!sleepBeforeRetry()) {
+                return attempt.upload();
+            }
+            attempt = postUpload(boundary, body);
+        }
+        return attempt.upload();
+    }
+
+    /** multipart 请求体：image_type=message + image 文件段；boundary 一次生成，重试时复用 */
+    private static byte[] multipartBody(String boundary, String safeName, byte[] data) {
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         body.writeBytes(("--" + boundary + "\r\n"
                 + "Content-Disposition: form-data; name=\"image_type\"\r\n\r\n"
@@ -250,12 +308,22 @@ public class FeishuApiClient {
                 + "Content-Type: application/octet-stream\r\n\r\n").getBytes(StandardCharsets.UTF_8));
         body.writeBytes(data);
         body.writeBytes(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+        return body.toByteArray();
+    }
 
+    private UploadAttempt postUpload(String boundary, byte[] body) {
+        String accessToken;
+        try {
+            accessToken = tenantAccessToken();
+        } catch (Exception e) {
+            return new UploadAttempt(new Upload(false, null, "获取 tenant_access_token 失败：" + e.getMessage()),
+                    false, false);
+        }
         HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/open-apis/im/v1/images"))
                 .timeout(Duration.ofSeconds(30))
                 .header("Authorization", "Bearer " + accessToken)
                 .header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()))
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
                 .build();
         try {
             HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -263,15 +331,99 @@ public class FeishuApiClient {
             int code = node == null ? -1 : node.path("code").asInt(-1);
             String imageKey = node == null ? null : node.path("data").path("image_key").asText(null);
             if (response.statusCode() / 100 == 2 && code == 0 && imageKey != null && !imageKey.isBlank()) {
-                return new Upload(true, imageKey, null);
+                return new UploadAttempt(new Upload(true, imageKey, null), false, false);
             }
             String msg = node == null ? response.body() : node.path("msg").asText("");
-            return new Upload(false, null, "HTTP " + response.statusCode() + " code=" + code + "：" + abbreviate(msg));
+            int status = response.statusCode();
+            boolean refresh = isTokenProblem(status, code);
+            return new UploadAttempt(
+                    new Upload(false, null, "HTTP " + status + " code=" + code + "：" + abbreviate(msg)),
+                    refresh || isTransient(status), refresh);
         } catch (IOException e) {
-            return new Upload(false, null, "上传请求失败：" + e);
+            return new UploadAttempt(new Upload(false, null, "上传请求失败：" + e), false, false);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return new Upload(false, null, "上传被中断");
+            return new UploadAttempt(new Upload(false, null, "上传被中断"), false, false);
+        }
+    }
+
+    /**
+     * 给消息加一个表情回应（处理回执用）。
+     *
+     * <p>{@code POST /open-apis/im/v1/messages/{message_id}/reactions}；
+     * 需要 {@code im:message.reaction:write} 权限，缺权限返回 403。
+     *
+     * @param emojiType 飞书的 emoji 类型名（如 {@code OnIt}、{@code EYES}）
+     */
+    public Reaction addReaction(String messageId, String emojiType) {
+        if (messageId == null || messageId.isBlank() || emojiType == null || emojiType.isBlank()) {
+            return new Reaction(false, null, "messageId 或 emojiType 为空");
+        }
+        String accessToken;
+        try {
+            accessToken = tenantAccessToken();
+        } catch (Exception e) {
+            return new Reaction(false, null, "获取 tenant_access_token 失败：" + e.getMessage());
+        }
+        Map<String, Object> body = Map.of("reaction_type", Map.of("emoji_type", emojiType));
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl
+                        + "/open-apis/im/v1/messages/" + messageId + "/reactions"))
+                .timeout(Duration.ofSeconds(10))
+                .header("Authorization", "Bearer " + accessToken)
+                .header("Content-Type", "application/json; charset=utf-8")
+                .POST(HttpRequest.BodyPublishers.ofString(toJson(body), StandardCharsets.UTF_8))
+                .build();
+        try {
+            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            JsonNode node = readTree(response.body());
+            int code = node == null ? -1 : node.path("code").asInt(-1);
+            String reactionId = node == null ? null : node.path("data").path("reaction_id").asText(null);
+            if (response.statusCode() / 100 == 2 && code == 0) {
+                return new Reaction(true, reactionId, null);
+            }
+            String msg = node == null ? response.body() : node.path("msg").asText("");
+            return new Reaction(false, null,
+                    "HTTP " + response.statusCode() + " code=" + code + "：" + abbreviate(msg));
+        } catch (IOException e) {
+            return new Reaction(false, null, "添加回应失败：" + e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new Reaction(false, null, "添加回应被中断");
+        }
+    }
+
+    /** 撤销表情回应；失败只返回原因，调用方忽略即可 */
+    public Reaction deleteReaction(String messageId, String reactionId) {
+        if (messageId == null || messageId.isBlank() || reactionId == null || reactionId.isBlank()) {
+            return new Reaction(false, null, "messageId 或 reactionId 为空");
+        }
+        String accessToken;
+        try {
+            accessToken = tenantAccessToken();
+        } catch (Exception e) {
+            return new Reaction(false, null, "获取 tenant_access_token 失败：" + e.getMessage());
+        }
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl
+                        + "/open-apis/im/v1/messages/" + messageId + "/reactions/" + reactionId))
+                .timeout(Duration.ofSeconds(10))
+                .header("Authorization", "Bearer " + accessToken)
+                .DELETE()
+                .build();
+        try {
+            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            JsonNode node = readTree(response.body());
+            int code = node == null ? -1 : node.path("code").asInt(-1);
+            if (response.statusCode() / 100 == 2 && code == 0) {
+                return new Reaction(true, reactionId, null);
+            }
+            String msg = node == null ? response.body() : node.path("msg").asText("");
+            return new Reaction(false, null,
+                    "HTTP " + response.statusCode() + " code=" + code + "：" + abbreviate(msg));
+        } catch (IOException e) {
+            return new Reaction(false, null, "撤销回应失败：" + e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new Reaction(false, null, "撤销回应被中断");
         }
     }
 
@@ -319,6 +471,18 @@ public class FeishuApiClient {
 
     /** 图片下载结果：成功带原始字节与 mimeType，失败带可读原因 */
     public record Download(boolean ok, byte[] data, String mimeType, String reason) {
+    }
+
+    /** 表情回应的结果：成功时带 reaction_id（撤销要用） */
+    public record Reaction(boolean ok, String reactionId, String reason) {
+    }
+
+    /** 单次发消息结果 + 是否值得重试、是否需要清 token */
+    private record Attempt(Result result, boolean retryable, boolean refreshToken) {
+    }
+
+    /** 单次上传结果 + 重试标记 */
+    private record UploadAttempt(Upload upload, boolean retryable, boolean refreshToken) {
     }
 
     /** 图片上传结果：成功带 image_key，失败带可读原因 */

@@ -16,7 +16,7 @@ import java.util.Set;
 final class FeishuCommandParser {
 
     /** 支持的命令名；新增命令时同步 {@code HELP_TEXT} 与 README */
-    static final Set<String> NAMES = Set.of("new", "reset", "help", "history", "agent");
+    static final Set<String> NAMES = Set.of("new", "reset", "help", "history", "agent", "status");
 
     private FeishuCommandParser() {
     }

@@ -5,9 +5,11 @@ import com.dark.javaHarness.channel.feishu.FeishuProperties;
 import com.dark.javaHarness.channel.feishu.persistence.FeishuSessionBinding;
 import com.dark.javaHarness.channel.feishu.persistence.FeishuSessionBindingMapper;
 import com.dark.javaHarness.contract.api.AgentService;
+import com.dark.javaHarness.contract.api.HarnessStatusPort;
 import com.dark.javaHarness.contract.api.ChatService;
 import com.dark.javaHarness.contract.api.SessionService;
 import com.dark.javaHarness.contract.model.ChatAttachment;
+import com.dark.javaHarness.contract.model.ComponentStatus;
 import com.dark.javaHarness.contract.model.SessionInfo;
 import com.dark.javaHarness.view.AgentItemView;
 import com.dark.javaHarness.view.ChatRequest;
@@ -71,6 +73,9 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
 
     private static final String BUSY_NOTICE = "上一条还在处理，稍等片刻再发。";
 
+    /** 聊天池满了：这条根本没进队列，必须让用户知道，否则和「已读不回」没区别 */
+    private static final String POOL_BUSY_NOTICE = "消息有点多，这条没能排上，稍后再发一次。";
+
     /** 指令帮助文案：只列真正支持的，别让模型或用户以为有 /recall */
     private static final String HELP_TEXT = """
             可用指令（仅限管理员）：
@@ -78,7 +83,12 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
             /reset 同 /new
             /history [n] 查看最近 n 条对话（默认 5）
             /agent 查看可用 Agent
-            /agent <名> 切换当前会话使用的 Agent""";
+            /agent <名> 切换当前会话使用的 Agent
+            /status 查看会话与渠道/组件状态""";
+
+    /** /status 最多展示的组件行数与单行详情长度：超出只给省略号，避免刷屏 */
+    private static final int STATUS_MAX_LINES = 8;
+    private static final int STATUS_DETAIL_MAX = 80;
 
     /** /history 默认条数与上限：上限只为避免脚本刷屏把回复撑成几千字 */
     private static final int HISTORY_DEFAULT = 5;
@@ -88,9 +98,14 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
     /** 单张图片上限：飞书本身限 10 MB，这里留余量，避免 base64 后请求体过大 */
     private static final int MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 
+    /** 表情 key 缓存上限：超了就不再写新条目，避免长期运行后无界增长 */
+    private static final int EMOJI_KEY_CACHE_MAX = 256;
+
     private final ChatService chatService;
     private final SessionService sessionService;
     private final AgentService agentService;
+    /** 只读状态端口：可能缺位（未实现时 /status 降级为一句提示） */
+    private final HarnessStatusPort statusPort;
     private final FeishuSessionBindingMapper bindingMapper;
     private final FeishuApiClient api;
     /** 表情包：识别 [emoji:分类] 标记，按分类取图并上传发送 */
@@ -98,25 +113,44 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
     /** 唯一允许使用指令的 open_id（配置优先，留空回退白名单首位；空串 = 指令不可用） */
     private final String commandUser;
     private final int timeoutSeconds;
+    /** 回复正文上限（字符）；<=0 = 不限制 */
+    private final int replyMaxChars;
+    /** 长任务回执：开关、延迟阈值与表情类型 */
+    private final boolean receiptEnabled;
+    private final long receiptDelayMs;
+    private final String receiptEmoji;
     private final ThreadPoolExecutor chatExecutor;
     private final ExecutorService driver;
     private final ConcurrentHashMap<Long, Slot> slots = new ConcurrentHashMap<>();
+    /**
+     * 表情 image_key 缓存（索引名 → image_key）。
+     *
+     * <p>飞书的 image_key 在租户内可复用，不必每发一张就上传一次。键用索引里的表情名
+     * （与文件名一一对应）；换图后需要重启，这与「索引启动时加载」的既有约束一致。
+     */
+    private final ConcurrentHashMap<String, String> emojiKeys = new ConcurrentHashMap<>();
     private final AtomicInteger threadSeq = new AtomicInteger();
 
     public FeishuChatHandler(ChatService chatService,
                              SessionService sessionService,
                              AgentService agentService,
+                             HarnessStatusPort statusPort,
                              FeishuSessionBindingMapper bindingMapper,
                              FeishuApiClient api,
                              FeishuProperties props) {
         this.chatService = chatService;
         this.sessionService = sessionService;
         this.agentService = agentService;
+        this.statusPort = statusPort;
         this.bindingMapper = bindingMapper;
         this.api = api;
         this.emoji = new FeishuEmojiCatalog(props.getWs().getEmoji());
         this.commandUser = resolveCommandUser(props);
         this.timeoutSeconds = Math.max(1, props.getWs().getChatTimeoutSeconds());
+        this.replyMaxChars = props.getWs().getReplyMaxChars();
+        this.receiptEnabled = props.getWs().isReceiptReactionEnabled();
+        this.receiptDelayMs = props.getWs().getReceiptDelayMs();
+        this.receiptEmoji = props.getWs().getReceiptEmoji();
         this.chatExecutor = new ThreadPoolExecutor(2, 2, 60, TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>(8),
                 runnable -> {
@@ -252,6 +286,7 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
             case "help" -> reply(message, HELP_TEXT);
             case "history" -> history(message, command.arg());
             case "agent" -> agent(message, command.arg());
+            case "status" -> status(message);
             // 解析器只放行白名单指令名，走不到这里；留着防御未来加命令忘了加分支
             default -> reply(message, "不认识的指令，发 /help 看看能做什么。");
         }
@@ -270,6 +305,44 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
         reply(message, deleted > 0
                 ? "已开启新对话，之前的记忆不会带过来。"
                 : "当前还没有进行中的对话，直接说就行。");
+    }
+
+    /**
+     * /status：当前会话 + 组件可用性。
+     *
+     * <p>只读快照，不触发探活——一条聊天指令不该变成一次对外部系统的探测。
+     * 状态端口可能缺位（单独部署渠道模块时），此时明确说「不可用」而不是编数据。
+     */
+    private void status(FeishuInboundMessage message) {
+        StringBuilder sb = new StringBuilder();
+        FeishuSessionBinding binding = find(message);
+        if (binding == null) {
+            sb.append("当前没有会话（发一句话就会建）");
+        } else {
+            Long agentId = currentAgentId(binding);
+            String agent = agentId == null
+                    ? "未绑定"
+                    : agentService.findAgentNameById(agentId).orElse("未知");
+            sb.append("会话 ").append(binding.getSessionId()).append(" · Agent ").append(agent);
+        }
+        if (statusPort == null) {
+            reply(message, sb.append("\n状态接口不可用（服务端未提供 HarnessStatusPort）").toString());
+            return;
+        }
+        sb.append("\n组件：");
+        int shown = 0;
+        for (ComponentStatus item : statusPort.components()) {
+            if (shown++ >= STATUS_MAX_LINES) {
+                sb.append("\n…");
+                break;
+            }
+            sb.append('\n').append(item.available() ? "● " : "○ ").append(item.name());
+            if (!item.enabled()) {
+                sb.append("（未启用）");
+            }
+            sb.append("：").append(truncate(item.detail(), STATUS_DETAIL_MAX));
+        }
+        reply(message, sb.toString());
     }
 
     /** /history [n]：只读当前绑定的会话，没有绑定就说明还没聊过 */
@@ -359,6 +432,17 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
         }
     }
 
+    /** 超长截断：整条发不出去比截断更糟，末尾标明已截断避免误会 */
+    private static String capReply(String text, int max) {
+        if (text == null) {
+            return "";
+        }
+        if (max <= 0 || text.length() <= max) {
+            return text;
+        }
+        return text.substring(0, max) + "\n…（已截断）";
+    }
+
     /** 单行截断：历史回显里换行会把一条消息撑成多行，读起来分不清谁说的 */
     private static String truncate(String text, int max) {
         if (text == null) {
@@ -438,33 +522,45 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
     }
 
     private void doTurn(FeishuInboundMessage message, long sessionId) {
-        ChatResponse response = chat(message, sessionId);
-        if (response == null) {
-            return;
-        }
-        if (!"SUCCEEDED".equals(response.status()) || response.reply() == null || response.reply().isBlank()) {
-            log.warn("[feishu] 聊天未产出回复（status={}，messageId={}）", response.status(), message.messageId());
-            return;
-        }
+        // 慢回复才贴「处理中」回执；finally 里撤销，成功/失败/超时都不会留下卡住的表情
+        FeishuReceipt receipt = receiptEnabled
+                ? new FeishuReceipt(driver, api, message.messageId(), receiptEmoji, receiptDelayMs)
+                : null;
+        try {
+            ChatResponse response = chat(message, sessionId);
+            if (response == null) {
+                return;
+            }
+            if (!"SUCCEEDED".equals(response.status()) || response.reply() == null || response.reply().isBlank()) {
+                log.warn("[feishu] 聊天未产出回复（status={}，messageId={}）",
+                        response.status(), message.messageId());
+                return;
+            }
 
-        // 表情标记一律剥离：模型按提示词在末尾追加 [emoji:分类]，露给用户就是乱码。
-        // 即使表情模块关闭也要剥——关掉开关不该让正文变脏。
-        FeishuEmojiCatalog.ParsedReply parsed = FeishuEmojiCatalog.stripMarker(response.reply());
-        if (!parsed.text().isBlank()) {
-            FeishuApiClient.Result result = message.group()
-                    ? api.sendTextToChat(message.chatId(), parsed.text())
-                    : api.sendText(message.openId(), parsed.text());
-            if (result.sent()) {
-                log.info("[feishu] 已回复 {}={} messageId={} 回复字数={}",
-                        message.group() ? "chatId" : "openId", message.replyId(),
-                        result.messageId(), parsed.text().length());
-            } else {
-                log.warn("[feishu] 回复失败 {}={} 原因={}",
-                        message.group() ? "chatId" : "openId", message.replyId(), result.reason());
-                return; // 文本都没发出去，别再追发表情
+            // 表情标记一律剥离：模型按提示词在末尾追加 [emoji:分类]，露给用户就是乱码。
+            // 即使表情模块关闭也要剥——关掉开关不该让正文变脏。
+            FeishuEmojiCatalog.ParsedReply parsed = FeishuEmojiCatalog.stripMarker(response.reply());
+            String text = capReply(parsed.text(), replyMaxChars);
+            if (!text.isBlank()) {
+                FeishuApiClient.Result result = message.group()
+                        ? api.sendTextToChat(message.chatId(), text)
+                        : api.sendText(message.openId(), text);
+                if (result.sent()) {
+                    log.info("[feishu] 已回复 {}={} messageId={} 回复字数={}",
+                            message.group() ? "chatId" : "openId", message.replyId(),
+                            result.messageId(), text.length());
+                } else {
+                    log.warn("[feishu] 回复失败 {}={} 原因={}",
+                            message.group() ? "chatId" : "openId", message.replyId(), result.reason());
+                    return; // 文本都没发出去，别再追发表情
+                }
+            }
+            sendEmoji(message, parsed.category());
+        } finally {
+            if (receipt != null) {
+                receipt.clear();
             }
         }
-        sendEmoji(message, parsed.category());
     }
 
     /**
@@ -482,14 +578,21 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
             if (picked == null) {
                 return;
             }
-            FeishuApiClient.Upload upload = api.uploadImage(picked.name(), picked.bytes());
-            if (!upload.ok()) {
-                log.warn("[feishu] 表情上传失败 category={} 原因={}", category, upload.reason());
-                return;
+            String imageKey = emojiKeys.get(picked.name());
+            if (imageKey == null) {
+                FeishuApiClient.Upload upload = api.uploadImage(picked.name(), picked.bytes());
+                if (!upload.ok()) {
+                    log.warn("[feishu] 表情上传失败 category={} 原因={}", category, upload.reason());
+                    return;
+                }
+                imageKey = upload.imageKey();
+                if (emojiKeys.size() < EMOJI_KEY_CACHE_MAX) {
+                    emojiKeys.put(picked.name(), imageKey);
+                }
             }
             FeishuApiClient.Result result = message.group()
-                    ? api.sendImageToChat(message.chatId(), upload.imageKey())
-                    : api.sendImage(message.openId(), upload.imageKey());
+                    ? api.sendImageToChat(message.chatId(), imageKey)
+                    : api.sendImage(message.openId(), imageKey);
             if (result.sent()) {
                 log.info("[feishu] 已发表情 {}={} category={} messageId={}",
                         message.group() ? "chatId" : "openId", message.replyId(), category,
@@ -510,6 +613,8 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
             future = chatExecutor.submit(() -> chatService.chat(request));
         } catch (RejectedExecutionException e) {
             log.warn("[feishu] 聊天池已满，丢弃本条 messageId={}", message.messageId());
+            // 这条没进队列，必须回一句：否则用户看到的是永久静默
+            reply(message, POOL_BUSY_NOTICE);
             return null;
         }
         try {

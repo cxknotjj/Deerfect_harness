@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -17,7 +18,9 @@ import com.dark.javaHarness.channel.feishu.persistence.FeishuSessionBinding;
 import com.dark.javaHarness.channel.feishu.persistence.FeishuSessionBindingMapper;
 import com.dark.javaHarness.contract.api.AgentService;
 import com.dark.javaHarness.contract.api.ChatService;
+import com.dark.javaHarness.contract.api.HarnessStatusPort;
 import com.dark.javaHarness.contract.api.SessionService;
+import com.dark.javaHarness.contract.model.ComponentStatus;
 import com.dark.javaHarness.contract.model.SessionInfo;
 import com.dark.javaHarness.view.AgentItemView;
 import com.dark.javaHarness.view.ChatRequest;
@@ -26,6 +29,7 @@ import com.dark.javaHarness.view.SessionMessagesView;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
@@ -65,6 +69,9 @@ class FeishuChatHandlerTest {
     @Mock
     private AgentService agentService;
 
+    @Mock
+    private HarnessStatusPort statusPort;
+
     /** 指令授权人：与用例里的普通用户 ou_user 区分开，才能测出「只有一个人能用」 */
     private static final String COMMANDER = "ou_admin";
 
@@ -78,7 +85,7 @@ class FeishuChatHandlerTest {
         FeishuProperties props = new FeishuProperties();
         props.getWs().setAllowedUsers(new ArrayList<>(List.of(COMMANDER)));
         props.getWs().setCommandUser(COMMANDER);
-        handler = new FeishuChatHandler(chatService, sessionService, agentService,
+        handler = new FeishuChatHandler(chatService, sessionService, agentService, statusPort,
                 bindingMapper, api, props);
     }
 
@@ -134,7 +141,7 @@ class FeishuChatHandlerTest {
         FeishuProperties props = new FeishuProperties();
         props.getWs().setChatTimeoutSeconds(1);
         FeishuChatHandler shortTimeout = new FeishuChatHandler(chatService, sessionService, agentService,
-                bindingMapper, api, props);
+                statusPort, bindingMapper, api, props);
         when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
         when(chatService.chat(any(ChatRequest.class))).thenAnswer(invocation -> {
             Thread.sleep(3000);
@@ -399,7 +406,7 @@ class FeishuChatHandlerTest {
                 "{\"happy_01\":\"happy_01.png\"}");
 
         FeishuChatHandler withEmoji = new FeishuChatHandler(chatService, sessionService, agentService,
-                bindingMapper, api, emojiProps());
+                statusPort, bindingMapper, api, emojiProps());
         when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
         when(chatService.chat(any(ChatRequest.class))).thenReturn(reply("好耶！\n[emoji:happy]"));
         when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_r", null));
@@ -423,7 +430,7 @@ class FeishuChatHandlerTest {
                 "{\"happy_01\":\"happy_01.png\"}");
 
         FeishuChatHandler withEmoji = new FeishuChatHandler(chatService, sessionService, agentService,
-                bindingMapper, api, emojiProps());
+                statusPort, bindingMapper, api, emojiProps());
         when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
         when(chatService.chat(any(ChatRequest.class))).thenReturn(reply("好耶！\n[emoji:happy]"));
         when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_r", null));
@@ -435,6 +442,51 @@ class FeishuChatHandlerTest {
 
         verify(api).sendText("ou_user", "好耶！");
         verify(api, never()).sendImage(any(), any());
+        withEmoji.destroy();
+    }
+
+    // ---------- /status 与表情缓存 ----------
+
+    @Test
+    void status_listsSessionAndComponents() throws Exception {
+        when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
+        when(sessionService.getSession("7"))
+                .thenReturn(new SessionInfo(7L, "会话", "feishu:ou_admin", null, 2, null));
+        when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("general"));
+        when(statusPort.components()).thenReturn(List.of(
+                new ComponentStatus("飞书 / 长连接", true, true, "运行中，30 秒前收到过事件"),
+                new ComponentStatus("QQ 渠道", true, false, "不可达（retcode=-1）")));
+        when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_r", null));
+
+        handler.handleAsync(new FeishuInboundMessage(COMMANDER, "oc_chat", "om_s1", "evt-s1", "/status", false))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(api).sendText(eq(COMMANDER), contains("Agent general"));
+        verify(api).sendText(eq(COMMANDER), contains("● 飞书 / 长连接"));
+        verify(api).sendText(eq(COMMANDER), contains("○ QQ 渠道"));
+    }
+
+    @Test
+    void emojiKey_isCachedAcrossReplies() throws Exception {
+        Files.write(tempDir.resolve("happy_01.png"), new byte[] {1, 2, 3});
+        Files.writeString(tempDir.resolve("emoji-index.json"), "{\"happy_01\":\"happy_01.png\"}");
+
+        FeishuChatHandler withEmoji = new FeishuChatHandler(chatService, sessionService, agentService,
+                statusPort, bindingMapper, api, emojiProps());
+        when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
+        when(chatService.chat(any(ChatRequest.class))).thenReturn(reply("好耶！\n[emoji:happy]"));
+        when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_r", null));
+        when(api.uploadImage(any(), any())).thenReturn(new FeishuApiClient.Upload(true, "img_1", null));
+        when(api.sendImage(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_i", null));
+
+        for (int i = 0; i < 2; i++) {
+            withEmoji.handleAsync(new FeishuInboundMessage(
+                            "ou_user", "oc_chat", "om_" + i, "evt-" + i, "你好", false))
+                    .get(5, TimeUnit.SECONDS);
+        }
+
+        verify(api, times(1)).uploadImage(any(), any());
+        verify(api, times(2)).sendImage(any(), any());
         withEmoji.destroy();
     }
 

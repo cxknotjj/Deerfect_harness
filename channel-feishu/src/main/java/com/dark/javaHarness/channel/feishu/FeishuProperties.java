@@ -131,6 +131,18 @@ public class FeishuProperties {
         /** 单条消息的生成上限（秒）；超时放弃回复，但会话记忆仍会落库 */
         private int chatTimeoutSeconds = 300;
 
+        /** 回复正文长度上限（字符）：超长截断，避免整条消息因体积超限发不出去 */
+        private int replyMaxChars = 3000;
+
+        /** 长任务回执：回复超过 receipt-delay-ms 仍未完成时，给原消息贴一个表情回应 */
+        private boolean receiptReactionEnabled = true;
+
+        /** 延迟阈值（毫秒）：低于它的快速回复完全不碰回执接口 */
+        private long receiptDelayMs = 3000;
+
+        /** 回执表情（飞书 emoji 类型名）；"OnIt" 是「在处理」 */
+        private String receiptEmoji = "OnIt";
+
         /** 表情包：与 QQ 共用 emojis/ 数据，配置各自独立（渠道之间不互相依赖） */
         private Emoji emoji = new Emoji();
 
@@ -196,6 +208,38 @@ public class FeishuProperties {
 
         public void setChatTimeoutSeconds(int chatTimeoutSeconds) {
             this.chatTimeoutSeconds = chatTimeoutSeconds;
+        }
+
+        public int getReplyMaxChars() {
+            return replyMaxChars;
+        }
+
+        public void setReplyMaxChars(int replyMaxChars) {
+            this.replyMaxChars = replyMaxChars;
+        }
+
+        public boolean isReceiptReactionEnabled() {
+            return receiptReactionEnabled;
+        }
+
+        public void setReceiptReactionEnabled(boolean receiptReactionEnabled) {
+            this.receiptReactionEnabled = receiptReactionEnabled;
+        }
+
+        public long getReceiptDelayMs() {
+            return receiptDelayMs;
+        }
+
+        public void setReceiptDelayMs(long receiptDelayMs) {
+            this.receiptDelayMs = receiptDelayMs;
+        }
+
+        public String getReceiptEmoji() {
+            return receiptEmoji;
+        }
+
+        public void setReceiptEmoji(String receiptEmoji) {
+            this.receiptEmoji = receiptEmoji;
         }
 
         public Emoji getEmoji() {

@@ -1,4 +1,4 @@
-package com.dark.javaHarness.domain.dto;
+package com.dark.javaHarness.contract.model;
 
 /**
  * 组件状态：监控页展示外部依赖/工具通道是否启用且当前可用。

@@ -75,6 +75,7 @@ channel-feishu/
 | `/history [n]` | 最近 n 条对话，默认 5、上限 20 |
 | `/agent` | 列出可用 Agent，标出当前绑定的那个 |
 | `/agent <名>` | 切换本会话的 Agent（需要已有会话） |
+| `/status` | 当前会话 + 渠道/沙箱/MCP 状态（只读快照，不触发探活） |
 | `/help` | 上面这份清单 |
 
 **为什么只有一个人能用**：指令在群里也生效，而 `/new` 重置的是「这个人 + 这个群」的上下文。
@@ -118,6 +119,19 @@ export FEISHU_WS_COMMAND_USER=ou_xxx
 触发依赖提示词：`PromptAssembler` 的飞书信道规范段会告诉模型这个约定。换 Agent 时，
 如果它的提示词明令「只输出正文」，标记就不会出现——那不是渠道的问题。
 
+## 运行参数
+
+| 配置（`channel.feishu.ws.*`） | 默认 | 说明 |
+| --- | --- | --- |
+| `reply-max-chars` | `3000` | 回复正文上限；超长截断并标注「已截断」，避免整条发不出去 |
+| `receipt-reaction-enabled` | `true` | 回复超过阈值时给原消息贴一个表情回应，答完撤销 |
+| `receipt-delay-ms` | `3000` | 回执延迟；低于它的快速回复完全不碰回执接口 |
+| `receipt-emoji` | `OnIt` | 回执使用的飞书 emoji 类型名 |
+| `chat-timeout-seconds` | `300` | 单条生成上限 |
+
+回执需要 `im:message.reaction:write` 权限；缺权限只在日志里 warn（且只提醒一次），回复不受影响。
+撤销在 `finally` 里做，成功/失败/超时都不会留下一个卡住的表情。
+
 ## 边界
 
 - 支持的消息类型：`text`、`post`（富文本，拼成纯文本）、`image`（作为多模态附件交给模型）。
@@ -126,6 +140,11 @@ export FEISHU_WS_COMMAND_USER=ou_xxx
   回复用 `receive_id_type=chat_id`。机器人自己的消息按 `sender_type` 过滤，避免自回环。
 - 图片需要 `im:resource` 权限下载（`GET /im/v1/messages/{message_id}/resources/{file_key}?type=image`），
   单张上限 8 MB；下载失败只跳过该图，文本照常回复。
+- Web 端删除会话时，`FeishuSessionBindingCleaner` 会清掉对应绑定；缺了它，飞书会一直用已删的
+  sessionId 空转（核心写回有防复活守卫，不报错、也永不自愈）。
+- 长连接在监控页与 watchdog 里是一条独立条目（`feishu-ws`），与 webhook 分开计：
+  两条链路的故障不该互相掩盖。判据只有「运行中 + 最近有事件」，7 天没有事件记 UNKNOWN 而非 DOWN。
+- 发消息遇到 401 / 429 / 5xx 会重试一次（401 先清 token 缓存）；其余失败不重试。
 - 表情标记会随回复一起写进会话快照（与 QQ 相同）：`/history` 里能看到 `[emoji:happy]`，
   下一轮上下文里也有。要清掉得在 core 的 `ReplyPostProcessor` 做，但那个扩展点不带渠道参数，
   会把 QQ 的标记一起剥掉，所以留在渠道侧处理。

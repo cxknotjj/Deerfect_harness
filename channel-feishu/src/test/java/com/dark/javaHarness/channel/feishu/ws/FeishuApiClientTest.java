@@ -177,6 +177,60 @@ class FeishuApiClientTest {
         assertTrue(request.contains("\"content\":\"{\\\"image_key\\\":\\\"img_1\\\"}\""), request);
     }
 
+    // ---------- 重试与令牌刷新 ----------
+
+    @Test
+    void sendText_retriesOnceOn429() {
+        server.failNextMessages(1, 429, "{\"code\":99991400,\"msg\":\"too many request\"}");
+
+        FeishuApiClient.Result result = client.sendText("ou_user", "回复内容");
+
+        assertTrue(result.sent(), result.reason());
+        assertEquals(2, server.messageRequests().size(), "429 应重试一次");
+    }
+
+    @Test
+    void sendText_refreshesTokenOn401() {
+        server.failNextMessages(1, 401, "{\"code\":99991663,\"msg\":\"token invalid\"}");
+
+        FeishuApiClient.Result result = client.sendText("ou_user", "回复内容");
+
+        assertTrue(result.sent(), result.reason());
+        assertEquals(2, server.tokenRequests().size(), "401 必须清掉缓存重取 token，否则会一直失败到过期");
+    }
+
+    @Test
+    void sendText_doesNotRetryOnClientError() {
+        server.failNextMessages(1, 400, "{\"code\":230001,\"msg\":\"invalid param\"}");
+
+        FeishuApiClient.Result result = client.sendText("ou_user", "回复内容");
+
+        assertFalse(result.sent());
+        assertEquals(1, server.messageRequests().size(), "参数错误重试没有意义，只会拖慢报错");
+    }
+
+    // ---------- 处理回执（表情回应） ----------
+
+    @Test
+    void addReaction_postsEmojiType() {
+        FeishuApiClient.Reaction reaction = client.addReaction("om_1", "OnIt");
+
+        assertTrue(reaction.ok(), reaction.reason());
+        assertEquals("re_1", reaction.reactionId());
+        String request = server.reactionRequests().get(0);
+        assertTrue(request.startsWith("POST /open-apis/im/v1/messages/om_1/reactions"), request);
+        assertTrue(request.contains("\"emoji_type\":\"OnIt\""), request);
+    }
+
+    @Test
+    void deleteReaction_usesDeleteMethod() {
+        FeishuApiClient.Reaction reaction = client.deleteReaction("om_1", "re_1");
+
+        assertTrue(reaction.ok(), reaction.reason());
+        assertTrue(server.reactionRequests().get(0)
+                .startsWith("DELETE /open-apis/im/v1/messages/om_1/reactions/re_1"));
+    }
+
     @Test
     void sendImageToChat_usesChatId() {
         client.sendImageToChat("oc_chat", "img_1");
