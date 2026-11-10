@@ -1,23 +1,29 @@
 # channel 模块 TODO
 
 > QQ（NapCat / OneBot 11 纯 HTTP）通道的待办清单。总任务清单见 `docs/HARNESS_TODO.md`，本文件只收 channel 侧事项；完成后打勾并注明验证方式。
-> 2026-11-06 核对：渐进发送相关配置已随「整段单条发送」改造移除；主动推送（P1-2）链路见 `channel/data-flow.md` 第九节。
+> 2026-11-06 核对：渐进发送相关配置已随「整段单条发送」改造移除；主动推送（P1-2）链路见 `data-flow.md` 第九节。
 
 ## 功能缺口
 
-- [x] **指令化 + 社交增强**：已完成（2026-10-13）。群聊「回复机器人消息」也触发（`napcat.group-trigger.reply-to-bot`，默认 false）+ 指令 `/new` `/reset` `/help` `/history [n]` `/agent [名]` `/recall`（`CommandParser` + `OneBotEventServiceImpl.handleCommand`，`/agent` 只读依赖 core `AgentService`，未改 core）+ 群聊回复首条可 `@提问者`（`napcat.reply.at-asker`，默认 false）+ `/recall` 撤回 + 已发消息 id 记录（`SentMessageTracker`，TTL 30min；仅发送成功才记录，失败无 id 可清理，故无独立自动清理开关）。数据流见 `channel/data-flow.md` 第四/五节。注：`group-trigger.reply-to-bot`、`reply.at-asker` 已补录到 `application-qq.yaml`；`recall` 无配置开关
+- [x] **指令化 + 社交增强**：已完成（2026-10-13）。群聊「回复机器人消息」也触发（`napcat.group-trigger.reply-to-bot`，默认 false）+ 指令 `/new` `/reset` `/help` `/history [n]` `/agent [名]` `/recall`（`CommandParser` + `OneBotEventServiceImpl.handleCommand`，`/agent` 只读依赖 core `AgentService`，未改 core）+ 群聊回复首条可 `@提问者`（`napcat.reply.at-asker`，默认 false）+ `/recall` 撤回 + 已发消息 id 记录（`SentMessageTracker`，TTL 30min；仅发送成功才记录，失败无 id 可清理，故无独立自动清理开关）。数据流见 `data-flow.md` 第四/五节。注：`group-trigger.reply-to-bot`、`reply.at-asker` 已补录到 `application-qq.yaml`；`recall` 无配置开关
 - [ ] **群聊群号白名单**：私聊有 `private-allow-users`，群聊无任何准入控制——任何群 @ 均触发 LLM（现靠 @ 触发 + 10s 限频防刷）。建议加 `group-allow-groups`（CSV，空 = 不限制），与私聊白名单语义对齐；恶意拉群场景兜底
 - [ ] **多媒体消息降级提示**：接收侧只提取 message 数组的 text 段（`OneBotEventServiceImpl.joinTextSegments`），图片/语音/表情包等非文本消息**静默忽略**——群友发图 @ 机器人无任何反馈。至少对 @ 触发但提取不到文本的场景回一句「暂不支持图片/语音消息」
 - [ ] **好友/加群请求处理**：notice/request 类事件现全部静默 ACK（`OneBotEventController`），好友申请需在 QQ 手动同意后才能私聊；可评估自动同意 + 白名单联动
 - [ ] **多机器人支持**：`napcat.self-id` 单值，一个 harness 实例只能挂一个 QQ 号；多号需 self-id 集合 + binding 键扩充
-- [x] **段落渐进发送（假渐进）**：多段回答按粒度逐条弹出，像人连发——已完成（2026-09-12；**后续已改为整段单条发送**，`progressive` / `split-chars` / `max-chunks` 等配置已移除，见 `channel/data-flow.md` 第六节）。`napcat.reply.progressive` 开关 + `split-chars` 切分粒度（字，超限按下一层边界继续切：段落 → 换行 → 。！？，标点保留句尾，无字符硬切兜底）+ `inter-chunk-delay-ms` 条间延迟 + `max-chunks` 防刷屏。设计见 `docs/superpowers/specs/2026-09-12-qq-progressive-reply-design.md`（该目录已随 2026-10-30 文档压平移除，现存历史 spec 在 `docs/archive/specs/`）
+- [x] **段落渐进发送（假渐进）**：多段回答按粒度逐条弹出，像人连发——已完成（2026-09-12；**后续已改为整段单条发送**，`progressive` / `split-chars` / `max-chunks` 等配置已移除，见 `data-flow.md` 第六节）。`napcat.reply.progressive` 开关 + `split-chars` 切分粒度（字，超限按下一层边界继续切：段落 → 换行 → 。！？，标点保留句尾，无字符硬切兜底）+ `inter-chunk-delay-ms` 条间延迟 + `max-chunks` 防刷屏。设计见 `docs/superpowers/specs/2026-09-12-qq-progressive-reply-design.md`（该目录已随 2026-10-30 文档压平移除，现存历史 spec 在 `docs/archive/specs/`）
 - [ ] **流式文本缓冲器（真渐进，可选升级）**：当前为假渐进——阻塞拿完整回复后才拆段发送，首段仍要等 LLM 全部生成完。真渐进 = 拦截 streamReactive 的流式 token 入缓冲区，遇边界（。！？\n 等）即成句发送，首句秒回；需把 QQ 通道消费侧切到流式并适配超时/取消/写回语义，成本高收益有限，暂缓
 - [x] **动态拟人延迟**：已完成（2026-09-12）。条间延迟升级为按字数动态计算：`inter-chunk-delay-ms`（基础值）+ 字数 × `delay-factor`（0.1 秒/字）+ ±`jitter-range-ms` 随机扰动，`max-delay-ms` 截断防超长块（无标点长文/合并尾条）算出分钟级停顿；首条不等待，按「即将发送的这条」的字数取值。验证：OneBotEventServiceImplTest 动态延迟 4 用例（900ms 公式断言 / 扰动区间 \[600,1200] / 上限截断 / 关闭渐进零等待）
-- [x] **表情包发送模块（QQ 协议对接）**：已完成（2026-09-12）。映射表在 `channel/emoji-index.json`（表情名 → {path, tags}，Jackson 启动加载，缺失/损坏空映射降级），行为开关 `napcat.emoji.*`（enabled/dir/index-file/max-per-reply/probability/send-delay-ms/cheer-emoji）；匹配规则：tag contains 优先（多命中随机取一）→ 句尾 ~/！/! 兜底 cheer-emoji；sendReply 每条 chunk 发送后挂钩子（表情前 send-delay 停顿走 chunkPause 可中断），image 段 `base64://` 内联图片（跨机部署 file:// 在 NapCat 侧不可达，会 ENOENT），全量失败隔离不影响文本回复；图片放 `channel/emojis/`（自行放置，不进 git）。验证：EmojiRepliesTest 10 用例 + OneBotEventServiceImplTest 集成用例，两测试类 38 例全绿
+- [x] **表情包发送模块（QQ 协议对接）**：已完成（2026-09-12）。映射表在 `emojis/emoji-index.json`（表情名 → 图片文件名，Jackson 启动加载，缺失时自动创建空映射），行为开关 `napcat.emoji.*`（enabled/dir/index-file/max-per-reply/probability/send-delay-ms/cheer-emoji）；匹配规则：tag contains 优先（多命中随机取一）→ 句尾 ~/！/! 兜底 cheer-emoji；sendReply 每条 chunk 发送后挂钩子（表情前 send-delay 停顿走 chunkPause 可中断），image 段 `base64://` 内联图片（跨机部署 file:// 在 NapCat 侧不可达，会 ENOENT），全量失败隔离不影响文本回复；图片放 `emojis/`（自行放置，不进 git）。验证：EmojiRepliesTest 10 用例 + OneBotEventServiceImplTest 集成用例，两测试类 38 例全绿
 
 * **梳理表情包协议格式**：查阅你所用框架（如 NapCat ）的 OneBot v11 文档，明确发送 自定义图片的 API 格式。
 * **建立情绪-表情映射表**：在代码中配置一个字典config，将大模型输出的情绪标签或关键词映射到具体的 QQ图片。
-* 以下是字典的示例emoji\_index = {     "happy\_01": {"path": "./emojis/开心转圈.gif", "tags": \["开心", "激动", "好耶", "太棒了"]},     "sad\_02":   {"path": "./emojis/流泪猫猫头.png", "tags": \["伤心", "委屈", "难过", "呜呜"]},     "wtf\_03":   {"path": "./emojis/地铁老人手机.png", "tags": \["疑惑", "不解", "无语", "离谱"]},     "poke\_04":  {"path": "./emojis/戳一戳.gif", "tags": \["在吗", "理我", "戳", "出来"]} }表情包可以存储在./emojis文件夹下，此文件夹需要在channel文件夹下
+* 映射表是扁平的「表情名 → 图片文件名」，分类取表情名前缀（`happy_01` → `happy`）：
+
+  ```json
+  { "happy_01": "开心转圈.gif", "sad_02": "流泪猫猫头.png" }
+  ```
+
+  图片与映射表都放仓库根的 `emojis/`（不进 git）；映射表首次启动自动创建。
 * **实现表情发送钩子（Hook）**：在分段发送文本的间隙，加入表情发送逻辑。例如，当检测到句子末尾带有“\~”或“！”时，自动追加一个可爱的表情。
 
 - [ ] **进阶拟人化特性（可选优化）**

@@ -12,15 +12,16 @@ QQ 渠道（NapCat / OneBot 11），**双向**：既能被动接消息对话，�
 ```text
 channel-qq/
 ├── pom.xml
+├── README.md                            # 本文件
+├── data-flow.md                         # 入站/出站链路、静默丢弃点、线程模型（改链路时同步）
+├── todo_list.md                         # channel 侧待办；已完成项留档
 └── src/
-    ├── main/java/com/dark/javaHarness/channel/
-    │   ├── data-flow.md                 # 入站/出站链路的设计说明（放在源码树里，改链路时同步）
-    │   └── qq/
-    │       ├── client/    (6)  NapCat HTTP 客户端与装配
-    │       ├── dto/       (4)  OneBot 11 报文模型
-    │       ├── event/     (8)  入站：接收、准入、解析、去重、派发
-    │       ├── persistence/(3) 会话绑定（session ↔ QQ 用户/群）
-    │       └── reply/     (2)  回复侧：限频与表情包
+    ├── main/java/com/dark/javaHarness/channel/qq/
+    │   ├── client/    (6)  NapCat HTTP 客户端与装配
+    │   ├── dto/       (4)  OneBot 11 报文模型
+    │   ├── event/     (8)  入站：接收、准入、解析、去重、派发
+    │   ├── persistence/(3) 会话绑定（session ↔ QQ 用户/群）
+    │   └── reply/     (2)  回复侧：限频与表情包
     └── test/java/com/dark/javaHarness/channel/qq/...
 ```
 

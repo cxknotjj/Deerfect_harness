@@ -150,7 +150,7 @@ QQ 渠道配置（`napcat.*`）位于 **`application-qq.yaml`**（自 `applicati
 2. 解析回复末尾 `[emoji:分类]`（取最后一个；`none`/无标记不发），按分类前缀（如 `happy`）从映射中随机取一张
 3. probability 摇号（1.0 必发）→ `pauseHook.pause(send-delay-ms)`（包内可注入、可被中断）→ 发 image 段（整段回复最多一张）
 
-映射表：`channel/emoji-index.json`（表情名 → 图片文件，表情名前缀即分类；启动加载一次，缺失/损坏空映射降级）；图片放 `channel/emojis/`（不进 git）。
+映射表：`emojis/emoji-index.json`（表情名 → 图片文件，表情名前缀即分类；启动加载一次，缺失时自动创建空映射、损坏按空映射降级）；图片放 `emojis/`（不进 git）。
 
 ## 七、持久化与外部交互
 
@@ -160,7 +160,7 @@ QQ 渠道配置（`napcat.*`）位于 **`application-qq.yaml`**（自 `applicati
 | `/onebot/event` | HTTP POST 入站 | NapCat httpClients 推送；恒 200 ACK（防重发风暴） |
 | `/send_group_msg` `/send_private_msg` `/get_login_info` | HTTP POST 出站 | OkHttp，3s 连接/10s 读超时；IO/5xx 重试 1 次；成功返回 message_id 并记入 `SentMessageTracker`；一切失败只记日志（尽力而为） |
 | `/delete_msg` | HTTP POST 出站 | OneBot 撤回接口（`NapCatApiClient.deleteMsg`）；失败只记日志不抛异常 |
-| `channel/emoji-index.json` | 本地文件 | 表情映射表，启动加载一次（改后需重启） |
+| `emojis/emoji-index.json` | 本地文件（首次启动自动创建） | 表情映射表，启动加载一次（改后需重启） |
 
 ## 八、组件映射
 
