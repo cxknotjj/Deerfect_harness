@@ -106,7 +106,7 @@ IMAGE_TAG=$TAG docker compose -f docker/docker-compose.yml up -d --no-build
 ```
 
 > [!TIP]
-> 目标机仍需 `docker/` 目录（compose + pg-init + config）与两样不进 git 的文件——`mcp-config.json` 和 `emojis/` 下的表情图片（`emojis/emoji-index.json` 随仓库发布，无需补传），拷贝清单见 5️⃣。
+> 目标机仍需 `docker/` 目录（compose + pg-init + config）与两样不进 git 的文件——`mcp-config.json` 和 `emojis/` 下的表情图片（映射表由容器首次启动自动创建，无需补传），拷贝清单见 5️⃣。
 
 **5️⃣ 离线部署：导出镜像到目标 Linux 服务器**
 

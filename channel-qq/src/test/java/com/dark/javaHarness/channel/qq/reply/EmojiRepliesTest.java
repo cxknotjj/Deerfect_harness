@@ -1,8 +1,10 @@
 package com.dark.javaHarness.channel.qq.reply;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dark.javaHarness.channel.qq.client.NapCatProperties;
 import com.dark.javaHarness.channel.qq.dto.MessageSegment;
@@ -102,12 +104,42 @@ class EmojiRepliesTest {
         assertNull(replies.pickByCategory(null));
     }
 
+    /**
+     * 映射表不进 git：缺失时自动补一个空映射，并降级为空（不发送任何表情）。
+     * 空文件的价值是「告诉使用者该往哪填」，所以必须真的落盘。
+     */
     @Test
-    void loadIndex_missingFile_degradesToEmptyWithoutThrow() {
-        props.getEmoji().setIndexFile(tempDir.resolve("absent.json").toString());
+    void loadIndex_missingFile_createsEmptyIndexAndDegrades() throws IOException {
+        Path absent = tempDir.resolve("absent.json");
+        props.getEmoji().setIndexFile(absent.toString());
+
         EmojiReplies replies = new EmojiReplies(props);
+
         assertNull(replies.pickByCategory("happy"));
         assertNull(replies.pickByCategory("sad"));
+        assertTrue(Files.isRegularFile(absent), "缺失时应自动创建空映射文件");
+        assertEquals("{}", Files.readString(absent, StandardCharsets.UTF_8).replaceAll("\\s", ""));
+    }
+
+    /** 父目录也不存在时一并创建：首次部署常见（只配了路径，目录还没建） */
+    @Test
+    void loadIndex_missingParentDir_createsDirectories() {
+        Path nested = tempDir.resolve("a/b/emoji-index.json");
+        props.getEmoji().setIndexFile(nested.toString());
+
+        new EmojiReplies(props);
+
+        assertTrue(Files.isRegularFile(nested), "应连同父目录一起创建");
+    }
+
+    /** 无法创建（只读挂载、路径被文件占用）时仍要正常启动，只降级 */
+    @Test
+    void loadIndex_cannotCreate_doesNotThrow() throws IOException {
+        // 父路径是个普通文件：创建目录必然失败，用来模拟只读/非法路径
+        Files.writeString(tempDir.resolve("blocker"), "not a dir", StandardCharsets.UTF_8);
+        props.getEmoji().setIndexFile(tempDir.resolve("blocker/emoji-index.json").toString());
+
+        assertDoesNotThrow(() -> new EmojiReplies(props));
     }
 
     @Test

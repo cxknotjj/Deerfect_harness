@@ -36,7 +36,7 @@
    ```
 
 2. harness 侧 `application-qq.yaml` 的 `napcat:` 块按注释配置（`enabled` / `api-base-url` / `api-token` / `self-id` 等，全部有默认值）；不接入设 `napcat.enabled: false` 即可
-3. 表情包（可选）：图片放 `emojis/`（不进 git，自行放置），在 `emojis/emoji-index.json` 登记表情名 → 图片文件（表情名前缀即分类，如 `happy_01` → `happy`）
+3. 表情包（可选）：图片放 `emojis/`（不进 git，自行放置）。`emojis/emoji-index.json` 首次启动会自动创建为空映射，往里登记「表情名 → 图片文件」即可（表情名前缀即分类，如 `happy_01` → `happy`），改完重启生效
 4. 语音（可选）：目标 Python 安装 `edge-tts`，并让 `TTS_PYTHON` 指向该解释器（`application-tts.yaml` 默认 `python3.11`）；语音参数在 `app.tts.*`（voice / rate / volume / max-chars / 超时与并发）
 
 > [!NOTE]

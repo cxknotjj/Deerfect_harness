@@ -70,7 +70,6 @@ COPY --from=build /build/server/target/server-*.jar /app/app.jar
 # 后两者可用 volume 挂载覆盖实现免重启换内容
 COPY skills ./skills
 COPY knowledge ./knowledge
-COPY emojis ./emojis
 
 # 源码含大量中文字符串，显式 UTF-8（对齐 pom 的 sourceEncoding 声明）
 ENTRYPOINT ["java", "-Dfile.encoding=UTF-8", "-jar", "/app/app.jar"]
