@@ -22,7 +22,7 @@ import org.junit.jupiter.api.io.TempDir;
  */
 class EmojiRepliesTest {
 
-    /** 测试映射（结构同 channel/emoji-index.json：表情名 → 图片文件） */
+    /** 测试映射（结构同 emojis/emoji-index.json：表情名 → 图片文件） */
     private static final String INDEX_JSON = """
             {
               "happy_01": "开心转圈.gif",

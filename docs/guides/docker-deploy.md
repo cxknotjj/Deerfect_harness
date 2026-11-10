@@ -61,7 +61,7 @@ compose 启动时自动读取 compose 文件同目录的 `docker/.env`（`-f` �
 | mysql | `harness-mysql` | 口令 `MYSQL_ROOT_PASSWORD`（默认 `harness123`）；3306 映射仅供宿主机管理工具，不需要可删 |
 | pgvector | `harness-pgvector` | 口令 `PGVECTOR_PASSWORD`（默认 `postgresql`）；宿主机 5432 被占时删映射（容器间走服务名直连） |
 
-**compose 相对路径规则**：volumes 里的相对路径一律以 **docker-compose.yml 所在目录（`docker/`）为基准**，与在哪个目录执行命令无关（项目根 `-f docker/docker-compose.yml` 跑也一样）。因此 `../knowledge` = 项目根/knowledge（`../` 从 docker/ 上跳一级到项目根），`./config` = `docker/config`、`./pg-init` = `docker/pg-init`；容器内挂载点全部对齐 WORKDIR `/workspace`，与 jar 内相对路径配置（`app.knowledge.dir: knowledge`、`napcat.emoji.dir: channel/emojis`）正好衔接。`docker/.env` 能被自动读取也是同一条规则（compose 固定在自己的目录找 `.env`）。
+**compose 相对路径规则**：volumes 里的相对路径一律以 **docker-compose.yml 所在目录（`docker/`）为基准**，与在哪个目录执行命令无关（项目根 `-f docker/docker-compose.yml` 跑也一样）。因此 `../knowledge` = 项目根/knowledge（`../` 从 docker/ 上跳一级到项目根），`./config` = `docker/config`、`./pg-init` = `docker/pg-init`；容器内挂载点全部对齐 WORKDIR `/workspace`，与 jar 内相对路径配置（`app.knowledge.dir: knowledge`、`napcat.emoji.dir: emojis`）正好衔接。`docker/.env` 能被自动读取也是同一条规则（compose 固定在自己的目录找 `.env`）。
 
 常用环境变量：`DEEPSEEK_API_KEY`；QQ 渠道 `NAPCAT_API_TOKEN` / `NAPCAT_EVENT_SECRET`，不用 QQ 设 `NAPCAT_ENABLED=false`；NapCat 在远端机器时设 `NAPCAT_BASE_URL=http://<host>:3000`（默认经 host-gateway 连宿主 Docker 里的 NapCat）；可选推送渠道 `CHANNEL_EMAIL_ENABLED` + `MAIL_USERNAME` / `MAIL_PASSWORD`、`CHANNEL_FEISHU_ENABLED` + `FEISHU_WEBHOOK_URL` / `FEISHU_WEBHOOK_SECRET`。
 
@@ -74,7 +74,7 @@ curl -X POST http://localhost:8080/api/knowledge/sync   # 需真实 QWEN_API_KEY
 > [!NOTE]
 > - 全新 MySQL 由 Flyway 建表 + 种子 agent（当前基线 V13，见 [project-structure.md](../project-structure.md)）；**仅压平前旧库**的数据搬迁（自调的 agent 行、聊天历史）用：`mysqldump -uroot harness --no-create-info --skip-triggers --ignore-table=harness.flyway_schema_history > seed.sql`，再 `docker exec -i harness-mysql mysql -uroot -p<口令> harness < seed.sql`
 > - 上述 `mysqldump` 只导数据、不含 schema 与 `flyway_schema_history`，适用于 2026-10-30 压平前的旧库；当前新库直接由 Flyway V1–V11 建表升级，不要手工导入 schema
-> - 知识库/技能/表情/MCP 配置已**默认外挂**（compose volumes：`../knowledge`、`../skills`、`../channel`、`../mcp-config.json`），改宿主机文件免重打镜像：`knowledge/` 改完调 sync 增量摄取（mtime 对比，免重启）；表情映射表改后 `restart app`、新增图片即时生效；`mcp-config.json` 改后 `up -d --force-recreate app`；批量调参写 `docker/config/application.yaml`（只写要改的键，改后 `restart app`，用法见该文件头注释）
+> - 知识库/技能/表情/MCP 配置已**默认外挂**（compose volumes：`../knowledge`、`../skills`、`../emojis`、`../mcp-config.json`），改宿主机文件免重打镜像：`knowledge/` 改完调 sync 增量摄取（mtime 对比，免重启）；表情映射表改后 `restart app`、新增图片即时生效；`mcp-config.json` 改后 `up -d --force-recreate app`；批量调参写 `docker/config/application.yaml`（只写要改的键，改后 `restart app`，用法见该文件头注释）
 
 **镜像版本与回滚（版本策略）**
 
@@ -106,7 +106,7 @@ IMAGE_TAG=$TAG docker compose -f docker/docker-compose.yml up -d --no-build
 ```
 
 > [!TIP]
-> 目标机仍需 `docker/` 目录（compose + pg-init + config）与两样不进 git 的文件——`mcp-config.json` 和 `channel/emojis/` 表情图片，拷贝清单见 5️⃣。
+> 目标机仍需 `docker/` 目录（compose + pg-init + config）与两样不进 git 的文件——`mcp-config.json` 和 `emojis/` 下的表情图片（`emojis/emoji-index.json` 随仓库发布，无需补传），拷贝清单见 5️⃣。
 
 **5️⃣ 离线部署：导出镜像到目标 Linux 服务器**
 
@@ -133,7 +133,7 @@ IMAGE_TAG=$TAG docker compose -f docker/docker-compose.yml up -d --no-build
 > - **回滚依赖镜像包**：目标机保留上一版 tar 或本地镜像，回滚时 load 旧包并 `IMAGE_TAG=<旧tag>` 重启即可（`latest` 不参与回滚判断）
 > - **目标机必须同时拷贝 `docker/docker-compose.yml` 和 `docker/pg-init/`**——compose 把 `pg-init/` 挂载进 pgvector 容器，首次建库时预装 vector 扩展，缺了它知识库起不来；`Dockerfile`/`Dockerfile.dockerignore` 仅重建镜像时需要（整个 `docker/` 目录才几 KB，直接全拷也行）
 > - mysql/pgvector 基础镜像仍在目标机现拉：国内服务器先配 `/etc/docker/daemon.json` 的 `registry-mirrors` 并重启 docker，或同样 save/load 带过去
-> - compose 默认挂载的项目相对路径（`../knowledge`、`../skills`、`../channel`）目标机项目里天然就有（git 跟踪）；但两样**不进 git** 的需补传：`mcp-config.json`（不传则 up 时 Docker 自动创建同名空目录占位，MCP 读取异常——需删掉目录放真文件）与 `channel/emojis/` 表情图片（不传则表情功能静默失效）
+> - compose 默认挂载的项目相对路径（`../knowledge`、`../skills`、`../emojis`）目标机项目里天然就有（git 跟踪）；但两样**不进 git** 的需补传：`mcp-config.json`（不传则 up 时 Docker 自动创建同名空目录占位，MCP 读取异常——需删掉目录放真文件）与 `emojis/` 下的表情图片（不传则表情功能静默失效，只会在日志里刷「表情文件缺失」）
 > - 架构需一致：Docker Desktop（WSL2）产物为 `linux/amd64`，x86_64 服务器通用；ARM 服务器用不了此镜像包，需在目标机重新构建
 
 

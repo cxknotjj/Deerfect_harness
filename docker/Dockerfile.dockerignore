@@ -22,7 +22,9 @@ docs
 
 # 不进 git 的本地配置（含 API key，禁止烘进镜像；需要时 compose 挂载）
 mcp-config.json
-channel/emojis/
+# 表情包图片由用户提供，不进镜像；映射表保留作为默认
+emojis/*
+!emojis/emoji-index.json
 
 # 前端依赖与构建产物（镜像不需要，node_modules 约百 MB）
 node_modules
