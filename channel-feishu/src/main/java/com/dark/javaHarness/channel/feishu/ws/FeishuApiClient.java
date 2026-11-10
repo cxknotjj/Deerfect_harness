@@ -198,6 +198,52 @@ public class FeishuApiClient {
      * @param messageId 飞书消息 ID（成功时）
      * @param reason    失败原因（含飞书 code，便于对照文档）
      */
+    /**
+     * 下载消息里的图片资源。
+     *
+     * <p>接口 {@code GET /open-apis/im/v1/messages/{message_id}/resources/{file_key}?type=image}，
+     * 需要 {@code im:resource} 权限；缺权限时飞书返回 403 + JSON 错误体，这里折成可读原因。
+     *
+     * @return 成功时 data 为原始字节、mimeType 取自响应头；失败时 reason 可读
+     */
+    public Download downloadImage(String messageId, String fileKey) {
+        if (messageId == null || messageId.isBlank() || fileKey == null || fileKey.isBlank()) {
+            return new Download(false, null, null, "messageId 或 fileKey 为空");
+        }
+        String accessToken;
+        try {
+            accessToken = tenantAccessToken();
+        } catch (Exception e) {
+            return new Download(false, null, null, "获取 tenant_access_token 失败：" + e.getMessage());
+        }
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl
+                        + "/open-apis/im/v1/messages/" + messageId + "/resources/" + fileKey + "?type=image"))
+                .timeout(Duration.ofSeconds(20))
+                .header("Authorization", "Bearer " + accessToken)
+                .GET()
+                .build();
+        try {
+            HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            byte[] body = response.body();
+            if (response.statusCode() / 100 == 2 && body != null && body.length > 0) {
+                String mimeType = response.headers().firstValue("Content-Type")
+                        .orElse("image/png").split(";")[0].trim();
+                return new Download(true, body, mimeType, null);
+            }
+            String detail = body == null ? "" : new String(body, StandardCharsets.UTF_8);
+            return new Download(false, null, null, "HTTP " + response.statusCode() + "：" + abbreviate(detail));
+        } catch (IOException e) {
+            return new Download(false, null, null, "下载请求失败：" + e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new Download(false, null, null, "下载被中断");
+        }
+    }
+
+    /** 图片下载结果：成功带原始字节与 mimeType，失败带可读原因 */
+    public record Download(boolean ok, byte[] data, String mimeType, String reason) {
+    }
+
     public record Result(boolean sent, String messageId, String reason) {
     }
 }

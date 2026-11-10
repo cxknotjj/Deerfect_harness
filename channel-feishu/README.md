@@ -64,7 +64,13 @@ channel-feishu/
 
 ## 边界
 
-- M3b 只接受 `text` 消息类型，图片/文件/富文本会被忽略并记 debug。
-- 群聊必须 @ 机器人（依赖飞书只推送 @ 消息的语义），回复用 `receive_id_type=chat_id`。
+- 支持的消息类型：`text`、`post`（富文本，拼成纯文本）、`image`（作为多模态附件交给模型）。
+  `file` / `audio` / `sticker` 仍记 debug 丢弃。
+- 群聊接收**所有**用户消息（需 `im:message.group_msg`，敏感权限），不要求 @ 机器人；
+  回复用 `receive_id_type=chat_id`。机器人自己的消息按 `sender_type` 过滤，避免自回环。
+- 图片需要 `im:resource` 权限下载（`GET /im/v1/messages/{message_id}/resources/{file_key}?type=image`），
+  单张上限 8 MB；下载失败只跳过该图，文本照常回复。
+- 图片只对 Agentic 路径生效：多 Agent 编排（`MultiAgentGraphAgent`）走 `Agent.execute` 的默认实现，
+  附件会被丢弃。图片也不进会话快照，下一轮看不到上一轮的图。
 - 长连接没有回调端点，因此没有验签三关：安全边界是「App 凭据握手 + 可选 encrypt-key +
   `allowed-users` 白名单」。白名单为空时进入**配对模式**：只打印 open_id，不回复。

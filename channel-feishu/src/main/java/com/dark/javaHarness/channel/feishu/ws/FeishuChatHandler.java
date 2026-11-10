@@ -6,9 +6,12 @@ import com.dark.javaHarness.channel.feishu.persistence.FeishuSessionBinding;
 import com.dark.javaHarness.channel.feishu.persistence.FeishuSessionBindingMapper;
 import com.dark.javaHarness.contract.api.ChatService;
 import com.dark.javaHarness.contract.api.SessionService;
+import com.dark.javaHarness.contract.model.ChatAttachment;
 import com.dark.javaHarness.view.ChatRequest;
 import com.dark.javaHarness.view.ChatResponse;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -63,6 +66,9 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
     private static final long BUSY_NOTICE_INTERVAL_MS = 30_000L;
 
     private static final String BUSY_NOTICE = "上一条还在处理，稍等片刻再发。";
+
+    /** 单张图片上限：飞书本身限 10 MB，这里留余量，避免 base64 后请求体过大 */
+    private static final int MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 
     private final ChatService chatService;
     private final SessionService sessionService;
@@ -229,7 +235,8 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
     }
 
     private ChatResponse chat(FeishuInboundMessage message, long sessionId) {
-        ChatRequest request = new ChatRequest(message.text(), String.valueOf(sessionId), null, null, "feishu");
+        ChatRequest request = new ChatRequest(message.text(), String.valueOf(sessionId), null, null,
+                "feishu", downloadAttachments(message));
         Future<ChatResponse> future;
         try {
             future = chatExecutor.submit(() -> chatService.chat(request));
@@ -251,6 +258,32 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
             Thread.currentThread().interrupt();
             return null;
         }
+    }
+
+    /**
+     * 把消息里的资源下载成附件。下载失败/超限只跳过这一张，文本仍照常回复——
+     * 图片是增强项，不该拖垮整条消息。
+     */
+    private List<ChatAttachment> downloadAttachments(FeishuInboundMessage message) {
+        if (message.attachments().isEmpty()) {
+            return List.of();
+        }
+        List<ChatAttachment> attachments = new ArrayList<>(message.attachments().size());
+        for (FeishuAttachment attachment : message.attachments()) {
+            FeishuApiClient.Download download = api.downloadImage(message.messageId(), attachment.fileKey());
+            if (!download.ok()) {
+                log.warn("[feishu] 图片下载失败 messageId={} key={} 原因={}",
+                        message.messageId(), attachment.fileKey(), download.reason());
+                continue;
+            }
+            if (download.data().length > MAX_ATTACHMENT_BYTES) {
+                log.warn("[feishu] 图片超过 {} MB，跳过 messageId={} 实际={} 字节",
+                        MAX_ATTACHMENT_BYTES / 1024 / 1024, message.messageId(), download.data().length);
+                continue;
+            }
+            attachments.add(new ChatAttachment(download.mimeType(), download.data()));
+        }
+        return attachments;
     }
 
     private void submitTurn(Runnable task) {

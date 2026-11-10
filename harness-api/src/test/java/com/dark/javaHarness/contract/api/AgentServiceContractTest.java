@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dark.javaHarness.contract.model.AgentConfig;
+import com.dark.javaHarness.contract.model.ChatAttachment;
 import com.dark.javaHarness.contract.model.Goal;
 import com.dark.javaHarness.contract.model.GoalStatus;
 import com.dark.javaHarness.view.AgentItemView;
@@ -142,6 +143,12 @@ class AgentServiceContractTest {
         @Override
         public Goal executeSync(String agentName, String objective, String sessionId, String turnId,
                                 String traceId, String channel) {
+            return executeSync(agentName, objective, sessionId, turnId, traceId, channel, List.of());
+        }
+
+        @Override
+        public Goal executeSync(String agentName, String objective, String sessionId, String turnId,
+                                String traceId, String channel, List<ChatAttachment> attachments) {
             Goal goal = new Goal("g-sync", objective, sessionId, turnId, traceId, channel);
             goal.markRunning();
             goal.succeed("done");

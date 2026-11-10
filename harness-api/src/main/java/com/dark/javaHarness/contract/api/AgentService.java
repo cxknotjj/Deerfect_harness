@@ -1,7 +1,9 @@
 package com.dark.javaHarness.contract.api;
 
 import com.dark.javaHarness.contract.model.AgentConfig;
+import com.dark.javaHarness.contract.model.ChatAttachment;
 import com.dark.javaHarness.contract.model.Goal;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import reactor.core.publisher.Flux;
@@ -43,6 +45,15 @@ public interface AgentService {
     /** 同步执行并显式指定来源渠道（qq/cli/web/api；空 = 不注入信道规范段）。 */
     Goal executeSync(String agentName, String objective, String sessionId, String turnId,
                      String traceId, String channel);
+
+    /**
+     * 同步执行并携带附件（当前只支持图片）。
+     *
+     * <p>附件只对支持视觉的 Agent 生效：{@code Agent.execute(Goal, List)} 的默认实现会忽略它，
+     * 多 Agent 编排路径即属于此列——图片在那里会静默丢失，调用方需要知道这一点。
+     */
+    Goal executeSync(String agentName, String objective, String sessionId, String turnId,
+                     String traceId, String channel, List<ChatAttachment> attachments);
 
     /**
      * 创建一个目标并响应式流式执行：返回一个逐 token 产出的 {@link Flux}。

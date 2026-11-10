@@ -1,11 +1,13 @@
 package com.dark.javaHarness.channel.feishu.ws;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -102,5 +104,40 @@ class FeishuApiClientTest {
 
         assertFalse(result.sent());
         assertTrue(server.messageRequests().isEmpty());
+    }
+
+    @Test
+    void downloadImage_returnsBytesAndContentType() {
+        byte[] data = {1, 2, 3, 4};
+        server.respondImage(200, data, "image/png");
+
+        FeishuApiClient.Download download = client.downloadImage("om_1", "img_key_1");
+
+        assertTrue(download.ok());
+        assertArrayEquals(data, download.data());
+        assertEquals("image/png", download.mimeType(), "mimeType 取自响应头");
+        assertTrue(server.resourceRequests().get(0).contains("type=image"),
+                "资源接口必须带 type=image：" + server.resourceRequests().get(0));
+    }
+
+    @Test
+    void downloadImage_httpError_surfacesStatusAndBody() {
+        server.respondImage(403,
+                "{\"code\":99991672,\"msg\":\"no permission\"}".getBytes(StandardCharsets.UTF_8),
+                "application/json");
+
+        FeishuApiClient.Download download = client.downloadImage("om_1", "img_key_1");
+
+        assertFalse(download.ok());
+        assertTrue(download.reason().contains("403"), download.reason());
+        assertTrue(download.reason().contains("no permission"), download.reason());
+    }
+
+    @Test
+    void downloadImage_blankKey_isRejectedWithoutRequest() {
+        FeishuApiClient.Download download = client.downloadImage("om_1", " ");
+
+        assertFalse(download.ok());
+        assertTrue(server.resourceRequests().isEmpty());
     }
 }

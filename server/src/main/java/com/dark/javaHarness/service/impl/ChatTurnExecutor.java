@@ -67,7 +67,7 @@ class ChatTurnExecutor {
         String resolvedAgent = routing.agent();
 
         Goal goal = agentService.executeSync(resolvedAgent, request.message(), ctx.sid(), turnId,
-                null, request.channel());
+                null, request.channel(), request.attachments());
         // COMPLEX 编排失败降级（同步路径无客户端断开，FAILED 即编排自身失败）：
         // 降级为会话 Agent 单模型重答一次，与流式 withComplexFallback 同语义，一层兜底不递归
         if (complexFallbackEnabled && GoalStatus.FAILED == goal.status()
@@ -104,7 +104,7 @@ class ChatTurnExecutor {
                 RoutePlan.Source.FALLBACK).toInfo();
         // 降级重答仍属同一轮同一执行链：turnId 沿用本轮值，traceId 复用编排 Goal 的（轨迹同树）
         Goal retry = agentService.executeSync(fallbackAgent, request.message(), ctx.sid(), turnId,
-                orchestration.traceId(), request.channel());
+                orchestration.traceId(), request.channel(), request.attachments());
         ReplyDecorator.Processed pr = decorator.apply(retry.summary());
         persistence.writeBackSucceededTurn(ctx.sid(), request.message(), retry, pr.text(), userSentAt);
         if (retry.status() == GoalStatus.FAILED) {

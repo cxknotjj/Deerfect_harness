@@ -8,6 +8,7 @@ import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.contract.model.AgentConfig;
+import com.dark.javaHarness.contract.model.ChatAttachment;
 import com.dark.javaHarness.contract.model.Goal;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.observability.LlmCallObserver;
@@ -30,8 +31,12 @@ import io.agentscope.core.event.ModelCallEndEvent;
 import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.event.ThinkingBlockDeltaEvent;
 import io.agentscope.core.message.AssistantMessage;
+import io.agentscope.core.message.Base64Source;
+import io.agentscope.core.message.ContentBlock;
 import io.agentscope.core.message.GenerateReason;
+import io.agentscope.core.message.ImageBlock;
 import io.agentscope.core.message.Msg;
+import io.agentscope.core.message.TextBlock;
 import io.agentscope.core.message.UserMessage;
 import io.agentscope.core.model.ChatUsage;
 import io.agentscope.core.model.ExecutionConfig;
@@ -40,6 +45,7 @@ import io.agentscope.core.model.Model;
 import io.agentscope.core.tool.Toolkit;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -143,6 +149,24 @@ public class AgentScopeGeneralAgent implements Agent {
         return content == null ? "" : content;
     }
 
+    /**
+     * 带图片的执行：图片作为多模态内容块直接交给模型，而不是转成一句「用户发了张图」。
+     *
+     * <p>只处理图片（`image/*`）：其他类型当前没有来源，出现了也按忽略处理，避免把
+     * 未知字节塞进模型请求。
+     */
+    @Override
+    public String execute(Goal goal, List<ChatAttachment> attachments) {
+        if (attachments == null || attachments.isEmpty()) {
+            return execute(goal);
+        }
+        String content = executeStreamReactive(goal, attachments)
+                .filter(line -> !ProgressLine.isProgress(line))
+                .collect(Collectors.joining())
+                .block();
+        return content == null ? "" : content;
+    }
+
     @Override
     public void executeStream(Goal goal, Consumer<String> onToken) {
         if (onToken == null) {
@@ -157,12 +181,18 @@ public class AgentScopeGeneralAgent implements Agent {
 
     @Override
     public Flux<String> executeStreamReactive(Goal goal) {
+        return executeStreamReactive(goal, List.of());
+    }
+
+    /** 流式执行（带附件）：与无附件版本共用 streamInternal，只是消息多几个内容块 */
+    private Flux<String> executeStreamReactive(Goal goal, List<ChatAttachment> attachments) {
         return Flux.defer(() -> {
             try {
-                return streamInternal(goal);
+                return streamInternal(goal, attachments);
             } catch (Exception e) {
                 if (agentic.isFallbackEnabled() && fallback != null) {
-                    log.warn("[agentic-{}] AgentScope 初始化失败，回退 ChatClient 路径：{}", agentName, safe(e), e);
+                    log.warn("[agentic-{}] AgentScope 初始化失败，回退 ChatClient 路径（附件不随回退传递）：{}",
+                            agentName, safe(e), e);
                     return fallback.executeStreamReactive(goal);
                 }
                 return Flux.error(e);
@@ -171,6 +201,10 @@ public class AgentScopeGeneralAgent implements Agent {
     }
 
     private Flux<String> streamInternal(Goal goal) {
+        return streamInternal(goal, List.of());
+    }
+
+    private Flux<String> streamInternal(Goal goal, List<ChatAttachment> attachments) {
         String sessionId = goal.sessionId();
         AgentConfig config = agentService.getAgentConfig(agentName)
                 .orElse(new AgentConfig(null, null, null, null));
@@ -199,7 +233,7 @@ public class AgentScopeGeneralAgent implements Agent {
         Model model = modelFactory.build(config);
         ReActAgent agent = buildAgent(model, system.text(), toolkit, config);
         List<Msg> messages = toAgentScopeMessages(trimmed);
-        messages.add(new UserMessage(goal.objective()));
+        messages.add(userMessage(goal.objective(), attachments));
         // 上下文构成快照（Path B）：不经 advisor，直接取裁剪后的历史 + 当前 user + system/工具口径
         if (compositionRecorder != null && sessionId != null && !sessionId.isBlank()) {
             List<Message> finalMessages = new ArrayList<>(trimmed);
@@ -363,6 +397,32 @@ public class AgentScopeGeneralAgent implements Agent {
         } catch (Exception e) {
             log.warn("[agentic-{}] 收尾失败（不影响主链路）：{}", agentName, safe(e));
         }
+    }
+
+    /**
+     * 构造本轮用户消息：无附件是纯文本；有图片则拼成「一个文本块 + 若干图片块」，
+     * 图片以 base64 内联交给支持视觉的模型。
+     *
+     * <p>非图片附件跳过：当前没有来源，把未知字节塞进请求只会让模型侧报错。
+     *
+     * <p>包内可见：单测直接验证内容块构造，不必把整个 Agent 跑起来。
+     */
+    static UserMessage userMessage(String text, List<ChatAttachment> attachments) {
+        if (attachments == null || attachments.isEmpty()) {
+            return new UserMessage(text);
+        }
+        List<ContentBlock> blocks = new ArrayList<>(attachments.size() + 1);
+        blocks.add(TextBlock.builder().text(text).build());
+        for (ChatAttachment attachment : attachments) {
+            if (attachment.mimeType() == null || !attachment.mimeType().startsWith("image/")) {
+                continue;
+            }
+            String base64 = Base64.getEncoder().encodeToString(attachment.data());
+            blocks.add(ImageBlock.builder()
+                    .source(new Base64Source(attachment.mimeType(), base64))
+                    .build());
+        }
+        return new UserMessage(blocks);
     }
 
     private static List<Msg> toAgentScopeMessages(

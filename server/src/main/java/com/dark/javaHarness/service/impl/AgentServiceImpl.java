@@ -4,6 +4,7 @@ import com.dark.javaHarness.agent.Agent;
 import com.dark.javaHarness.agent.AgentRegistry;
 import com.dark.javaHarness.agent.ProgressLine;
 import com.dark.javaHarness.contract.model.AgentConfig;
+import com.dark.javaHarness.contract.model.ChatAttachment;
 import com.dark.javaHarness.contract.model.Goal;
 import com.dark.javaHarness.enums.AgentConstants;
 import com.dark.javaHarness.contract.model.GoalStatus;
@@ -11,6 +12,7 @@ import com.dark.javaHarness.service.AgentConfigProvider;
 import com.dark.javaHarness.contract.api.AgentService;
 import com.dark.javaHarness.service.GoalService;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -112,10 +114,17 @@ public class AgentServiceImpl implements AgentService {
     @Override
     public Goal executeSync(String agentName, String objective, String sessionId, String turnId,
                             String traceId, String channel) {
+        return executeSync(agentName, objective, sessionId, turnId, traceId, channel, List.of());
+    }
+
+    /** 同步执行（带附件）：附件只在本次执行内有效，不写进 Goal */
+    @Override
+    public Goal executeSync(String agentName, String objective, String sessionId, String turnId,
+                            String traceId, String channel, List<ChatAttachment> attachments) {
         Agent agent = requireAgent(agentName);
         Goal goal = goalService.create(objective, sessionId, turnId, reuseOrNewTrace(traceId), channel,
                 agentName);
-        run(goal, agent);
+        run(goal, agent, attachments);
         return goal;
     }
 
@@ -248,10 +257,18 @@ public class AgentServiceImpl implements AgentService {
 
     /** 同步执行目标并更新其生命周期状态（RUNNING -> SUCCEEDED/FAILED） */
     private void run(Goal goal, Agent agent) {
+        run(goal, agent, List.of());
+    }
+
+    /** 同步执行目标（可带附件）：附件只影响本轮模型输入，不参与 Goal 的持久化 */
+    private void run(Goal goal, Agent agent, List<ChatAttachment> attachments) {
         goal.markRunning();
         goalService.update(goal);
         try {
-            String summary = agent.execute(goal);
+            // 无附件走原路径：绝大多数轮次是纯文本，不必让所有 Agent 实现都经过带附件的方法
+            String summary = attachments == null || attachments.isEmpty()
+                    ? agent.execute(goal)
+                    : agent.execute(goal, attachments);
             goal.succeed(summary);
             goalService.update(goal);
             log.info("[{}] goal '{}' SUCCEEDED -> {}", goal.id(), goal.objective(), summary);

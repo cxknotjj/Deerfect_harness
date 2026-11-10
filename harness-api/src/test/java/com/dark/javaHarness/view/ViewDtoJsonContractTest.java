@@ -39,7 +39,7 @@ class ViewDtoJsonContractTest {
 
     @Test
     void chatRequest_jsonKeys() throws Exception {
-        assertEquals(Set.of("message", "sessionId", "agentId", "routing", "channel"),
+        assertEquals(Set.of("message", "sessionId", "agentId", "routing", "channel", "attachments"),
                 keysOf(new ChatRequest("hi", "s1", 2L, "graph", "cli")));
     }
 

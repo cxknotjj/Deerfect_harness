@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
@@ -20,6 +21,7 @@ import com.dark.javaHarness.agent.ProgressLine;
 import com.dark.javaHarness.agent.RagPrefetcher;
 import com.dark.javaHarness.config.StreamConnectionLimiter;
 import com.dark.javaHarness.contract.model.AgentConfig;
+import com.dark.javaHarness.contract.model.ChatAttachment;
 import com.dark.javaHarness.contract.model.Goal;
 import com.dark.javaHarness.domain.RoutePlan;
 import com.dark.javaHarness.view.ChatRequest;
@@ -126,7 +128,7 @@ class ChatServiceImplTest {
     void chat_withoutSessionId_shouldCreateNewSession() {
         ChatRequest req = new ChatRequest("你好", null, null);
         when(sessionService.createSession("anonymous", "你好")).thenReturn("42");
-        when(agentService.executeSync(anyString(), anyString(), anyString(), any(), any(), any()))
+        when(agentService.executeSync(anyString(), anyString(), anyString(), any(), any(), any(), any()))
                 .thenReturn(succeededGoal("42", "你好，我是AI"));
 
         ChatResponse resp = chatService.chat(req);
@@ -139,7 +141,7 @@ class ChatServiceImplTest {
     @Test
     void chat_withSessionId_shouldReuseSession() {
         ChatRequest req = new ChatRequest("继续说", "42", null);
-        when(agentService.executeSync(anyString(), anyString(), anyString(), any(), any(), any()))
+        when(agentService.executeSync(anyString(), anyString(), anyString(), any(), any(), any(), any()))
                 .thenReturn(succeededGoal("42", "好的，继续说"));
 
         ChatResponse resp = chatService.chat(req);
@@ -151,7 +153,7 @@ class ChatServiceImplTest {
     @Test
     void chat_syncSuccess_shouldWriteBackContext() {
         ChatRequest req = new ChatRequest("帮我写首诗", "7", null);
-        when(agentService.executeSync(anyString(), anyString(), anyString(), any(), any(), any()))
+        when(agentService.executeSync(anyString(), anyString(), anyString(), any(), any(), any(), any()))
                 .thenReturn(succeededGoal("7", "风急天高猿啸哀"));
 
         chatService.chat(req);
@@ -169,7 +171,7 @@ class ChatServiceImplTest {
         ChatRequest req = new ChatRequest("hi", "1", null);
         Goal failed = new Goal("goal-2", "hi", "1");
         failed.fail("invalid_api_key");
-        when(agentService.executeSync(anyString(), anyString(), anyString(), any(), any(), any())).thenReturn(failed);
+        when(agentService.executeSync(anyString(), anyString(), anyString(), any(), any(), any(), any())).thenReturn(failed);
 
         ChatResponse resp = chatService.chat(req);
 
@@ -182,7 +184,7 @@ class ChatServiceImplTest {
     void chat_replyPostProcessor_cleansTextAndExposesFlags() {
         ChatRequest req = new ChatRequest("你好", "50", null);
         when(routeJudge.plan(eq("你好"), any(), any())).thenReturn(agenticPlan());
-        when(agentService.executeSync(anyString(), eq("你好"), eq("50"), any(), any(), any()))
+        when(agentService.executeSync(anyString(), eq("你好"), eq("50"), any(), any(), any(), any()))
                 .thenReturn(succeededGoal("50", "RAW-[[x]]你好"));
         ReplyPostProcessor processor = raw ->
                 new ReplyPostProcessor.Processed(raw.replace("[[x]]", ""), Set.of("stub"));
@@ -206,8 +208,8 @@ class ChatServiceImplTest {
         orchestration.fail("子任务 LLM 调用超时");
         Goal retry = new Goal("g-retry", "调研竞品", "50");
         retry.succeed("RAW-[[x]]重答结果");
-        when(agentService.executeSync(eq("multi-agent"), eq("调研竞品"), eq("50"), any(), any(), any())).thenReturn(orchestration);
-        when(agentService.executeSync(eq("general"), eq("调研竞品"), eq("50"), any(), any(), any())).thenReturn(retry);
+        when(agentService.executeSync(eq("multi-agent"), eq("调研竞品"), eq("50"), any(), any(), any(), any())).thenReturn(orchestration);
+        when(agentService.executeSync(eq("general"), eq("调研竞品"), eq("50"), any(), any(), any(), any())).thenReturn(retry);
         ReplyPostProcessor processor = raw ->
                 new ReplyPostProcessor.Processed(raw.replace("[[x]]", ""), Set.of("stub"));
         when(replyPostProcessors.orderedStream()).thenReturn(java.util.stream.Stream.of(processor));
@@ -225,7 +227,7 @@ class ChatServiceImplTest {
     @Test
     void chat_withoutReplyPostProcessor_keepsRawTextAndEmptyFlags() {
         ChatRequest req = new ChatRequest("继续说", "42", null);
-        when(agentService.executeSync(anyString(), anyString(), anyString(), any(), any(), any()))
+        when(agentService.executeSync(anyString(), anyString(), anyString(), any(), any(), any(), any()))
                 .thenReturn(succeededGoal("42", "RAW-[[x]]你好"));
 
         ChatResponse resp = chatService.chat(req);
@@ -238,7 +240,7 @@ class ChatServiceImplTest {
     @Test
     void chat_withVoiceArtifact_addsVoiceFlag() {
         ChatRequest req = new ChatRequest("用语音说", "50", null);
-        when(agentService.executeSync(anyString(), anyString(), anyString(), any(), any(), any()))
+        when(agentService.executeSync(anyString(), anyString(), anyString(), any(), any(), any(), any()))
                 .thenReturn(succeededGoal("50", "好的"));
         when(voiceArtifacts.findByTurn(anyString())).thenReturn(Optional.of(
                 new VoiceArtifactStore.VoiceArtifact("abc", "turn", "好的", new byte[]{1}, "mp3", 0L)));
@@ -254,7 +256,7 @@ class ChatServiceImplTest {
         ChatRequest req = new ChatRequest("用语音说", "50", null);
         Goal failed = new Goal("goal-voice", "用语音说", "50");
         failed.fail("boom");
-        when(agentService.executeSync(anyString(), anyString(), anyString(), any(), any(), any())).thenReturn(failed);
+        when(agentService.executeSync(anyString(), anyString(), anyString(), any(), any(), any(), any())).thenReturn(failed);
 
         ChatResponse resp = chatService.chat(req);
 
@@ -290,7 +292,7 @@ class ChatServiceImplTest {
     void chat_replyPostProcessorThrows_shouldPropagate() {
         ChatRequest req = new ChatRequest("你好", "50", null);
         when(routeJudge.plan(eq("你好"), any(), any())).thenReturn(agenticPlan());
-        when(agentService.executeSync(anyString(), eq("你好"), eq("50"), any(), any(), any()))
+        when(agentService.executeSync(anyString(), eq("你好"), eq("50"), any(), any(), any(), any()))
                 .thenReturn(succeededGoal("50", "回答"));
         when(replyPostProcessors.orderedStream()).thenReturn(java.util.stream.Stream.of(raw -> {
             throw new IllegalStateException("processor boom");
@@ -307,7 +309,7 @@ class ChatServiceImplTest {
         when(sessionService.getSession("50")).thenThrow(new IllegalStateException("db down"));
 
         assertThrows(IllegalStateException.class, () -> chatService.chat(req));
-        verify(agentService, never()).executeSync(anyString(), anyString(), anyString(), any(), any(), any());
+        verify(agentService, never()).executeSync(anyString(), anyString(), anyString(), any(), any(), any(), any());
     }
 
     @Test
@@ -412,7 +414,7 @@ class ChatServiceImplTest {
     void chat_shouldInvokeMainAgentRouteJudge() {
         ChatRequest req = new ChatRequest("你好", null, null);
         when(sessionService.createSession("anonymous", "你好")).thenReturn("1");
-        when(agentService.executeSync(anyString(), anyString(), anyString(), any(), any(), any()))
+        when(agentService.executeSync(anyString(), anyString(), anyString(), any(), any(), any(), any()))
                 .thenReturn(succeededGoal("1", "你好，我是AI"));
         when(routeJudge.plan(eq("你好"), any(), any())).thenReturn(agenticPlan());
 
@@ -428,7 +430,7 @@ class ChatServiceImplTest {
         SessionInfo session = sessionInfo(2);
         when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("writer"));
-        when(agentService.executeSync(eq("writer"), eq("hi"), eq("50"), any(), any(), any()))
+        when(agentService.executeSync(eq("writer"), eq("hi"), eq("50"), any(), any(), any(), any()))
                 .thenReturn(succeededGoal("50", "writer 的回答"));
 
         ChatResponse resp = chatService.chat(req);
@@ -436,7 +438,23 @@ class ChatServiceImplTest {
         assertEquals("SUCCEEDED", resp.status());
         verify(sessionService).switchAgent("50", 2L);
         verify(routeJudge, never()).plan(any(), any(), any());
-        verify(agentService).executeSync(eq("writer"), eq("hi"), eq("50"), any(), any(), any());
+        verify(agentService).executeSync(eq("writer"), eq("hi"), eq("50"), any(), any(), any(), any());
+    }
+
+    /** 附件必须原样传到 AgentService——这层断了不会报错，模型只会当纯文本回答 */
+    @Test
+    void chat_withAttachments_passesThemDownToAgent() {
+        ChatAttachment image = new ChatAttachment("image/png", new byte[]{1, 2, 3});
+        ChatRequest req = new ChatRequest("这是什么", "50", 2L, null, "feishu", List.of(image));
+        when(sessionService.getSession("50")).thenReturn(sessionInfo(2));
+        when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("writer"));
+        when(agentService.executeSync(eq("writer"), eq("这是什么"), eq("50"), any(), any(), any(), any()))
+                .thenReturn(succeededGoal("50", "一张图"));
+
+        chatService.chat(req);
+
+        verify(agentService).executeSync(eq("writer"), eq("这是什么"), eq("50"), any(), any(), any(),
+                argThat(list -> list.size() == 1 && "image/png".equals(list.get(0).mimeType())));
     }
 
     @Test
@@ -447,14 +465,14 @@ class ChatServiceImplTest {
         doThrow(new IllegalArgumentException("agent 不存在: 99"))
                 .when(sessionService).switchAgent("50", 99L);
         when(routeJudge.plan(eq("hi"), any(), any())).thenReturn(agenticPlan());
-        when(agentService.executeSync(eq("general"), eq("hi"), eq("50"), any(), any(), any()))
+        when(agentService.executeSync(eq("general"), eq("hi"), eq("50"), any(), any(), any(), any()))
                 .thenReturn(succeededGoal("50", "general 的回答"));
 
         ChatResponse resp = chatService.chat(req);
 
         assertEquals("SUCCEEDED", resp.status(), "会话同步失败不得影响本次聊天");
         verify(routeJudge).plan(eq("hi"), any(), any());
-        verify(agentService).executeSync(eq("general"), eq("hi"), eq("50"), any(), any(), any());
+        verify(agentService).executeSync(eq("general"), eq("hi"), eq("50"), any(), any(), any(), any());
     }
 
     @Test
@@ -464,7 +482,7 @@ class ChatServiceImplTest {
         SessionInfo session = sessionInfo(2);
         when(sessionService.getSession("50")).thenReturn(session);
         when(agentService.findAgentNameById(2L)).thenReturn(Optional.of("writer"));
-        when(agentService.executeSync(eq("writer"), eq("调研竞品"), eq("50"), any(), any(), any()))
+        when(agentService.executeSync(eq("writer"), eq("调研竞品"), eq("50"), any(), any(), any(), any()))
                 .thenReturn(succeededGoal("50", "writer 的回答"));
 
         ChatResponse resp = chatService.chat(req);
@@ -472,7 +490,7 @@ class ChatServiceImplTest {
         assertEquals("SUCCEEDED", resp.status());
         verify(sessionService).switchAgent("50", 2L);
         verify(routeJudge, never()).plan(any(), any(), any());
-        verify(agentService, never()).executeSync(eq("multi-agent"), any(), any(), any(), any(), any());
+        verify(agentService, never()).executeSync(eq("multi-agent"), any(), any(), any(), any(), any(), any());
     }
 
     /* ---------------- COMPLEX 编排失败降级重答（同步 + 流式） ---------------- */
@@ -503,8 +521,8 @@ class ChatServiceImplTest {
         orchestration.fail("子任务 LLM 调用超时");
         Goal retry = new Goal("g-retry", "调研竞品", "50");
         retry.succeed("重答结果");
-        when(agentService.executeSync(eq("multi-agent"), eq("调研竞品"), eq("50"), any(), any(), any())).thenReturn(orchestration);
-        when(agentService.executeSync(eq("general"), eq("调研竞品"), eq("50"), any(), any(), any())).thenReturn(retry);
+        when(agentService.executeSync(eq("multi-agent"), eq("调研竞品"), eq("50"), any(), any(), any(), any())).thenReturn(orchestration);
+        when(agentService.executeSync(eq("general"), eq("调研竞品"), eq("50"), any(), any(), any(), any())).thenReturn(retry);
 
         ChatResponse resp = chatService.chat(req);
 
@@ -513,7 +531,7 @@ class ChatServiceImplTest {
         assertEquals("g-retry", resp.goalId(), "goalId 应为重答的 goal");
         assertEquals("general", resp.agent(), "降级重答应透出实际使用的会话 Agent");
         // 会话未绑定 Agent → sessionAgentName 回退默认 general
-        verify(agentService).executeSync(eq("general"), eq("调研竞品"), eq("50"), any(), any(), any());
+        verify(agentService).executeSync(eq("general"), eq("调研竞品"), eq("50"), any(), any(), any(), any());
     }
 
     /** 同步路径：重答也失败 → FAILED 响应，错误信息保留「编排失败 + 重答失败」两段 */
@@ -525,8 +543,8 @@ class ChatServiceImplTest {
         orchestration.fail("子任务 LLM 调用超时");
         Goal retry = new Goal("g-retry", "调研竞品", "50");
         retry.fail("重答同样超时");
-        when(agentService.executeSync(eq("multi-agent"), eq("调研竞品"), eq("50"), any(), any(), any())).thenReturn(orchestration);
-        when(agentService.executeSync(eq("general"), eq("调研竞品"), eq("50"), any(), any(), any())).thenReturn(retry);
+        when(agentService.executeSync(eq("multi-agent"), eq("调研竞品"), eq("50"), any(), any(), any(), any())).thenReturn(orchestration);
+        when(agentService.executeSync(eq("general"), eq("调研竞品"), eq("50"), any(), any(), any(), any())).thenReturn(retry);
 
         ChatResponse resp = chatService.chat(req);
 
@@ -823,7 +841,7 @@ class ChatServiceImplTest {
         when(agentService.getAgentConfig("general")).thenReturn(Optional.of(
                 new AgentConfig(1L, "gpt", null, "kb1")));
         when(routeJudge.plan(eq("什么是知识库"), any(), any())).thenReturn(agenticPlan());
-        when(agentService.executeSync(eq("general"), eq("什么是知识库"), eq("42"), any(), any(), any()))
+        when(agentService.executeSync(eq("general"), eq("什么是知识库"), eq("42"), any(), any(), any(), any()))
                 .thenReturn(succeededGoal("42", "回答"));
 
         ChatResponse resp = chatService.chat(new ChatRequest("什么是知识库", "42", null));
@@ -860,7 +878,7 @@ class ChatServiceImplTest {
         when(agentService.findAgentNameById(1L)).thenReturn(Optional.of("general"));
         when(agentService.getAgentConfig("general")).thenReturn(Optional.of(
                 new AgentConfig(1L, "gpt", null, "kb1")));
-        when(agentService.executeSync(eq("general"), eq("hi"), eq("42"), any(), any(), any()))
+        when(agentService.executeSync(eq("general"), eq("hi"), eq("42"), any(), any(), any(), any()))
                 .thenReturn(succeededGoal("42", "回答"));
         doThrow(new RuntimeException("boom")).when(knowledgeRetriever)
                 .prefetch(eq("general"), anyString(), eq("hi"), eq(List.of("kb1")), eq(KnowledgeRetriever.SOURCE_ENTRY_PREFETCH));

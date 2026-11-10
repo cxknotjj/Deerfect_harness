@@ -37,6 +37,8 @@ class PortSignatureGuardTest {
                         "executeSync(String,String,String,String):Goal",
                         "executeSync(String,String,String,String,String):Goal",
                         "executeSync(String,String,String,String,String,String):Goal",
+                        // 带附件（图片）的执行入口，2026-11-10
+                        "executeSync(String,String,String,String,String,String,List):Goal",
                         "executeStreamReactive(String,String,String,String):Flux",
                         "executeStreamReactive(String,String,String,String,String):Flux",
                         "executeStreamReactive(String,String,String,String,String,String):Flux",

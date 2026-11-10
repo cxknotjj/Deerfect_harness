@@ -3,7 +3,7 @@
 - 范围：`channel-feishu` 的 `ws` 包；契约侧 `harness-api`（`ChatRequest` / `ChatAttachment`）；
   执行侧 `server` 的 `AgentService` 与 `AgentScopeGeneralAgent`
 - 创建：2026-11-10
-- 状态：共 11 项，已完成 0 项
+- 状态：共 11 项，已完成 10 项（T2 需真机验证）
 - 前置：飞书后台权限
   - `im:message.group_msg`（获取群组中所有消息，**敏感权限需审核**）—— 用户已确认开通
   - `im:resource`（下载消息中的图片/文件资源）—— **待确认**，图片链路依赖它
@@ -14,11 +14,11 @@
 
 | 分类 | 已完成 | 待办 | 小计 |
 | --- | --- | --- | --- |
-| 群聊接入 | 0 | 3 | 3 |
-| 消息解析 | 0 | 2 | 2 |
-| 图片多模态 | 0 | 4 | 4 |
-| 测试与文档 | 0 | 2 | 2 |
-| 合计 | 0 | 11 | 11 |
+| 群聊接入 | 3 | 0 | 3 |
+| 消息解析 | 2 | 0 | 2 |
+| 图片多模态 | 4 | 0 | 4 |
+| 测试与文档 | 1 | 1 | 2 |
+| 合计 | 10 | 1 | 11 |
 
 ## 背景
 
@@ -45,20 +45,20 @@ if (!"text".equals(message.getMessageType())) { ... return; }
 
 ### 群聊接入
 
-- [ ] G1 去掉 `mentions` 门禁
+- [x] G1 去掉 `mentions` 门禁
   - 作用：群内普通消息（不 @ 机器人）也能触发回复
   - 位置：`channel-feishu/.../ws/FeishuInboundService.java` 第 90~95 行
   - 做法：删除 group + mentions 空即 return 的分支；`stripMentions` 保留（@ 过的消息仍要剥占位符）
   - 验收：群里发一句不 @ 的话，机器人回复；日志出现 `收到群聊消息` 而不是 `群里没人 @ 机器人，忽略`
 
-- [ ] G2 过滤机器人自身与其他 bot 的消息
+- [x] G2 过滤机器人自身与其他 bot 的消息
   - 作用：防止自回环——开 `group_msg` 后若事件包含 bot 消息，会形成无限对话
   - 位置：同上，取 `data.getSender().getSenderType()`
   - 做法：`senderType` 不是 `user` 直接丢（`app`/`bot` 都算）；日志按 debug，避免正常运行时刷屏
   - 验收：机器人回复后不再触发第二轮；两个机器人在同群不会互刷
   - 备注：飞书文档称群消息事件不含机器人消息，这里是有意保留的一道闸，不是兜底逻辑
 
-- [ ] G3 权限与文案同步
+- [x] G3 权限与文案同步
   - 作用：代码放开了但后台没开权限，表现是「没人 @ 就永远没反应」，极易误判为 bug
   - 位置：`channel-feishu/README.md`、`docs/guides/qq-channel.md` 无需改、`docs/dev.md`
   - 做法：README 把「群聊必须 @ 机器人」改成「群内所有消息都会回复（需 `im:message.group_msg`，敏感权限）」；
@@ -67,7 +67,7 @@ if (!"text".equals(message.getMessageType())) { ... return; }
 
 ### 消息解析
 
-- [ ] P1 富文本 `post` 解析为纯文本
+- [x] P1 富文本 `post` 解析为纯文本
   - 作用：飞书长消息/粘贴内容常以 post 发送，当前整条被丢弃
   - 位置：`FeishuInboundService`，新增 `postText(JsonNode)`；`onEvent` 按 `messageType` 分派
   - 做法：`content` 结构为 `{"title":"...","content":[[{"tag":"text","text":"..."},...]]}`；
@@ -75,7 +75,7 @@ if (!"text".equals(message.getMessageType())) { ... return; }
     `title` 非空时置于首行。解析失败按原文兜底
   - 验收：一条「标题 + 两段文字 + 一张图」的富文本，模型能读到完整文字并看到图
 
-- [ ] P2 图片消息识别与附件提取
+- [x] P2 图片消息识别与附件提取
   - 作用：`image` 类型当前直接丢弃，用户发图问「这是什么」没有任何反馈
   - 位置：同上；`FeishuInboundMessage` 增加附件字段
   - 做法：`image` 类型取 `content.image_key`；post 里的 `img` 元素同样收集；
@@ -84,7 +84,7 @@ if (!"text".equals(message.getMessageType())) { ... return; }
 
 ### 图片多模态
 
-- [ ] V1 契约：`ChatAttachment` 与 `ChatRequest.attachments`
+- [x] V1 契约：`ChatAttachment` 与 `ChatRequest.attachments`
   - 作用：让"一条消息带图"成为端口能力，而不是渠道内部的私货
   - 位置：`harness-api` 新增 `contract/model/ChatAttachment.java`；`view/ChatRequest.java` 加组件
   - 做法：`record ChatAttachment(String mimeType, byte[] data)`，构造时校验非空；
@@ -92,7 +92,7 @@ if (!"text".equals(message.getMessageType())) { ... return; }
     紧凑构造器把 null 归一为空列表
   - 验收：`PortSignatureGuardTest` 更新快照后通过；不带附件的调用零改动
 
-- [ ] V2 执行链：把附件送到 Agent
+- [x] V2 执行链：把附件送到 Agent
   - 作用：`ChatService` 到 Agent 之间只有 `String objective`，附件没有通道
   - 位置：`contract/api/AgentService.java`、`server/.../AgentServiceImpl.java`、`agent/Agent.java`、
     `service/impl/ChatTurnExecutor.java`
@@ -101,7 +101,7 @@ if (!"text".equals(message.getMessageType())) { ... return; }
     `ChatTurnExecutor` 传 `request.attachments()`
   - 验收：单测用假 Agent 断言附件原样到达；无附件时走原路径，行为不变
 
-- [ ] V3 AgentScope 侧构造多模态消息
+- [x] V3 AgentScope 侧构造多模态消息
   - 作用：让模型真的"看见"图，而不是收到一句「用户发了图片」
   - 位置：`server/.../agent/AgentScopeGeneralAgent.java` 约 202 行
   - 做法：有附件时用 `new UserMessage(ContentBlock...)`：`TextBlock` 放正文，
@@ -110,7 +110,7 @@ if (!"text".equals(message.getMessageType())) { ... return; }
   - 已知限制：**Graph 编排路径不支持**（`MultiAgentGraphAgent` 走 default 实现，附件被忽略）。
     多 Agent 场景下图片会丢，需在文档标注
 
-- [ ] V4 飞书下载图片资源
+- [x] V4 飞书下载图片资源
   - 作用：事件里只有 `image_key`，字节要单独取
   - 位置：`channel-feishu/.../ws/FeishuApiClient.java`
   - 做法：`GET /open-apis/im/v1/messages/{message_id}/resources/{file_key}?type=image`，
@@ -121,7 +121,7 @@ if (!"text".equals(message.getMessageType())) { ... return; }
 
 ### 测试与文档
 
-- [ ] T1 入站解析用例
+- [x] T1 入站解析用例
   - 作用：三类消息的分派逻辑最容易回归
   - 位置：`channel-feishu/src/test/.../FeishuInboundServiceTest.java`
   - 做法：补「群聊不 @ 也入队」「sender_type=app 丢弃」「post 解析出文字 + 图片」「image 提取 image_key + 占位文本」
@@ -146,3 +146,22 @@ if (!"text".equals(message.getMessageType())) { ... return; }
 - **文件 / 语音 / 表情包消息**：`file`、`audio`、`sticker` 仍记 debug 丢弃。
   文件要先下载再按类型解析（PDF/Excel 等），语音要 ASR，属于独立议题。
 - **图片回传**：让模型/Agent 生成图片再发回飞书，与本清单方向相反，另开。
+
+## 落地记录（2026-11-10）
+
+- **G1/G2**：`FeishuInboundService.onEvent` 去掉 mentions 门禁，改按 `sender_type` 过滤非用户消息。
+- **P1/P2**：新增 `parse()` 按 `messageType` 分派——`text` 原样、`post` 拼标题+段落并把 `img`
+  收集成资源键、`image` 取 `image_key` 并以「[图片]」占位。`FeishuAttachment(fileKey)` 随
+  `FeishuInboundMessage.attachments` 传递。
+- **V1**：`contract.model.ChatAttachment(mimeType, byte[])`；`ChatRequest` 增加 `attachments`，
+  保留 5 参重载，55 处既有调用未改。
+- **V2**：`AgentService.executeSync(..., List<ChatAttachment>)`；`Agent.execute(Goal, List)` 默认
+  实现忽略附件；`AgentServiceImpl` 仅在附件非空时走新方法（纯文本轮次行为不变）。
+- **V3**：`AgentScopeGeneralAgent.userMessage()` 把图片转 `ImageBlock(Base64Source)`，
+  非图片附件跳过；`AgentScopeUserMessageTest` 4 条覆盖纯文本 / 单图 / 多图 / 非图片。
+- **V4**：`FeishuApiClient.downloadImage()` 调 `resources` 接口，mimeType 取自响应头，
+  超 8 MB 丢弃；下载失败只跳过该图。
+- **T1**：`FeishuInboundServiceTest` 扩到 11 条，覆盖群聊不 @、bot 消息丢弃、post 解析、图片附件、文件类型丢弃。
+
+**待 T2**：真机验证——群里发普通消息（不 @）、发图、发富文本各一条，确认都能回复且图片内容被正确描述。
+需要后台确认 `im:resource` 权限已开通，否则图片下载会 403。

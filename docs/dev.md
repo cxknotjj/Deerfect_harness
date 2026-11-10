@@ -350,3 +350,20 @@ export CHANNEL_FEISHU_WS_ALLOWED_USERS=ou_xxx   # 多个用逗号分隔
 
 测试用 `CountDownLatch` 把第一条卡在模型调用里，再断言第二条在 300ms 观察窗口内**没有**启动。
 这个用例做过变异验证：把入口改成「无条件发射」，用例确实失败——否则它只是看起来在测并发。
+
+### 飞书入站：群聊全量接收与图片多模态
+
+群聊要「每条都回」，靠的是后台开 `im:message.group_msg`（**敏感权限**，需审核）。只有这个权限
+才会把群里的普通消息推给应用；`im:message.group_at_msg` 只推 @ 机器人的。
+
+两条容易踩的：
+
+- **自回环**：开了 group_msg 后，事件里若带上机器人自己的消息，会自己回自己。入站按
+  `sender_type` 过滤（非 `user` 一律丢）。飞书文档说不推 bot 消息，但这是权限配置正确时的前提，
+  闸门不能省。
+- **图片要三层才到模型**：飞书 `image_key` → 下载字节（`im:resource`）→ `ChatAttachment` →
+  AgentScope `ImageBlock`。任何一层没接上，模型只收到一段文字，**不报错**。所以验证必须看
+  模型能不能说出图里的内容，而不是看有没有异常日志。
+
+已知限制：多 Agent 编排路径（`MultiAgentGraphAgent`）走 `Agent.execute` 的默认实现，附件被丢弃；
+图片也不进会话快照（`saveContextBatch` 只存文本），下一轮看不到上一轮的图。

@@ -1,6 +1,8 @@
 package com.dark.javaHarness.agent;
 
+import com.dark.javaHarness.contract.model.ChatAttachment;
 import com.dark.javaHarness.contract.model.Goal;
+import java.util.List;
 import java.util.function.Consumer;
 import reactor.core.publisher.Flux;
 
@@ -15,6 +17,16 @@ public interface Agent {
 
     /** 执行目标，返回执行结果摘要（成功后由 AgentService 写入 Goal.summary）。 */
     String execute(Goal goal);
+
+    /**
+     * 携带附件的执行：附件是这一轮的输入，不属于 Goal 台账（Goal 会落库，二进制不该跟着走）。
+     *
+     * <p>默认实现丢弃附件，退化为 {@link #execute(Goal)}——不支持视觉的 Agent（如多 Agent 编排）
+     * 不必关心这个能力，但也意味着图片在那些路径上会静默丢失。支持视觉的实现应覆写。
+     */
+    default String execute(Goal goal, List<ChatAttachment> attachments) {
+        return execute(goal);
+    }
 
     /**
      * 流式执行目标：逐片段（token）回调 onToken，不返回结果。

@@ -23,6 +23,10 @@ final class StubFeishuApiServer implements AutoCloseable {
     private volatile String tokenBody = "{\"code\":0,\"msg\":\"ok\",\"tenant_access_token\":\"t-test\",\"expire\":7200}";
     private volatile String messageBody = "{\"code\":0,\"msg\":\"success\",\"data\":{\"message_id\":\"om_test\"}}";
     private volatile int messageStatus = 200;
+    private volatile byte[] imageBytes = {1, 2, 3};
+    private volatile String imageContentType = "image/png";
+    private volatile int imageStatus = 200;
+    private final List<String> resourceRequests = new CopyOnWriteArrayList<>();
 
     StubFeishuApiServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -33,6 +37,11 @@ final class StubFeishuApiServer implements AutoCloseable {
         server.createContext("/open-apis/im/v1/messages", exchange -> {
             messageRequests.add(exchange.getRequestURI().getQuery() + "|" + read(exchange.getRequestBody().readAllBytes()));
             respond(exchange, messageStatus, messageBody);
+        });
+        // 更长前缀优先：/messages/{id}/resources/{key} 落到这里，发消息仍走上面那个
+        server.createContext("/open-apis/im/v1/messages/", exchange -> {
+            resourceRequests.add(exchange.getRequestURI().getQuery() + "|" + exchange.getRequestURI().getPath());
+            respondBytes(exchange, imageStatus, imageBytes, imageContentType);
         });
         server.start();
     }
@@ -58,6 +67,16 @@ final class StubFeishuApiServer implements AutoCloseable {
         return messageRequests;
     }
 
+    void respondImage(int status, byte[] data, String contentType) {
+        this.imageStatus = status;
+        this.imageBytes = data;
+        this.imageContentType = contentType;
+    }
+
+    List<String> resourceRequests() {
+        return resourceRequests;
+    }
+
     @Override
     public void close() {
         server.stop(0);
@@ -70,6 +89,16 @@ final class StubFeishuApiServer implements AutoCloseable {
     private static void respond(com.sun.net.httpserver.HttpExchange exchange, int status, String body) throws IOException {
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", "application/json");
+        exchange.sendResponseHeaders(status, bytes.length);
+        try (OutputStream out = exchange.getResponseBody()) {
+            out.write(bytes);
+        }
+    }
+
+    /** 二进制响应：图片下载要看 Content-Type 决定 mimeType，不能用 JSON 那个方法 */
+    private static void respondBytes(com.sun.net.httpserver.HttpExchange exchange, int status,
+                                     byte[] bytes, String contentType) throws IOException {
+        exchange.getResponseHeaders().add("Content-Type", contentType);
         exchange.sendResponseHeaders(status, bytes.length);
         try (OutputStream out = exchange.getResponseBody()) {
             out.write(bytes);
