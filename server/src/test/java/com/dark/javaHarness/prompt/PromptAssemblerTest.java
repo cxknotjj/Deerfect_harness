@@ -408,6 +408,10 @@ class PromptAssemblerTest {
         assertTrue(im.contains("信道规范"), "IM 渠道应注入信道规范段");
         assertTrue(im.contains("100 词"), "IM 段应限制回复长度");
 
+        String feishu = assembler.assemble("general", null, null, "feishu");
+        assertTrue(feishu.contains("信道规范"), "飞书也应注入信道规范段");
+        assertTrue(feishu.contains("[emoji:"), "飞书段要说明表情标记约定——模型不知道标记，表情永远不会发");
+
         String api = assembler.assemble("general", null, null, "cli");
         assertTrue(api.contains("结构化"), "CLI 渠道应允许结构化完整交付");
 

@@ -26,6 +26,8 @@ import com.dark.javaHarness.view.SessionMessagesView;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -34,6 +36,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -64,6 +67,9 @@ class FeishuChatHandlerTest {
 
     /** 指令授权人：与用例里的普通用户 ou_user 区分开，才能测出「只有一个人能用」 */
     private static final String COMMANDER = "ou_admin";
+
+    @TempDir
+    Path tempDir;
 
     private FeishuChatHandler handler;
 
@@ -369,6 +375,77 @@ class FeishuChatHandlerTest {
 
         verify(chatService).chat(any(ChatRequest.class));
         verify(api).sendText("ou_user", "普通回复");
+    }
+
+    // ---------- 表情包：标记剥离 → 取图 → 上传 → 发图 ----------
+
+    @Test
+    void emojiMarker_isStrippedFromText() throws Exception {
+        when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
+        when(chatService.chat(any(ChatRequest.class))).thenReturn(reply("好耶！\n[emoji:happy]"));
+        when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_r", null));
+
+        handler.handleAsync(new FeishuInboundMessage("ou_user", "oc_chat", "om_e1", "evt-e1", "你好", false))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(api).sendText("ou_user", "好耶！");
+        verify(api, never()).uploadImage(any(), any());
+    }
+
+    @Test
+    void emojiEnabled_uploadsAndSendsImage() throws Exception {
+        Files.write(tempDir.resolve("happy_01.png"), new byte[] {1, 2, 3});
+        Files.writeString(tempDir.resolve("emoji-index.json"),
+                "{\"happy_01\":\"happy_01.png\"}");
+
+        FeishuChatHandler withEmoji = new FeishuChatHandler(chatService, sessionService, agentService,
+                bindingMapper, api, emojiProps());
+        when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
+        when(chatService.chat(any(ChatRequest.class))).thenReturn(reply("好耶！\n[emoji:happy]"));
+        when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_r", null));
+        when(api.uploadImage(eq("happy_01"), any()))
+                .thenReturn(new FeishuApiClient.Upload(true, "img_1", null));
+        when(api.sendImage("ou_user", "img_1"))
+                .thenReturn(new FeishuApiClient.Result(true, "om_img", null));
+
+        withEmoji.handleAsync(new FeishuInboundMessage("ou_user", "oc_chat", "om_e2", "evt-e2", "你好", false))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(api).sendText("ou_user", "好耶！");
+        verify(api).sendImage("ou_user", "img_1");
+        withEmoji.destroy();
+    }
+
+    @Test
+    void emojiUploadFails_textStillSent() throws Exception {
+        Files.write(tempDir.resolve("happy_01.png"), new byte[] {1, 2, 3});
+        Files.writeString(tempDir.resolve("emoji-index.json"),
+                "{\"happy_01\":\"happy_01.png\"}");
+
+        FeishuChatHandler withEmoji = new FeishuChatHandler(chatService, sessionService, agentService,
+                bindingMapper, api, emojiProps());
+        when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
+        when(chatService.chat(any(ChatRequest.class))).thenReturn(reply("好耶！\n[emoji:happy]"));
+        when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_r", null));
+        when(api.uploadImage(any(), any()))
+                .thenReturn(new FeishuApiClient.Upload(false, null, "HTTP 403 no permission"));
+
+        withEmoji.handleAsync(new FeishuInboundMessage("ou_user", "oc_chat", "om_e3", "evt-e3", "你好", false))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(api).sendText("ou_user", "好耶！");
+        verify(api, never()).sendImage(any(), any());
+        withEmoji.destroy();
+    }
+
+    private FeishuProperties emojiProps() {
+        FeishuProperties props = new FeishuProperties();
+        props.getWs().setAllowedUsers(new ArrayList<>(List.of(COMMANDER)));
+        props.getWs().setCommandUser(COMMANDER);
+        props.getWs().getEmoji().setEnabled(true);
+        props.getWs().getEmoji().setDir(tempDir.toString());
+        props.getWs().getEmoji().setIndexFile(tempDir.resolve("emoji-index.json").toString());
+        return props;
     }
 
     private static FeishuSessionBinding binding(long sessionId) {

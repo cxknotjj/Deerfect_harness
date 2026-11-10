@@ -22,7 +22,7 @@ channel-feishu/
     │   ├── FeishuWebhookSender.java   # M3a：签名 + 错误码翻译 + 20 KB 预检
     │   ├── FeishuHealth.java          # 健康快照（沿用「真实流量当探针」）
     │   ├── persistence/  (2)          # 会话绑定：open_id + chat_id → session
-    │   └── ws/           (12)         # M3b 长连接入站
+    │   └── ws/           (13)         # M3b 长连接入站（含指令与表情）
     └── test/java/com/dark/javaHarness/channel/feishu/...
 ```
 
@@ -51,6 +51,7 @@ channel-feishu/
 | `FeishuEventDedup` | `event_id` 5 分钟 TTL 去重（容量 2048） |
 | `FeishuChatHandler` | **按会话串行** → 绑定会话 → 调 `ChatService` → 回复；指令在入队前拦掉 |
 | `FeishuCommandParser` | `/name arg` 解析（纯函数）；只认白名单指令名，其余回落成普通消息 |
+| `FeishuEmojiCatalog` | `[emoji:分类]` 标记剥离 + 按分类从 `emojis/` 取图（永不抛出） |
 | `FeishuApiClient` | `im/v1/messages` 发送，`tenant_access_token` 缓存到过期前 60 秒 |
 | `FeishuInboundMessage` / `FeishuMessageHandler` | 入站消息值对象 / 处理器接口 |
 
@@ -90,6 +91,33 @@ export FEISHU_WS_COMMAND_USER=ou_xxx
 非授权用户发指令会收到一句「指令只有管理员能用」，**不交给模型**——模型会顺着斜杠编出
 一份并不存在的命令清单，比不回复更糟。不认识的 `/xxx` 不拦截，照常走聊天。
 
+## 表情包
+
+模型在回复末尾输出 `[emoji:分类]`（`happy` / `angry` / `shock` / `chill` / `social` /
+`abstract` / `festive`，`none` = 不发），渠道剥离标记后追加一张同类图片：
+
+```text
+回复 "好耶！\n[emoji:happy]"
+  → 发送文本 "好耶！"
+  → 按 happy_ 前缀从 emojis/ 随机取一张
+  → POST /im/v1/images 换 image_key
+  → msg_type=image 发送
+```
+
+| 配置（`channel.feishu.ws.emoji.*`） | 默认 | 说明 |
+| --- | --- | --- |
+| `enabled` | `true` | 关闭时**仍会剥离标记**（不让 `[emoji:happy]` 露给用户），只是不选图不发图 |
+| `dir` | `emojis` | 与 QQ 共用同一份图片目录 |
+| `index-file` | `emojis/emoji-index.json` | 缺失时自动创建空映射，日志打印绝对路径 |
+| `probability` | `1.0` | 分类命中后的发送概率 |
+
+与 QQ 的差异只有两处：QQ 把图片内联成 OneBot 的 `base64://` 段，飞书必须先上传换
+`image_key`（飞书不接受内联字节）；配置键各自独立，因为渠道模块之间不能互相依赖，
+共享的是**数据**（`emojis/` 目录与索引）而不是代码。
+
+触发依赖提示词：`PromptAssembler` 的飞书信道规范段会告诉模型这个约定。换 Agent 时，
+如果它的提示词明令「只输出正文」，标记就不会出现——那不是渠道的问题。
+
 ## 边界
 
 - 支持的消息类型：`text`、`post`（富文本，拼成纯文本）、`image`（作为多模态附件交给模型）。
@@ -98,6 +126,7 @@ export FEISHU_WS_COMMAND_USER=ou_xxx
   回复用 `receive_id_type=chat_id`。机器人自己的消息按 `sender_type` 过滤，避免自回环。
 - 图片需要 `im:resource` 权限下载（`GET /im/v1/messages/{message_id}/resources/{file_key}?type=image`），
   单张上限 8 MB；下载失败只跳过该图，文本照常回复。
+- 发图（表情）需要 `im:resource`——与下载图片同一个权限；缺权限时上传返回 403，只在日志里 warn，文本照常发出。
 - 图片只对 Agentic 路径生效：多 Agent 编排（`MultiAgentGraphAgent`）走 `Agent.execute` 的默认实现，
   附件会被丢弃。图片也不进会话快照，下一轮看不到上一轮的图。
 - 长连接没有回调端点，因此没有验签三关：安全边界是「App 凭据握手 + 可选 encrypt-key +

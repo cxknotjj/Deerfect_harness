@@ -131,6 +131,9 @@ public class FeishuProperties {
         /** 单条消息的生成上限（秒）；超时放弃回复，但会话记忆仍会落库 */
         private int chatTimeoutSeconds = 300;
 
+        /** 表情包：与 QQ 共用 emojis/ 数据，配置各自独立（渠道之间不互相依赖） */
+        private Emoji emoji = new Emoji();
+
         public boolean isEnabled() {
             return enabled;
         }
@@ -193,6 +196,67 @@ public class FeishuProperties {
 
         public void setChatTimeoutSeconds(int chatTimeoutSeconds) {
             this.chatTimeoutSeconds = chatTimeoutSeconds;
+        }
+
+        public Emoji getEmoji() {
+            return emoji;
+        }
+
+        public void setEmoji(Emoji emoji) {
+            this.emoji = emoji == null ? new Emoji() : emoji;
+        }
+
+        /**
+         * 表情包配置。识别 LLM 回复末尾的 {@code [emoji:分类]} 标记，剥离后追加一张图片。
+         *
+         * <p>默认关闭（与其它渠道配置同一口径：类里的默认值不产生外部副作用，yaml 里开）。
+         * 数据与 QQ 共用 {@code emojis/} 目录与索引，但配置键独立——渠道模块之间不能互相依赖。
+         */
+        public static class Emoji {
+
+            /** 总开关；false 时只剥离标记（不把 {@code [emoji:happy]} 露给用户），不选图、不发送 */
+            private boolean enabled;
+
+            /** 表情包根目录（相对启动工作目录，支持绝对路径） */
+            private String dir = "emojis";
+
+            /** 表情名 → 图片文件名 JSON；缺失时自动创建空映射 */
+            private String indexFile = "emojis/emoji-index.json";
+
+            /** 分类命中后发送概率（0.0~1.0）；1.0 = 必发 */
+            private double probability = 1.0;
+
+            public boolean isEnabled() {
+                return enabled;
+            }
+
+            public void setEnabled(boolean enabled) {
+                this.enabled = enabled;
+            }
+
+            public String getDir() {
+                return dir;
+            }
+
+            public void setDir(String dir) {
+                this.dir = dir;
+            }
+
+            public String getIndexFile() {
+                return indexFile;
+            }
+
+            public void setIndexFile(String indexFile) {
+                this.indexFile = indexFile;
+            }
+
+            public double getProbability() {
+                return probability;
+            }
+
+            public void setProbability(double probability) {
+                this.probability = probability;
+            }
         }
     }
 }

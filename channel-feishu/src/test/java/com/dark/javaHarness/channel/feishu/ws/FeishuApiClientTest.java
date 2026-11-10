@@ -133,6 +133,57 @@ class FeishuApiClientTest {
         assertTrue(download.reason().contains("no permission"), download.reason());
     }
 
+    // ---------- 表情包：上传图片 + 发送 image 消息 ----------
+
+    @Test
+    void uploadImage_sendsMultipartAndReturnsKey() {
+        FeishuApiClient.Upload upload = client.uploadImage("happy_01.png", new byte[] {1, 2, 3});
+
+        assertTrue(upload.ok());
+        assertEquals("img_test", upload.imageKey());
+        String body = server.uploadRequests().get(0);
+        assertTrue(body.contains("name=\"image_type\""), body);
+        assertTrue(body.contains("name=\"image\"; filename=\"happy_01.png\""), body);
+        assertTrue(body.contains("message"), "image_type 必须是 message（表情包按消息图片上传）");
+    }
+
+    @Test
+    void uploadImage_httpError_surfacesReason() {
+        server.respondUpload(403, "{\"code\":99991672,\"msg\":\"no permission\"}");
+
+        FeishuApiClient.Upload upload = client.uploadImage("happy_01.png", new byte[] {1});
+
+        assertFalse(upload.ok());
+        assertTrue(upload.reason().contains("403"), upload.reason());
+        assertTrue(upload.reason().contains("no permission"), upload.reason());
+    }
+
+    @Test
+    void uploadImage_emptyData_isRejectedWithoutRequest() {
+        FeishuApiClient.Upload upload = client.uploadImage("happy_01.png", new byte[0]);
+
+        assertFalse(upload.ok());
+        assertTrue(server.uploadRequests().isEmpty());
+    }
+
+    @Test
+    void sendImage_usesImageMsgTypeAndKey() {
+        FeishuApiClient.Result result = client.sendImage("ou_user", "img_1");
+
+        assertTrue(result.sent());
+        String request = server.messageRequests().get(0);
+        assertTrue(request.contains("\"msg_type\":\"image\""), request);
+        // content 仍是二次序列化的 JSON 字符串
+        assertTrue(request.contains("\"content\":\"{\\\"image_key\\\":\\\"img_1\\\"}\""), request);
+    }
+
+    @Test
+    void sendImageToChat_usesChatId() {
+        client.sendImageToChat("oc_chat", "img_1");
+
+        assertTrue(server.messageRequests().get(0).startsWith("receive_id_type=chat_id|"));
+    }
+
     @Test
     void downloadImage_blankKey_isRejectedWithoutRequest() {
         FeishuApiClient.Download download = client.downloadImage("om_1", " ");

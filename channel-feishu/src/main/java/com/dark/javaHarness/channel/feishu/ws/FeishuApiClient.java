@@ -3,6 +3,7 @@ package com.dark.javaHarness.channel.feishu.ws;
 import com.dark.javaHarness.channel.feishu.FeishuProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -14,6 +15,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -66,20 +68,46 @@ public class FeishuApiClient {
      * @return 成功带 message_id；失败带可读原因（含飞书 code）
      */
     public Result sendText(String openId, String text) {
-        return send("open_id", openId, text);
+        return sendText("open_id", openId, text);
     }
 
     /** 给群聊发一条纯文本（群里 @ 机器人后的回复走这条） */
     public Result sendTextToChat(String chatId, String text) {
-        return send("chat_id", chatId, text);
+        return sendText("chat_id", chatId, text);
     }
 
-    private Result send(String receiveIdType, String receiveId, String text) {
-        if (receiveId == null || receiveId.isBlank()) {
-            return new Result(false, null, receiveIdType + " 为空");
-        }
+    private Result sendText(String receiveIdType, String receiveId, String text) {
         if (text == null || text.isBlank()) {
             return new Result(false, null, "正文为空");
+        }
+        return sendMessage(receiveIdType, receiveId, "text", Map.of("text", text));
+    }
+
+    /**
+     * 给单聊用户发一张图片。
+     *
+     * @param imageKey 先由 {@link #uploadImage} 上传得到的 image_key
+     */
+    public Result sendImage(String openId, String imageKey) {
+        return sendImage("open_id", openId, imageKey);
+    }
+
+    /** 给群聊发一张图片 */
+    public Result sendImageToChat(String chatId, String imageKey) {
+        return sendImage("chat_id", chatId, imageKey);
+    }
+
+    private Result sendImage(String receiveIdType, String receiveId, String imageKey) {
+        if (imageKey == null || imageKey.isBlank()) {
+            return new Result(false, null, "image_key 为空");
+        }
+        return sendMessage(receiveIdType, receiveId, "image", Map.of("image_key", imageKey));
+    }
+
+    /** 发消息公共段：校验接收者 → 换 token → content 二次序列化 → POST */
+    private Result sendMessage(String receiveIdType, String receiveId, String msgType, Object content) {
+        if (receiveId == null || receiveId.isBlank()) {
+            return new Result(false, null, receiveIdType + " 为空");
         }
         String accessToken;
         try {
@@ -90,10 +118,10 @@ public class FeishuApiClient {
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("receive_id", receiveId);
-        body.put("msg_type", "text");
+        body.put("msg_type", msgType);
         try {
             // content 是「JSON 字符串」而不是对象：飞书要求二次序列化
-            body.put("content", json.writeValueAsString(Map.of("text", text)));
+            body.put("content", json.writeValueAsString(content));
         } catch (IOException e) {
             return new Result(false, null, "回复内容序列化失败：" + e.getMessage());
         }
@@ -192,12 +220,61 @@ public class FeishuApiClient {
     }
 
     /**
-     * 发送结果。
+     * 上传图片换 image_key（{@code POST /open-apis/im/v1/images}，multipart/form-data）。
      *
-     * @param sent      是否成功
-     * @param messageId 飞书消息 ID（成功时）
-     * @param reason    失败原因（含飞书 code，便于对照文档）
+     * <p>发表情包必须先上传再发 {@code msg_type=image}：飞书不接受内联字节。
+     * 需要 {@code im:resource} 权限——与下载图片同一个权限，缺了会返回 403。
+     *
+     * @param fileName 文件名只用于 multipart 头，不影响飞书侧展示
      */
+    public Upload uploadImage(String fileName, byte[] data) {
+        if (data == null || data.length == 0) {
+            return new Upload(false, null, "图片内容为空");
+        }
+        String accessToken;
+        try {
+            accessToken = tenantAccessToken();
+        } catch (Exception e) {
+            return new Upload(false, null, "获取 tenant_access_token 失败：" + e.getMessage());
+        }
+        String boundary = "----harness" + UUID.randomUUID().toString().replace("-", "");
+        String safeName = fileName == null || fileName.isBlank()
+                ? "emoji"
+                : fileName.replace("\"", "").replace("\r", "").replace("\n", "");
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        body.writeBytes(("--" + boundary + "\r\n"
+                + "Content-Disposition: form-data; name=\"image_type\"\r\n\r\n"
+                + "message\r\n"
+                + "--" + boundary + "\r\n"
+                + "Content-Disposition: form-data; name=\"image\"; filename=\"" + safeName + "\"\r\n"
+                + "Content-Type: application/octet-stream\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+        body.writeBytes(data);
+        body.writeBytes(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/open-apis/im/v1/images"))
+                .timeout(Duration.ofSeconds(30))
+                .header("Authorization", "Bearer " + accessToken)
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()))
+                .build();
+        try {
+            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            JsonNode node = readTree(response.body());
+            int code = node == null ? -1 : node.path("code").asInt(-1);
+            String imageKey = node == null ? null : node.path("data").path("image_key").asText(null);
+            if (response.statusCode() / 100 == 2 && code == 0 && imageKey != null && !imageKey.isBlank()) {
+                return new Upload(true, imageKey, null);
+            }
+            String msg = node == null ? response.body() : node.path("msg").asText("");
+            return new Upload(false, null, "HTTP " + response.statusCode() + " code=" + code + "：" + abbreviate(msg));
+        } catch (IOException e) {
+            return new Upload(false, null, "上传请求失败：" + e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new Upload(false, null, "上传被中断");
+        }
+    }
+
     /**
      * 下载消息里的图片资源。
      *
@@ -244,6 +321,17 @@ public class FeishuApiClient {
     public record Download(boolean ok, byte[] data, String mimeType, String reason) {
     }
 
+    /** 图片上传结果：成功带 image_key，失败带可读原因 */
+    public record Upload(boolean ok, String imageKey, String reason) {
+    }
+
+    /**
+     * 发送结果。
+     *
+     * @param sent      是否成功
+     * @param messageId 飞书消息 ID（成功时）
+     * @param reason    失败原因（含飞书 code，便于对照文档）
+     */
     public record Result(boolean sent, String messageId, String reason) {
     }
 }

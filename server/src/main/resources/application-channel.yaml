@@ -41,3 +41,12 @@ channel:
       command-user: ${FEISHU_WS_COMMAND_USER:}
       queue-capacity: 32                       # 入站有界队列；满了丢新消息并记 warn
       chat-timeout-seconds: 300                # 单条生成上限；超时放弃回复，会话记忆仍落库
+      # 表情包：模型在回复末尾输出 [emoji:分类]，渠道剥离标记后上传一张同类图片再发送。
+      # 与 QQ 共用 emojis/ 数据（图片与索引都不进 git；索引缺失时自动创建空映射），
+      # 配置键各自独立——渠道模块之间不能互相依赖。
+      emoji:
+        enabled: true
+        dir: emojis
+        index-file: emojis/emoji-index.json
+        probability: 1.0
+

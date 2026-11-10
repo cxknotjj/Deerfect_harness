@@ -27,6 +27,9 @@ final class StubFeishuApiServer implements AutoCloseable {
     private volatile String imageContentType = "image/png";
     private volatile int imageStatus = 200;
     private final List<String> resourceRequests = new CopyOnWriteArrayList<>();
+    private final List<String> uploadRequests = new CopyOnWriteArrayList<>();
+    private volatile String uploadBody = "{\"code\":0,\"msg\":\"success\",\"data\":{\"image_key\":\"img_test\"}}";
+    private volatile int uploadStatus = 200;
 
     StubFeishuApiServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -37,6 +40,12 @@ final class StubFeishuApiServer implements AutoCloseable {
         server.createContext("/open-apis/im/v1/messages", exchange -> {
             messageRequests.add(exchange.getRequestURI().getQuery() + "|" + read(exchange.getRequestBody().readAllBytes()));
             respond(exchange, messageStatus, messageBody);
+        });
+        server.createContext("/open-apis/im/v1/images", exchange -> {
+            // multipart 原文按 ISO-8859-1 记录：图片字节可能是任意二进制，用 UTF-8 会被替换
+            uploadRequests.add(new String(exchange.getRequestBody().readAllBytes(),
+                    java.nio.charset.StandardCharsets.ISO_8859_1));
+            respond(exchange, uploadStatus, uploadBody);
         });
         // 更长前缀优先：/messages/{id}/resources/{key} 落到这里，发消息仍走上面那个
         server.createContext("/open-apis/im/v1/messages/", exchange -> {
@@ -75,6 +84,15 @@ final class StubFeishuApiServer implements AutoCloseable {
 
     List<String> resourceRequests() {
         return resourceRequests;
+    }
+
+    void respondUpload(int status, String body) {
+        this.uploadStatus = status;
+        this.uploadBody = body;
+    }
+
+    List<String> uploadRequests() {
+        return uploadRequests;
     }
 
     @Override

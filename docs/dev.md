@@ -384,3 +384,19 @@ export CHANNEL_FEISHU_WS_ALLOWED_USERS=ou_xxx   # 多个用逗号分隔
 `allowed-users` 首位。**它必须在 `allowed-users` 里**，否则入站闸门先挡掉消息，
 表现为「发指令没反应」——启动日志会打一条 warn。
 
+### 飞书表情包：为什么和 QQ 各写一份
+
+标记约定（`[emoji:分类]`）、数据（`emojis/` 目录 + 索引）都一样，代码却各留一份——
+`channel-feishu` 看不见 `channel-qq`，抽公共模块又要为百来行代码新增一个反应堆成员，
+还得同步 Dockerfile 的模块拷贝。共享的是**数据**，不是代码。
+
+飞书侧比 QQ 多一步：图片必须先 `POST /im/v1/images` 换 `image_key`，再用
+`msg_type=image` 发送——飞书不接受内联字节。上传与下载图片同属 `im:resource` 权限。
+
+两个容易踩的点：
+
+- **标记一律剥离**：即使 `emoji.enabled=false` 也要剥，否则关掉开关反而让正文里露出
+  `[emoji:happy]`。关闭只意味着不选图、不发图。
+- **模型不知道就不会发**：约定写在 `PromptAssembler` 的飞书信道规范段里。如果某次改动
+  把它删了，表现是「表情功能突然不工作」，而不是报错。
+

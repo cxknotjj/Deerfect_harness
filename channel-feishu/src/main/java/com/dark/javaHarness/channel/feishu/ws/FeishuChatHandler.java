@@ -93,6 +93,8 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
     private final AgentService agentService;
     private final FeishuSessionBindingMapper bindingMapper;
     private final FeishuApiClient api;
+    /** 表情包：识别 [emoji:分类] 标记，按分类取图并上传发送 */
+    private final FeishuEmojiCatalog emoji;
     /** 唯一允许使用指令的 open_id（配置优先，留空回退白名单首位；空串 = 指令不可用） */
     private final String commandUser;
     private final int timeoutSeconds;
@@ -112,6 +114,7 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
         this.agentService = agentService;
         this.bindingMapper = bindingMapper;
         this.api = api;
+        this.emoji = new FeishuEmojiCatalog(props.getWs().getEmoji());
         this.commandUser = resolveCommandUser(props);
         this.timeoutSeconds = Math.max(1, props.getWs().getChatTimeoutSeconds());
         this.chatExecutor = new ThreadPoolExecutor(2, 2, 60, TimeUnit.SECONDS,
@@ -444,16 +447,58 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
             return;
         }
 
-        FeishuApiClient.Result result = message.group()
-                ? api.sendTextToChat(message.chatId(), response.reply())
-                : api.sendText(message.openId(), response.reply());
-        if (result.sent()) {
-            log.info("[feishu] 已回复 {}={} messageId={} 回复字数={}",
-                    message.group() ? "chatId" : "openId", message.replyId(),
-                    result.messageId(), response.reply().length());
-        } else {
-            log.warn("[feishu] 回复失败 {}={} 原因={}",
-                    message.group() ? "chatId" : "openId", message.replyId(), result.reason());
+        // 表情标记一律剥离：模型按提示词在末尾追加 [emoji:分类]，露给用户就是乱码。
+        // 即使表情模块关闭也要剥——关掉开关不该让正文变脏。
+        FeishuEmojiCatalog.ParsedReply parsed = FeishuEmojiCatalog.stripMarker(response.reply());
+        if (!parsed.text().isBlank()) {
+            FeishuApiClient.Result result = message.group()
+                    ? api.sendTextToChat(message.chatId(), parsed.text())
+                    : api.sendText(message.openId(), parsed.text());
+            if (result.sent()) {
+                log.info("[feishu] 已回复 {}={} messageId={} 回复字数={}",
+                        message.group() ? "chatId" : "openId", message.replyId(),
+                        result.messageId(), parsed.text().length());
+            } else {
+                log.warn("[feishu] 回复失败 {}={} 原因={}",
+                        message.group() ? "chatId" : "openId", message.replyId(), result.reason());
+                return; // 文本都没发出去，别再追发表情
+            }
+        }
+        sendEmoji(message, parsed.category());
+    }
+
+    /**
+     * 表情钩子：按分类取一张本地图片 → 上传换 image_key → 发送。
+     *
+     * <p>任何失败只记日志：文本这时已经发出去了，表情是增强项，不该影响主链路。
+     * 只在模型真的输出了非 none 分类时才走这条，避免每轮都多两次 API 调用。
+     */
+    private void sendEmoji(FeishuInboundMessage message, String category) {
+        if (category == null || "none".equals(category)) {
+            return;
+        }
+        try {
+            FeishuEmojiCatalog.Picked picked = emoji.pick(category);
+            if (picked == null) {
+                return;
+            }
+            FeishuApiClient.Upload upload = api.uploadImage(picked.name(), picked.bytes());
+            if (!upload.ok()) {
+                log.warn("[feishu] 表情上传失败 category={} 原因={}", category, upload.reason());
+                return;
+            }
+            FeishuApiClient.Result result = message.group()
+                    ? api.sendImageToChat(message.chatId(), upload.imageKey())
+                    : api.sendImage(message.openId(), upload.imageKey());
+            if (result.sent()) {
+                log.info("[feishu] 已发表情 {}={} category={} messageId={}",
+                        message.group() ? "chatId" : "openId", message.replyId(), category,
+                        result.messageId());
+            } else {
+                log.warn("[feishu] 表情发送失败 category={} 原因={}", category, result.reason());
+            }
+        } catch (Exception e) {
+            log.warn("[feishu] 表情钩子异常，跳过本次表情（文本回复不受影响）", e);
         }
     }
 
