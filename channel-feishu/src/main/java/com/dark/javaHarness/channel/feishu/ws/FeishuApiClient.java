@@ -180,7 +180,7 @@ public class FeishuApiClient {
 
     /** 令牌失效：HTTP 401，或飞书的 token 类错误码（过期/无效） */
     private static boolean isTokenProblem(int status, int code) {
-        return status == 401 || code == 99991661 || code == 99991663;
+        return status == 401 || code == 99991661 || code == 99991663 || code == 99991664;
     }
 
     /** 值得重试的瞬时失败：限流与服务端错误 */
