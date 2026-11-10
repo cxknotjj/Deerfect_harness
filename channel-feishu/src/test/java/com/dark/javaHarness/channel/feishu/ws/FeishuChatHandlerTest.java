@@ -85,6 +85,8 @@ class FeishuChatHandlerTest {
         FeishuProperties props = new FeishuProperties();
         props.getWs().setAllowedUsers(new ArrayList<>(List.of(COMMANDER)));
         props.getWs().setCommandUser(COMMANDER);
+        // 用例默认走普通发送：引用回复另有专门用例（否则每条断言都要同时照顾两条路径）
+        props.getWs().setQuoteReply(false);
         handler = new FeishuChatHandler(chatService, sessionService, agentService, statusPort,
                 bindingMapper, api, props);
     }
@@ -490,10 +492,126 @@ class FeishuChatHandlerTest {
         withEmoji.destroy();
     }
 
+    // ---------- 引用回复 / @ / 撤回 / 回复模式 ----------
+
+    @Test
+    void quoteReply_usesReplyApi() throws Exception {
+        FeishuChatHandler quoting = handlerWith(props -> props.getWs().setQuoteReply(true));
+        when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
+        when(chatService.chat(any(ChatRequest.class))).thenReturn(reply("带引用的回复"));
+        when(api.replyText(eq("om_in"), eq("带引用的回复"), eq(false)))
+                .thenReturn(new FeishuApiClient.Result(true, "om_q", null));
+
+        quoting.handleAsync(new FeishuInboundMessage("ou_user", "oc_chat", "om_in", "evt-q1", "你好", false))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(api).replyText("om_in", "带引用的回复", false);
+        verify(api, never()).sendText(any(), any());
+        quoting.destroy();
+    }
+
+    @Test
+    void quoteReplyFails_fallsBackToPlainSend() throws Exception {
+        FeishuChatHandler quoting = handlerWith(props -> props.getWs().setQuoteReply(true));
+        when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
+        when(chatService.chat(any(ChatRequest.class))).thenReturn(reply("回复"));
+        when(api.replyText(any(), any(), any(Boolean.class)))
+                .thenReturn(new FeishuApiClient.Result(false, null, "message not found"));
+        when(api.sendText("ou_user", "回复"))
+                .thenReturn(new FeishuApiClient.Result(true, "om_plain", null));
+
+        quoting.handleAsync(new FeishuInboundMessage("ou_user", "oc_chat", "om_in", "evt-q2", "你好", false))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(api).sendText("ou_user", "回复");
+        quoting.destroy();
+    }
+
+    @Test
+    void groupAtAsker_prefixesAtTag() throws Exception {
+        FeishuChatHandler atHandler = handlerWith(props -> props.getWs().setAtAsker(true));
+        when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
+        when(chatService.chat(any(ChatRequest.class))).thenReturn(reply("群回复"));
+        when(api.sendTextToChat(eq("oc_chat"), any()))
+                .thenReturn(new FeishuApiClient.Result(true, "om_g", null));
+
+        atHandler.handleAsync(new FeishuInboundMessage("ou_user", "oc_chat", "om_in", "evt-g1", "你好", true))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(api).sendTextToChat(eq("oc_chat"),
+                eq("<at user_id=\"ou_user\"></at> 群回复"));
+        atHandler.destroy();
+    }
+
+    @Test
+    void recall_deletesLastSentMessage() throws Exception {
+        when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
+        when(chatService.chat(any(ChatRequest.class))).thenReturn(reply("回复"));
+        when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_sent", null));
+        when(api.deleteMessage("om_sent")).thenReturn(new FeishuApiClient.Result(true, "om_sent", null));
+
+        handler.handleAsync(new FeishuInboundMessage(COMMANDER, "oc_chat", "om_1", "evt-r1", "你好", false))
+                .get(5, TimeUnit.SECONDS);
+        handler.handleAsync(new FeishuInboundMessage(COMMANDER, "oc_chat", "om_2", "evt-r2", "/recall", false))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(api).deleteMessage("om_sent");
+        verify(api).sendText(eq(COMMANDER), contains("已撤回上一条"));
+    }
+
+    @Test
+    void recall_withoutHistory_saysNothingToRecall() throws Exception {
+        when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_r", null));
+
+        handler.handleAsync(new FeishuInboundMessage(COMMANDER, "oc_chat", "om_3", "evt-r3", "/recall", false))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(api, never()).deleteMessage(any());
+        verify(api).sendText(eq(COMMANDER), contains("没有可撤回"));
+    }
+
+    @Test
+    void mentionMode_ignoresGroupMessageWithoutMention() throws Exception {
+        FeishuChatHandler mentionOnly = handlerWith(props -> props.getWs().setReplyMode("mention"));
+
+        mentionOnly.handleAsync(new FeishuInboundMessage("ou_user", "oc_chat", "om_1", "evt-m1", "闲聊", true))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(chatService, never()).chat(any());
+        verify(bindingMapper, never()).selectOne(any());
+        mentionOnly.destroy();
+    }
+
+    @Test
+    void probabilityModeZero_neverReplies() throws Exception {
+        FeishuChatHandler never = handlerWith(props -> {
+            props.getWs().setReplyMode("probability");
+            props.getWs().setReplyProbability(0.0);
+        });
+
+        never.handleAsync(new FeishuInboundMessage("ou_user", "oc_chat", "om_1", "evt-p1", "闲聊", true))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(chatService, never()).chat(any());
+        never.destroy();
+    }
+
+    /** 用改过配置的 props 建一个独立处理器；调用方负责 destroy */
+    private FeishuChatHandler handlerWith(java.util.function.Consumer<FeishuProperties> customizer) {
+        FeishuProperties props = new FeishuProperties();
+        props.getWs().setAllowedUsers(new ArrayList<>(List.of(COMMANDER)));
+        props.getWs().setCommandUser(COMMANDER);
+        props.getWs().setQuoteReply(false);
+        customizer.accept(props);
+        return new FeishuChatHandler(chatService, sessionService, agentService, statusPort,
+                bindingMapper, api, props);
+    }
+
     private FeishuProperties emojiProps() {
         FeishuProperties props = new FeishuProperties();
         props.getWs().setAllowedUsers(new ArrayList<>(List.of(COMMANDER)));
         props.getWs().setCommandUser(COMMANDER);
+        props.getWs().setQuoteReply(false);
         props.getWs().getEmoji().setEnabled(true);
         props.getWs().getEmoji().setDir(tempDir.toString());
         props.getWs().getEmoji().setIndexFile(tempDir.resolve("emoji-index.json").toString());

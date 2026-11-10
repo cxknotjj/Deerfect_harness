@@ -129,8 +129,10 @@ public class FeishuInboundService {
                 }
                 text = IMAGE_PLACEHOLDER;
             }
+            // @ 标记留着：reply-mode=mention 时靠它决定要不要回答（正文里的占位符已剥离）
+            boolean mentioned = message.getMentions() != null && message.getMentions().length > 0;
             submit(new FeishuInboundMessage(openId, message.getChatId(), message.getMessageId(), eventId,
-                    text, group, parsed.imageKeys().stream().map(FeishuAttachment::new).toList()));
+                    text, group, parsed.imageKeys().stream().map(FeishuAttachment::new).toList(), mentioned));
         } catch (Exception e) {
             // 入站解析失败不能让 SDK 线程炸掉，否则后续事件可能一起断
             log.error("[feishu] 事件预处理异常 eventId={}", eventId, e);

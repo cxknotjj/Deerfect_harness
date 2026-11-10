@@ -49,10 +49,15 @@ class FeishuCommandParserTest {
         assertEquals("status", FeishuCommandParser.parse("/status").name());
     }
 
+    @Test
+    void recall_isKnownCommand() {
+        assertEquals("recall", FeishuCommandParser.parse("/recall").name());
+    }
+
     /** 不认识的斜杠开头消息交回聊天：用户可能只是发了条以 / 开头的普通文本 */
     @Test
     void unknownCommand_isNotACommand() {
-        assertNull(FeishuCommandParser.parse("/recall"));
+        assertNull(FeishuCommandParser.parse("/roll"));
         assertNull(FeishuCommandParser.parse("/tmp 是什么"));
     }
 }

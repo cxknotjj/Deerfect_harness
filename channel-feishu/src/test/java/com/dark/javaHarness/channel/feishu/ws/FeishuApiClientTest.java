@@ -209,6 +209,46 @@ class FeishuApiClientTest {
         assertEquals(1, server.messageRequests().size(), "参数错误重试没有意义，只会拖慢报错");
     }
 
+    // ---------- 引用回复与撤回 ----------
+
+    @Test
+    void replyText_usesReplyEndpoint() {
+        FeishuApiClient.Result result = client.replyText("om_1", "引用回复", false);
+
+        assertTrue(result.sent(), result.reason());
+        String request = server.replyRequests().get(0);
+        assertTrue(request.startsWith("POST /open-apis/im/v1/messages/om_1/reply"), request);
+        assertTrue(request.contains("\"msg_type\":\"text\""), request);
+        assertTrue(request.contains("\"reply_in_thread\":false"), request);
+        assertFalse(request.contains("receive_id"), "引用回复靠 URL 上的 message_id 定位，不带 receive_id");
+    }
+
+    @Test
+    void replyImage_carriesImageKey() {
+        FeishuApiClient.Result result = client.replyImage("om_2", "img_9", true);
+
+        assertTrue(result.sent(), result.reason());
+        String request = server.replyRequests().get(0);
+        assertTrue(request.contains("\"msg_type\":\"image\""), request);
+        assertTrue(request.contains("\"reply_in_thread\":true"), request);
+    }
+
+    @Test
+    void deleteMessage_usesDeleteMethod() {
+        FeishuApiClient.Result result = client.deleteMessage("om_9");
+
+        assertTrue(result.sent(), result.reason());
+        assertTrue(server.deleteRequests().get(0).startsWith("DELETE /open-apis/im/v1/messages/om_9"));
+    }
+
+    @Test
+    void deleteMessage_blankId_isRejectedWithoutRequest() {
+        FeishuApiClient.Result result = client.deleteMessage(" ");
+
+        assertFalse(result.sent());
+        assertTrue(server.deleteRequests().isEmpty());
+    }
+
     // ---------- 处理回执（表情回应） ----------
 
     @Test

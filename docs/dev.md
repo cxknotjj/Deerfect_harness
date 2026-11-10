@@ -416,3 +416,16 @@ export CHANNEL_FEISHU_WS_ALLOWED_USERS=ou_xxx   # 多个用逗号分隔
 8. **`/status`**：新增 `contract.api.HarnessStatusPort`（server 实现复用监控页汇总），
    飞书指令输出会话 + 组件状态。端口必须只读，不得触发探活。
 
+### 飞书回复形态（引用 / @ / 撤回 / 回复模式）
+
+四个都在渠道层，不动 core：
+
+- **引用回复**：改走 `POST /im/v1/messages/{id}/reply`，群里显示引用块。失败（原消息被撤回、
+  删除）自动退回普通发送——宁可丢引用，不能丢回复。`reply-in-thread=true` 可切话题形式。
+- **@ 提问者**：群聊文本前加 `<at user_id="ou_xxx"></at>`，与 QQ 的 `at-asker` 同名同义。
+- **`/recall`**：按 `openId+chatId` 记最近一条发出的消息 id（上限 512，超出清空），
+  `DELETE /im/v1/messages/{id}` 撤回。只记对话回复与表情图，不记指令回执。
+- **`reply-mode`**：`all` / `mention` / `probability`。只作用于群聊的普通消息：
+  单聊不限制，指令也不受限制（显式操作不该被概率吞掉）。`mention` 依赖入站事件里的
+  `mentions`，所以 `FeishuInboundMessage` 新增了 `mentioned` 字段。
+

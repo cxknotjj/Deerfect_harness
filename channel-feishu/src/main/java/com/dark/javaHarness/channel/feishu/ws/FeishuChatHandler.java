@@ -18,6 +18,7 @@ import com.dark.javaHarness.view.SessionMessagesView;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -30,6 +31,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
@@ -84,7 +86,8 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
             /history [n] 查看最近 n 条对话（默认 5）
             /agent 查看可用 Agent
             /agent <名> 切换当前会话使用的 Agent
-            /status 查看会话与渠道/组件状态""";
+            /status 查看会话与渠道/组件状态
+            /recall 撤回机器人上一条消息""";
 
     /** /status 最多展示的组件行数与单行详情长度：超出只给省略号，避免刷屏 */
     private static final int STATUS_MAX_LINES = 8;
@@ -100,6 +103,12 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
 
     /** 表情 key 缓存上限：超了就不再写新条目，避免长期运行后无界增长 */
     private static final int EMOJI_KEY_CACHE_MAX = 256;
+
+    /** /recall 记录表上限：超出直接清空，召回不是关键数据，不值得为它设计 LRU */
+    private static final int LAST_SENT_MAX = 512;
+
+    /** 群聊回复模式；配置里写字符串，解析失败按 all 处理 */
+    private enum ReplyMode { ALL, MENTION, PROBABILITY }
 
     private final ChatService chatService;
     private final SessionService sessionService;
@@ -119,6 +128,15 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
     private final boolean receiptEnabled;
     private final long receiptDelayMs;
     private final String receiptEmoji;
+    /** 群聊回复模式与 @ 提问者、引用回复 */
+    private final ReplyMode replyMode;
+    private final double replyProbability;
+    private final boolean atAsker;
+    private final boolean quoteReply;
+    private final boolean replyInThread;
+    /** 每个会话最近一条机器人消息（/recall 用），key = openId:chatId */
+    private final ConcurrentHashMap<String, String> lastSent = new ConcurrentHashMap<>();
+    private final Random random = new Random();
     private final ThreadPoolExecutor chatExecutor;
     private final ExecutorService driver;
     private final ConcurrentHashMap<Long, Slot> slots = new ConcurrentHashMap<>();
@@ -151,6 +169,11 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
         this.receiptEnabled = props.getWs().isReceiptReactionEnabled();
         this.receiptDelayMs = props.getWs().getReceiptDelayMs();
         this.receiptEmoji = props.getWs().getReceiptEmoji();
+        this.replyMode = parseReplyMode(props.getWs().getReplyMode());
+        this.replyProbability = props.getWs().getReplyProbability();
+        this.atAsker = props.getWs().isAtAsker();
+        this.quoteReply = props.getWs().isQuoteReply();
+        this.replyInThread = props.getWs().isReplyInThread();
         this.chatExecutor = new ThreadPoolExecutor(2, 2, 60, TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>(8),
                 runnable -> {
@@ -178,6 +201,12 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
         FeishuCommandParser.Parsed command = FeishuCommandParser.parse(message.text());
         if (command != null) {
             return handleCommand(message, command);
+        }
+        if (!shouldReply(message)) {
+            // 不在回复范围内：静默丢弃，连会话都不建
+            log.debug("[feishu] reply-mode={} 不回复本条 chatId={} mentioned={}",
+                    replyMode, message.chatId(), message.mentioned());
+            return CompletableFuture.completedFuture(null);
         }
 
         long sessionId;
@@ -287,6 +316,7 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
             case "history" -> history(message, command.arg());
             case "agent" -> agent(message, command.arg());
             case "status" -> status(message);
+            case "recall" -> recall(message);
             // 解析器只放行白名单指令名，走不到这里；留着防御未来加命令忘了加分支
             default -> reply(message, "不认识的指令，发 /help 看看能做什么。");
         }
@@ -432,6 +462,101 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
         }
     }
 
+    /**
+     * 群聊回复模式判断。单聊总是回；指令在调用本方法之前已经处理，不受概率影响。
+     */
+    private boolean shouldReply(FeishuInboundMessage message) {
+        if (!message.group()) {
+            return true;
+        }
+        return switch (replyMode) {
+            case MENTION -> message.mentioned();
+            case PROBABILITY -> random.nextDouble() < replyProbability;
+            case ALL -> true;
+        };
+    }
+
+    /** 配置里的字符串 → 枚举；写错按 all 处理并告警，不让一个拼写错误把机器人变哑巴 */
+    private static ReplyMode parseReplyMode(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return ReplyMode.ALL;
+        }
+        try {
+            return ReplyMode.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            log.warn("[feishu] 未知 reply-mode='{}'，按 all 处理", raw);
+            return ReplyMode.ALL;
+        }
+    }
+
+    /**
+     * 统一文本出口：优先引用回复（挂到原消息下），失败退回普通发送；群聊按配置 @ 提问者。
+     *
+     * <p>为什么不直接用 reply：原消息被撤回/删除时接口会报错，此时宁可丢引用也不能丢回复。
+     */
+    private FeishuApiClient.Result sendText(FeishuInboundMessage message, String text) {
+        String body = decorate(message, text);
+        if (quoteReply && message.messageId() != null && !message.messageId().isBlank()) {
+            FeishuApiClient.Result quoted = api.replyText(message.messageId(), body, replyInThread);
+            if (quoted.sent()) {
+                return quoted;
+            }
+            log.debug("[feishu] 引用回复失败，退回普通发送：{}", quoted.reason());
+        }
+        return message.group()
+                ? api.sendTextToChat(message.chatId(), body)
+                : api.sendText(message.openId(), body);
+    }
+
+    /** 统一图片出口：引用规则同上（图片不参与 @） */
+    private FeishuApiClient.Result sendImage(FeishuInboundMessage message, String imageKey) {
+        if (quoteReply && message.messageId() != null && !message.messageId().isBlank()) {
+            FeishuApiClient.Result quoted = api.replyImage(message.messageId(), imageKey, replyInThread);
+            if (quoted.sent()) {
+                return quoted;
+            }
+            log.debug("[feishu] 引用发图失败，退回普通发送：{}", quoted.reason());
+        }
+        return message.group()
+                ? api.sendImageToChat(message.chatId(), imageKey)
+                : api.sendImage(message.openId(), imageKey);
+    }
+
+    /** 群聊 @ 提问者：多人群里一眼看出这句话在回谁 */
+    private String decorate(FeishuInboundMessage message, String text) {
+        if (!message.group() || !atAsker) {
+            return text;
+        }
+        return "<at user_id=\"" + message.openId() + "\"></at> " + text;
+    }
+
+    /** 记下本会话最近一条机器人消息，供 /recall 使用 */
+    private void rememberSent(FeishuInboundMessage message, FeishuApiClient.Result result) {
+        if (!result.sent() || result.messageId() == null || result.messageId().isBlank()) {
+            return;
+        }
+        String key = sendKey(message);
+        if (lastSent.size() >= LAST_SENT_MAX && !lastSent.containsKey(key)) {
+            lastSent.clear(); // 极端情况：宁可丢掉召回能力，也不让这个表无界增长
+        }
+        lastSent.put(key, result.messageId());
+    }
+
+    private static String sendKey(FeishuInboundMessage message) {
+        return message.openId() + ":" + message.chatId();
+    }
+
+    /** /recall：撤回本会话最近一条机器人消息 */
+    private void recall(FeishuInboundMessage message) {
+        String last = lastSent.remove(sendKey(message));
+        if (last == null) {
+            reply(message, "没有可撤回的消息。");
+            return;
+        }
+        FeishuApiClient.Result result = api.deleteMessage(last);
+        reply(message, result.sent() ? "已撤回上一条。" : "撤回失败：" + result.reason());
+    }
+
     /** 超长截断：整条发不出去比截断更糟，末尾标明已截断避免误会 */
     private static String capReply(String text, int max) {
         if (text == null) {
@@ -452,11 +577,9 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
         return single.length() <= max ? single : single.substring(0, max) + "…";
     }
 
-    /** 指令回复出口：群聊回 chat_id，单聊回 open_id，与正常回复同一条路径 */
+    /** 指令回复出口：与正常回复同一条路径（同样支持引用与 @） */
     private void reply(FeishuInboundMessage message, String text) {
-        FeishuApiClient.Result result = message.group()
-                ? api.sendTextToChat(message.chatId(), text)
-                : api.sendText(message.openId(), text);
+        FeishuApiClient.Result result = sendText(message, text);
         if (!result.sent()) {
             log.warn("[feishu] 指令回复失败 {}={} 原因={}",
                     message.group() ? "chatId" : "openId", message.replyId(), result.reason());
@@ -542,10 +665,9 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
             FeishuEmojiCatalog.ParsedReply parsed = FeishuEmojiCatalog.stripMarker(response.reply());
             String text = capReply(parsed.text(), replyMaxChars);
             if (!text.isBlank()) {
-                FeishuApiClient.Result result = message.group()
-                        ? api.sendTextToChat(message.chatId(), text)
-                        : api.sendText(message.openId(), text);
+                FeishuApiClient.Result result = sendText(message, text);
                 if (result.sent()) {
+                    rememberSent(message, result);
                     log.info("[feishu] 已回复 {}={} messageId={} 回复字数={}",
                             message.group() ? "chatId" : "openId", message.replyId(),
                             result.messageId(), text.length());
@@ -590,10 +712,9 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
                     emojiKeys.put(picked.name(), imageKey);
                 }
             }
-            FeishuApiClient.Result result = message.group()
-                    ? api.sendImageToChat(message.chatId(), imageKey)
-                    : api.sendImage(message.openId(), imageKey);
+            FeishuApiClient.Result result = sendImage(message, imageKey);
             if (result.sent()) {
+                rememberSent(message, result);
                 log.info("[feishu] 已发表情 {}={} category={} messageId={}",
                         message.group() ? "chatId" : "openId", message.replyId(), category,
                         result.messageId());
@@ -672,9 +793,7 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
                 PENDING_CAPACITY, sessionId, message.messageId());
         try {
             driver.execute(() -> {
-                FeishuApiClient.Result result = message.group()
-                        ? api.sendTextToChat(message.chatId(), BUSY_NOTICE)
-                        : api.sendText(message.openId(), BUSY_NOTICE);
+                FeishuApiClient.Result result = sendText(message, BUSY_NOTICE);
                 if (!result.sent()) {
                     log.warn("[feishu] 忙提示发送失败 messageId={} 原因={}", message.messageId(), result.reason());
                 }

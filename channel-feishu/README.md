@@ -76,6 +76,7 @@ channel-feishu/
 | `/agent` | 列出可用 Agent，标出当前绑定的那个 |
 | `/agent <名>` | 切换本会话的 Agent（需要已有会话） |
 | `/status` | 当前会话 + 渠道/沙箱/MCP 状态（只读快照，不触发探活） |
+| `/recall` | 撤回本会话最近一条机器人消息（只记对话回复，不记指令回执） |
 | `/help` | 上面这份清单 |
 
 **为什么只有一个人能用**：指令在群里也生效，而 `/new` 重置的是「这个人 + 这个群」的上下文。
@@ -128,6 +129,11 @@ export FEISHU_WS_COMMAND_USER=ou_xxx
 | `receipt-delay-ms` | `3000` | 回执延迟；低于它的快速回复完全不碰回执接口 |
 | `receipt-emoji` | `OnIt` | 回执使用的飞书 emoji 类型名 |
 | `chat-timeout-seconds` | `300` | 单条生成上限 |
+| `reply-mode` | `all` | 群聊回复范围：`all` 每条都回 / `mention` 只在 @ 时回 / `probability` 按概率 |
+| `reply-probability` | `1.0` | `probability` 模式的放行概率 |
+| `at-asker` | `false` | 群聊回复是否 @ 提问者 |
+| `quote-reply` | `true` | 引用回复（挂到原消息下）；原消息不可引用时自动退回普通发送 |
+| `reply-in-thread` | `false` | 引用是否走话题（thread）形式 |
 
 回执需要 `im:message.reaction:write` 权限；缺权限只在日志里 warn（且只提醒一次），回复不受影响。
 撤销在 `finally` 里做，成功/失败/超时都不会留下一个卡住的表情。
@@ -144,6 +150,8 @@ export FEISHU_WS_COMMAND_USER=ou_xxx
   sessionId 空转（核心写回有防复活守卫，不报错、也永不自愈）。
 - 长连接在监控页与 watchdog 里是一条独立条目（`feishu-ws`），与 webhook 分开计：
   两条链路的故障不该互相掩盖。判据只有「运行中 + 最近有事件」，7 天没有事件记 UNKNOWN 而非 DOWN。
+- 引用回复失败（原消息被撤回/删除）会退回普通发送：宁可丢引用，不能丢回复。
+- `/recall` 只记「对话回复与表情图」，不记指令回执——否则撤回会在指令回复之间打架。
 - 发消息遇到 401 / 429 / 5xx 会重试一次（401 先清 token 缓存）；其余失败不重试。
 - 表情标记会随回复一起写进会话快照（与 QQ 相同）：`/history` 里能看到 `[emoji:happy]`，
   下一轮上下文里也有。要清掉得在 core 的 `ReplyPostProcessor` 做，但那个扩展点不带渠道参数，

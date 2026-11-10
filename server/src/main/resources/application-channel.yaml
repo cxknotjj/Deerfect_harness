@@ -42,6 +42,12 @@ channel:
       queue-capacity: 32                       # 入站有界队列；满了丢新消息并记 warn
       chat-timeout-seconds: 300                # 单条生成上限；超时放弃回复，会话记忆仍落库
       reply-max-chars: 3000                    # 回复正文上限（字符）；超长截断并标注，避免整条发不出去
+      # 回复形态（群聊）：all 每条都回 / mention 只在 @ 时回 / probability 按概率回
+      reply-mode: all
+      reply-probability: 1.0                   # reply-mode=probability 时的放行概率
+      at-asker: false                          # 群聊回复是否 @ 提问者
+      quote-reply: true                        # 引用回复（挂到原消息下）；失败自动退回普通发送
+      reply-in-thread: false                   # 引用是否走话题（thread）形式
       # 长任务回执：超过阈值仍未回复时给原消息贴一个表情，答完自动撤销。
       # 需要 im:message.reaction:write 权限；缺权限只 warn（且只提醒一次），不影响回复。
       receipt-reaction-enabled: true

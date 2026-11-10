@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -122,20 +123,16 @@ public class FeishuApiClient {
         } catch (IOException e) {
             return new Result(false, null, "回复内容序列化失败：" + e.getMessage());
         }
-        Attempt attempt = postMessage(receiveIdType, receiveId, msgType, contentJson);
-        if (!attempt.result().sent() && attempt.retryable()) {
-            if (attempt.refreshToken()) {
-                token = null; // 令牌被提前吊销：清缓存，下一次调用会重取
-            }
-            if (!sleepBeforeRetry()) {
-                return attempt.result();
-            }
-            attempt = postMessage(receiveIdType, receiveId, msgType, contentJson);
-        }
-        return attempt.result();
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("receive_id", receiveId);
+        body.put("msg_type", msgType);
+        body.put("content", contentJson);
+        return execute(() -> postJson(URI.create(baseUrl
+                + "/open-apis/im/v1/messages?receive_id_type=" + receiveIdType), body));
     }
 
-    private Attempt postMessage(String receiveIdType, String receiveId, String msgType, String contentJson) {
+    /** 一次 GET 之外的写请求；重试策略由 {@link #execute} 统一处理 */
+    private Attempt postJson(URI uri, Map<String, Object> body) {
         String accessToken;
         try {
             accessToken = tenantAccessToken();
@@ -143,14 +140,7 @@ public class FeishuApiClient {
             return new Attempt(new Result(false, null, "获取 tenant_access_token 失败：" + e.getMessage()),
                     false, false);
         }
-
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("receive_id", receiveId);
-        body.put("msg_type", msgType);
-        body.put("content", contentJson);
-
-        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl
-                        + "/open-apis/im/v1/messages?receive_id_type=" + receiveIdType))
+        HttpRequest request = HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofSeconds(20))
                 .header("Authorization", "Bearer " + accessToken)
                 .header("Content-Type", "application/json; charset=utf-8")
@@ -171,11 +161,26 @@ public class FeishuApiClient {
                     new Result(false, null, "HTTP " + status + " code=" + code + "：" + abbreviate(msg)),
                     refresh || isTransient(status), refresh);
         } catch (IOException e) {
-            return new Attempt(new Result(false, null, "发送请求失败：" + e), false, false);
+            return new Attempt(new Result(false, null, "请求失败：" + e), false, false);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return new Attempt(new Result(false, null, "发送被中断"), false, false);
+            return new Attempt(new Result(false, null, "请求被中断"), false, false);
         }
+    }
+
+    /** 执行一次写请求，必要时重试一次（401 先清 token 缓存） */
+    private Result execute(Supplier<Attempt> call) {
+        Attempt attempt = call.get();
+        if (!attempt.result().sent() && attempt.retryable()) {
+            if (attempt.refreshToken()) {
+                token = null; // 令牌被提前吊销：清缓存，重试会重新获取
+            }
+            if (!sleepBeforeRetry()) {
+                return attempt.result();
+            }
+            attempt = call.get();
+        }
+        return attempt.result();
     }
 
     /** 令牌失效：HTTP 401，或飞书的 token 类错误码（过期/无效） */
@@ -265,6 +270,82 @@ public class FeishuApiClient {
     }
 
     private record Token(String value, Instant expiresAt) {
+    }
+
+    /**
+     * 引用回复：把回复挂到原消息下（群里显示引用块）。
+     *
+     * <p>比普通发送多一个好处：用户能看出这句话在回哪一条，群聊多话题并行时不串楼。
+     * 原消息被撤回/删除时接口会报错，调用方退回普通发送。
+     *
+     * @param inThread true = 以话题形式回复（飞书 thread），默认 false 只是引用
+     */
+    public Result replyText(String messageId, String text, boolean inThread) {
+        if (text == null || text.isBlank()) {
+            return new Result(false, null, "正文为空");
+        }
+        return reply(messageId, "text", Map.of("text", text), inThread);
+    }
+
+    /** 引用回复一张图片（表情包走这条） */
+    public Result replyImage(String messageId, String imageKey, boolean inThread) {
+        if (imageKey == null || imageKey.isBlank()) {
+            return new Result(false, null, "image_key 为空");
+        }
+        return reply(messageId, "image", Map.of("image_key", imageKey), inThread);
+    }
+
+    private Result reply(String messageId, String msgType, Object content, boolean inThread) {
+        if (messageId == null || messageId.isBlank()) {
+            return new Result(false, null, "messageId 为空");
+        }
+        String contentJson;
+        try {
+            contentJson = json.writeValueAsString(content);
+        } catch (IOException e) {
+            return new Result(false, null, "回复内容序列化失败：" + e.getMessage());
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("msg_type", msgType);
+        body.put("content", contentJson);
+        body.put("reply_in_thread", inThread);
+        return execute(() -> postJson(URI.create(baseUrl
+                + "/open-apis/im/v1/messages/" + messageId + "/reply"), body));
+    }
+
+    /** 撤回机器人自己发出的消息（别人的消息撤不了）；失败带可读原因 */
+    public Result deleteMessage(String messageId) {
+        if (messageId == null || messageId.isBlank()) {
+            return new Result(false, null, "messageId 为空");
+        }
+        String accessToken;
+        try {
+            accessToken = tenantAccessToken();
+        } catch (Exception e) {
+            return new Result(false, null, "获取 tenant_access_token 失败：" + e.getMessage());
+        }
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl
+                        + "/open-apis/im/v1/messages/" + messageId))
+                .timeout(Duration.ofSeconds(10))
+                .header("Authorization", "Bearer " + accessToken)
+                .DELETE()
+                .build();
+        try {
+            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            JsonNode node = readTree(response.body());
+            int code = node == null ? -1 : node.path("code").asInt(-1);
+            if (response.statusCode() / 100 == 2 && code == 0) {
+                return new Result(true, messageId, null);
+            }
+            String msg = node == null ? response.body() : node.path("msg").asText("");
+            return new Result(false, null,
+                    "HTTP " + response.statusCode() + " code=" + code + "：" + abbreviate(msg));
+        } catch (IOException e) {
+            return new Result(false, null, "撤回请求失败：" + e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new Result(false, null, "撤回被中断");
+        }
     }
 
     /**

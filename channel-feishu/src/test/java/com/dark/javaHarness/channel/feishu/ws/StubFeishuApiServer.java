@@ -29,6 +29,8 @@ final class StubFeishuApiServer implements AutoCloseable {
     private final List<String> resourceRequests = new CopyOnWriteArrayList<>();
     private final List<String> uploadRequests = new CopyOnWriteArrayList<>();
     private final List<String> reactionRequests = new CopyOnWriteArrayList<>();
+    private final List<String> replyRequests = new CopyOnWriteArrayList<>();
+    private final List<String> deleteRequests = new CopyOnWriteArrayList<>();
     private volatile String reactionBody = "{\"code\":0,\"msg\":\"success\",\"data\":{\"reaction_id\":\"re_1\"}}";
     /** 接下来 N 次发消息强制失败：用来验重试与 401 刷新 */
     private final java.util.concurrent.atomic.AtomicInteger remainingFailures =
@@ -61,6 +63,16 @@ final class StubFeishuApiServer implements AutoCloseable {
         // 更长前缀优先：/messages/{id}/resources/{key} 落到这里，发消息仍走上面那个
         server.createContext("/open-apis/im/v1/messages/", exchange -> {
             String path = exchange.getRequestURI().getPath();
+            if (path.endsWith("/reply")) {
+                replyRequests.add("POST " + path + "|" + read(exchange.getRequestBody().readAllBytes()));
+                respond(exchange, messageStatus, messageBody);
+                return;
+            }
+            if ("DELETE".equals(exchange.getRequestMethod()) && !path.contains("/reactions")) {
+                deleteRequests.add("DELETE " + path);
+                respond(exchange, 200, "{\"code\":0,\"msg\":\"success\"}");
+                return;
+            }
             if (path.contains("/reactions")) {
                 reactionRequests.add(exchange.getRequestMethod() + " " + path + "|"
                         + read(exchange.getRequestBody().readAllBytes()));
@@ -119,6 +131,14 @@ final class StubFeishuApiServer implements AutoCloseable {
 
     List<String> reactionRequests() {
         return reactionRequests;
+    }
+
+    List<String> replyRequests() {
+        return replyRequests;
+    }
+
+    List<String> deleteRequests() {
+        return deleteRequests;
     }
 
     /** 接下来 times 次发消息返回指定错误（其余请求正常） */

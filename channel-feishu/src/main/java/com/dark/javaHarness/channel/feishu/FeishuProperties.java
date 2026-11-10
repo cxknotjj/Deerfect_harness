@@ -134,6 +134,25 @@ public class FeishuProperties {
         /** 回复正文长度上限（字符）：超长截断，避免整条消息因体积超限发不出去 */
         private int replyMaxChars = 3000;
 
+        /**
+         * 群聊回复模式：{@code all} 每条都回 / {@code mention} 只在 @ 机器人时回 /
+         * {@code probability} 按 {@link #replyProbability} 随机回。
+         * 单聊不受影响；指令也不受限制（显式操作不该被概率吞掉）。
+         */
+        private String replyMode = "all";
+
+        /** probability 模式的放行概率（0.0~1.0） */
+        private double replyProbability = 1.0;
+
+        /** 群聊回复是否 @ 提问者：多人群里一眼看出在回谁 */
+        private boolean atAsker;
+
+        /** 是否用引用回复（挂到原消息下）；原消息不可引用时自动退回普通发送 */
+        private boolean quoteReply = true;
+
+        /** 引用回复是否走话题（thread）；默认 false 只是引用块 */
+        private boolean replyInThread;
+
         /** 长任务回执：回复超过 receipt-delay-ms 仍未完成时，给原消息贴一个表情回应 */
         private boolean receiptReactionEnabled = true;
 
@@ -216,6 +235,46 @@ public class FeishuProperties {
 
         public void setReplyMaxChars(int replyMaxChars) {
             this.replyMaxChars = replyMaxChars;
+        }
+
+        public String getReplyMode() {
+            return replyMode;
+        }
+
+        public void setReplyMode(String replyMode) {
+            this.replyMode = replyMode;
+        }
+
+        public double getReplyProbability() {
+            return replyProbability;
+        }
+
+        public void setReplyProbability(double replyProbability) {
+            this.replyProbability = replyProbability;
+        }
+
+        public boolean isAtAsker() {
+            return atAsker;
+        }
+
+        public void setAtAsker(boolean atAsker) {
+            this.atAsker = atAsker;
+        }
+
+        public boolean isQuoteReply() {
+            return quoteReply;
+        }
+
+        public void setQuoteReply(boolean quoteReply) {
+            this.quoteReply = quoteReply;
+        }
+
+        public boolean isReplyInThread() {
+            return replyInThread;
+        }
+
+        public void setReplyInThread(boolean replyInThread) {
+            this.replyInThread = replyInThread;
         }
 
         public boolean isReceiptReactionEnabled() {
