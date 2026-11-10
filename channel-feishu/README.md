@@ -126,6 +126,9 @@ export FEISHU_WS_COMMAND_USER=ou_xxx
   回复用 `receive_id_type=chat_id`。机器人自己的消息按 `sender_type` 过滤，避免自回环。
 - 图片需要 `im:resource` 权限下载（`GET /im/v1/messages/{message_id}/resources/{file_key}?type=image`），
   单张上限 8 MB；下载失败只跳过该图，文本照常回复。
+- 表情标记会随回复一起写进会话快照（与 QQ 相同）：`/history` 里能看到 `[emoji:happy]`，
+  下一轮上下文里也有。要清掉得在 core 的 `ReplyPostProcessor` 做，但那个扩展点不带渠道参数，
+  会把 QQ 的标记一起剥掉，所以留在渠道侧处理。
 - 发图（表情）需要 `im:resource`——与下载图片同一个权限；缺权限时上传返回 403，只在日志里 warn，文本照常发出。
 - 图片只对 Agentic 路径生效：多 Agent 编排（`MultiAgentGraphAgent`）走 `Agent.execute` 的默认实现，
   附件会被丢弃。图片也不进会话快照，下一轮看不到上一轮的图。
