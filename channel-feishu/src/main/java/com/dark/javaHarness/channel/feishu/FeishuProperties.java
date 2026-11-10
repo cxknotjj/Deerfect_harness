@@ -115,6 +115,16 @@ public class FeishuProperties {
          */
         private List<String> allowedUsers = new ArrayList<>();
 
+        /**
+         * 指令授权：只有这个 open_id 能使用 {@code /new} {@code /help} {@code /agent} 等指令。
+         *
+         * <p>为空时取 {@link #allowedUsers} 的第一位（启动日志会注明回退了），
+         * 白名单也为空时指令对所有人不可用——那个状态下消息本身就不会被处理。
+         * 指令能在群里执行（重置的只是「这个人 + 这个群」的会话），所以不能让群里任何人
+         * 都能重置别人的上下文。
+         */
+        private String commandUser;
+
         /** 入站队列容量：满了直接丢弃并记日志，不做无界堆积 */
         private int queueCapacity = 32;
 
@@ -159,6 +169,14 @@ public class FeishuProperties {
 
         public void setAllowedUsers(List<String> allowedUsers) {
             this.allowedUsers = allowedUsers == null ? new ArrayList<>() : allowedUsers;
+        }
+
+        public String getCommandUser() {
+            return commandUser;
+        }
+
+        public void setCommandUser(String commandUser) {
+            this.commandUser = commandUser;
         }
 
         public int getQueueCapacity() {

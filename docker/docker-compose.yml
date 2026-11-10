@@ -146,6 +146,7 @@ services:
       FEISHU_APP_ID: ${FEISHU_APP_ID:-}
       FEISHU_APP_SECRET: ${FEISHU_APP_SECRET:-}
       CHANNEL_FEISHU_WS_ALLOWED_USERS: ${CHANNEL_FEISHU_WS_ALLOWED_USERS:-}
+      FEISHU_WS_COMMAND_USER: ${FEISHU_WS_COMMAND_USER:-}
     volumes:
       # 沙箱工具（DooD）：应用经宿主 Docker 守护进程拉起沙箱容器。
       # 沙箱在容器内默认走 unix socket 标准发现，无需配 DOCKER_HOST；

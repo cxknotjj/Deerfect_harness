@@ -22,7 +22,7 @@ channel-feishu/
     │   ├── FeishuWebhookSender.java   # M3a：签名 + 错误码翻译 + 20 KB 预检
     │   ├── FeishuHealth.java          # 健康快照（沿用「真实流量当探针」）
     │   ├── persistence/  (2)          # 会话绑定：open_id + chat_id → session
-    │   └── ws/           (10)         # M3b 长连接入站
+    │   └── ws/           (12)         # M3b 长连接入站
     └── test/java/com/dark/javaHarness/channel/feishu/...
 ```
 
@@ -49,7 +49,8 @@ channel-feishu/
 | `FeishuWsTransport` / `SdkFeishuWsTransport` | 传输层抽象 / oapi-sdk 实现（拆开是为了让生命周期可单测） |
 | `FeishuInboundService` | 入站队列（2~4 线程，有界 32）：只做判定 + 入队，SDK 回调毫秒级返回 |
 | `FeishuEventDedup` | `event_id` 5 分钟 TTL 去重（容量 2048） |
-| `FeishuChatHandler` | **按会话串行** → 绑定会话 → 调 `ChatService` → 回复 |
+| `FeishuChatHandler` | **按会话串行** → 绑定会话 → 调 `ChatService` → 回复；指令在入队前拦掉 |
+| `FeishuCommandParser` | `/name arg` 解析（纯函数）；只认白名单指令名，其余回落成普通消息 |
 | `FeishuApiClient` | `im/v1/messages` 发送，`tenant_access_token` 缓存到过期前 60 秒 |
 | `FeishuInboundMessage` / `FeishuMessageHandler` | 入站消息值对象 / 处理器接口 |
 
@@ -61,6 +62,33 @@ channel-feishu/
 - **按会话串行**：同一 `sessionId` 同时只跑一轮，第二条排队（容量 1），第三条回
   「上一条还在处理」。理由是写回虽有行锁，但「读上下文」在模型调用前、无锁，
   并发两条会各自基于旧上下文回答。
+
+## 指令（仅授权人可用）
+
+`FeishuChatHandler` 在入队之前拦指令：不建会话、不进会话队列、不调模型——`/help` 不该为了
+回一段固定文案先建一个会话，也不该排在一条 30 秒的生成任务后面。
+
+| 指令 | 作用 |
+| --- | --- |
+| `/new`、`/reset` | 删掉 `(open_id, chat_id)` 的绑定，下条消息建新会话（旧会话行保留，Web 仍可查） |
+| `/history [n]` | 最近 n 条对话，默认 5、上限 20 |
+| `/agent` | 列出可用 Agent，标出当前绑定的那个 |
+| `/agent <名>` | 切换本会话的 Agent（需要已有会话） |
+| `/help` | 上面这份清单 |
+
+**为什么只有一个人能用**：指令在群里也生效，而 `/new` 重置的是「这个人 + 这个群」的上下文。
+放开给所有人，群里任何成员都能打散别人的对话。授权口径是单个 open_id：
+
+```bash
+export FEISHU_WS_COMMAND_USER=ou_xxx
+```
+
+留空时回退 `allowed-users` 首位（启动日志会注明回退了）；两者都空时指令不可用。
+**注意 `command-user` 必须在 `allowed-users` 里**，否则入站白名单会先把消息挡掉，
+表现为「指令发了没反应」，启动日志会有一条 warn。
+
+非授权用户发指令会收到一句「指令只有管理员能用」，**不交给模型**——模型会顺着斜杠编出
+一份并不存在的命令清单，比不回复更糟。不认识的 `/xxx` 不拦截，照常走聊天。
 
 ## 边界
 
@@ -74,3 +102,5 @@ channel-feishu/
   附件会被丢弃。图片也不进会话快照，下一轮看不到上一轮的图。
 - 长连接没有回调端点，因此没有验签三关：安全边界是「App 凭据握手 + 可选 encrypt-key +
   `allowed-users` 白名单」。白名单为空时进入**配对模式**：只打印 open_id，不回复。
+- 指令只有 `command-user` 一个 open_id 能用，且不提供 `/recall`：撤回需要记住每条发出消息的
+  id 并调用删除接口，是唯一带新增状态的功能，暂未做。

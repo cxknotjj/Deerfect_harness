@@ -2,6 +2,7 @@ package com.dark.javaHarness.channel.feishu.ws;
 
 import com.dark.javaHarness.channel.feishu.FeishuProperties;
 import com.dark.javaHarness.channel.feishu.persistence.FeishuSessionBindingMapper;
+import com.dark.javaHarness.contract.api.AgentService;
 import com.dark.javaHarness.contract.api.ChatService;
 import com.dark.javaHarness.contract.api.SessionService;
 import org.mybatis.spring.annotation.MapperScan;
@@ -33,14 +34,15 @@ public class FeishuWsConfig {
         return new FeishuApiClient(props);
     }
 
-    /** 入站消息的最终处理器：调 ChatService 并回复 */
+    /** 入站消息的最终处理器：调 ChatService 并回复（/agent 指令需要 AgentService 列 Agent） */
     @Bean
     public FeishuMessageHandler feishuChatHandler(ChatService chatService,
                                                   SessionService sessionService,
+                                                  AgentService agentService,
                                                   FeishuSessionBindingMapper bindingMapper,
                                                   FeishuApiClient api,
                                                   FeishuProperties props) {
-        return new FeishuChatHandler(chatService, sessionService, bindingMapper, api, props);
+        return new FeishuChatHandler(chatService, sessionService, agentService, bindingMapper, api, props);
     }
 
     @Bean

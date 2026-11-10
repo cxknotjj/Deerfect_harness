@@ -4,11 +4,15 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.dark.javaHarness.channel.feishu.FeishuProperties;
 import com.dark.javaHarness.channel.feishu.persistence.FeishuSessionBinding;
 import com.dark.javaHarness.channel.feishu.persistence.FeishuSessionBindingMapper;
+import com.dark.javaHarness.contract.api.AgentService;
 import com.dark.javaHarness.contract.api.ChatService;
 import com.dark.javaHarness.contract.api.SessionService;
 import com.dark.javaHarness.contract.model.ChatAttachment;
+import com.dark.javaHarness.contract.model.SessionInfo;
+import com.dark.javaHarness.view.AgentItemView;
 import com.dark.javaHarness.view.ChatRequest;
 import com.dark.javaHarness.view.ChatResponse;
+import com.dark.javaHarness.view.SessionMessagesView;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -67,13 +71,30 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
 
     private static final String BUSY_NOTICE = "上一条还在处理，稍等片刻再发。";
 
+    /** 指令帮助文案：只列真正支持的，别让模型或用户以为有 /recall */
+    private static final String HELP_TEXT = """
+            可用指令（仅限管理员）：
+            /new 开启新对话（清空当前会话记忆）
+            /reset 同 /new
+            /history [n] 查看最近 n 条对话（默认 5）
+            /agent 查看可用 Agent
+            /agent <名> 切换当前会话使用的 Agent""";
+
+    /** /history 默认条数与上限：上限只为避免脚本刷屏把回复撑成几千字 */
+    private static final int HISTORY_DEFAULT = 5;
+    private static final int HISTORY_MAX = 20;
+    private static final int HISTORY_ITEM_MAX = 60;
+
     /** 单张图片上限：飞书本身限 10 MB，这里留余量，避免 base64 后请求体过大 */
     private static final int MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 
     private final ChatService chatService;
     private final SessionService sessionService;
+    private final AgentService agentService;
     private final FeishuSessionBindingMapper bindingMapper;
     private final FeishuApiClient api;
+    /** 唯一允许使用指令的 open_id（配置优先，留空回退白名单首位；空串 = 指令不可用） */
+    private final String commandUser;
     private final int timeoutSeconds;
     private final ThreadPoolExecutor chatExecutor;
     private final ExecutorService driver;
@@ -82,13 +103,16 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
 
     public FeishuChatHandler(ChatService chatService,
                              SessionService sessionService,
+                             AgentService agentService,
                              FeishuSessionBindingMapper bindingMapper,
                              FeishuApiClient api,
                              FeishuProperties props) {
         this.chatService = chatService;
         this.sessionService = sessionService;
+        this.agentService = agentService;
         this.bindingMapper = bindingMapper;
         this.api = api;
+        this.commandUser = resolveCommandUser(props);
         this.timeoutSeconds = Math.max(1, props.getWs().getChatTimeoutSeconds());
         this.chatExecutor = new ThreadPoolExecutor(2, 2, 60, TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>(8),
@@ -112,6 +136,13 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
      * 被拒收的消息立即完成，不会悬挂调用方。
      */
     CompletableFuture<Void> handleAsync(FeishuInboundMessage message) {
+        // 指令在入队之前拦掉：/help 不该为了回一段固定文案先建一个会话，
+        // 也不该排在一条 30 秒的生成任务后面等
+        FeishuCommandParser.Parsed command = FeishuCommandParser.parse(message.text());
+        if (command != null) {
+            return handleCommand(message, command);
+        }
+
         long sessionId;
         try {
             sessionId = sessionIdOf(message);
@@ -174,6 +205,198 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
     public void destroy() {
         driver.shutdownNow();
         chatExecutor.shutdownNow();
+    }
+
+    /**
+     * 指令处理：不建会话、不进会话队列、不调模型，跑在虚拟线程上。
+     *
+     * <p><b>为什么只有一个人能用</b>：指令能在群里执行，而 {@code /new} 会把「这个人 + 这个群」
+     * 的上下文重置。若放开给群里所有人，任何一个成员都能把别人正在进行的对话打散。
+     * 授权口径是单个 open_id，不是白名单——白名单回答的是「谁能和机器人说话」。
+     *
+     * <p>非授权用户发指令得到一句明确提示，而不是交给模型：模型会顺着斜杠编出一份
+     * 并不存在的命令清单，比不回复更糟。
+     */
+    private CompletableFuture<Void> handleCommand(FeishuInboundMessage message,
+                                                  FeishuCommandParser.Parsed command) {
+        CompletableFuture<Void> done = new CompletableFuture<>();
+        if (!commandUser.equals(message.openId())) {
+            log.info("[feishu] 非授权用户尝试指令 openId={} command={}", message.openId(), command.name());
+            submitTurn(() -> {
+                reply(message, "指令只有管理员能用。直接说话就行，我照样会回答。");
+                done.complete(null);
+            });
+            return done;
+        }
+        log.info("[feishu] 执行指令 /{} arg='{}' openId={} chatId={}",
+                command.name(), command.arg(), message.openId(), message.chatId());
+        submitTurn(() -> {
+            try {
+                doCommand(message, command);
+            } catch (Exception e) {
+                log.error("[feishu] 指令执行失败 command={} openId={}", command.name(), message.openId(), e);
+                reply(message, "指令执行失败：" + e.getMessage());
+            } finally {
+                done.complete(null);
+            }
+        });
+        return done;
+    }
+
+    private void doCommand(FeishuInboundMessage message, FeishuCommandParser.Parsed command) {
+        switch (command.name()) {
+            case "new", "reset" -> resetSession(message);
+            case "help" -> reply(message, HELP_TEXT);
+            case "history" -> history(message, command.arg());
+            case "agent" -> agent(message, command.arg());
+            // 解析器只放行白名单指令名，走不到这里；留着防御未来加命令忘了加分支
+            default -> reply(message, "不认识的指令，发 /help 看看能做什么。");
+        }
+    }
+
+    /**
+     * /new 与 /reset：只删绑定，不删会话行——历史仍能在 Web 控制台查到，
+     * 下一条消息会建一个新会话。（与 QQ 的 resetSession 同语义）
+     */
+    private void resetSession(FeishuInboundMessage message) {
+        int deleted = bindingMapper.delete(new QueryWrapper<FeishuSessionBinding>()
+                .eq("open_id", message.openId())
+                .eq("chat_id", message.chatId()));
+        log.info("[feishu] 会话重置 openId={} chatId={}（删除 {} 行绑定）",
+                message.openId(), message.chatId(), deleted);
+        reply(message, deleted > 0
+                ? "已开启新对话，之前的记忆不会带过来。"
+                : "当前还没有进行中的对话，直接说就行。");
+    }
+
+    /** /history [n]：只读当前绑定的会话，没有绑定就说明还没聊过 */
+    private void history(FeishuInboundMessage message, String arg) {
+        FeishuSessionBinding binding = find(message);
+        if (binding == null) {
+            reply(message, "我们还没有聊天记录哦。");
+            return;
+        }
+        List<SessionMessagesView.Item> messages =
+                sessionService.listMessages(String.valueOf(binding.getSessionId()));
+        if (messages == null || messages.isEmpty()) {
+            reply(message, "我们还没有聊天记录哦。");
+            return;
+        }
+        int n = parsePositiveInt(arg, HISTORY_DEFAULT);
+        List<SessionMessagesView.Item> tail =
+                messages.subList(Math.max(0, messages.size() - n), messages.size());
+        StringBuilder sb = new StringBuilder("最近 " + tail.size() + " 条：");
+        for (SessionMessagesView.Item item : tail) {
+            sb.append('\n').append("user".equals(item.role()) ? "你：" : "我：")
+                    .append(truncate(item.content(), HISTORY_ITEM_MAX));
+        }
+        reply(message, sb.toString());
+    }
+
+    /** /agent 无参列出（标记当前），带参切换；切换需要已有会话 */
+    private void agent(FeishuInboundMessage message, String arg) {
+        List<AgentItemView> agents = agentService.agentItems();
+        FeishuSessionBinding binding = find(message);
+        Long currentId = currentAgentId(binding);
+        if (arg == null || arg.isBlank()) {
+            reply(message, "可用 Agent：\n" + formatAgents(agents, currentId));
+            return;
+        }
+        String name = arg.trim();
+        Long targetId = agents.stream()
+                .filter(item -> item.name() != null && item.name().equalsIgnoreCase(name))
+                .map(AgentItemView::id)
+                .findFirst().orElse(null);
+        if (targetId == null) {
+            reply(message, "没找到这个 Agent，可用：\n" + formatAgents(agents, currentId));
+            return;
+        }
+        if (binding == null) {
+            reply(message, "先和我说句话建立会话，再切换 Agent 吧。");
+            return;
+        }
+        try {
+            sessionService.switchAgent(String.valueOf(binding.getSessionId()), targetId);
+            reply(message, "已切换到 Agent：" + name);
+        } catch (IllegalArgumentException e) {
+            reply(message, "切换失败：" + e.getMessage());
+        }
+    }
+
+    private Long currentAgentId(FeishuSessionBinding binding) {
+        if (binding == null) {
+            return null;
+        }
+        SessionInfo session = sessionService.getSession(String.valueOf(binding.getSessionId()));
+        return session == null || session.agentId() == null ? null : session.agentId().longValue();
+    }
+
+    private static String formatAgents(List<AgentItemView> agents, Long currentId) {
+        StringBuilder sb = new StringBuilder();
+        for (AgentItemView item : agents) {
+            boolean current = item.id() != null && item.id().equals(currentId);
+            sb.append(current ? "→ " : "  ").append(item.name());
+            if (current) {
+                sb.append("（当前）");
+            }
+            sb.append('\n');
+        }
+        return sb.toString().stripTrailing();
+    }
+
+    private static int parsePositiveInt(String raw, int fallback) {
+        if (raw == null || raw.isBlank()) {
+            return fallback;
+        }
+        try {
+            int value = Integer.parseInt(raw.trim());
+            return value <= 0 ? fallback : Math.min(value, HISTORY_MAX);
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    /** 单行截断：历史回显里换行会把一条消息撑成多行，读起来分不清谁说的 */
+    private static String truncate(String text, int max) {
+        if (text == null) {
+            return "";
+        }
+        String single = text.replaceAll("[\\r\\n]+", " ").trim();
+        return single.length() <= max ? single : single.substring(0, max) + "…";
+    }
+
+    /** 指令回复出口：群聊回 chat_id，单聊回 open_id，与正常回复同一条路径 */
+    private void reply(FeishuInboundMessage message, String text) {
+        FeishuApiClient.Result result = message.group()
+                ? api.sendTextToChat(message.chatId(), text)
+                : api.sendText(message.openId(), text);
+        if (!result.sent()) {
+            log.warn("[feishu] 指令回复失败 {}={} 原因={}",
+                    message.group() ? "chatId" : "openId", message.replyId(), result.reason());
+        }
+    }
+
+    /**
+     * 生效的指令授权：{@code command-user} 优先，留空回退 {@code allowed-users} 首位。
+     * 两者都没有时返回空串——那个状态下入站白名单本身就挡掉了所有消息，指令不可达。
+     */
+    private static String resolveCommandUser(FeishuProperties props) {
+        List<String> allowed = props.getWs().getAllowedUsers();
+        String configured = props.getWs().getCommandUser();
+        if (configured != null && !configured.isBlank()) {
+            String value = configured.trim();
+            if (allowed != null && !allowed.isEmpty() && !allowed.contains(value)) {
+                log.warn("[feishu] command-user={} 不在 allowed-users 内：入站闸门会先挡掉它的消息，指令永远不会执行",
+                        value);
+            }
+            return value;
+        }
+        if (allowed != null && !allowed.isEmpty()) {
+            log.info("[feishu] 未配置 command-user，指令授权回退到 allowed-users 首位：{}", allowed.get(0));
+            return allowed.get(0);
+        }
+        log.warn("[feishu] 未配置 command-user 且 allowed-users 为空：指令对所有人不可用");
+        return "";
     }
 
     /** 真正处理一条消息；由虚拟线程驱动，模型调用仍在聊天池上 */

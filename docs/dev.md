@@ -367,3 +367,20 @@ export CHANNEL_FEISHU_WS_ALLOWED_USERS=ou_xxx   # 多个用逗号分隔
 
 已知限制：多 Agent 编排路径（`MultiAgentGraphAgent`）走 `Agent.execute` 的默认实现，附件被丢弃；
 图片也不进会话快照（`saveContextBatch` 只存文本），下一轮看不到上一轮的图。
+
+### 飞书指令：只有一个人能用
+
+`FeishuChatHandler` 在入队之前拦 `/new` `/reset` `/help` `/history` `/agent`：不建会话、
+不进会话队列、不调模型。三个设计点：
+
+- **授权是单个 open_id，不是白名单**。白名单回答「谁能和机器人说话」，指令授权回答
+  「谁能重置上下文」。群里也响应指令，而 `/new` 重置的是「这个人 + 这个群」的会话——
+  放开给所有人，任何成员都能把别人正在进行的对话打散。
+- **非授权用户不交给模型**。模型会顺着斜杠编一份并不存在的命令清单，比不回复更糟。
+  回一句固定提示即可。
+- **不认识的 `/xxx` 不拦**。用户可能只是发了条以斜杠开头的普通消息，指令层不该吞掉它。
+
+配置 `FEISHU_WS_COMMAND_USER`（yaml: `channel.feishu.ws.command-user`）；留空回退
+`allowed-users` 首位。**它必须在 `allowed-users` 里**，否则入站闸门先挡掉消息，
+表现为「发指令没反应」——启动日志会打一条 warn。
+

@@ -36,5 +36,8 @@ channel:
       app-secret: ${FEISHU_APP_SECRET:}
       encrypt-key: ${FEISHU_ENCRYPT_KEY:}       # 控制台开启事件加密时才需要
       allowed-users: []                        # open_id 白名单；空 = 配对模式（只打印 open_id，不回复）
+      # 指令授权：只有这个 open_id 能发 /new /help /history /agent（群里也生效）。
+      # 留空则取 allowed-users 首位；指令能重置「这个人 + 这个群」的会话，不能放开给所有人
+      command-user: ${FEISHU_WS_COMMAND_USER:}
       queue-capacity: 32                       # 入站有界队列；满了丢新消息并记 warn
       chat-timeout-seconds: 300                # 单条生成上限；超时放弃回复，会话记忆仍落库

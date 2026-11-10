@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
@@ -14,10 +15,14 @@ import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.dark.javaHarness.channel.feishu.FeishuProperties;
 import com.dark.javaHarness.channel.feishu.persistence.FeishuSessionBinding;
 import com.dark.javaHarness.channel.feishu.persistence.FeishuSessionBindingMapper;
+import com.dark.javaHarness.contract.api.AgentService;
 import com.dark.javaHarness.contract.api.ChatService;
 import com.dark.javaHarness.contract.api.SessionService;
+import com.dark.javaHarness.contract.model.SessionInfo;
+import com.dark.javaHarness.view.AgentItemView;
 import com.dark.javaHarness.view.ChatRequest;
 import com.dark.javaHarness.view.ChatResponse;
+import com.dark.javaHarness.view.SessionMessagesView;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -54,11 +59,21 @@ class FeishuChatHandlerTest {
     @Mock
     private FeishuApiClient api;
 
+    @Mock
+    private AgentService agentService;
+
+    /** 指令授权人：与用例里的普通用户 ou_user 区分开，才能测出「只有一个人能用」 */
+    private static final String COMMANDER = "ou_admin";
+
     private FeishuChatHandler handler;
 
     @BeforeEach
     void setUp() {
-        handler = new FeishuChatHandler(chatService, sessionService, bindingMapper, api, new FeishuProperties());
+        FeishuProperties props = new FeishuProperties();
+        props.getWs().setAllowedUsers(new ArrayList<>(List.of(COMMANDER)));
+        props.getWs().setCommandUser(COMMANDER);
+        handler = new FeishuChatHandler(chatService, sessionService, agentService,
+                bindingMapper, api, props);
     }
 
     @AfterEach
@@ -112,7 +127,8 @@ class FeishuChatHandlerTest {
     void chatTimeout_doesNotReply() throws Exception {
         FeishuProperties props = new FeishuProperties();
         props.getWs().setChatTimeoutSeconds(1);
-        FeishuChatHandler shortTimeout = new FeishuChatHandler(chatService, sessionService, bindingMapper, api, props);
+        FeishuChatHandler shortTimeout = new FeishuChatHandler(chatService, sessionService, agentService,
+                bindingMapper, api, props);
         when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
         when(chatService.chat(any(ChatRequest.class))).thenAnswer(invocation -> {
             Thread.sleep(3000);
@@ -234,6 +250,125 @@ class FeishuChatHandlerTest {
                 .get(5, TimeUnit.SECONDS);
 
         verify(api).sendText("ou_user", "第二条回复");
+    }
+
+    // ---------- 指令：只有授权人能执行，且不建会话、不调模型 ----------
+
+    @Test
+    void help_fromOwner_repliesWithoutCreatingSession() throws Exception {
+        when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_r", null));
+
+        handler.handleAsync(new FeishuInboundMessage(COMMANDER, "oc_chat", "om_c1", "evt-c1", "/help", false))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(api).sendText(eq(COMMANDER), contains("可用指令"));
+        verify(chatService, never()).chat(any());
+        verify(sessionService, never()).createSession(any(), any());
+    }
+
+    @Test
+    void help_fromNonOwner_isRejectedWithoutCallingModel() throws Exception {
+        when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_r", null));
+
+        handler.handleAsync(new FeishuInboundMessage("ou_user", "oc_chat", "om_c2", "evt-c2", "/help", false))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(api).sendText(eq("ou_user"), contains("指令只有管理员能用"));
+        verify(chatService, never()).chat(any());
+    }
+
+    @Test
+    void new_fromOwner_deletesBindingOnly() throws Exception {
+        when(bindingMapper.delete(any(Wrapper.class))).thenReturn(1);
+        when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_r", null));
+
+        handler.handleAsync(new FeishuInboundMessage(COMMANDER, "oc_chat", "om_c3", "evt-c3", "/new", false))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(bindingMapper).delete(any(Wrapper.class));
+        verify(api).sendText(eq(COMMANDER), contains("已开启新对话"));
+        verify(chatService, never()).chat(any());
+    }
+
+    @Test
+    void reset_withoutBinding_saysNoActiveConversation() throws Exception {
+        when(bindingMapper.delete(any(Wrapper.class))).thenReturn(0);
+        when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_r", null));
+
+        handler.handleAsync(new FeishuInboundMessage(COMMANDER, "oc_chat", "om_c4", "evt-c4", "/reset", false))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(api).sendText(eq(COMMANDER), contains("还没有进行中的对话"));
+    }
+
+    @Test
+    void history_withoutBinding_saysNoRecords() throws Exception {
+        when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(null);
+        when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_r", null));
+
+        handler.handleAsync(new FeishuInboundMessage(COMMANDER, "oc_chat", "om_c5", "evt-c5", "/history", false))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(api).sendText(eq(COMMANDER), contains("还没有聊天记录"));
+        verify(sessionService, never()).listMessages(any());
+    }
+
+    @Test
+    void history_returnsRequestedTail() throws Exception {
+        when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
+        when(sessionService.listMessages("7")).thenReturn(List.of(
+                new SessionMessagesView.Item("user", "第一条提问", 1L),
+                new SessionMessagesView.Item("assistant", "第一条回答", 2L),
+                new SessionMessagesView.Item("user", "第二条提问", 3L)));
+        when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_r", null));
+
+        handler.handleAsync(new FeishuInboundMessage(COMMANDER, "oc_chat", "om_c6", "evt-c6", "/history 1", false))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(api).sendText(eq(COMMANDER), contains("第二条提问"));
+        verify(api, never()).sendText(eq(COMMANDER), contains("第一条提问"));
+    }
+
+    @Test
+    void agent_list_marksBoundAgent() throws Exception {
+        when(agentService.agentItems()).thenReturn(List.of(
+                new AgentItemView(1L, "general"), new AgentItemView(2L, "writer")));
+        when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
+        when(sessionService.getSession("7"))
+                .thenReturn(new SessionInfo(7L, "会话", "feishu:ou_admin", null, 2, null));
+        when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_r", null));
+
+        handler.handleAsync(new FeishuInboundMessage(COMMANDER, "oc_chat", "om_c7", "evt-c7", "/agent", false))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(api).sendText(eq(COMMANDER), contains("writer（当前）"));
+    }
+
+    @Test
+    void agent_switch_updatesSessionBinding() throws Exception {
+        when(agentService.agentItems()).thenReturn(List.of(
+                new AgentItemView(1L, "general"), new AgentItemView(2L, "writer")));
+        when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
+        when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_r", null));
+
+        handler.handleAsync(new FeishuInboundMessage(COMMANDER, "oc_chat", "om_c8", "evt-c8", "/agent writer", false))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(sessionService).switchAgent("7", 2L);
+        verify(api).sendText(eq(COMMANDER), contains("已切换到 Agent：writer"));
+    }
+
+    @Test
+    void unrecognizedSlash_isTreatedAsNormalChat() throws Exception {
+        when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
+        when(chatService.chat(any(ChatRequest.class))).thenReturn(reply("普通回复"));
+        when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_r", null));
+
+        handler.handleAsync(new FeishuInboundMessage("ou_user", "oc_chat", "om_c9", "evt-c9", "/tmp 是什么", false))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(chatService).chat(any(ChatRequest.class));
+        verify(api).sendText("ou_user", "普通回复");
     }
 
     private static FeishuSessionBinding binding(long sessionId) {
