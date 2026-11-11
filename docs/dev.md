@@ -4,12 +4,7 @@
 > **FAQ**（实测踩过的坑）。全文按这三类分节，不设第四类标题。
 >
 > 不重复 [README](../README.md) 的快速开始；首次部署见 [guides/setup.md](./guides/setup.md)，  
-> 运维口径见 [ops.md](./ops.md)。设计决策见 [design/](./design/) 下的  
-> [飞书渠道](./design/2026-11-11-feishu-channel-design.md)、  
-> [会话串行](./design/2026-11-11-session-serialization.md)、  
-> [外部工具](./design/2026-11-11-external-tools.md)、  
-> [CLI 终端探测](./design/2026-11-11-cli-terminal-probe.md)；  
-> 一次性历史见 [archive/2026-11-11-dev-history.md](./archive/2026-11-11-dev-history.md)；  
+> 运维口径见 [ops.md](./ops.md)。设计决策见 [design/](./design/)  
 > 渠道 how-to 见 [channel-feishu/README.md](../channel-feishu/README.md)、  
 > [channel-qq/README.md](../channel-qq/README.md)。
 >
@@ -55,9 +50,11 @@
 
 ### 数据库迁移（Flyway）
 
-Flyway 随 server 启动自动迁移，**当前最大版本 `V19`**（`V1` + V2–V19，共 19 个脚本）；  
-新增从 编号，不改已发布脚本。清单以 `server/src/main/resources/db/migration/` 为准，  
-汇总见 [project-structure.md](./project-structure.md) 的「数据库迁移」一节。
+Flyway 随 server 启动自动执行 `server/src/main/resources/db/migration/` 下的脚本；
+新增迁移取**目录里当前最大版本号 +1**，已应用的脚本不可再改。
+
+这里不记录「当前版本是多少」——数字每次加迁移都会变，权威来源就是那个目录。
+各版本做了什么见 [project-structure.md](./project-structure.md) 的「数据库迁移」一节。
 
 ### 前端运行要求（`web/`）
 
@@ -224,6 +221,8 @@ socat TCP-LISTEN:8080,bind=172.17.0.1,fork,reuseaddr TCP:127.0.0.1:8080
 ```
 
 - `NAPCAT_REMOTE_HOST`：远程 NapCat 主机地址，只写仓库根 `.env.local`（已 gitignore），文档/提交里用环境变量引用，不落真实 IP。
+
+
 - `-L 3000` / `-L 6099`：本机访问 `127.0.0.1:3000`（NapCat HTTP API）与 `127.0.0.1:6099`（WebUI）实际连到远程；`application-qq.yaml` 的默认地址无需改。
 - `-R 8080`：远程 `127.0.0.1:8080` 回连本机 harness；NapCat 在容器内只能访问宿主机 Docker 网桥网关，故用 socat 监听 `172.17.0.1:8080` 再转发到反向隧道落点。
 - NapCat 的 OneBot HTTP 上报地址填 `http://172.17.0.1:8080/onebot/event`；本机 harness 需先启动（8080 在监听），否则上报失败。
@@ -238,7 +237,6 @@ IMAGE_REPO=ghcr.io/cxknotjj/deerfect-harness docker compose -f docker/docker-com
 IMAGE_REPO=ghcr.io/cxknotjj/deerfect-harness IMAGE_TAG=sha-xxxxxxx \
   docker compose -f docker/docker-compose.yml up -d --no-build
 ```
-
 
 ```
 
@@ -260,3 +258,4 @@ IMAGE_REPO=ghcr.io/cxknotjj/deerfect-harness IMAGE_TAG=sha-xxxxxxx \
   新环境若复现，先看 `cli/target/surefire-reports` 里 `TerminalInputTest` 的 `time`。
 - **`nvm use` 报权限不足**：nvm-windows 切换版本需要管理员权限；切换失败时 `D:\nodejs` 链接
   可能被移除，重新 `nvm use` 即可重建。
+```

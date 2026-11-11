@@ -219,9 +219,15 @@ server/src/main/java/com/dark/javaHarness/
 > **分层职责**：`controller` 收发 REST/SSE，不承载业务逻辑；`service` 编排核心逻辑（接口与实现分离）；`mapper` / `domain.entity` 负责数据库读写与映射。运行时关注点独立成包：`agent`（Agentic 执行体）、`graph`（Graph 编排）、`state`（检查点/续跑）、`observability`（观测落库与查询）、`validation`（纯规则）。
 
 
-## 数据库迁移（Flyway，V1–V19）
+## 数据库迁移（Flyway）
 
-`server/src/main/resources/db/migration/`，启动时自动执行。**已应用的脚本不可再改**——改动会导致校验和不匹配，需 `flyway repair`（或按 Flyway 的逐行 CRC32 算法校正 `flyway_schema_history.checksum`）后才能启动。
+`server/src/main/resources/db/migration/`，启动时自动执行。编号取**目录里当前最大版本号 +1**，
+不在这里维护「当前版本」——那个数字每次加迁移都会变，以目录为准。
+**已应用的脚本不可再改**——改动会导致校验和不匹配，需 `flyway repair`（或按 Flyway 的
+逐行 CRC32 算法校正 `flyway_schema_history.checksum`）后才能启动。
+
+下表是已落地迁移的说明（记录各版本做了什么、为什么），不是必须与目录逐条同步的清单；
+新增迁移不必回来补表。
 
 | 版本 | 内容 |
 | --- | --- |
