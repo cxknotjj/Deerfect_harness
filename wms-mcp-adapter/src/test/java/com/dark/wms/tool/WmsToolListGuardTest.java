@@ -18,18 +18,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 /**
- * tools/list 只读守护断言：MCP 暴露的工具集合必须恰好等于 spec 附录 A 定稿的
- * 10 个只读工具名单——防写操作工具混入；映射端点必须全部落在只读白名单内
+ * tools/list 只读守护断言：MCP 只暴露一个分发器 {@code wms_query}，
+ * 其资源与参数契约不得出现写操作语义；映射端点必须全部落在只读白名单内
  * （写操作 / exportXls / 面单打印与发送 / {@code /ai/*} 一律不得出现）。
  */
 class WmsToolListGuardTest {
 
-    /** spec 附录 A 定稿：首批 10 个只读工具 */
-    private static final Set<String> READONLY_TOOLS = Set.of(
-            "wms_search_stock", "wms_search_products", "wms_get_product",
-            "wms_search_stock_in_orders", "wms_get_stock_in_order",
-            "wms_search_out_orders", "wms_get_out_order",
-            "wms_search_shipments", "wms_search_warehouse_network", "wms_search_tasks");
+    /** 收敛后唯一的对外工具 */
+    private static final Set<String> READONLY_TOOLS = Set.of("wms_query");
 
     /** 与 WmsEndpoints.all() 一致的只读端点白名单（新增端点必须显式过此处评审） */
     private static final Set<String> READONLY_ENDPOINT_ALLOWLIST = Set.of(
@@ -60,8 +56,22 @@ class WmsToolListGuardTest {
     }
 
     @Test
-    void 暴露的工具恰好等于10个只读工具名单() {
+    void 暴露的工具恰好是唯一分发器() {
         assertThat(exposedToolNames()).containsExactlyInAnyOrderElementsOf(READONLY_TOOLS);
+    }
+
+    @Test
+    void 资源与参数白名单不含写操作语义() {
+        assertThat(WmsTools.contract()).isNotEmpty();
+        WmsTools.contract().forEach((resource, params) -> {
+            assertThat(params).as("资源 %s 的参数白名单", resource).isNotEmpty();
+            FORBIDDEN_FRAGMENTS.forEach(fragment -> {
+                assertThat(resource.toLowerCase())
+                        .as("资源 %s 不应包含 %s", resource, fragment).doesNotContain(fragment);
+                params.forEach(param -> assertThat(param.toLowerCase())
+                        .as("参数 %s 不应包含 %s", param, fragment).doesNotContain(fragment));
+            });
+        });
     }
 
     @Test

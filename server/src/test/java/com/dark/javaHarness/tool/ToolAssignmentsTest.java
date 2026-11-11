@@ -91,17 +91,23 @@ class ToolAssignmentsTest {
     }
 
     @Test
-    void dataDriven_externalHttpPack_resolvesToItsTool() {
-        java.nio.file.Path repoDir = java.nio.file.Path.of("..", "tools", "http");
-        org.junit.jupiter.api.Assumptions.assumeTrue(
-                java.nio.file.Files.isDirectory(repoDir), "非仓库布局，跳过");
+    void dataDriven_externalHttpPack_resolvesToItsTool() throws Exception {
+        java.nio.file.Path dir = java.nio.file.Files.createTempDirectory("harness-tools");
+        java.nio.file.Files.writeString(dir.resolve("sample.yaml"), """
+                pack: sample.query
+                tool:
+                  name: sample_query
+                resources:
+                  x: { path: /x }
+                """);
         com.dark.javaHarness.tool.external.HttpToolLoader loader =
-                new com.dark.javaHarness.tool.external.HttpToolLoader(true, repoDir, false,
+                new com.dark.javaHarness.tool.external.HttpToolLoader(true, dir, false,
                         new tools.jackson.databind.ObjectMapper(),
                         (url, headers, timeout) ->
                                 new com.dark.javaHarness.tool.external.HttpTransport.Response(200, "{}"));
         loader.reload();
-        when(agentConfigProvider.findAgentTools("wms")).thenReturn(java.util.Optional.of("wms.query"));
+        when(agentConfigProvider.findAgentTools("sample-agent"))
+                .thenReturn(java.util.Optional.of("sample.query"));
         RecallHistoryTools recall = new RecallHistoryTools(mock(SessionHistoryArchiveService.class));
         com.dark.javaHarness.tool.builtin.memory.MemoryTools memory =
                 new com.dark.javaHarness.tool.builtin.memory.MemoryTools(
@@ -109,10 +115,10 @@ class ToolAssignmentsTest {
 
         ToolAssignments withExternal = new ToolAssignments(webTools, sandbox, mcp, agentConfigProvider,
                 textToSpeechTools, musicTools(), recall, memory, loader);
-        ToolAssignments.ToolSet set = withExternal.forAgent("wms");
+        ToolAssignments.ToolSet set = withExternal.forAgent("sample-agent");
 
         assertEquals(1, set.callbacks().size(), "pack 名应整组解析");
-        assertEquals("wms_query", set.callbacks().get(0).getToolDefinition().name());
+        assertEquals("sample_query", set.callbacks().get(0).getToolDefinition().name());
     }
 
     private static TextToSpeechTools ttsTools() {

@@ -170,19 +170,6 @@ class HttpToolLoaderTest {
         assertEquals(2, loader.manifests().get(0).resources().size(), "重载后读到新内容");
     }
 
-    @Test
-    void realWmsManifest_parsesCleanly() {
-        Path repoDir = Path.of("..", "tools", "http");
-        org.junit.jupiter.api.Assumptions.assumeTrue(Files.isDirectory(repoDir), "非仓库布局，跳过");
-        HttpToolLoader loader = new HttpToolLoader(true, repoDir, false, mapper, transport);
-
-        List<String> problems = loader.reload();
-
-        assertTrue(problems.isEmpty(), problems.toString());
-        assertEquals(1, loader.manifests().size());
-        assertEquals(20, loader.manifests().get(0).resources().size(), "WMS 二十个只读端点");
-    }
-
     private HttpToolLoader loader(boolean enabled) {
         return new HttpToolLoader(enabled, dir, false, mapper, transport);
     }

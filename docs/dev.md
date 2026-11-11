@@ -511,15 +511,24 @@ core 的 TTS 产出 mp3，飞书语音条（`msg_type=audio`）只认 opus，且
 响应整形也放在清单里：`format: jeecg` 拆 `result` 包装（records 分页 / 数组 / 单对象三种形态），
 `drop-fields` 剔除 `createBy` 这类审计字段。这些是数据，不该每个接入方写一遍代码。
 
-WMS 迁移（V18）：十个专用工具 → `wms.query` 一个工具 + `skills/wms/SKILL.md`。
-原来藏在代码里的「商品名换 productId」组合查询下沉到 skill，代价是模型多一次调用；
-收益是查询套路不再编译进 jar，改法不用重新发布。凭据仍走环境变量
-（`WMS_API_BASE` / `WMS_API_TOKEN` / `WMS_TOKEN_HEADER`），清单里只写变量名。
+WMS 这一步走了两版，值得记下来：
+
+- **V18** 先把十个工具换成 `tools/http/wms.yaml`（`wms.query` pack），组合查询下沉到 skill。
+- 落地后确认适配器本身更适合承载这段逻辑：它是 MCP 服务，有进程隔离、调用方鉴权，
+  而且「商品名换 productId」本来就在服务端做。于是 **V19** 把分发器做进 `WmsTools`：
+  只暴露一个 `wms_query(resource, params)`，十六个资源在内部映射到原有的十段查询逻辑。
+- `tools/http/wms.yaml` 删除——同一批端点写两遍必然漂移。HTTP 机制保留给
+  「不值得起一个服务」的轻量集成。
+
+代价与收益：模型仍然只看到一个工具、一份说明书；不同的是组合查询回到服务端，一次调用完成，
+不用模型先查商品再查库存。参数白名单从 yaml 移进 `WmsTools.ALLOWED`，
+`WmsQueryDispatchTest` 与 `WmsToolListGuardTest` 一起守着（后者原来守十个工具名，现在守资源契约）。
 
 **实测发现的一个坑**：模型会把嵌套对象序列化成字符串
-（`"params":"{\"productId\":\"p1\"}"`），只接受对象的实现会静默丢参数。
-现在两种形态都接，`HttpToolCallbackTest.call_paramsAsJsonString_areParsedNotDropped` 守着。
-这类问题单测造不出来——只有真跑一次、看假服务收到的 query string 才会暴露。
+（`"params":"{\"productId\":\"p1\"}"`），只接受 Map 的实现会在绑定阶段直接失败。
+HTTP 工具和 MCP 分发器现在都用 `Object` 接参数、两种形态都认，
+`HttpToolCallbackTest` 与 `WmsQueryDispatchTest` 各有一条用例守着。
+这类问题单测造不出来——只有真跑一次、看服务端收到的 query string 才会暴露。
 
 能力清单：`GET /api/capabilities` 按来源聚合（core/sandbox/mcp/http/skill），
 每条带定位符（源文件、清单路径、URL、技能目录）；`POST /api/capabilities/reload`
