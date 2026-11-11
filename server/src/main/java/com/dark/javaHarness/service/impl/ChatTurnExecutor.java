@@ -87,7 +87,7 @@ class ChatTurnExecutor {
             return ChatResponse.failure(ctx.sid(), ctx.newSession(), goal.id(), goal.summary(), agent, route);
         }
         return ChatResponse.success(ctx.sid(), ctx.newSession(), goal.id(), pr.text(),
-                decorator.recentSources(ctx.sid()), agent, decorator.withVoiceFlag(turnId, pr.flags()), route);
+                decorator.recentSources(ctx.sid()), agent, decorator.withArtifactFlags(turnId, pr.flags()), route);
     }
 
     /**
@@ -115,6 +115,6 @@ class ChatTurnExecutor {
         }
         return ChatResponse.success(ctx.sid(), ctx.newSession(), retry.id(), pr.text(),
                 decorator.recentSources(ctx.sid()), fallbackAgent,
-                decorator.withVoiceFlag(turnId, pr.flags()), fallbackRoute);
+                decorator.withArtifactFlags(turnId, pr.flags()), fallbackRoute);
     }
 }

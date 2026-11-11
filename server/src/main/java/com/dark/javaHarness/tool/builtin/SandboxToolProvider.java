@@ -51,6 +51,16 @@ public class SandboxToolProvider {
 
     private static final Logger log = LoggerFactory.getLogger(SandboxToolProvider.class);
 
+    @org.springframework.beans.factory.annotation.Autowired
+    public SandboxToolProvider(com.dark.javaHarness.contract.api.FileArtifactStore fileArtifacts) {
+        this.fileArtifacts = fileArtifacts;
+    }
+
+    /** 测试用：没有工件库，工具面不含 send_file */
+    SandboxToolProvider() {
+        this.fileArtifacts = null;
+    }
+
     /** 沙箱内固定的用户/会话标识（容器命名与日志归因） */
     private static final String SANDBOX_USER = "javaHarness";
     private static final String SANDBOX_SESSION = "harness";
@@ -76,6 +86,13 @@ public class SandboxToolProvider {
      * 供 WSL/远程 daemon 等无 unix socket 场景使用；空 = SDK 默认发现
      * （DOCKER_HOST 环境变量 / unix socket，环境变量优先级更高）。
      */
+    /** 文件工件库：send_file 把沙箱产物放这里，渠道在回复时取走上传 */
+    private final com.dark.javaHarness.contract.api.FileArtifactStore fileArtifacts;
+
+    /** 单文件上限（字节）：base64 后还要在内存里多放一份，超限直接拒绝而不是截断 */
+    @Value("${app.sandbox.send-file-max-bytes:2097152}")
+    private long sendFileMaxBytes = 2 * 1024 * 1024;
+
     @Value("${app.sandbox.docker-host:}")
     private String dockerHost;
 
@@ -306,13 +323,17 @@ public class SandboxToolProvider {
         List<ToolCallback> executables = List.of(
                 SandboxShellTools.runPythonCode(box),
                 SandboxShellTools.runShellCommand(box));
-        List<ToolCallback> readOnlyTools = List.of(
+        List<ToolCallback> readOnlyTools = new java.util.ArrayList<>(List.of(
                 SandboxFileTools.readFile(box),
                 SandboxFileTools.readMultipleFiles(box),
                 SandboxFileTools.listDirectory(box),
                 SandboxFileTools.directoryTree(box),
                 SandboxFileTools.searchFiles(box),
-                SandboxFileTools.getFileInfo(box));
+                SandboxFileTools.getFileInfo(box)));
+        if (fileArtifacts != null) {
+            // 归在只读组：只读容器 + 出站附件，不修改沙箱内容；默认 Agent 用的就是这组
+            readOnlyTools.add(SendFileTool.sendFile(box, fileArtifacts, sendFileMaxBytes));
+        }
         List<ToolCallback> writeTools = List.of(
                 SandboxFileTools.writeFile(box),
                 SandboxFileTools.editFile(box),

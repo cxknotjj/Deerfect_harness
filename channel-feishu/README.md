@@ -149,6 +149,29 @@ voice:<id> flag
 
 上传需要 `im:resource` 权限（与发图片同一个）。
 
+## 文件下发
+
+Agent 在沙箱里写出来的报告/代码/表格，用户以前只能看到正文。现在模型可以调
+`send_file` 把产物发出来：
+
+```text
+send_file(path, name?)                     服务端读沙箱文件（stat + base64）
+  → FileArtifactStore.put(turnId, ...)     core 在 flags 里追加 file:<id>
+  → POST /im/v1/files                      file_type=stream（普通文件）
+  → msg_type=file 发送
+```
+
+与语音的区别：**文件是补充，不取代文字**——正文先发，附件随后跟上；上传或发送失败
+只记日志，不影响已经发出去的文字。
+
+约束：
+
+- 单文件上限 `app.sandbox.send-file-max-bytes`（默认 2MB）。超限直接拒绝并告知模型，
+  不截断——半个文件比没有更误导。
+- 只允许 `/workspace` 内的路径（越界读同样会泄漏工作区外内容），路径含单引号一律拒绝
+  （要拼进 shell 命令，无法安全转义）。
+- `send_file` 归在 `sandbox.read` 组：它只读容器、不修改任何东西，所以默认 Agent 就能用。
+
 ## 运行参数
 
 | 配置（`channel.feishu.ws.*`） | 默认 | 说明 |

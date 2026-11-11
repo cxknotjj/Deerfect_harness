@@ -18,54 +18,54 @@ class SandboxGuardsTest {
 
     @Test
     void relativePath_resolvedUnderWorkspace() {
-        assertEquals("/workspace/notes/a.md", SandboxGuards.requireWritablePath("notes/a.md"));
-        assertEquals("/workspace/report.txt", SandboxGuards.requireWritablePath("./report.txt"));
+        assertEquals("/workspace/notes/a.md", SandboxGuards.requireWorkspacePath("notes/a.md"));
+        assertEquals("/workspace/report.txt", SandboxGuards.requireWorkspacePath("./report.txt"));
     }
 
     @Test
     void absolutePathInsideWorkspace_allowed() {
         assertEquals("/workspace/data/out.csv",
-                SandboxGuards.requireWritablePath("/workspace/data/out.csv"));
-        assertEquals("/workspace", SandboxGuards.requireWritablePath("/workspace"));
+                SandboxGuards.requireWorkspacePath("/workspace/data/out.csv"));
+        assertEquals("/workspace", SandboxGuards.requireWorkspacePath("/workspace"));
     }
 
     @Test
     void duplicateSlashesAndDotSegments_normalized() {
-        assertEquals("/workspace/a/b/c", SandboxGuards.requireWritablePath("a//./b/./c"));
-        assertEquals("/workspace/a/c", SandboxGuards.requireWritablePath("/workspace/a/./b/../c"));
+        assertEquals("/workspace/a/b/c", SandboxGuards.requireWorkspacePath("a//./b/./c"));
+        assertEquals("/workspace/a/c", SandboxGuards.requireWorkspacePath("/workspace/a/./b/../c"));
     }
 
     /** 相对路径里的 .. 不能逃出工作区：这是模型最常写的越界形式 */
     @Test
     void relativeTraversal_rejected() {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
-                () -> SandboxGuards.requireWritablePath("../../etc/passwd"));
+                () -> SandboxGuards.requireWorkspacePath("../../etc/passwd"));
         assertTrue(e.getMessage().contains("/workspace"), "错误信息应说明要求的工作区: " + e.getMessage());
     }
 
     @Test
     void absoluteTraversal_rejected() {
         assertThrows(IllegalArgumentException.class,
-                () -> SandboxGuards.requireWritablePath("/workspace/../etc/shadow"));
+                () -> SandboxGuards.requireWorkspacePath("/workspace/../etc/shadow"));
         assertThrows(IllegalArgumentException.class,
-                () -> SandboxGuards.requireWritablePath("/etc/passwd"));
+                () -> SandboxGuards.requireWorkspacePath("/etc/passwd"));
         assertThrows(IllegalArgumentException.class,
-                () -> SandboxGuards.requireWritablePath("/"));
+                () -> SandboxGuards.requireWorkspacePath("/"));
     }
 
     /** ~ 不展开：容器里的家目录取决于镜像用户，静默替换会让模型以为写到了别处 */
     @Test
     void tildePath_rejectedWithHint() {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
-                () -> SandboxGuards.requireWritablePath("~/notes.md"));
+                () -> SandboxGuards.requireWorkspacePath("~/notes.md"));
         assertTrue(e.getMessage().contains("绝对路径"), "应提示改用绝对路径: " + e.getMessage());
-        assertThrows(IllegalArgumentException.class, () -> SandboxGuards.requireWritablePath("~"));
+        assertThrows(IllegalArgumentException.class, () -> SandboxGuards.requireWorkspacePath("~"));
     }
 
     @Test
     void blankPath_rejected() {
-        assertThrows(IllegalArgumentException.class, () -> SandboxGuards.requireWritablePath(null));
-        assertThrows(IllegalArgumentException.class, () -> SandboxGuards.requireWritablePath("   "));
+        assertThrows(IllegalArgumentException.class, () -> SandboxGuards.requireWorkspacePath(null));
+        assertThrows(IllegalArgumentException.class, () -> SandboxGuards.requireWorkspacePath("   "));
     }
 
     // ---------- Shell 命令 ----------

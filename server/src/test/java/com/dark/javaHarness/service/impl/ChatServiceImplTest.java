@@ -37,6 +37,7 @@ import com.dark.javaHarness.contract.spi.ReplyPostProcessor;
 import com.dark.javaHarness.service.RouteJudge;
 import com.dark.javaHarness.contract.model.SessionMessageEntry;
 import com.dark.javaHarness.contract.api.SessionService;
+import com.dark.javaHarness.contract.api.FileArtifactStore;
 import com.dark.javaHarness.contract.api.VoiceArtifactStore;
 import java.util.List;
 import java.util.Optional;
@@ -80,6 +81,8 @@ class ChatServiceImplTest {
     private ObjectProvider<KnowledgeRetriever> knowledgeRetrieverProvider;
     @Mock
     private VoiceArtifactStore voiceArtifacts;
+    @Mock
+    private FileArtifactStore fileArtifacts;
 
     private ChatServiceImpl chatService;
 
@@ -99,7 +102,7 @@ class ChatServiceImplTest {
             lenient().when(knowledgeRetrieverProvider.getIfAvailable()).thenReturn(knowledgeRetriever);
         }
         TurnPersistence persistence = new TurnPersistence(sessionService, agentService, goalService);
-        ReplyDecorator decorator = new ReplyDecorator(replyPostProcessors, voiceArtifacts,
+        ReplyDecorator decorator = new ReplyDecorator(replyPostProcessors, voiceArtifacts, fileArtifacts,
                 knowledgeRetrieverProvider);
         RouteDecider routeDecider = new RouteDecider(routeJudge, ragPrefetcherProvider);
         return new ChatServiceImpl(

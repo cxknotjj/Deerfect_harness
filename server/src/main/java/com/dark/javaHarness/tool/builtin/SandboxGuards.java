@@ -46,12 +46,14 @@ final class SandboxGuards {
      * 根上再 `..` 停在根。`~` 直接拒绝：容器里的家目录不在工作区内，展开成什么取决于
      * 镜像用户，静默替换会让模型以为写到了别处。
      *
+     * <p>读与写共用同一套边界：越界读同样会泄漏工作区外的内容，没必要分两个入口。
+     *
      * @return 归一化后的绝对路径（调用方应使用它，而不是原始入参）
      * @throws IllegalArgumentException 路径为空、以 `~` 开头、或归一化后越出工作区
      */
-    static String requireWritablePath(String raw) {
+    static String requireWorkspacePath(String raw) {
         if (raw == null || raw.isBlank()) {
-            throw new IllegalArgumentException("写入路径不能为空");
+            throw new IllegalArgumentException("路径不能为空");
         }
         String path = raw.trim();
         if (path.equals("~") || path.startsWith("~/")) {
@@ -61,7 +63,7 @@ final class SandboxGuards {
         String resolved = resolve(path);
         if (!resolved.equals(WORKSPACE) && !resolved.startsWith(WORKSPACE + "/")) {
             throw new IllegalArgumentException(
-                    "写入路径必须在 " + WORKSPACE + " 内，实际解析为 " + resolved + "（原始入参 " + raw + "）");
+                    "路径必须在 " + WORKSPACE + " 内，实际解析为 " + resolved + "（原始入参 " + raw + "）");
         }
         return resolved;
     }

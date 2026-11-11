@@ -3,6 +3,7 @@ package com.dark.javaHarness.service.impl;
 import com.dark.javaHarness.view.KnowledgeSource;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.contract.spi.ReplyPostProcessor;
+import com.dark.javaHarness.contract.api.FileArtifactStore;
 import com.dark.javaHarness.contract.api.VoiceArtifactStore;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -23,14 +24,19 @@ class ReplyDecorator {
     /** 本轮语音工件库：工具按 turnId 写入，ChatService 只读查一次并透出 voice:<id> flag */
     private final VoiceArtifactStore voiceArtifacts;
 
+    /** 本轮文件工件库：send_file 按 turnId 写入，这里透出 file:<id> flag */
+    private final FileArtifactStore fileArtifacts;
+
     /** 知识检索器（RAG 出处透出源）；bean 缺位（知识库禁用）时 meta.sources 恒空 */
     private final ObjectProvider<KnowledgeRetriever> knowledgeRetrieverProvider;
 
     ReplyDecorator(ObjectProvider<ReplyPostProcessor> replyPostProcessors,
                    VoiceArtifactStore voiceArtifacts,
+                   FileArtifactStore fileArtifacts,
                    ObjectProvider<KnowledgeRetriever> knowledgeRetrieverProvider) {
         this.replyPostProcessors = replyPostProcessors;
         this.voiceArtifacts = voiceArtifacts;
+        this.fileArtifacts = fileArtifacts;
         this.knowledgeRetrieverProvider = knowledgeRetrieverProvider;
     }
 
@@ -68,6 +74,25 @@ class ReplyDecorator {
                     return Set.copyOf(merged);
                 })
                 .orElse(flags);
+    }
+
+    /**
+     * 本轮有文件工件时追加 file:<id>：与 voice 同一套语义——渠道无关，
+     * 认识的渠道（飞书）上传发送，不认识的忽略 flag 照常回文字。
+     */
+    Set<String> withFileFlag(String turnId, Set<String> flags) {
+        return fileArtifacts.findByTurn(turnId)
+                .map(artifact -> {
+                    Set<String> merged = new LinkedHashSet<>(flags);
+                    merged.add("file:" + artifact.id());
+                    return Set.copyOf(merged);
+                })
+                .orElse(flags);
+    }
+
+    /** 语音 + 文件：两者互不排斥（一轮可以既用语音说又带附件） */
+    Set<String> withArtifactFlags(String turnId, Set<String> flags) {
+        return withFileFlag(turnId, withVoiceFlag(turnId, flags));
     }
 
     /** 本次会话最近一次知识命中的出处（RAG 出处透出；禁用/无命中返回 null，旧客户端兼容） */

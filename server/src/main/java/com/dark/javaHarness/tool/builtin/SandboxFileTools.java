@@ -89,7 +89,7 @@ public final class SandboxFileTools {
         tool.bind(sandbox);
         return SandboxToolSupport.callback(tool,
                 (args, ctx) -> tool.fs_write_file(
-                        SandboxGuards.requireWritablePath(SandboxToolSupport.str(args, "path")),
+                        SandboxGuards.requireWorkspacePath(SandboxToolSupport.str(args, "path")),
                         SandboxToolSupport.str(args, "content")),
                 "Filesystem write_file completed");
     }
@@ -104,7 +104,7 @@ public final class SandboxFileTools {
             Map<String, Object>[] array = edits instanceof List<?> list
                     ? list.toArray(new Map[0]) : new Map[0];
             return tool.fs_edit_file(
-                    SandboxGuards.requireWritablePath(SandboxToolSupport.str(args, "path")), array);
+                    SandboxGuards.requireWorkspacePath(SandboxToolSupport.str(args, "path")), array);
         }, "Filesystem edit_file completed");
     }
 
@@ -114,7 +114,7 @@ public final class SandboxFileTools {
         tool.bind(sandbox);
         return SandboxToolSupport.callback(tool,
                 (args, ctx) -> tool.fs_create_directory(
-                        SandboxGuards.requireWritablePath(SandboxToolSupport.str(args, "path"))),
+                        SandboxGuards.requireWorkspacePath(SandboxToolSupport.str(args, "path"))),
                 "Filesystem create_directory completed");
     }
 
@@ -124,8 +124,8 @@ public final class SandboxFileTools {
         tool.bind(sandbox);
         return SandboxToolSupport.callback(tool,
                 (args, ctx) -> tool.fs_move_file(
-                        SandboxGuards.requireWritablePath(SandboxToolSupport.str(args, "source")),
-                        SandboxGuards.requireWritablePath(SandboxToolSupport.str(args, "destination"))),
+                        SandboxGuards.requireWorkspacePath(SandboxToolSupport.str(args, "source")),
+                        SandboxGuards.requireWorkspacePath(SandboxToolSupport.str(args, "destination"))),
                 "Filesystem move_file completed");
     }
 }

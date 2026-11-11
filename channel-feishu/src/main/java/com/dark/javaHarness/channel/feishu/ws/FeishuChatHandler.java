@@ -8,6 +8,7 @@ import com.dark.javaHarness.contract.api.AgentService;
 import com.dark.javaHarness.contract.api.HarnessStatusPort;
 import com.dark.javaHarness.contract.api.ChatService;
 import com.dark.javaHarness.contract.api.SessionService;
+import com.dark.javaHarness.contract.api.FileArtifactStore;
 import com.dark.javaHarness.contract.api.VoiceArtifactStore;
 import com.dark.javaHarness.contract.model.ChatAttachment;
 import com.dark.javaHarness.contract.model.ComponentStatus;
@@ -139,6 +140,8 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
     private final boolean replyInThread;
     /** 语音回复：core 的 voice:<id> 工件库、mp3→opus 转码器、开关 */
     private final VoiceArtifactStore voiceArtifacts;
+    /** 文件工件库：send_file 的产物，按 file:<id> flag 上传发送 */
+    private final FileArtifactStore fileArtifacts;
     private final FeishuAudioTranscoder audioTranscoder;
     private final boolean voiceEnabled;
     /** 每个会话最近一条机器人消息（/recall 用），key = openId:chatId */
@@ -163,6 +166,7 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
                              FeishuSessionBindingMapper bindingMapper,
                              FeishuApiClient api,
                              VoiceArtifactStore voiceArtifacts,
+                             FileArtifactStore fileArtifacts,
                              FeishuAudioTranscoder audioTranscoder,
                              FeishuProperties props) {
         this.chatService = chatService;
@@ -172,6 +176,7 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
         this.bindingMapper = bindingMapper;
         this.api = api;
         this.voiceArtifacts = voiceArtifacts;
+        this.fileArtifacts = fileArtifacts;
         this.audioTranscoder = audioTranscoder;
         this.voiceEnabled = props.getWs().getVoice().isEnabled();
         this.emoji = new FeishuEmojiCatalog(props.getWs().getEmoji());
@@ -569,14 +574,14 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
         reply(message, result.sent() ? "已撤回上一条。" : "撤回失败：" + result.reason());
     }
 
-    /** 从渠道无关 flags 里取 voice:<id>；没有该 flag 返回 null */
-    private static String voiceId(Set<String> flags) {
+    /** 从渠道无关 flags 里取 {@code prefix<id>}（voice: / file:）；没有该 flag 返回 null */
+    private static String artifactId(Set<String> flags, String prefix) {
         if (flags == null) {
             return null;
         }
         for (String flag : flags) {
-            if (flag != null && flag.startsWith("voice:")) {
-                String id = flag.substring("voice:".length()).trim();
+            if (flag != null && flag.startsWith(prefix)) {
+                String id = flag.substring(prefix.length()).trim();
                 return id.isEmpty() ? null : id;
             }
         }
@@ -618,6 +623,52 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
                 message.group() ? "chatId" : "openId", message.replyId(),
                 encoded.get().durationMs(), result.messageId());
         return true;
+    }
+
+    /**
+     * 文件附件：{@code file:<id>} flag → 取工件 → 上传（file_type=stream）→ msg_type=file。
+     *
+     * <p>与语音不同，附件失败不改变文字的命运：文字已经发出去了，这里只记日志。
+     */
+    private void sendAttachments(FeishuInboundMessage message, Set<String> flags) {
+        String fileId = artifactId(flags, "file:");
+        if (fileId == null) {
+            return;
+        }
+        Optional<FileArtifactStore.FileArtifact> artifact = fileArtifacts.take(fileId);
+        if (artifact.isEmpty()) {
+            log.warn("[feishu] 文件工件缺失（id={}）", fileId);
+            return;
+        }
+        FeishuApiClient.Upload upload = api.uploadFile("stream",
+                artifact.get().fileName(), artifact.get().content(), null);
+        if (!upload.ok()) {
+            log.warn("[feishu] 文件上传失败 name={}：{}", artifact.get().fileName(), upload.reason());
+            return;
+        }
+        FeishuApiClient.Result result = sendFile(message, upload.key());
+        if (!result.sent()) {
+            log.warn("[feishu] 文件发送失败 name={}：{}", artifact.get().fileName(), result.reason());
+            return;
+        }
+        rememberSent(message, result);
+        log.info("[feishu] 已发文件 {}={} name={} bytes={}",
+                message.group() ? "chatId" : "openId", message.replyId(),
+                artifact.get().fileName(), artifact.get().content().length);
+    }
+
+    /** 文件出口：引用规则与文本一致 */
+    private FeishuApiClient.Result sendFile(FeishuInboundMessage message, String fileKey) {
+        if (quoteReply && message.messageId() != null && !message.messageId().isBlank()) {
+            FeishuApiClient.Result quoted = api.replyFile(message.messageId(), fileKey, replyInThread);
+            if (quoted.sent()) {
+                return quoted;
+            }
+            log.debug("[feishu] 引用发文件失败，退回普通发送：{}", quoted.reason());
+        }
+        return message.group()
+                ? api.sendFileToChat(message.chatId(), fileKey)
+                : api.sendFile(message.openId(), fileKey);
     }
 
     /** 语音出口：引用规则与文本一致（原消息不可引用时退回普通发送） */
@@ -742,7 +793,7 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
             FeishuEmojiCatalog.ParsedReply parsed = FeishuEmojiCatalog.stripMarker(response.reply());
             String text = capReply(parsed.text(), replyMaxChars);
             // 语音优先：core 产出 voice:<id> 时先试着发语音条，成功即本轮结束（与 QQ 一致）
-            String voiceId = voiceId(response.flags());
+            String voiceId = artifactId(response.flags(), "voice:");
             if (voiceId != null && sendVoice(message, voiceId)) {
                 return;
             }
@@ -762,6 +813,8 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
                     return; // 文本都没发出去，别再追发表情
                 }
             }
+            // 附件在文字之后发：文件是补充说明，文字仍然是主体
+            sendAttachments(message, response.flags());
             sendEmoji(message, parsed.category());
         } finally {
             if (receipt != null) {

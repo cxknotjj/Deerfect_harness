@@ -7,6 +7,7 @@ import com.dark.javaHarness.contract.api.AgentService;
 import com.dark.javaHarness.contract.api.ChatService;
 import com.dark.javaHarness.contract.api.HarnessStatusPort;
 import com.dark.javaHarness.contract.api.SessionService;
+import com.dark.javaHarness.contract.api.FileArtifactStore;
 import com.dark.javaHarness.contract.api.VoiceArtifactStore;
 import com.dark.javaHarness.contract.spi.ChannelHealth;
 import com.dark.javaHarness.contract.spi.SessionBindingCleaner;
@@ -60,10 +61,12 @@ public class FeishuWsConfig {
                                                   FeishuSessionBindingMapper bindingMapper,
                                                   FeishuApiClient api,
                                                   VoiceArtifactStore voiceArtifacts,
+                                                  FileArtifactStore fileArtifacts,
                                                   FeishuAudioTranscoder audioTranscoder,
                                                   FeishuProperties props) {
         return new FeishuChatHandler(chatService, sessionService, agentService,
-                statusPort.getIfAvailable(), bindingMapper, api, voiceArtifacts, audioTranscoder, props);
+                statusPort.getIfAvailable(), bindingMapper, api, voiceArtifacts, fileArtifacts,
+                audioTranscoder, props);
     }
 
     @Bean
