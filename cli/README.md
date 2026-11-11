@@ -40,6 +40,11 @@ cli/
 
 `TerminalInput`：行编辑、方向键、历史命令。Java 没有现成的 readline，这部分是手写的。
 
+`open()` 会**先判断再探测**：`System.console() == null` 且 `TERM` 未设或为 `dumb` 时直接
+降级为行式读取。不这么做的代价很实在——JLine 判断「系统流归谁管」会跑外部 `test -t 0`
+且 `waitFor` 无超时，在 Surefire fork / CI 里能卡 40 秒（详见 `docs/dev.md`）。
+`isInteractive(hasConsole, term)` 是纯函数，取舍逻辑有单测。
+
 ### `render/`
 
 | 类 | 作用 |

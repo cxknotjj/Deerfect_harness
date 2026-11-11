@@ -53,6 +53,22 @@ class TerminalInputTest {
     }
 
     @Test
+    void isInteractive_consoleWins_regardlessOfTerm() {
+        assertTrue(TerminalInput.isInteractive(true, null), "有控制台即可交互：cmd/PowerShell 通常不设 TERM");
+        assertTrue(TerminalInput.isInteractive(true, "dumb"), "有控制台时 TERM 不作数");
+    }
+
+    @Test
+    void isInteractive_withoutConsole_requiresRealTerm() {
+        assertFalse(TerminalInput.isInteractive(false, null), "无控制台且无 TERM：管道 / CI，读不到按键");
+        assertFalse(TerminalInput.isInteractive(false, "  "), "空白 TERM 视同未设置");
+        assertFalse(TerminalInput.isInteractive(false, "dumb"), "TERM=dumb 明确声明无终端能力");
+        assertFalse(TerminalInput.isInteractive(false, "DUMB"), "大小写不敏感");
+        assertTrue(TerminalInput.isInteractive(false, "xterm-256color"),
+                "mintty 这类 POSIX 伪终端只有 TERM 能反映，不能误判成管道");
+    }
+
+    @Test
     void jline_cbreak_disablesEchoAndCanonical_preservesOutputPostProcessing() throws Exception {
         org.jline.terminal.Terminal terminal = org.mockito.Mockito.mock(org.jline.terminal.Terminal.class);
         org.jline.terminal.Attributes cooked = new org.jline.terminal.Attributes();

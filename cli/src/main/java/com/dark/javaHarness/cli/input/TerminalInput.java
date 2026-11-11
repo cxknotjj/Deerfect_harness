@@ -40,18 +40,29 @@ public final class TerminalInput {
         }
     }
 
+    /** 降级提示：无 TTY 或终端初始化失败时打印，指向完整体验的启动方式 */
+    private static final String DEGRADE_NOTICE = "\033[90m（非交互终端，输入降级：无历史翻阅/补全；"
+            + "用 mvn -Pcli compile exec:exec 可获完整体验）\033[0m";
+
     /**
      * 打开输入源：真实 TTY 走 JLine（历史/补全/粘贴），全程 cbreak 模式——
      * 回合输出期间抢跑按键静默滞留，不被 cooked 行规程回显污染屏幕；
      * dumb 终端（无键盘接管能力，如 exec:java 内嵌 JVM）降级行式读取。
      */
     public static LineInput open() {
+        if (!isInteractive(System.console() != null, System.getenv("TERM"))) {
+            // 先判断再探测：TerminalBuilder.doBuild 会在类型判断之前让每个 provider 判断
+            // 「系统流归不归我管」，其中 ExecTerminalProvider 靠执行外部 `test -t 0` 且
+            // waitFor 不设超时——Surefire fork / CI 里这个子进程能阻塞数十秒。
+            // 既无控制台、TERM 也没声明终端能力时本来就读不到按键，不必付这笔探测开销。
+            System.out.println(DEGRADE_NOTICE);
+            return legacy(System.in, System.out);
+        }
         try {
             org.jline.terminal.Terminal terminal = org.jline.terminal.TerminalBuilder.terminal();
             if (terminal.getType().contains("dumb")) {
                 terminal.close();
-                System.out.println("\033[90m（非交互终端，输入降级：无历史翻阅/补全；"
-                        + "用 mvn -Pcli compile exec:exec 可获完整体验）\033[0m");
+                System.out.println(DEGRADE_NOTICE);
                 return legacy(System.in, System.out);
             }
             Attributes original = terminal.getAttributes();
@@ -64,6 +75,23 @@ public final class TerminalInput {
             System.out.println("\033[90m（终端初始化失败，输入降级: " + e.getMessage() + "）\033[0m");
             return legacy(System.in, System.out);
         }
+    }
+
+    /**
+     * 是否可能存在交互终端（决定要不要让 JLine 去探测）。
+     *
+     * <p>两个信号取「或」：有控制台（cmd / PowerShell / Windows Terminal，JDK 22+ 即使
+     * 重定向了标准流也返回非 null）说明 JLine 能接管按键；没有控制台时看 TERM——
+     * mintty 这类 Windows 下的 POSIX 伪终端只有 TERM 能反映出来（JLine 的 exec provider
+     * 依赖它）。两者都没有就只可能是管道 / CI，读不到按键，直接降级。
+     *
+     * <p>抽成纯函数：环境变量在进程内改不了，取值留下来做单测。
+     */
+    static boolean isInteractive(boolean hasConsole, String term) {
+        if (hasConsole) {
+            return true;
+        }
+        return term != null && !term.isBlank() && !"dumb".equalsIgnoreCase(term.trim());
     }
 
     /**
