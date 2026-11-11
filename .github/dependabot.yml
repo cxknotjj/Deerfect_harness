@@ -80,3 +80,7 @@ updates:
     labels:
       - dependencies
       - docker
+
+# 刻意不监控 npm（web/）：前端依赖按锁文件固定版本发布，例行小版本升级没有收益、
+# 只有噪音（那棵树 600+ 个包）。漏洞不需要本文件介入——Dependabot security updates
+# 按 alerts 走，与这里的配置无关，照样会给前端提修复 PR。
