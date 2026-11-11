@@ -4,7 +4,7 @@
 >
 > 改端口、改启动方式、换依赖服务时，同一次提交内更新本文件。
 >
-> 最后按代码核对：2026-11-07
+> 最后按代码核对：2026-11-11
 
 ## 1. 工具链（Windows 侧实测）
 
@@ -15,7 +15,7 @@
 | Node / npm | v22.20.0 / 10.9.3                    | 只给 `web/` 用；经 nvm 安装，见第 5 节 |
 | MySQL      | 8.4.5（`D:\mysql\mysql-8.4.5-winx64`） | 详见第 4 节                     |
 
-**所有 Maven 命令必须带** **`-s .mvn/settings.xml`**：该文件把本地仓库指向 `.mvn-repo/`（仓库内），并配置阿里云镜像。漏掉它会把依赖下载到默认 `~/.m2`、走公网 central，构建变慢且与启动脚本行为不一致。
+**本机命令建议带 `-s .mvn/settings.xml`**：该文件把本地仓库指向 `.mvn-repo/`（仓库内），并配置阿里云镜像。它**不在仓库里**（`.gitignore` 排除了 `.mvn/`），干净 clone、CI 与镜像构建都没有这个文件——直接 `mvn` 会走默认 `~/.m2` 和公网 central，能构建但慢，不是错误。下面的命令按本机有该文件来写。
 
 ```bash
 mvn -s .mvn/settings.xml -DskipTests install          # 全量构建
@@ -25,7 +25,7 @@ mvn -s .mvn/settings.xml -pl server spring-boot:run   # 只起服务
 ```
 
 - `-am` 不能省：省略会用本地仓库里旧的 `harness-api`，改接口后容易出「明明改了却没生效」。
-- 全量测试走 `run-wsl.sh test`，或 `mvn -s .mvn/settings.xml test`。
+- 全量测试：`mvn -s .mvn/settings.xml verify`；没有 settings 文件时直接 `mvn verify`。
 - **`test` 不跑覆盖率门禁**：jacoco 的 `report` / `check` 绑在 `verify` 上。只跑 `test` 能过、`verify` 红，
   就是覆盖率跌破了模块阈值——报告在 `target/site/jacoco/index.html`，日志会打印实际值与阈值。
 
@@ -33,19 +33,22 @@ mvn -s .mvn/settings.xml -pl server spring-boot:run   # 只起服务
 
 - 阈值是**行覆盖率（LINE）**，按模块独立设置：父 pom 的 `jacoco.line.minimum` 默认 `0.00`（只出报告），
   各模块在自己的 `<properties>` 覆盖为「实测值下方约 2 个点」。当前：server 0.79 / channel-qq 0.75 /
-  wms-mcp-adapter 0.73 / harness-api 0.61 / cli 0.21。
+  channel-feishu 0.74 / channel-email 0.61 / wms-mcp-adapter 0.73 / harness-api 0.61 / cli 0.21。
 - 调整方式：先跑 `mvn verify` 看报告里的实际值，确认下降合理后再改模块属性；**不要放宽规则本身**。
 - 临时验证某模块会不会被拦：`mvn -pl <module> -am verify -Djacoco.line.minimum=0.99`（命令行属性优先级最高）。
 
-## 2. 一键启动
+## 2. 启动
 
-| 入口             | 场景         | 行为                                                    |
-| -------------- | ---------- | ----------------------------------------------------- |
-| `run-win.bat`  | Windows 原生 | 先 `install`，再杀 8080 旧进程，另开窗口跑 server，等就绪后另开窗口跑 CLI    |
-| `./run-wsl.sh` | WSL        | 同上；另有子命令 `server` / `stop` / `cli` / `build` / `test` |
+历史上一键脚本 `run-win.bat` / `run-wsl.sh` 已移除，现在是两步：
 
-- 两套入口**同一时间只能跑一个**，否则 8080 冲突。
-- 服务就绪判据（脚本用的同一个）：`GET http://localhost:8080/api/harness/agents` 能返回。
+```bash
+mvn -s .mvn/settings.xml -DskipTests install       # 首次，或改了模块依赖
+java -jar server/target/server-0.0.1-SNAPSHOT.jar  # 默认 8080
+```
+
+- 服务就绪判据：`GET http://localhost:8080/api/harness/agents` 能返回。
+- 只改 `channel-*`、server 源码没变时，`package` 可能复用旧 fat jar——加 `clean`
+  （详见「飞书长连接」一节的坑）。
 - CLI 必须先 `compile` 再 `exec:exec`，否则 `target/classes` 是旧的（曾导致乱码回归）：
 
 ```bash
@@ -62,7 +65,7 @@ mvn -s .mvn/settings.xml -pl cli -Pcli compile exec:exec
 | PgVector      | `127.0.0.1:5432`，库 `postgres` | 可选     | 仅知识库（RAG）；未启用时 `/api/knowledge*` 返回 503                                |
 | Docker daemon | `127.0.0.1:2375`              | 可选     | 沙箱工具；**必须写** **`127.0.0.1`** **不要写** **`localhost`**（IPv6 解析会超时）       |
 | NapCat        | `127.0.0.1:3000`              | 可选     | QQ 渠道；远程 NapCat 联调见 3.1；`napcat.enabled=false` 时整链不装配                  |
-| Edge TTS      | Python 解释器（`TTS_PYTHON`）      | 可选     | QQ 语音工具；解释器需 `pip install edge-tts`，`app.tts.enabled=false` 时工具直接返回未启用 |
+| Edge TTS      | Python 解释器（`TTS_PYTHON`）      | 可选     | 语音合成（QQ / 飞书）；需 `pip install edge-tts`。飞书还要 ffmpeg 转 opus（`CHANNEL_FEISHU_WS_VOICE_FFMPEG`），缺了只退回文字 |
 
 ### 3.1 QQ 机器人联调前提（远程 NapCat）
 
@@ -94,9 +97,9 @@ socat TCP-LISTEN:8080,bind=172.17.0.1,fork,reuseaddr TCP:127.0.0.1:8080
 Test-NetConnection 127.0.0.1 -Port 3306
 ```
 
-- Flyway 随 server 启动自动迁移，**当前基线 `V13`**（V1–V13 共 13 个脚本，清单见 [project-structure.md](./project-structure.md)）；新增迁移从 `V14` 编号
+- Flyway 随 server 启动自动迁移，**当前最大版本 `V19`**（`V1` + V2–V19，共 19 个脚本）；新增从 `V20` 编号，不改已发布脚本。清单以 `server/src/main/resources/db/migration/` 为准——`project-structure.md` 里的迁移清单只到 V11，已过时。
 - **迁移压平（2026-10-30，历史操作）**：原 V1\~V43（42 个文件）已合并为单个 `V1__init_schema.sql`
-  （最终 schema + 迁移种子数据）；之后从 V2 重新编号，V7–V13 依次落地定时任务 / 推送幂等 / Goal 重投 / 画像增量 / 归档跨会话索引 / 会话滚动摘要 / 显式记忆
+  （最终 schema + 迁移种子数据）；之后从 V2 重新编号。V7–V13 是定时任务 / 推送幂等 / Goal 重投 / 画像增量 / 归档跨会话索引 / 会话滚动摘要 / 显式记忆，V14 之后按功能继续追加。
 - **存量库升级（仅压平当时适用，勿再照做）**：当时先 `DROP TABLE flyway_schema_history;` 再启动，
   让 `baseline-on-migrate` 以 V1 为基线跳过 V1。现在历史表已在正常使用，**再删表会让 Flyway
   对已有库重跑迁移**，切勿执行。若因修改迁移脚本导致校验和不匹配，按
@@ -143,7 +146,7 @@ PWA（P3-1）只在构建产物里生效：`npm run dev` 不注册 service worke
 ## 6. 密钥与环境变量
 
 - 本地密钥与远程地址放仓库根 `.env.local`（未纳入版本控制），如 `QWEN_API_KEY`、`DEEPSEEK_API_KEY`、`NAPCAT_REMOTE_HOST`（远程 NapCat 服务器地址，见 3.1）、`TTS_PYTHON`（已装 edge-tts 的 Python 解释器路径）。
-- `run-wsl.sh` 会 `source .env.local`；**`run-win.bat`** **不会**，Windows 侧请用 `setx` 设系统环境变量。
+- 启动脚本已移除，手工 `java -jar` / `mvn spring-boot:run` **不会**自动加载 `.env.local`；用下面的 `set -a; source`，或把长期变量 `setx` 到用户环境。
 - 手工 `mvn` / `java` 启动时先 `set -a; source .env.local; set +a`：`set -a` 让变量自动 `export` 给子进程，否则只存在于当前 shell，JVM 读不到。
 - 不要把密钥写进 yaml、脚本或提交记录。
 
@@ -175,10 +178,10 @@ M3a 是单向推送：不能接收消息、不能当对话入口，也没有 `me
 
 ## 7. 已知问题（本机实测）
 
-- **GitHub 推送经常 408 超时**：默认推 Gitee，GitHub 失败不要反复重试。
-- **8080 被占用**：`run-win.bat` 会自动 kill 监听进程；手工排查用 `netstat -aon | findstr :8080`。
+- **GitHub 推送经常 408 超时**：默认上游是 `origin/master`（GitHub），Gitee 是备用远端；GitHub 失败不要反复重试，可先推 Gitee 或改用 SSH。
+- **8080 被占用**：`netstat -aon | findstr :8080` 找 PID，`taskkill /F /PID <pid>` 结束；没有脚本会自动清理。
 - **MySQL 反复退出**：确认用的是 `--console` 前台模式；后台方式在无服务权限的机器上容易被系统回收。
-- **改了接口却编译不过**：先确认命令带了 `-am` 与 `-s .mvn/settings.xml`。
+- **改了接口却编译不过**：先确认命令带了 `-am`（`-s .mvn/settings.xml` 只有本机有，不是必需）。
 - **`mvn verify` 里 cli 测试卡几十秒**：JLine 探测终端的副作用，已修（详见文末
   「cli 终端探测」）；新环境若复现，先看 `cli/target/surefire-reports` 里
   `TerminalInputTest` 的 `time`。
@@ -189,7 +192,7 @@ M3a 是单向推送：不能接收消息、不能当对话入口，也没有 `me
 
 | job       | 内容                                                                                                                                          |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `backend` | temurin 25 + MySQL 8.4 service；`mvn -s .mvn/settings.xml -Dmaven.repo.local=$HOME/.m2/repository -B verify`。上下文测试启动时会跑全量 Flyway 迁移，迁移校验失败即红；`verify` 同时跑覆盖率门禁，日志出现 `Rule violated` 即覆盖率跌破模块阈值，报告作为 `jacoco-reports` 产物上传（失败也传） |
+| `backend` | temurin 25 + MySQL 8.4 service；`mvn -Dmaven.repo.local=$HOME/.m2/repository -B verify`（不依赖 `.mvn/settings.xml`）。上下文测试启动时会跑全量 Flyway 迁移，迁移校验失败即红；`verify` 同时跑覆盖率门禁，日志出现 `Rule violated` 即覆盖率跌破模块阈值，报告作为 `jacoco-reports` 产物上传（失败也传） |
 | `web`     | Node 22；`npm ci` → `npm run lint`（ESLint flat config）→ `npm run build`（含 vue-tsc 类型检查）→ `npm test`（vitest）                                      |
 | `e2e`     | Node 22 + Chromium；`npm run test:e2e`（mock 模式，不需要后端与数据库，失败上传 `playwright-report`）                                                           |
 
@@ -532,11 +535,9 @@ HTTP 工具和 MCP 分发器现在都用 `Object` 接参数、两种形态都认
 
 能力清单：`GET /api/capabilities` 按来源聚合（core/sandbox/mcp/http/skill），
 每条带定位符（源文件、清单路径、URL、技能目录）；`POST /api/capabilities/reload`
-只重载 HTTP 清单——MCP 的 client 生命周期绑在连接上，重建要单独做，不在这里假装能做到。
+重载 HTTP 清单。MCP 的 client 生命周期绑在连接上，热重载是单独一步——当前改
+`mcp-config.json` 仍需重启（compose 注释里那句 `--force-recreate` 还在）。
 
-还没有做的两件事：
-
-1. MCP 热重载：现在改 `mcp-config.json` 仍需重启（compose 注释里那句 `--force-recreate` 还在）
-2. `wms-mcp-adapter` 模块还没删：HTTP 路径目前只在假 WMS 上验证过，
-   要等真实 WMS 跑通再整块移除——否则是拿唯一的已知通路去换一个未验证的实现
+`wms-mcp-adapter` 是 WMS 的唯一实现，不再删除：它是 MCP 服务，进程隔离、调用方鉴权、
+组合查询都在它那边；声明式 HTTP 机制留给「不值得起一个服务」的轻量集成。
 
