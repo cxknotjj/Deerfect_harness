@@ -84,15 +84,57 @@ class ToolAssignmentsTest {
         // 各建一个 mock 会让「legacy 分配逐字段一致」的断言因实例不同而失败
         memoryTools = new com.dark.javaHarness.tool.builtin.memory.MemoryTools(
                 mock(com.dark.javaHarness.service.MemoryService.class));
-        assignments = new ToolAssignments(webTools, sandbox, mcp, null, textToSpeechTools, recallTools, memoryTools);
-        dataDriven = new ToolAssignments(webTools, sandbox, mcp, agentConfigProvider, textToSpeechTools,
-                recallTools, memoryTools);
+        assignments = new ToolAssignments(webTools, sandbox, mcp, null, textToSpeechTools, musicTools(),
+                recallTools, memoryTools, httpTools());
+        dataDriven = new ToolAssignments(webTools, sandbox, mcp, agentConfigProvider, textToSpeechTools, musicTools(),
+                recallTools, memoryTools, httpTools());
+    }
+
+    @Test
+    void dataDriven_externalHttpPack_resolvesToItsTool() {
+        java.nio.file.Path repoDir = java.nio.file.Path.of("..", "tools", "http");
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                java.nio.file.Files.isDirectory(repoDir), "非仓库布局，跳过");
+        com.dark.javaHarness.tool.external.HttpToolLoader loader =
+                new com.dark.javaHarness.tool.external.HttpToolLoader(true, repoDir, false,
+                        new tools.jackson.databind.ObjectMapper(),
+                        (url, headers, timeout) ->
+                                new com.dark.javaHarness.tool.external.HttpTransport.Response(200, "{}"));
+        loader.reload();
+        when(agentConfigProvider.findAgentTools("wms")).thenReturn(java.util.Optional.of("wms.query"));
+        RecallHistoryTools recall = new RecallHistoryTools(mock(SessionHistoryArchiveService.class));
+        com.dark.javaHarness.tool.builtin.memory.MemoryTools memory =
+                new com.dark.javaHarness.tool.builtin.memory.MemoryTools(
+                        mock(com.dark.javaHarness.service.MemoryService.class));
+
+        ToolAssignments withExternal = new ToolAssignments(webTools, sandbox, mcp, agentConfigProvider,
+                textToSpeechTools, musicTools(), recall, memory, loader);
+        ToolAssignments.ToolSet set = withExternal.forAgent("wms");
+
+        assertEquals(1, set.callbacks().size(), "pack 名应整组解析");
+        assertEquals("wms_query", set.callbacks().get(0).getToolDefinition().name());
     }
 
     private static TextToSpeechTools ttsTools() {
         TtsProperties props = new TtsProperties();
         props.setEnabled(false);
         return new TextToSpeechTools(props, new EdgeTtsClient(props), new InMemoryVoiceArtifactStore(props));
+    }
+
+    /** 点歌工具：关闭状态（不影响 annotated 集合断言） */
+    private static com.dark.javaHarness.music.MusicTools musicTools() {
+        com.dark.javaHarness.music.MusicProperties music = new com.dark.javaHarness.music.MusicProperties();
+        music.setEnabled(false);
+        TtsProperties tts = new TtsProperties();
+        return new com.dark.javaHarness.music.MusicTools(music,
+                new com.dark.javaHarness.music.MusicLibrary(music),
+                new com.dark.javaHarness.voice.InMemoryVoiceArtifactStore(tts));
+    }
+
+    /** 外部 HTTP 工具：关闭状态（不扫目录，工具面为空） */
+    private static com.dark.javaHarness.tool.external.HttpToolLoader httpTools() {
+        return new com.dark.javaHarness.tool.external.HttpToolLoader(
+                false, "tools/http", false, new tools.jackson.databind.ObjectMapper());
     }
 
     /** 带 toolDefinition 名字的 mock 回调（真实工具名才可验证同名去重语义） */

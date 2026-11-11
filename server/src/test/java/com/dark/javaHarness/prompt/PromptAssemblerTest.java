@@ -56,10 +56,11 @@ class PromptAssemblerTest {
 
     @BeforeEach
     void setUp() {
-        toolAssignments = new ToolAssignments(new WebTools(), sandbox, mcp, null, ttsTools(),
+        toolAssignments = new ToolAssignments(new WebTools(), sandbox, mcp, null, ttsTools(), musicTools(),
                 new com.dark.javaHarness.tool.builtin.history.RecallHistoryTools(
                         org.mockito.Mockito.mock(com.dark.javaHarness.service.impl.SessionHistoryArchiveService.class)),
-                new com.dark.javaHarness.tool.builtin.memory.MemoryTools(org.mockito.Mockito.mock(com.dark.javaHarness.service.MemoryService.class)));
+                new com.dark.javaHarness.tool.builtin.memory.MemoryTools(org.mockito.Mockito.mock(com.dark.javaHarness.service.MemoryService.class)),
+                httpTools());
         assembler = new PromptAssembler(agentService, toolAssignments);
         stubEmptyToolFaces();
     }
@@ -69,6 +70,22 @@ class PromptAssemblerTest {
         TtsProperties props = new TtsProperties();
         props.setEnabled(false);
         return new TextToSpeechTools(props, new EdgeTtsClient(props), new InMemoryVoiceArtifactStore(props));
+    }
+
+    /** 点歌工具：关闭状态（不影响 annotated 集合断言） */
+    private static com.dark.javaHarness.music.MusicTools musicTools() {
+        com.dark.javaHarness.music.MusicProperties music = new com.dark.javaHarness.music.MusicProperties();
+        music.setEnabled(false);
+        TtsProperties tts = new TtsProperties();
+        return new com.dark.javaHarness.music.MusicTools(music,
+                new com.dark.javaHarness.music.MusicLibrary(music),
+                new InMemoryVoiceArtifactStore(tts));
+    }
+
+    /** 外部 HTTP 工具：关闭状态（不扫目录，工具面为空） */
+    private static com.dark.javaHarness.tool.external.HttpToolLoader httpTools() {
+        return new com.dark.javaHarness.tool.external.HttpToolLoader(
+                false, "tools/http", false, new tools.jackson.databind.ObjectMapper());
     }
 
     /** 沙箱/MCP 工具面默认为空（lenient：用不到该工具组的用例免检） */

@@ -32,6 +32,8 @@ spring:
       - classpath:application-qq.yaml
       - classpath:application-channel.yaml
       - classpath:application-tts.yaml
+      - classpath:application-music.yaml
+      - classpath:application-tools.yaml
 
 server:
   port: 8080

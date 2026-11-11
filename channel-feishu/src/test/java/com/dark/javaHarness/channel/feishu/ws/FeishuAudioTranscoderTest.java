@@ -24,7 +24,7 @@ class FeishuAudioTranscoderTest {
     void command_convertsToOpusMono_withoutStdin() {
         FeishuProperties props = new FeishuProperties();
 
-        List<String> command = transcoder(props).command(Path.of("in.mp3"), Path.of("out.opus"));
+        List<String> command = transcoder(props).command(Path.of("in.mp3"), Path.of("out.opus"), false);
 
         assertEquals("ffmpeg", command.get(0));
         assertTrue(command.contains("-nostdin"), "必须禁掉 stdin：服务端没有终端，ffmpeg 会挂住");
@@ -33,6 +33,16 @@ class FeishuAudioTranscoderTest {
         assertEquals("48000", command.get(command.indexOf("-ar") + 1));
         assertEquals("1", command.get(command.indexOf("-ac") + 1));
         assertEquals("out.opus", command.get(command.size() - 1));
+    }
+
+    @Test
+    void command_music_usesStereoAndHigherBitrate() {
+        FeishuProperties props = new FeishuProperties();
+
+        List<String> command = transcoder(props).command(Path.of("in.mp3"), Path.of("out.opus"), true);
+
+        assertEquals("96k", command.get(command.indexOf("-b:a") + 1), "音乐要更高码率");
+        assertEquals("2", command.get(command.indexOf("-ac") + 1), "音乐要立体声");
     }
 
     @Test

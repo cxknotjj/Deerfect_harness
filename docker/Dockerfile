@@ -65,10 +65,12 @@ COPY --from=build /build/server/target/server-*.jar /app/app.jar
 # 运行期相对路径资源（相对启动工作目录 /workspace）：
 #   skills/    —— skill 动态装配目录（app.prompt.skills.dir）
 #   knowledge/ —— RAG 知识库文档目录（app.knowledge.dir）
+#   tools/     —— 声明式 HTTP 工具清单目录（app.tools.http.dir）
 #   channel/   —— QQ 表情映射表与表情图（napcat.emoji.*）
-# 后两者可用 volume 挂载覆盖实现免重启换内容
+# 后几者可用 volume 挂载覆盖实现免重启换内容
 COPY skills ./skills
 COPY knowledge ./knowledge
+COPY tools ./tools
 
 # 源码含大量中文字符串，显式 UTF-8（对齐 pom 的 sourceEncoding 声明）
 ENTRYPOINT ["java", "-Dfile.encoding=UTF-8", "-jar", "/app/app.jar"]

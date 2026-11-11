@@ -156,6 +156,9 @@ services:
       # knowledge 改完调 POST /api/knowledge/sync 增量摄取（mtime 对比，免重启）
       - ../knowledge:/workspace/knowledge:ro
       - ../skills:/workspace/skills:ro
+      # 声明式 HTTP 工具清单（tools/http/*.yaml）：改完调 POST /api/capabilities/reload 生效，
+      # 不用重建容器；凭据走环境变量，清单本身不含密钥
+      - ../tools:/workspace/tools:ro
       # 表情包图片 + 映射表（都不进 git/镜像）。可写挂载：映射表缺失时应用自动建空文件，
       # 宿主机直接编辑后 restart app 生效；图片放进去即时生效
       - ../emojis:/workspace/emojis

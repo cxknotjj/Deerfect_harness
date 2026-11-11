@@ -68,4 +68,10 @@ channel:
         ffmpeg: ffmpeg                            # PATH 里有就写 ffmpeg；容器里给绝对路径更稳
         timeout-seconds: 15                       # 转码超时：卡住的子进程必须杀掉
         bitrate: 32k                              # opus 码率：语音够用即可
+        channels: 1                               # 语音单声道，体积减半
+        # 音乐参数：曲库点播（play_music 写 format=music 的工件）走这一套。
+        # 音乐是二次有损编码，32k 会明显发闷；96k 立体声约 44 分钟占满 30MB 上限。
+        music:
+          bitrate: 96k
+          channels: 2
 

@@ -490,3 +490,44 @@ core 的 TTS 产出 mp3，飞书语音条（`msg_type=audio`）只认 opus，且
 改成在 `open()` 里挂一个 8 秒的看门狗线程打 `Thread.getAllStackTraces()`，一次就定位到
 `ProcessImpl.waitForInterruptibly ← isPosixSystemStream ← TerminalBuilder.doBuild`。
 
+### 外部工具：清单驱动，而不是给每个接口写一个类（2026-11-11）
+
+工具面分三层，边界由「是否需要运行时上下文」决定：
+
+| 层 | 放什么 | 为什么 |
+| --- | --- | --- |
+| core | `history` / `memory` / `sandbox.*` / artifact（`send_file`、TTS、点歌） | 要 `turnId`、容器句柄、工件库，外部进程拿不到 |
+| external | MCP（第三方/多语言）+ 声明式 HTTP（自家 REST） | 接新系统不改 Java、不重打包 |
+| skill | 编排与说明 | 把「十个近义工具」压成「一个工具 + 一份说明书」 |
+
+声明式 HTTP 的形状是 `tools/http/*.yaml`：一个清单 = 一个工具 + N 个资源。
+资源绑定**固定路径**与**参数白名单**，模型只能选资源名和参数值，不能拼路径——
+这是它和通用 `http_request` 的关键区别，后者等于给所有 agent 一条无约束的出站通道。
+
+为什么不「一个端点一个工具」：WMS 有二十个只读端点，逐个做成工具会让工具面塞满近义名字
+（`wms_search_stock` / `wms_search_stock_in_orders` / `wms_get_stock_in_order`…），
+模型在选工具这一步就开始出错。收敛成 `wms_query` 后，「查什么」是枚举，「怎么查」在 skill 里。
+
+响应整形也放在清单里：`format: jeecg` 拆 `result` 包装（records 分页 / 数组 / 单对象三种形态），
+`drop-fields` 剔除 `createBy` 这类审计字段。这些是数据，不该每个接入方写一遍代码。
+
+WMS 迁移（V18）：十个专用工具 → `wms.query` 一个工具 + `skills/wms/SKILL.md`。
+原来藏在代码里的「商品名换 productId」组合查询下沉到 skill，代价是模型多一次调用；
+收益是查询套路不再编译进 jar，改法不用重新发布。凭据仍走环境变量
+（`WMS_API_BASE` / `WMS_API_TOKEN` / `WMS_TOKEN_HEADER`），清单里只写变量名。
+
+**实测发现的一个坑**：模型会把嵌套对象序列化成字符串
+（`"params":"{\"productId\":\"p1\"}"`），只接受对象的实现会静默丢参数。
+现在两种形态都接，`HttpToolCallbackTest.call_paramsAsJsonString_areParsedNotDropped` 守着。
+这类问题单测造不出来——只有真跑一次、看假服务收到的 query string 才会暴露。
+
+能力清单：`GET /api/capabilities` 按来源聚合（core/sandbox/mcp/http/skill），
+每条带定位符（源文件、清单路径、URL、技能目录）；`POST /api/capabilities/reload`
+只重载 HTTP 清单——MCP 的 client 生命周期绑在连接上，重建要单独做，不在这里假装能做到。
+
+还没有做的两件事：
+
+1. MCP 热重载：现在改 `mcp-config.json` 仍需重启（compose 注释里那句 `--force-recreate` 还在）
+2. `wms-mcp-adapter` 模块还没删：HTTP 路径目前只在假 WMS 上验证过，
+   要等真实 WMS 跑通再整块移除——否则是拿唯一的已知通路去换一个未验证的实现
+

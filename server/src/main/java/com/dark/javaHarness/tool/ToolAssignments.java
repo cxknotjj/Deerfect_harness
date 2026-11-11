@@ -7,7 +7,9 @@ import com.dark.javaHarness.tool.builtin.SandboxToolProvider;
 import com.dark.javaHarness.tool.builtin.WebTools;
 import com.dark.javaHarness.tool.builtin.history.RecallHistoryTools;
 import com.dark.javaHarness.tool.builtin.memory.MemoryTools;
+import com.dark.javaHarness.music.MusicTools;
 import com.dark.javaHarness.tool.builtin.tts.TextToSpeechTools;
+import com.dark.javaHarness.tool.external.HttpToolLoader;
 import com.dark.javaHarness.tool.mcp.McpToolProvider;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -113,10 +115,14 @@ public class ToolAssignments {
     private final SandboxToolProvider sandbox;
     private final McpToolProvider mcp;
     private final TextToSpeechTools textToSpeechTools;
+    /** 点歌工具（app.music.enabled=false 时不暴露给模型） */
+    private final MusicTools musicTools;
     /** 会话历史归档召回工具（general / lead 按 tools 列数据分配） */
     private final RecallHistoryTools recallHistoryTools;
     /** 显式记忆工具（general / lead 按 tools 列数据分配） */
     private final MemoryTools memoryTools;
+    /** 外部声明式 HTTP 工具（tools/http/*.yaml）：按 pack 名整组注入，不参与 legacy 默认集 */
+    private final HttpToolLoader httpTools;
     private final DemoTools demoTools = new DemoTools();
     /** agent 表 tools 列读取器（数据驱动分配来源）；null=纯 legacy 路径（测试场景） */
     private final AgentConfigProvider agentConfigProvider;
@@ -126,15 +132,19 @@ public class ToolAssignments {
     public ToolAssignments(WebTools webTools, SandboxToolProvider sandbox, McpToolProvider mcp,
                            AgentConfigProvider agentConfigProvider,
                            TextToSpeechTools textToSpeechTools,
+                           MusicTools musicTools,
                            RecallHistoryTools recallHistoryTools,
-                           MemoryTools memoryTools) {
+                           MemoryTools memoryTools,
+                           HttpToolLoader httpTools) {
         this.webTools = webTools;
         this.sandbox = sandbox;
         this.mcp = mcp;
         this.agentConfigProvider = agentConfigProvider;
         this.textToSpeechTools = textToSpeechTools;
+        this.musicTools = musicTools;
         this.recallHistoryTools = recallHistoryTools;
         this.memoryTools = memoryTools;
+        this.httpTools = httpTools;
     }
 
     /** 取某专家的工具：tools 列声明优先（数据驱动），无声明回退代码内置（legacy） */
@@ -190,6 +200,9 @@ public class ToolAssignments {
         indexAnnotated(annotatedByToolName, webTools);
         indexAnnotated(annotatedByToolName, demoTools);
         indexAnnotated(annotatedByToolName, textToSpeechTools);
+        if (musicTools.enabled()) {
+            indexAnnotated(annotatedByToolName, musicTools);
+        }
         indexAnnotated(annotatedByToolName, recallHistoryTools);
         indexAnnotated(annotatedByToolName, memoryTools);
         Map<String, ToolCallback> callbackByName = new LinkedHashMap<>();
@@ -225,7 +238,15 @@ public class ToolAssignments {
                     ToolCallback cb = callbackByName.get(token);
                     if (cb != null) {
                         addCallbacks(callbacks, usedNames, List.of(cb));
-                    } else if (unknown.add(token)) {
+                        continue;
+                    }
+                    // 外部声明式工具：token 可以是 pack 名（整组）或单个工具名
+                    List<ToolCallback> external = httpTools.callbacks(token);
+                    if (!external.isEmpty()) {
+                        addCallbacks(callbacks, usedNames, external);
+                        continue;
+                    }
+                    if (unknown.add(token)) {
                         // 注入前可用性判定：未进入当前可用工具面的 token 一律不注入
                         if (reportUnavailable(agentName, token)) {
                             newlyReported.add(token);
