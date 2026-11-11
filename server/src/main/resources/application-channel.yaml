@@ -61,4 +61,11 @@ channel:
         dir: emojis
         index-file: emojis/emoji-index.json
         probability: 1.0
+      # 语音回复：core 的 TTS 产出 mp3，飞书语音条只认 opus，需 ffmpeg 转码并取时长。
+      # 运行环境没有 ffmpeg 时本条退回文字（只 warn 一次），不影响其它消息。
+      voice:
+        enabled: true
+        ffmpeg: ffmpeg                            # PATH 里有就写 ffmpeg；容器里给绝对路径更稳
+        timeout-seconds: 15                       # 转码超时：卡住的子进程必须杀掉
+        bitrate: 32k                              # opus 码率：语音够用即可
 

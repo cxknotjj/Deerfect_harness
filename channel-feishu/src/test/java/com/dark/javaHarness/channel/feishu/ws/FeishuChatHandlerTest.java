@@ -20,6 +20,7 @@ import com.dark.javaHarness.contract.api.AgentService;
 import com.dark.javaHarness.contract.api.ChatService;
 import com.dark.javaHarness.contract.api.HarnessStatusPort;
 import com.dark.javaHarness.contract.api.SessionService;
+import com.dark.javaHarness.contract.api.VoiceArtifactStore;
 import com.dark.javaHarness.contract.model.ComponentStatus;
 import com.dark.javaHarness.contract.model.SessionInfo;
 import com.dark.javaHarness.view.AgentItemView;
@@ -72,6 +73,12 @@ class FeishuChatHandlerTest {
     @Mock
     private HarnessStatusPort statusPort;
 
+    @Mock
+    private VoiceArtifactStore voiceArtifacts;
+
+    @Mock
+    private FeishuAudioTranscoder audioTranscoder;
+
     /** 指令授权人：与用例里的普通用户 ou_user 区分开，才能测出「只有一个人能用」 */
     private static final String COMMANDER = "ou_admin";
 
@@ -88,7 +95,7 @@ class FeishuChatHandlerTest {
         // 用例默认走普通发送：引用回复另有专门用例（否则每条断言都要同时照顾两条路径）
         props.getWs().setQuoteReply(false);
         handler = new FeishuChatHandler(chatService, sessionService, agentService, statusPort,
-                bindingMapper, api, props);
+                bindingMapper, api, voiceArtifacts, audioTranscoder, props);
     }
 
     @AfterEach
@@ -143,7 +150,7 @@ class FeishuChatHandlerTest {
         FeishuProperties props = new FeishuProperties();
         props.getWs().setChatTimeoutSeconds(1);
         FeishuChatHandler shortTimeout = new FeishuChatHandler(chatService, sessionService, agentService,
-                statusPort, bindingMapper, api, props);
+                statusPort, bindingMapper, api, voiceArtifacts, audioTranscoder, props);
         when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
         when(chatService.chat(any(ChatRequest.class))).thenAnswer(invocation -> {
             Thread.sleep(3000);
@@ -408,7 +415,7 @@ class FeishuChatHandlerTest {
                 "{\"happy_01\":\"happy_01.png\"}");
 
         FeishuChatHandler withEmoji = new FeishuChatHandler(chatService, sessionService, agentService,
-                statusPort, bindingMapper, api, emojiProps());
+                statusPort, bindingMapper, api, voiceArtifacts, audioTranscoder, emojiProps());
         when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
         when(chatService.chat(any(ChatRequest.class))).thenReturn(reply("好耶！\n[emoji:happy]"));
         when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_r", null));
@@ -432,7 +439,7 @@ class FeishuChatHandlerTest {
                 "{\"happy_01\":\"happy_01.png\"}");
 
         FeishuChatHandler withEmoji = new FeishuChatHandler(chatService, sessionService, agentService,
-                statusPort, bindingMapper, api, emojiProps());
+                statusPort, bindingMapper, api, voiceArtifacts, audioTranscoder, emojiProps());
         when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
         when(chatService.chat(any(ChatRequest.class))).thenReturn(reply("好耶！\n[emoji:happy]"));
         when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_r", null));
@@ -474,7 +481,7 @@ class FeishuChatHandlerTest {
         Files.writeString(tempDir.resolve("emoji-index.json"), "{\"happy_01\":\"happy_01.png\"}");
 
         FeishuChatHandler withEmoji = new FeishuChatHandler(chatService, sessionService, agentService,
-                statusPort, bindingMapper, api, emojiProps());
+                statusPort, bindingMapper, api, voiceArtifacts, audioTranscoder, emojiProps());
         when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
         when(chatService.chat(any(ChatRequest.class))).thenReturn(reply("好耶！\n[emoji:happy]"));
         when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_r", null));
@@ -604,7 +611,7 @@ class FeishuChatHandlerTest {
         props.getWs().setQuoteReply(false);
         customizer.accept(props);
         return new FeishuChatHandler(chatService, sessionService, agentService, statusPort,
-                bindingMapper, api, props);
+                bindingMapper, api, voiceArtifacts, audioTranscoder, props);
     }
 
     private FeishuProperties emojiProps() {
@@ -622,6 +629,72 @@ class FeishuChatHandlerTest {
         FeishuSessionBinding binding = new FeishuSessionBinding();
         binding.setSessionId(sessionId);
         return binding;
+    }
+
+    // ---------- 语音回复（voice:<id> flag） ----------
+
+    @Test
+    void voiceFlag_sendsAudioAndSkipsText() throws Exception {
+        when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
+        when(chatService.chat(any(ChatRequest.class)))
+                .thenReturn(replyWithFlags("这段用语音说", Set.of("voice:v1")));
+        when(voiceArtifacts.take("v1")).thenReturn(Optional.of(voiceArtifact("v1", "这段用语音说")));
+        when(audioTranscoder.toOpus(any())).thenReturn(Optional.of(
+                new FeishuAudioTranscoder.Encoded(new byte[]{4, 5}, 3480)));
+        when(api.uploadFile(eq("opus"), eq("voice.opus"), any(byte[].class), eq(3480)))
+                .thenReturn(new FeishuApiClient.Upload(true, "file_v1", null));
+        when(api.sendAudio("ou_user", "file_v1"))
+                .thenReturn(new FeishuApiClient.Result(true, "om_voice", null));
+
+        handler.handleAsync(new FeishuInboundMessage("ou_user", "oc_chat", "om_in", "evt-v1", "念一下", false))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(api).sendAudio("ou_user", "file_v1");
+        verify(api, never()).sendText(any(), any());
+    }
+
+    @Test
+    void voiceWithoutFfmpeg_fallsBackToText() throws Exception {
+        when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
+        when(chatService.chat(any(ChatRequest.class)))
+                .thenReturn(replyWithFlags("这段用语音说", Set.of("voice:v1")));
+        when(voiceArtifacts.take("v1")).thenReturn(Optional.of(voiceArtifact("v1", "这段用语音说")));
+        when(audioTranscoder.toOpus(any())).thenReturn(Optional.empty());
+        when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_t", null));
+
+        handler.handleAsync(new FeishuInboundMessage("ou_user", "oc_chat", "om_in", "evt-v2", "念一下", false))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(api, never()).uploadFile(any(), any(), any(), any());
+        verify(api).sendText("ou_user", "这段用语音说");
+    }
+
+    @Test
+    void voiceUploadFails_fallsBackToText() throws Exception {
+        when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
+        when(chatService.chat(any(ChatRequest.class)))
+                .thenReturn(replyWithFlags("这段用语音说", Set.of("voice:v1")));
+        when(voiceArtifacts.take("v1")).thenReturn(Optional.of(voiceArtifact("v1", "这段用语音说")));
+        when(audioTranscoder.toOpus(any())).thenReturn(Optional.of(
+                new FeishuAudioTranscoder.Encoded(new byte[]{4, 5}, 3480)));
+        when(api.uploadFile(any(), any(), any(), any()))
+                .thenReturn(new FeishuApiClient.Upload(false, null, "HTTP 403 code=234001：no permission"));
+        when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_t", null));
+
+        handler.handleAsync(new FeishuInboundMessage("ou_user", "oc_chat", "om_in", "evt-v3", "念一下", false))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(api, never()).sendAudio(any(), any());
+        verify(api).sendText("ou_user", "这段用语音说");
+    }
+
+    /** 语音工件：TTS 产出的形态（mp3 字节 + 原文） */
+    private static VoiceArtifactStore.VoiceArtifact voiceArtifact(String id, String text) {
+        return new VoiceArtifactStore.VoiceArtifact(id, "turn-1", text, new byte[]{1, 2, 3}, "mp3", 0L);
+    }
+
+    private static ChatResponse replyWithFlags(String text, Set<String> flags) {
+        return ChatResponse.success("7", false, "g1", text, List.of(), "agent", flags, null);
     }
 
     private static ChatResponse reply(String text) {

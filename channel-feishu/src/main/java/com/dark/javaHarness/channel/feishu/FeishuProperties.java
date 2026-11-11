@@ -162,6 +162,9 @@ public class FeishuProperties {
         /** 回执表情（飞书 emoji 类型名）；"OnIt" 是「在处理」 */
         private String receiptEmoji = "OnIt";
 
+        /** 语音回复：消费 core 的 voice:<id> flag，把语音工件转成飞书语音条 */
+        private Voice voice = new Voice();
+
         /** 表情包：与 QQ 共用 emojis/ 数据，配置各自独立（渠道之间不互相依赖） */
         private Emoji emoji = new Emoji();
 
@@ -301,6 +304,14 @@ public class FeishuProperties {
             this.receiptEmoji = receiptEmoji;
         }
 
+        public Voice getVoice() {
+            return voice;
+        }
+
+        public void setVoice(Voice voice) {
+            this.voice = voice;
+        }
+
         public Emoji getEmoji() {
             return emoji;
         }
@@ -315,6 +326,57 @@ public class FeishuProperties {
          * <p>默认关闭（与其它渠道配置同一口径：类里的默认值不产生外部副作用，yaml 里开）。
          * 数据与 QQ 共用 {@code emojis/} 目录与索引，但配置键独立——渠道模块之间不能互相依赖。
          */
+        /**
+         * 语音回复：飞书语音条只认 opus，core 的 TTS 出的是 mp3，需要 ffmpeg 转一道
+         * （再取时长作为上传参数）。运行环境没有 ffmpeg 时本条退回文字，不影响其它消息。
+         */
+        public static class Voice {
+
+            /** 开关：false 时忽略 voice:<id> flag，按普通文字回复 */
+            private boolean enabled = true;
+
+            /** ffmpeg 可执行文件：PATH 里有就写 ffmpeg，否则给绝对路径（镜像里通常如此） */
+            private String ffmpeg = "ffmpeg";
+
+            /** 转码超时（秒）：卡住的子进程必须杀掉，不能拖住回复线程 */
+            private int timeoutSeconds = 15;
+
+            /** opus 码率：语音够用即可，32k 单声道一分钟约 240KB */
+            private String bitrate = "32k";
+
+            public boolean isEnabled() {
+                return enabled;
+            }
+
+            public void setEnabled(boolean enabled) {
+                this.enabled = enabled;
+            }
+
+            public String getFfmpeg() {
+                return ffmpeg;
+            }
+
+            public void setFfmpeg(String ffmpeg) {
+                this.ffmpeg = ffmpeg;
+            }
+
+            public int getTimeoutSeconds() {
+                return timeoutSeconds;
+            }
+
+            public void setTimeoutSeconds(int timeoutSeconds) {
+                this.timeoutSeconds = timeoutSeconds;
+            }
+
+            public String getBitrate() {
+                return bitrate;
+            }
+
+            public void setBitrate(String bitrate) {
+                this.bitrate = bitrate;
+            }
+        }
+
         public static class Emoji {
 
             /** 总开关；false 时只剥离标记（不把 {@code [emoji:happy]} 露给用户），不选图、不发送 */

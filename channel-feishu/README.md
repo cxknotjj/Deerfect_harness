@@ -120,6 +120,35 @@ export FEISHU_WS_COMMAND_USER=ou_xxx
 触发依赖提示词：`PromptAssembler` 的飞书信道规范段会告诉模型这个约定。换 Agent 时，
 如果它的提示词明令「只输出正文」，标记就不会出现——那不是渠道的问题。
 
+## 语音回复
+
+core 的 `text_to_speech` 工具把音频存进 `VoiceArtifactStore`，并在 `ChatResponse.flags`
+里追加 `voice:<id>`。QQ 直接把这个 mp3 当语音发；飞书**语音条只认 opus**，所以多一道转码：
+
+```text
+voice:<id> flag
+  → VoiceArtifactStore.take(id)       取 mp3 字节（取走即删）
+  → ffmpeg -c:a libopus ...           转 opus，同时从 stderr 取 Duration
+  → POST /im/v1/files                  file_type=opus + duration（毫秒，必填）
+  → msg_type=audio 发送
+```
+
+发送成功就不再发文字——和 QQ 一致；任一步失败（没有 ffmpeg、转码超时、上传失败、
+发送失败）**退回文字**，语音是加分项，不该让整条回复失败。
+
+| 配置（`channel.feishu.ws.voice.*`） | 默认 | 说明 |
+| --- | --- | --- |
+| `enabled` | `true` | 关闭时忽略 `voice:` flag，按普通文字回复 |
+| `ffmpeg` | `ffmpeg` | 可执行文件路径；PATH 里没有就给绝对路径 |
+| `timeout-seconds` | `15` | 转码超时，卡住的子进程会被杀掉 |
+| `bitrate` | `32k` | opus 码率，32k 单声道约 240KB/分钟 |
+
+**运行环境必须有 ffmpeg**（本机没装时日志里会出现一次
+`调不起 ffmpeg（ffmpeg），语音回复退回文字`，之后不再刷）。镜像里要补一行
+`RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg`。
+
+上传需要 `im:resource` 权限（与发图片同一个）。
+
 ## 运行参数
 
 | 配置（`channel.feishu.ws.*`） | 默认 | 说明 |

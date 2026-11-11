@@ -13,7 +13,9 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -103,6 +105,38 @@ public class FeishuApiClient {
             return new Result(false, null, "image_key 为空");
         }
         return sendMessage(receiveIdType, receiveId, "image", Map.of("image_key", imageKey));
+    }
+
+    /**
+     * 给单聊用户发一条语音条。
+     *
+     * @param fileKey 先由 {@link #uploadFile} 以 {@code file_type=opus} 上传得到的 file_key
+     */
+    public Result sendAudio(String openId, String fileKey) {
+        return sendByFileKey("open_id", openId, "audio", fileKey);
+    }
+
+    /** 给群聊发一条语音条 */
+    public Result sendAudioToChat(String chatId, String fileKey) {
+        return sendByFileKey("chat_id", chatId, "audio", fileKey);
+    }
+
+    /** 给单聊用户发一个文件（报告、代码包等） */
+    public Result sendFile(String openId, String fileKey) {
+        return sendByFileKey("open_id", openId, "file", fileKey);
+    }
+
+    /** 给群聊发一个文件 */
+    public Result sendFileToChat(String chatId, String fileKey) {
+        return sendByFileKey("chat_id", chatId, "file", fileKey);
+    }
+
+    /** 语音与文件的 content 都只有 file_key，展示形态由 msg_type 区分 */
+    private Result sendByFileKey(String receiveIdType, String receiveId, String msgType, String fileKey) {
+        if (fileKey == null || fileKey.isBlank()) {
+            return new Result(false, null, "file_key 为空");
+        }
+        return sendMessage(receiveIdType, receiveId, msgType, Map.of("file_key", fileKey));
     }
 
     /**
@@ -295,6 +329,23 @@ public class FeishuApiClient {
         return reply(messageId, "image", Map.of("image_key", imageKey), inThread);
     }
 
+    /** 引用回复一条语音 */
+    public Result replyAudio(String messageId, String fileKey, boolean inThread) {
+        return replyByFileKey(messageId, "audio", fileKey, inThread);
+    }
+
+    /** 引用回复一个文件 */
+    public Result replyFile(String messageId, String fileKey, boolean inThread) {
+        return replyByFileKey(messageId, "file", fileKey, inThread);
+    }
+
+    private Result replyByFileKey(String messageId, String msgType, String fileKey, boolean inThread) {
+        if (fileKey == null || fileKey.isBlank()) {
+            return new Result(false, null, "file_key 为空");
+        }
+        return reply(messageId, msgType, Map.of("file_key", fileKey), inThread);
+    }
+
     private Result reply(String messageId, String msgType, Object content, boolean inThread) {
         if (messageId == null || messageId.isBlank()) {
             return new Result(false, null, "messageId 为空");
@@ -360,39 +411,105 @@ public class FeishuApiClient {
         if (data == null || data.length == 0) {
             return new Upload(false, null, "图片内容为空");
         }
-        String boundary = "----harness" + UUID.randomUUID().toString().replace("-", "");
-        String safeName = fileName == null || fileName.isBlank()
-                ? "emoji"
-                : fileName.replace("\"", "").replace("\r", "").replace("\n", "");
-        byte[] body = multipartBody(boundary, safeName, data);
-        UploadAttempt attempt = postUpload(boundary, body);
+        String boundary = newBoundary();
+        return upload("/open-apis/im/v1/images", "image_key", boundary, multipartBody(boundary, List.of(
+                FormField.text("image_type", "message"),
+                FormField.file("image", safeName(fileName, "emoji"), data))));
+    }
+
+    /**
+     * 上传文件换 file_key（{@code POST /open-apis/im/v1/files}，multipart/form-data）。
+     *
+     * <p>语音与普通文件共用这个接口，靠 {@code file_type} 区分：语音条只认 {@code opus}，
+     * 且必须带 {@code duration}（毫秒）——缺了飞书直接报错，不猜时长。
+     * 普通文件（报告、压缩包等）用 {@code stream}，发出去是文件卡片。
+     *
+     * @param durationMs 音频时长（毫秒），仅 opus 需要；传 null 表示不带该字段
+     */
+    public Upload uploadFile(String fileType, String fileName, byte[] data, Integer durationMs) {
+        if (data == null || data.length == 0) {
+            return new Upload(false, null, "文件内容为空");
+        }
+        if (fileType == null || fileType.isBlank()) {
+            return new Upload(false, null, "file_type 为空");
+        }
+        String boundary = newBoundary();
+        String name = safeName(fileName, "file");
+        List<FormField> fields = new ArrayList<>();
+        fields.add(FormField.text("file_type", fileType));
+        fields.add(FormField.text("file_name", name));
+        if (durationMs != null && durationMs > 0) {
+            fields.add(FormField.text("duration", String.valueOf(durationMs)));
+        }
+        fields.add(FormField.file("file", name, data));
+        return upload("/open-apis/im/v1/files", "file_key", boundary, multipartBody(boundary, fields));
+    }
+
+    /** 上传公共段：boundary 与请求体一次生成，重试时复用同一份（重新拼会换 boundary） */
+    private Upload upload(String path, String keyField, String boundary, byte[] body) {
+        UploadAttempt attempt = postUpload(path, keyField, boundary, body);
         if (!attempt.upload().ok() && attempt.retryable()) {
             if (attempt.refreshToken()) {
-                token = null;
+                token = null; // 令牌被提前吊销：清缓存，重试会重新获取
             }
             if (!sleepBeforeRetry()) {
                 return attempt.upload();
             }
-            attempt = postUpload(boundary, body);
+            attempt = postUpload(path, keyField, boundary, body);
         }
         return attempt.upload();
     }
 
-    /** multipart 请求体：image_type=message + image 文件段；boundary 一次生成，重试时复用 */
-    private static byte[] multipartBody(String boundary, String safeName, byte[] data) {
+    private static String newBoundary() {
+        return "----harness" + UUID.randomUUID().toString().replace("-", "");
+    }
+
+    /** multipart 头里的文件名：压成一行，避免引号/换行破坏头部结构 */
+    private static String safeName(String fileName, String fallback) {
+        if (fileName == null || fileName.isBlank()) {
+            return fallback;
+        }
+        return fileName.replace("\"", "").replace("\r", "").replace("\n", "");
+    }
+
+    /** multipart 字段：普通字段带 value，文件字段带 fileName 与 content */
+    private record FormField(String name, String value, String fileName, byte[] content) {
+
+        static FormField text(String name, String value) {
+            return new FormField(name, value, null, null);
+        }
+
+        static FormField file(String name, String fileName, byte[] content) {
+            return new FormField(name, null, fileName, content);
+        }
+    }
+
+    /** 拼 multipart 请求体：文件段带 filename 与 octet-stream，普通字段只带值 */
+    private static byte[] multipartBody(String boundary, List<FormField> fields) {
         ByteArrayOutputStream body = new ByteArrayOutputStream();
-        body.writeBytes(("--" + boundary + "\r\n"
-                + "Content-Disposition: form-data; name=\"image_type\"\r\n\r\n"
-                + "message\r\n"
-                + "--" + boundary + "\r\n"
-                + "Content-Disposition: form-data; name=\"image\"; filename=\"" + safeName + "\"\r\n"
-                + "Content-Type: application/octet-stream\r\n\r\n").getBytes(StandardCharsets.UTF_8));
-        body.writeBytes(data);
-        body.writeBytes(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+        for (FormField field : fields) {
+            StringBuilder head = new StringBuilder("--").append(boundary).append("\r\n")
+                    .append("Content-Disposition: form-data; name=\"").append(field.name()).append('"');
+            if (field.fileName() != null) {
+                head.append("; filename=\"").append(field.fileName()).append('"');
+            }
+            head.append("\r\n");
+            if (field.content() != null) {
+                head.append("Content-Type: application/octet-stream\r\n");
+            }
+            body.writeBytes(head.append("\r\n").toString().getBytes(StandardCharsets.UTF_8));
+            if (field.content() != null) {
+                body.writeBytes(field.content());
+            } else {
+                body.writeBytes(field.value().getBytes(StandardCharsets.UTF_8));
+            }
+            body.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
+        }
+        body.writeBytes(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
         return body.toByteArray();
     }
 
-    private UploadAttempt postUpload(String boundary, byte[] body) {
+    private UploadAttempt postUpload(String path, String keyField, String boundary, byte[] body) {
         String accessToken;
         try {
             accessToken = tenantAccessToken();
@@ -400,7 +517,7 @@ public class FeishuApiClient {
             return new UploadAttempt(new Upload(false, null, "获取 tenant_access_token 失败：" + e.getMessage()),
                     false, false);
         }
-        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/open-apis/im/v1/images"))
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
                 .timeout(Duration.ofSeconds(30))
                 .header("Authorization", "Bearer " + accessToken)
                 .header("Content-Type", "multipart/form-data; boundary=" + boundary)
@@ -410,9 +527,9 @@ public class FeishuApiClient {
             HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             JsonNode node = readTree(response.body());
             int code = node == null ? -1 : node.path("code").asInt(-1);
-            String imageKey = node == null ? null : node.path("data").path("image_key").asText(null);
-            if (response.statusCode() / 100 == 2 && code == 0 && imageKey != null && !imageKey.isBlank()) {
-                return new UploadAttempt(new Upload(true, imageKey, null), false, false);
+            String key = node == null ? null : node.path("data").path(keyField).asText(null);
+            if (response.statusCode() / 100 == 2 && code == 0 && key != null && !key.isBlank()) {
+                return new UploadAttempt(new Upload(true, key, null), false, false);
             }
             String msg = node == null ? response.body() : node.path("msg").asText("");
             int status = response.statusCode();
@@ -567,7 +684,7 @@ public class FeishuApiClient {
     }
 
     /** 图片上传结果：成功带 image_key，失败带可读原因 */
-    public record Upload(boolean ok, String imageKey, String reason) {
+    public record Upload(boolean ok, String key, String reason) {
     }
 
     /**

@@ -8,6 +8,7 @@ import com.dark.javaHarness.contract.api.AgentService;
 import com.dark.javaHarness.contract.api.HarnessStatusPort;
 import com.dark.javaHarness.contract.api.ChatService;
 import com.dark.javaHarness.contract.api.SessionService;
+import com.dark.javaHarness.contract.api.VoiceArtifactStore;
 import com.dark.javaHarness.contract.model.ChatAttachment;
 import com.dark.javaHarness.contract.model.ComponentStatus;
 import com.dark.javaHarness.contract.model.SessionInfo;
@@ -18,7 +19,9 @@ import com.dark.javaHarness.view.SessionMessagesView;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -134,6 +137,10 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
     private final boolean atAsker;
     private final boolean quoteReply;
     private final boolean replyInThread;
+    /** 语音回复：core 的 voice:<id> 工件库、mp3→opus 转码器、开关 */
+    private final VoiceArtifactStore voiceArtifacts;
+    private final FeishuAudioTranscoder audioTranscoder;
+    private final boolean voiceEnabled;
     /** 每个会话最近一条机器人消息（/recall 用），key = openId:chatId */
     private final ConcurrentHashMap<String, String> lastSent = new ConcurrentHashMap<>();
     private final Random random = new Random();
@@ -155,6 +162,8 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
                              HarnessStatusPort statusPort,
                              FeishuSessionBindingMapper bindingMapper,
                              FeishuApiClient api,
+                             VoiceArtifactStore voiceArtifacts,
+                             FeishuAudioTranscoder audioTranscoder,
                              FeishuProperties props) {
         this.chatService = chatService;
         this.sessionService = sessionService;
@@ -162,6 +171,9 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
         this.statusPort = statusPort;
         this.bindingMapper = bindingMapper;
         this.api = api;
+        this.voiceArtifacts = voiceArtifacts;
+        this.audioTranscoder = audioTranscoder;
+        this.voiceEnabled = props.getWs().getVoice().isEnabled();
         this.emoji = new FeishuEmojiCatalog(props.getWs().getEmoji());
         this.commandUser = resolveCommandUser(props);
         this.timeoutSeconds = Math.max(1, props.getWs().getChatTimeoutSeconds());
@@ -557,6 +569,71 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
         reply(message, result.sent() ? "已撤回上一条。" : "撤回失败：" + result.reason());
     }
 
+    /** 从渠道无关 flags 里取 voice:<id>；没有该 flag 返回 null */
+    private static String voiceId(Set<String> flags) {
+        if (flags == null) {
+            return null;
+        }
+        for (String flag : flags) {
+            if (flag != null && flag.startsWith("voice:")) {
+                String id = flag.substring("voice:".length()).trim();
+                return id.isEmpty() ? null : id;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 语音回复：取工件 → 转 opus → 上传 → 发语音条。
+     *
+     * <p>飞书语音条只认 opus（TTS 出的是 mp3），上传还必须带时长，所以中间必然有一次转码。
+     * 任一步失败返回 false，调用方退回文字——语音是加分项，不该让整条回复失败。
+     */
+    private boolean sendVoice(FeishuInboundMessage message, String voiceId) {
+        if (!voiceEnabled) {
+            return false;
+        }
+        Optional<VoiceArtifactStore.VoiceArtifact> artifact = voiceArtifacts.take(voiceId);
+        if (artifact.isEmpty()) {
+            log.warn("[feishu] 语音工件缺失，回退文字（id={}）", voiceId);
+            return false;
+        }
+        Optional<FeishuAudioTranscoder.Encoded> encoded = audioTranscoder.toOpus(artifact.get().audio());
+        if (encoded.isEmpty()) {
+            return false;
+        }
+        FeishuApiClient.Upload upload = api.uploadFile("opus", "voice.opus",
+                encoded.get().audio(), encoded.get().durationMs());
+        if (!upload.ok()) {
+            log.warn("[feishu] 语音上传失败，回退文字：{}", upload.reason());
+            return false;
+        }
+        FeishuApiClient.Result result = sendAudio(message, upload.key());
+        if (!result.sent()) {
+            log.warn("[feishu] 语音发送失败，回退文字：{}", result.reason());
+            return false;
+        }
+        rememberSent(message, result);
+        log.info("[feishu] 已发语音 {}={} 时长={}ms messageId={}",
+                message.group() ? "chatId" : "openId", message.replyId(),
+                encoded.get().durationMs(), result.messageId());
+        return true;
+    }
+
+    /** 语音出口：引用规则与文本一致（原消息不可引用时退回普通发送） */
+    private FeishuApiClient.Result sendAudio(FeishuInboundMessage message, String fileKey) {
+        if (quoteReply && message.messageId() != null && !message.messageId().isBlank()) {
+            FeishuApiClient.Result quoted = api.replyAudio(message.messageId(), fileKey, replyInThread);
+            if (quoted.sent()) {
+                return quoted;
+            }
+            log.debug("[feishu] 引用发语音失败，退回普通发送：{}", quoted.reason());
+        }
+        return message.group()
+                ? api.sendAudioToChat(message.chatId(), fileKey)
+                : api.sendAudio(message.openId(), fileKey);
+    }
+
     /** 超长截断：整条发不出去比截断更糟，末尾标明已截断避免误会 */
     private static String capReply(String text, int max) {
         if (text == null) {
@@ -664,6 +741,14 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
             // 即使表情模块关闭也要剥——关掉开关不该让正文变脏。
             FeishuEmojiCatalog.ParsedReply parsed = FeishuEmojiCatalog.stripMarker(response.reply());
             String text = capReply(parsed.text(), replyMaxChars);
+            // 语音优先：core 产出 voice:<id> 时先试着发语音条，成功即本轮结束（与 QQ 一致）
+            String voiceId = voiceId(response.flags());
+            if (voiceId != null && sendVoice(message, voiceId)) {
+                return;
+            }
+            if (voiceId != null && text.isBlank()) {
+                text = "语音发送失败，请稍后再试";
+            }
             if (!text.isBlank()) {
                 FeishuApiClient.Result result = sendText(message, text);
                 if (result.sent()) {
@@ -707,7 +792,7 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
                     log.warn("[feishu] 表情上传失败 category={} 原因={}", category, upload.reason());
                     return;
                 }
-                imageKey = upload.imageKey();
+                imageKey = upload.key();
                 if (emojiKeys.size() < EMOJI_KEY_CACHE_MAX) {
                     emojiKeys.put(picked.name(), imageKey);
                 }

@@ -7,6 +7,7 @@ import com.dark.javaHarness.contract.api.AgentService;
 import com.dark.javaHarness.contract.api.ChatService;
 import com.dark.javaHarness.contract.api.HarnessStatusPort;
 import com.dark.javaHarness.contract.api.SessionService;
+import com.dark.javaHarness.contract.api.VoiceArtifactStore;
 import com.dark.javaHarness.contract.spi.ChannelHealth;
 import com.dark.javaHarness.contract.spi.SessionBindingCleaner;
 import org.mybatis.spring.annotation.MapperScan;
@@ -58,9 +59,11 @@ public class FeishuWsConfig {
                                                   ObjectProvider<HarnessStatusPort> statusPort,
                                                   FeishuSessionBindingMapper bindingMapper,
                                                   FeishuApiClient api,
+                                                  VoiceArtifactStore voiceArtifacts,
+                                                  FeishuAudioTranscoder audioTranscoder,
                                                   FeishuProperties props) {
         return new FeishuChatHandler(chatService, sessionService, agentService,
-                statusPort.getIfAvailable(), bindingMapper, api, props);
+                statusPort.getIfAvailable(), bindingMapper, api, voiceArtifacts, audioTranscoder, props);
     }
 
     @Bean

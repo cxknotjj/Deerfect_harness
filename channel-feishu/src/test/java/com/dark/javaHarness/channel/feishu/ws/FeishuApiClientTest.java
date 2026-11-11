@@ -140,7 +140,7 @@ class FeishuApiClientTest {
         FeishuApiClient.Upload upload = client.uploadImage("happy_01.png", new byte[] {1, 2, 3});
 
         assertTrue(upload.ok());
-        assertEquals("img_test", upload.imageKey());
+        assertEquals("img_test", upload.key());
         String body = server.uploadRequests().get(0);
         assertTrue(body.contains("name=\"image_type\""), body);
         assertTrue(body.contains("name=\"image\"; filename=\"happy_01.png\""), body);
@@ -276,6 +276,87 @@ class FeishuApiClientTest {
         client.sendImageToChat("oc_chat", "img_1");
 
         assertTrue(server.messageRequests().get(0).startsWith("receive_id_type=chat_id|"));
+    }
+
+    // ---------- 语音与文件（上传 + 发送） ----------
+
+    @Test
+    void uploadFile_sendsOpusWithDuration() {
+        FeishuApiClient.Upload upload = client.uploadFile("opus", "voice.opus", new byte[] {1, 2}, 3480);
+
+        assertTrue(upload.ok(), upload.reason());
+        assertEquals("file_test", upload.key());
+        String request = server.fileUploadRequests().get(0);
+        assertTrue(request.startsWith("POST /open-apis/im/v1/files"), request);
+        assertTrue(request.contains("name=\"file_type\""), request);
+        assertTrue(request.contains("opus"), request);
+        assertTrue(request.contains("name=\"file_name\""), request);
+        assertTrue(request.contains("name=\"duration\""), request);
+        assertTrue(request.contains("3480"), request);
+        assertTrue(request.contains("; filename=\"voice.opus\""), request);
+    }
+
+    @Test
+    void uploadFile_withoutDuration_omitsField() {
+        client.uploadFile("stream", "report.md", new byte[] {1}, null);
+
+        String request = server.fileUploadRequests().get(0);
+        assertTrue(request.contains("stream"), request);
+        assertFalse(request.contains("name=\"duration\""),
+                "普通文件不带 duration：飞书只在 opus 时要求它");
+    }
+
+    @Test
+    void uploadFile_blankType_isRejectedWithoutRequest() {
+        FeishuApiClient.Upload upload = client.uploadFile(" ", "x", new byte[] {1}, null);
+
+        assertFalse(upload.ok());
+        assertTrue(server.fileUploadRequests().isEmpty());
+    }
+
+    @Test
+    void uploadFile_emptyContent_isRejectedWithoutRequest() {
+        FeishuApiClient.Upload upload = client.uploadFile("opus", "voice.opus", new byte[0], 1000);
+
+        assertFalse(upload.ok());
+        assertTrue(server.fileUploadRequests().isEmpty());
+    }
+
+    @Test
+    void sendAudio_usesAudioMsgType() {
+        FeishuApiClient.Result result = client.sendAudio("ou_user", "file_v1");
+
+        assertTrue(result.sent(), result.reason());
+        String request = server.messageRequests().get(0);
+        assertTrue(request.contains("\"msg_type\":\"audio\""), request);
+        assertTrue(request.contains("file_key"), request);
+    }
+
+    @Test
+    void sendFileToChat_usesFileMsgType() {
+        client.sendFileToChat("oc_chat", "file_v1");
+
+        String request = server.messageRequests().get(0);
+        assertTrue(request.startsWith("receive_id_type=chat_id|"), request);
+        assertTrue(request.contains("\"msg_type\":\"file\""), request);
+    }
+
+    @Test
+    void replyAudio_usesReplyEndpoint() {
+        FeishuApiClient.Result result = client.replyAudio("om_1", "file_v1", false);
+
+        assertTrue(result.sent(), result.reason());
+        String request = server.replyRequests().get(0);
+        assertTrue(request.startsWith("POST /open-apis/im/v1/messages/om_1/reply"), request);
+        assertTrue(request.contains("\"msg_type\":\"audio\""), request);
+    }
+
+    @Test
+    void replyFile_blankKey_isRejectedWithoutRequest() {
+        FeishuApiClient.Result result = client.replyFile("om_1", " ", false);
+
+        assertFalse(result.sent());
+        assertTrue(server.replyRequests().isEmpty());
     }
 
     @Test

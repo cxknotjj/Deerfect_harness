@@ -432,6 +432,21 @@ export CHANNEL_FEISHU_WS_ALLOWED_USERS=ou_xxx   # 多个用逗号分隔
   单聊不限制，指令也不受限制（显式操作不该被概率吞掉）。`mention` 依赖入站事件里的
   `mentions`，所以 `FeishuInboundMessage` 新增了 `mentioned` 字段。
 
+### 飞书语音回复：为什么必须过一道 ffmpeg（2026-11-11）
+
+core 的 TTS 产出 mp3，飞书语音条（`msg_type=audio`）只认 opus，且上传
+（`POST /im/v1/files`）必须带 `duration`（毫秒）——两个约束都不是可选的，
+所以链路上必然有一次转码。QQ 不需要：它直接内联 mp3 当 `record` 段发。
+
+不引纯 Java 方案的理由：JDK 既没有 mp3 解码器也没有 opus 编码器，为一件事引两个原生库
+不如调 ffmpeg（运维也熟）。代价是**运行环境必须有 ffmpeg**：没有时 `toOpus` 返回空，
+本条退回文字，日志里只 warn 一次（不刷屏）。
+
+时长从 ffmpeg 的 stderr（`Duration: 00:00:03.48`）里取，不再单独起 ffprobe——
+为了一个字段多一次进程启动不值当。`-nostdin` 不能省：服务端没有终端，ffmpeg 默认会去读
+标准输入，可能直接挂住。
+
+
 ### cli 终端探测：为什么会卡 40 秒（2026-11-11）
 
 `TerminalInput.open()` 原来直接调 `TerminalBuilder.terminal()`。JLine 3.30 的 `doBuild()`

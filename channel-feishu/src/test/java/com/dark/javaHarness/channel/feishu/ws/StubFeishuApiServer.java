@@ -28,6 +28,7 @@ final class StubFeishuApiServer implements AutoCloseable {
     private volatile int imageStatus = 200;
     private final List<String> resourceRequests = new CopyOnWriteArrayList<>();
     private final List<String> uploadRequests = new CopyOnWriteArrayList<>();
+    private final List<String> fileUploadRequests = new CopyOnWriteArrayList<>();
     private final List<String> reactionRequests = new CopyOnWriteArrayList<>();
     private final List<String> replyRequests = new CopyOnWriteArrayList<>();
     private final List<String> deleteRequests = new CopyOnWriteArrayList<>();
@@ -39,6 +40,8 @@ final class StubFeishuApiServer implements AutoCloseable {
     private volatile String failureBody = "{}";
     private volatile String uploadBody = "{\"code\":0,\"msg\":\"success\",\"data\":{\"image_key\":\"img_test\"}}";
     private volatile int uploadStatus = 200;
+    private volatile String fileUploadBody = "{\"code\":0,\"msg\":\"success\",\"data\":{\"file_key\":\"file_test\"}}";
+    private volatile int fileUploadStatus = 200;
 
     StubFeishuApiServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -59,6 +62,12 @@ final class StubFeishuApiServer implements AutoCloseable {
             uploadRequests.add(new String(exchange.getRequestBody().readAllBytes(),
                     java.nio.charset.StandardCharsets.ISO_8859_1));
             respond(exchange, uploadStatus, uploadBody);
+        });
+        server.createContext("/open-apis/im/v1/files", exchange -> {
+            // 与图片同理：文件字节是任意二进制，按 ISO-8859-1 记录才能原样比对
+            fileUploadRequests.add("POST " + exchange.getRequestURI().getPath() + "|"
+                    + new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.ISO_8859_1));
+            respond(exchange, fileUploadStatus, fileUploadBody);
         });
         // 更长前缀优先：/messages/{id}/resources/{key} 落到这里，发消息仍走上面那个
         server.createContext("/open-apis/im/v1/messages/", exchange -> {
@@ -127,6 +136,15 @@ final class StubFeishuApiServer implements AutoCloseable {
 
     List<String> uploadRequests() {
         return uploadRequests;
+    }
+
+    void respondFileUpload(int status, String body) {
+        this.fileUploadStatus = status;
+        this.fileUploadBody = body;
+    }
+
+    List<String> fileUploadRequests() {
+        return fileUploadRequests;
     }
 
     List<String> reactionRequests() {
