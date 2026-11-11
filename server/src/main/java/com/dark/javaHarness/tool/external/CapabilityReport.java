@@ -123,8 +123,7 @@ public class CapabilityReport {
         List<Entry> entries = new ArrayList<>();
         for (McpToolProvider.McpServerStatus status : mcp.statuses()) {
             entries.add(new Entry(status.name(), "mcp:" + status.transport(),
-                    status.transport(), List.of(),
-                    status.state() + "（" + status.tools() + " 个工具）"));
+                    status.transport(), mcp.toolNames(status.name()), status.state()));
         }
         return entries;
     }

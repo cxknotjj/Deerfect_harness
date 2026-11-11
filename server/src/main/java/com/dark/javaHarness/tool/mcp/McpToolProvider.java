@@ -22,6 +22,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
@@ -61,6 +63,9 @@ public class McpToolProvider {
     private static final boolean IS_WINDOWS =
             System.getProperty("os.name", "").toLowerCase().contains("win");
 
+    /** 重载后旧连接的宽限期（秒）：在途调用跑完再关 */
+    private static final int CLOSE_GRACE_SECONDS = 30;
+
     /** stdio 模式的待启动目标：来自 mcp-config.json 条目或 yaml 内联命令 */
     record StdioTarget(String name, String command, List<String> args) {}
 
@@ -70,10 +75,23 @@ public class McpToolProvider {
     /** 每 server 独立连接状态：client（失败时 null）+ 已发现回调（失败=永久空，防反复落在请求路径） */
     private record ServerState(McpSyncClient client, List<ToolCallback> callbacks) {}
 
-    /** 全部 server 规格（构造时定死，运行期不变——MCP 配置热重载明确不做，改配置需重启） */
-    private final List<ServerSpec> specs;
-    /** 每 server 连接状态（懒连接 + 缓存；computeIfAbsent 按 server 原子互斥） */
-    private final ConcurrentHashMap<String, ServerState> states = new ConcurrentHashMap<>();
+    /** 规格 + 连接状态的一体快照：reload 时整份替换，读路径只取一次引用，不会看到半新半旧 */
+    private record Snapshot(List<ServerSpec> specs, ConcurrentHashMap<String, ServerState> states) {
+
+        static Snapshot of(List<ServerSpec> specs) {
+            return new Snapshot(List.copyOf(specs), new ConcurrentHashMap<>());
+        }
+    }
+
+    /** 配置来源：reload 时按同一套回退规则重新解析 */
+    private final String transport;
+    private final String serverUrl;
+    private final String stdioCommand;
+    private final Path configPath;
+
+    /** 当前快照（volatile 换引用；请求线程无锁读） */
+    private volatile Snapshot snapshot;
+
     /** 连接/发现事件 sink（结构化落库 mcp_server_log；null = 未接线，仅记日志） */
     private final java.util.function.Consumer<McpServerLog> serverEventSink;
     /** 后台预热线程：应用就绪后逐 server 先行连接/发现，避免请求线程为 MCP 握手超时买单 */
@@ -82,6 +100,13 @@ public class McpToolProvider {
         t.setDaemon(true);
         return t;
     });
+    /** 重载后延迟关闭旧连接：给在途调用留完成时间，新请求立即走新快照 */
+    private final java.util.concurrent.ScheduledExecutorService closeExecutor =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "mcp-reload-close");
+                t.setDaemon(true);
+                return t;
+            });
 
     /** Spring 装配入口：McpServerRecorder 适配为事件 sink（recorder 为 null 时仅记日志） */
     @Autowired
@@ -106,13 +131,25 @@ public class McpToolProvider {
 
     McpToolProvider(String transport, String serverUrl, String stdioCommand, String configFile,
             java.util.function.Consumer<McpServerLog> serverEventSink) {
-        String normalizedTransport = transport == null ? "http" : transport.trim().toLowerCase();
-        Path configPath = Path.of(configFile == null || configFile.isBlank()
+        this.transport = transport == null ? "http" : transport.trim().toLowerCase();
+        this.serverUrl = serverUrl;
+        this.stdioCommand = stdioCommand;
+        this.configPath = Path.of(configFile == null || configFile.isBlank()
                 ? "mcp-config.json" : configFile.trim());
-        // 优先：mcp-config.json 全量条目（stdio + http 混合）；回退：legacy yaml 单 server（原逻辑平移）
+        this.serverEventSink = serverEventSink;
+        this.snapshot = Snapshot.of(resolveSpecs());
+        log.info("[mcp] 已加载 {} 个 MCP server 配置: {}", snapshot.specs().size(),
+                snapshot.specs().stream().map(s -> s.name() + "(" + s.transport() + ")").toList());
+    }
+
+    /**
+     * 解析 server 规格：优先 mcp-config.json 全量条目（stdio + http 混合），
+     * 空则回退 legacy yaml 单 server（http 连 server-url / stdio 解析内联命令）。
+     */
+    private List<ServerSpec> resolveSpecs() {
         List<ServerSpec> loaded = loadServerSpecs(configPath);
         if (loaded.isEmpty()) {
-            if ("stdio".equals(normalizedTransport)) {
+            if ("stdio".equals(transport)) {
                 StdioTarget target = loadStdioTarget(configPath, stdioCommand);
                 if (target != null) {
                     loaded = List.of(new ServerSpec(target.name(), "stdio", null,
@@ -122,23 +159,42 @@ public class McpToolProvider {
                 loaded = List.of(new ServerSpec("default", "http", serverUrl.trim(), null, List.of()));
             }
         }
-        this.specs = loaded;
-        this.serverEventSink = serverEventSink;
-        log.info("[mcp] 已加载 {} 个 MCP server 配置: {}", specs.size(),
-                specs.stream().map(s -> s.name() + "(" + s.transport() + ")").toList());
+        return loaded;
+    }
+
+    /**
+     * 重新解析配置文件并原子替换快照：MCP server 增删/改地址不再需要重启。
+     *
+     * <p>旧连接延迟 {@value #CLOSE_GRACE_SECONDS} 秒关闭——在途工具调用还能跑完，
+     * 新请求立刻走新快照。失败与首次连接一致：按 server 隔离，不影响其他 server。
+     */
+    public synchronized ReloadResult reload() {
+        Snapshot previous = snapshot;
+        Snapshot next = Snapshot.of(resolveSpecs());
+        snapshot = next;
+        log.info("[mcp] 配置重载：{} 个 server（原 {} 个）", next.specs().size(), previous.specs().size());
+        warmupAsync();
+        closeLater(previous);
+        return new ReloadResult(next.specs().size(), previous.specs().size(),
+                next.specs().stream().map(ServerSpec::name).toList());
+    }
+
+    /** 重载结果：server 数、重载前 server 数、新快照里的 server 名 */
+    public record ReloadResult(int servers, int previousServers, List<String> names) {
     }
 
     /** 应用就绪后后台逐 server 预热连接/发现：把握手超时的代价挪出请求路径。挂在 ApplicationReadyEvent
      *  上，http 模式连自建 /mcp 时端点必然已就绪（规避启动死锁）；失败与成功同样落缓存。 */
     @EventListener(ApplicationReadyEvent.class)
     public void warmupAsync() {
-        if (specs.isEmpty()) {
+        Snapshot current = snapshot;
+        if (current.specs().isEmpty()) {
             return;
         }
         warmupExecutor.execute(() -> {
-            for (ServerSpec spec : specs) {
+            for (ServerSpec spec : current.specs()) {
                 try {
-                    int count = callbacksOf(spec).size();
+                    int count = callbacksOf(current, spec).size();
                     log.info("[mcp] 后台预热完成 server '{}'：{} 个工具", spec.name(), count);
                 } catch (Throwable t) {
                     // callbacksOf 内部已兜底降级，此处仅防预热线程意外挂掉
@@ -151,13 +207,14 @@ public class McpToolProvider {
 
     /** 全部 server 的工具并集（按名去重，先到者优先）；无配置或全部失败时返回空列表（不影响主链路） */
     public List<ToolCallback> toolCallbacks() {
-        if (specs.isEmpty()) {
+        Snapshot current = snapshot;
+        if (current.specs().isEmpty()) {
             return List.of();
         }
         List<ToolCallback> merged = new ArrayList<>();
         Set<String> seen = new HashSet<>();
-        for (ServerSpec spec : specs) {
-            for (ToolCallback cb : callbacksOf(spec)) {
+        for (ServerSpec spec : current.specs()) {
+            for (ToolCallback cb : callbacksOf(current, spec)) {
                 String name = cb.getToolDefinition().name();
                 if (seen.add(name)) {
                     merged.add(cb);
@@ -174,9 +231,10 @@ public class McpToolProvider {
      * 供监控页展示「哪些 server 已连上 / 失败 / 工具数」，不暴露 url（query 可能含 API key）。
      */
     public List<McpServerStatus> statuses() {
+        Snapshot current = snapshot;
         List<McpServerStatus> list = new ArrayList<>();
-        for (ServerSpec spec : specs) {
-            ServerState state = states.get(spec.name());
+        for (ServerSpec spec : current.specs()) {
+            ServerState state = current.states().get(spec.name());
             String status = state == null ? "PENDING"
                     : state.client() != null ? "CONNECTED" : "FAILED";
             int tools = state == null ? 0 : state.callbacks().size();
@@ -185,13 +243,24 @@ public class McpToolProvider {
         return List.copyOf(list);
     }
 
+    /** 某 server 已发现的工具名（能力清单用；未连接/未知 server 返回空） */
+    public List<String> toolNames(String server) {
+        ServerState state = snapshot.states().get(server);
+        if (state == null) {
+            return List.of();
+        }
+        return state.callbacks().stream()
+                .map(cb -> cb.getToolDefinition().name())
+                .toList();
+    }
+
     /** CONNECTED=已连接；FAILED=连接/发现失败；PENDING=尚未预热。 */
     public record McpServerStatus(String name, String transport, String state, int tools) {
     }
 
     /** 单 server 回调：懒连接 + 状态缓存（computeIfAbsent 原子互斥——同 server 并发请求只连一次，不同 server 互不阻塞） */
-    private List<ToolCallback> callbacksOf(ServerSpec spec) {
-        return states.computeIfAbsent(spec.name(), name -> connectAndDiscover(spec)).callbacks();
+    private List<ToolCallback> callbacksOf(Snapshot current, ServerSpec spec) {
+        return current.states().computeIfAbsent(spec.name(), name -> connectAndDiscover(spec)).callbacks();
     }
 
     /** 连接单个 server 并发现工具；失败返回空状态缓存（按 server 隔离，不重试不拖垮其他 server） */
@@ -307,14 +376,34 @@ public class McpToolProvider {
     /** 应用退出/容器关闭时释放全部 MCP 连接与底层资源 */
     @PreDestroy
     public void shutdown() {
-        for (ServerState state : states.values()) {
-            McpSyncClient c = state.client();
-            if (c != null) {
-                try {
-                    c.closeGracefully();
-                } catch (Exception e) {
-                    log.warn("[mcp] 关闭连接异常: {}", e.getMessage());
-                }
+        closeAll(snapshot);
+        closeExecutor.shutdownNow();
+        warmupExecutor.shutdownNow();
+    }
+
+    /** 旧快照延迟关闭：给在途调用留完成时间；关不掉只记 warn，不影响新连接 */
+    private void closeLater(Snapshot previous) {
+        if (previous.states().isEmpty()) {
+            return;
+        }
+        try {
+            closeExecutor.schedule(() -> closeAll(previous), CLOSE_GRACE_SECONDS, TimeUnit.SECONDS);
+        } catch (RejectedExecutionException e) {
+            // 应用正在关闭，调度器已停：直接同步关
+            closeAll(previous);
+        }
+    }
+
+    private void closeAll(Snapshot target) {
+        for (ServerState state : target.states().values()) {
+            McpSyncClient client = state.client();
+            if (client == null) {
+                continue;
+            }
+            try {
+                client.closeGracefully();
+            } catch (Exception e) {
+                log.warn("[mcp] 关闭连接异常: {}", e.getMessage());
             }
         }
     }

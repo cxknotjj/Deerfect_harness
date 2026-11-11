@@ -534,9 +534,12 @@ HTTP 工具和 MCP 分发器现在都用 `Object` 接参数、两种形态都认
 这类问题单测造不出来——只有真跑一次、看服务端收到的 query string 才会暴露。
 
 能力清单：`GET /api/capabilities` 按来源聚合（core/sandbox/mcp/http/skill），
-每条带定位符（源文件、清单路径、URL、技能目录）；`POST /api/capabilities/reload`
-重载 HTTP 清单。MCP 的 client 生命周期绑在连接上，热重载是单独一步——当前改
-`mcp-config.json` 仍需重启（compose 注释里那句 `--force-recreate` 还在）。
+每条带定位符（源文件、清单路径、URL、技能目录）与工具名；`POST /api/capabilities/reload`
+重载两类外部来源：HTTP 清单与 MCP server 配置。
+
+MCP 重载的做法：把「规格 + 连接状态」收成一份不可变快照，reload 时原子换引用；
+旧连接延迟 30 秒关闭——在途调用跑完，新请求立刻走新连接。失败仍按 server 隔离，
+不影响其他 server。改 `mcp-config.json` 不再需要重建容器。
 
 `wms-mcp-adapter` 是 WMS 的唯一实现，不再删除：它是 MCP 服务，进程隔离、调用方鉴权、
 组合查询都在它那边；声明式 HTTP 机制留给「不值得起一个服务」的轻量集成。

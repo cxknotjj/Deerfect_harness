@@ -45,6 +45,7 @@ class CapabilityReportTest {
         McpToolProvider mcp = mock(McpToolProvider.class);
         when(mcp.statuses()).thenReturn(List.of(
                 new McpToolProvider.McpServerStatus("tavily", "http", "connected", 2)));
+        when(mcp.toolNames("tavily")).thenReturn(List.of("tavily_search", "tavily_extract"));
 
         SkillRepository skills = mock(SkillRepository.class);
         // agents 为 null 是「全部 agent 可见」的合法形态，曾经在这里 NPE
@@ -61,7 +62,7 @@ class CapabilityReportTest {
         assertTrue(result.entries().stream().anyMatch(e -> e.pack().equals("sandbox.read")
                 && e.tools().contains("send_file")), "沙箱组按组聚合");
         assertTrue(result.entries().stream().anyMatch(e -> e.source().startsWith("mcp:")
-                && e.state().contains("2 个工具")), "MCP 服务器带工具数");
+                && e.tools().contains("tavily_search")), "MCP 服务器应列出工具名");
         assertTrue(result.entries().stream().allMatch(e -> !e.location().contains("\\")),
                 "路径统一用 /");
         assertEquals(0, result.problems().size());

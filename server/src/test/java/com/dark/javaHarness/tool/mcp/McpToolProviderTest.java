@@ -267,4 +267,42 @@ class McpToolProviderTest {
         assertTrue(provider.toolCallbacks().isEmpty(),
                 "server 不可达时按 server 隔离降级为空工具面，不影响主链路");
     }
+
+    @Test
+    void reload_rereadsConfigFile_andSwapsServerList() throws Exception {
+        Path config = Files.createTempFile("mcp-reload", ".json");
+        Files.writeString(config, """
+                {"mcpServers":{
+                  "one":{"url":"http://127.0.0.1:1/mcp"},
+                  "two":{"url":"http://127.0.0.1:2/mcp"}}}
+                """);
+        McpToolProvider provider = new McpToolProvider("http", "", "", config.toString());
+        assertEquals(2, provider.statuses().size());
+
+        Files.writeString(config, """
+                {"mcpServers":{"three":{"url":"http://127.0.0.1:3/mcp"}}}
+                """);
+        McpToolProvider.ReloadResult result = provider.reload();
+
+        assertEquals(1, result.servers());
+        assertEquals(2, result.previousServers());
+        assertEquals(List.of("three"), result.names());
+        assertEquals(List.of("three"),
+                provider.statuses().stream().map(McpToolProvider.McpServerStatus::name).toList(),
+                "重载后状态面应只剩新配置里的 server");
+        provider.shutdown();
+    }
+
+    @Test
+    void reload_badConfig_degradesToEmptyWithoutThrowing() throws Exception {
+        Path config = Files.createTempFile("mcp-reload-bad", ".json");
+        Files.writeString(config, "{ not valid json ");
+        McpToolProvider provider = new McpToolProvider("http", "", "", config.toString());
+
+        McpToolProvider.ReloadResult result = provider.reload();
+
+        assertEquals(0, result.servers());
+        assertTrue(provider.statuses().isEmpty());
+        provider.shutdown();
+    }
 }
