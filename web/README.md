@@ -73,6 +73,17 @@ npm run test:e2e   # playwright（需要先起后端，或走 mock）
 npm run build      # 产物在 dist/
 ```
 
+## 运行时行为
+
+**请求超时**：普通 REST 统一走 `fetchWithTimeout`（默认 30s，`VITE_API_TIMEOUT_MS` 覆盖）：
+后端挂起时抛 `请求超时（30s）：/api/...` 并带原始 `cause`，不会无限等待。`login` 虽然单独
+`fetch`（为了不触发 401 全局钩子），也走同一条超时封装。
+
+**全局错误提示**：三处异常入口收敛到 `composables/globalError.ts`——`app.config.errorHandler`
+（根组件/渲染）、`unhandledrejection`（异步未捕获）、根组件 `onErrorCaptured`（子树，返回 false
+阻止向上）。顶部红色横幅显示「类型: 首行消息」，8s 自动消失、可手动关闭；完整堆栈仍打 console。
+有横幅时页面其余部分照常可用，不再整页白屏。
+
 ## 边界
 
 - **不含业务逻辑**：路由判断、会话存储、工具调用都在 `server`；前端只负责呈现与交互。
