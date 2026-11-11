@@ -59,7 +59,7 @@ jobs:
     name: build-image
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # GHCR 要求路径全小写：owner 大小写不敏感，统一转小写
       - name: Normalize image name
