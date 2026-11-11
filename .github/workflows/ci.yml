@@ -49,10 +49,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
-          # 本地仓库改用默认 ~/.m2 以便命中 setup-java 的缓存；settings.xml 仍生效（阿里云镜像）
+          # 本地仓库用默认 ~/.m2 以命中 setup-java 缓存；settings.xml 不入仓库
+          # （AGENTS.md 的 -s .mvn/settings.xml 只适用于本地开发机）
           cache: maven
       - name: Build & test
-        run: mvn -s .mvn/settings.xml -Dmaven.repo.local=$HOME/.m2/repository -B verify
+        run: mvn -Dmaven.repo.local=$HOME/.m2/repository -B verify
         env:
           SPRING_DATASOURCE_URL: jdbc:mysql://127.0.0.1:3306/harness?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
           SPRING_DATASOURCE_USERNAME: root

@@ -6,8 +6,8 @@
 #   docker/build-image.ps1  （Windows） / docker/build-image.sh（Linux/WSL）
 # 版本策略：镜像 tag = sha-<git短sha>，APP_VERSION/GIT_SHA 同时写入 OCI labels，
 #           compose 以 IMAGE_TAG 选择要运行的版本（回滚=改回旧 tag 后 up -d --no-build）。
-# 说明：沿用项目 .mvn/settings.xml（阿里云镜像）；本地仓库路径 .mvn-repo 在镜像内新建，
-#       依赖下载落在可缓存的独立层——pom 不变时重建秒级完成
+# 说明：镜像内不挂项目的 .mvn/settings.xml（该文件不入仓库），Maven 用默认中央仓库与
+#       ~/.m2；依赖下载落在可缓存的独立层——pom 不变时重建秒级完成
 # ============================================================
 
 # ---------- 构建阶段 ----------
@@ -24,7 +24,7 @@ ARG GIT_SHA=unknown
 FROM ${BUILD_BASE} AS build
 WORKDIR /build
 
-# 先拷贝全部模块 pom 与 Maven 配置：依赖层与源码层分离，改代码不重下依赖。
+# 先拷贝全部模块 pom：依赖层与源码层分离，改代码不重下依赖。
 # 根 pom 的 <modules> 声明了 7 个模块，即使 -pl 只构建 server，Maven 读取反应堆时
 # 也要求每个模块目录存在——因此所有 pom 必须在此拷贝（cli/wms 只建目录、不参与构建）。
 COPY pom.xml ./
@@ -35,10 +35,9 @@ COPY channel-feishu/pom.xml ./channel-feishu/pom.xml
 COPY server/pom.xml ./server/pom.xml
 COPY cli/pom.xml ./cli/pom.xml
 COPY wms-mcp-adapter/pom.xml ./wms-mcp-adapter/pom.xml
-COPY .mvn/settings.xml .mvn/settings.xml
 # dependency:go-offline 尽力预拉全部依赖与插件（个别插件依赖拉不全是已知行为，
 # 失败不阻断——下一步 package 会继续补齐）
-RUN mvn -s .mvn/settings.xml -B -q dependency:go-offline || true
+RUN mvn -B -q dependency:go-offline || true
 
 COPY harness-api/src ./harness-api/src
 COPY channel-qq/src ./channel-qq/src
@@ -48,7 +47,7 @@ COPY server/src ./server/src
 # 仅构建 server（-am 连带 harness-api 与 runtime 依赖 channel-qq / channel-email / channel-feishu；
 # cli/wms 不进服务端镜像）
 # 测试需真实数据库环境，镜像构建跳过（本地全量回归单独跑）
-RUN mvn -s .mvn/settings.xml -B -q -DskipTests -pl server -am package
+RUN mvn -B -q -DskipTests -pl server -am package
 
 # ---------- 运行阶段 ----------
 FROM ${RUN_BASE}
