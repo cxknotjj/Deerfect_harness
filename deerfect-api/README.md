@@ -17,7 +17,7 @@ harness 的能力契约包：**server 提供实现，channel-\* / cli / web 消�
 ## 目录结构
 
 ```text
-harness-api/
+deerfect-api/
 ├── README.md                 # 本文件：定位、方向、能力目录、变更规则
 ├── API.md                    # 方法手册：参数、阻塞性、失败行为
 ├── pom.xml                   # 依赖只有 Spring AI / Reactor / Validation / Jackson
@@ -106,10 +106,10 @@ harness-api --compile--> server / channel-* ❌ Maven 反应堆禁止成环
 ## 构建与测试
 
 ```bash
-mvn -s .mvn/settings.xml -pl harness-api -am test
+mvn -s .mvn/settings.xml -pl deerfect-api -am test
 ```
 
-签名守卫：`harness-api/src/test/java/com/dark/javaHarness/contract/PortSignatureGuardTest.java`
+签名守卫：`deerfect-api/src/test/java/com/dark/javaHarness/contract/PortSignatureGuardTest.java`
 （当前覆盖 `AgentService` / `SessionService` / `Goal` 三个高扇入类型）。
 
 ## 方法手册

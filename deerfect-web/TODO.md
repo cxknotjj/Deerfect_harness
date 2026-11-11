@@ -1,7 +1,7 @@
 # Web 端 TODO
 
 > 已规划未实施的优化项,按优先级排列。纯前端项可随时做;标注「需后端」的等真模式联调时一起。
-> 2026-11-06 按代码核对：前端工程现状见 [web/README.md](README.md) 与 [docs/dev.md](../docs/dev.md) 的「前端运行要求」「前端开发与验证」。
+> 2026-11-06 按代码核对：前端工程现状见 [deerfect-web/README.md](README.md) 与 [docs/dev.md](../docs/dev.md) 的「前端运行要求」「前端开发与验证」。
 
 ## 功能补全
 
@@ -17,6 +17,6 @@
 
 ## 工程健壮
 
-- [x] **web 端单测 + CI**(已完成):vitest 已落地(`web/src/**/*.test.ts`,`npm test` = `vitest run`);另有 Playwright E2E 冒烟 3 条。GitHub Actions `ci.yml` 的 `web` / `e2e` 两个 job 分别跑单测与 E2E,见 [docs/dev.md](../docs/dev.md) 的「流水线」一节
-- [ ] **部署方案**:web/dist 生产托管路径未定(nginx 或 server 静态托管)。CI 与镜像发布已落地(`ci.yml` / `docker-image.yml`),剩余是托管方式选型与 CD 自动部署/分支保护强制校验
+- [x] **web 端单测 + CI**(已完成):vitest 已落地(`deerfect-web/src/**/*.test.ts`,`npm test` = `vitest run`);另有 Playwright E2E 冒烟 3 条。GitHub Actions `ci.yml` 的 `web` / `e2e` 两个 job 分别跑单测与 E2E,见 [docs/dev.md](../docs/dev.md) 的「流水线」一节
+- [ ] **部署方案**:deerfect-web/dist 生产托管路径未定(nginx 或 server 静态托管)。CI 与镜像发布已落地(`ci.yml` / `docker-image.yml`),剩余是托管方式选型与 CD 自动部署/分支保护强制校验
 - [x] **轨迹观测增强(turn_id / trace_id)**(已完成 2026-09-24):llm_call_log 加 turn_id/trace_id/span_id/parent_span、tool_call_log 加前三者减 span_id(压平前的 V23 迁移,已并入 V1 基线;全 NULL 兼容);turnId 在 ChatService 入口生成沿显式参数链贯通,工具侧复用 Spring AI ToolContext 双参通道(原设想 ThreadLocal 桥接不需要);span 树经 OverAllState 状态键贯通编排 lead→subtask/aggregate,降级重答复用编排链 trace;轨迹页按轮分段(「第 N 轮 · M 步」)+ 按 parent_span 缩进,旧数据平铺如旧(spec 见 `docs/archive/specs/add-turn-trace-observability/`)

@@ -8,7 +8,7 @@ Spring Boot 主服务：**core 实现 + HTTP 接口 + fat jar 宿主**。所有�
 ## 目录结构
 
 ```text
-server/
+deerfect-server/
 ├── pom.xml
 └── src/
     ├── main/

@@ -37,7 +37,7 @@ echo [2/3] Stopping stale server on port 8080 (if any)...
 for /f "tokens=5" %%p in ('netstat -aon ^| findstr ":8080" ^| findstr "LISTENING"') do taskkill /F /PID %%p >nul 2>&1
 echo.
 echo [2/3] Starting server...
-start "javaHarness-server" cmd /k "cd /d %~dp0 && mvn -s .mvn\settings.xml -pl server spring-boot:run"
+start "javaHarness-server" cmd /k "cd /d %~dp0 && mvn -s .mvn\settings.xml -pl deerfect-server spring-boot:run"
 echo Server window opened.
 echo.
 
@@ -64,7 +64,7 @@ echo Opening CLI chat window...
 echo Type text to chat, /exit to quit.
 REM exec:java is not part of the compile lifecycle - compile must run first,
 REM otherwise stale classes stay in target\classes (caused mojibake regression once)
-start "java_harness_cli" cmd /k "cd /d %~dp0 && mvn -s .mvn\settings.xml -pl cli -Pcli compile exec:exec"
+start "java_harness_cli" cmd /k "cd /d %~dp0 && mvn -s .mvn\settings.xml -pl deerfect-cli -Pcli compile exec:exec"
 
 echo.
 echo Server and CLI launched. Two windows opened.

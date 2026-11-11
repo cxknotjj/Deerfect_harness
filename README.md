@@ -6,7 +6,7 @@
 
 <div align="center">
 
-<img src="web/public/deer_logo.png" width="88" alt="Deerfect Harness" />
+<img src="deerfect-web/public/deer_logo.png" width="88" alt="Deerfect Harness" />
 
 # Deerfect Harness
 
@@ -85,19 +85,19 @@ CREATE DATABASE IF NOT EXISTS harness DEFAULT CHARACTER SET utf8mb4;
 
 ```bash
 mvn -DskipTests install
-java -jar server/target/server-0.0.1-SNAPSHOT.jar
+java -jar deerfect-server/target/deerfect-server-0.0.1-SNAPSHOT.jar
 ```
 
 **3️⃣ 开始对话**——三选一：
 
 ```bash
 # Web 控制台（推荐：会话管理 / 思考折叠 / 轨迹观测全都有）
-cd web && npm install && npm run dev   # 打开 http://localhost:5173
+cd deerfect-web && npm install && npm run dev   # 打开 http://localhost:5173
 ```
 
 ```bash
 # 终端 CLI
-mvn -pl cli -Pcli compile exec:exec
+mvn -pl deerfect-cli -Pcli compile exec:exec
 ```
 
 ```bash
@@ -172,22 +172,22 @@ Maven 多模块 + 独立前端，每个模块的职责与目录结构见各自 R
 
 | 模块 | 定位 | 依赖方向 |
 | --- | --- | --- |
-| [`harness-api`](./harness-api/README.md) | 契约层：调用型端口、实现型 SPI、端口载荷、对外 DTO | 不依赖任何实现模块 |
-| [`server`](./server/README.md) | Spring Boot 主服务、core 实现、fat jar 宿主 | compile → `harness-api`；runtime → `channel-*` |
-| [`channel-qq`](./channel-qq/README.md) | QQ 渠道（NapCat / OneBot 11），双向 | compile → `harness-api` |
-| [`channel-email`](./channel-email/README.md) | 邮件渠道，只出不进 | compile → `harness-api` |
-| [`channel-feishu`](./channel-feishu/README.md) | 飞书：群 webhook（出）+ 应用长连接（双向） | compile → `harness-api` |
-| [`cli`](./cli/README.md) | 终端客户端，纯 HTTP + SSE | compile → `harness-api` |
-| [`web`](./web/README.md) | Vue 3 前端控制台，独立构建部署（不在 Maven 反应堆内） | 只通过 HTTP 访问 `server` |
+| [`deerfect-api`](./deerfect-api/README.md) | 契约层：调用型端口、实现型 SPI、端口载荷、对外 DTO | 不依赖任何实现模块 |
+| [`deerfect-server`](./deerfect-server/README.md) | Spring Boot 主服务、core 实现、fat jar 宿主 | compile → `deerfect-api`；runtime → `channel-*` |
+| [`channel-qq`](./channel-qq/README.md) | QQ 渠道（NapCat / OneBot 11），双向 | compile → `deerfect-api` |
+| [`channel-email`](./channel-email/README.md) | 邮件渠道，只出不进 | compile → `deerfect-api` |
+| [`channel-feishu`](./channel-feishu/README.md) | 飞书：群 webhook（出）+ 应用长连接（双向） | compile → `deerfect-api` |
+| [`deerfect-cli`](./deerfect-cli/README.md) | 终端客户端，纯 HTTP + SSE | compile → `deerfect-api` |
+| [`deerfect-web`](./deerfect-web/README.md) | Vue 3 前端控制台，独立构建部署（不在 Maven 反应堆内） | 只通过 HTTP 访问 `deerfect-server` |
 | [`wms-mcp-adapter`](./wms-mcp-adapter/README.md) | WMS 只读 MCP 适配范例，独立进程 | 独立 |
 
-`server` 以 **runtime** scope 装配 `channel-*`，core 编译期看不到任何渠道代码（`maven-enforcer-plugin` 守护）；渠道输出控制走通用 `ReplyPostProcessor` SPI。核心链路：`ChatController` 入口 → `RouteJudge` 在两条执行路径间分流 → **Agentic 路径**（AgentScope ReAct，单 Agent 自主推理-行动，工具经 Spring AI 桥接）或 **Graph 编排路径**（自研并行引擎：Lead → 专家并行 → Aggregator）→ 统一出口。
+`deerfect-server` 以 **runtime** scope 装配 `channel-*`，core 编译期看不到任何渠道代码（`maven-enforcer-plugin` 守护）；渠道输出控制走通用 `ReplyPostProcessor` SPI。核心链路：`ChatController` 入口 → `RouteJudge` 在两条执行路径间分流 → **Agentic 路径**（AgentScope ReAct，单 Agent 自主推理-行动，工具经 Spring AI 桥接）或 **Graph 编排路径**（自研并行引擎：Lead → 专家并行 → Aggregator）→ 统一出口。
 
 架构图与数据流细节见 **[`docs/architecture.md`](./docs/architecture.md)** 与 **[`docs/data-flow.md`](./docs/data-flow.md)**。
 
 ## 🧪 运行测试
 
-单元测试基于 JUnit 5 + Mockito，**除** **`JavaHarnessApplicationTests`** **的 contextLoads 需本机 MySQL 外，不依赖真实数据库 / 网络 / API Key**（当前 1302 个用例：harness-api 52 / server 1020 / channel-qq 83 / channel-email 15 / channel-feishu 61 / cli 28 / wms-mcp-adapter 43）：
+单元测试基于 JUnit 5 + Mockito，**除** **`JavaHarnessApplicationTests`** **的 contextLoads 需本机 MySQL 外，不依赖真实数据库 / 网络 / API Key**；用例数以各模块 `target/surefire-reports` 与 [functional-testing.md](./docs/guides/functional-testing.md) 为准：
 
 ```bash
 mvn test

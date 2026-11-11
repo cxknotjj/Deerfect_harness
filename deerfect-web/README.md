@@ -8,7 +8,7 @@ Vue 3 + TypeScript + Vite 前端控制台：会话管理、流式对话、思考
 ## 目录结构
 
 ```text
-web/
+deerfect-web/
 ├── index.html
 ├── vite.config.ts          # 开发端口 5173，/api → localhost:8080，含 PWA 插件
 ├── vitest.config.ts        # 单元测试
@@ -63,7 +63,7 @@ web/
 ## 开发与验证
 
 ```bash
-cd web
+cd deerfect-web
 npm install
 npm run dev        # 5173，/api 代理到 8080
 npm run typecheck  # vue-tsc --noEmit

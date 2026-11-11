@@ -4,11 +4,11 @@
     <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>com.dark</groupId>
-        <artifactId>java-harness</artifactId>
+        <artifactId>deerfect-harness</artifactId>
         <version>0.0.1-SNAPSHOT</version>
     </parent>
-    <artifactId>server</artifactId>
-    <name>server</name>
+    <artifactId>deerfect-server</artifactId>
+    <name>deerfect-server</name>
     <description>服务端：Agent 编排框架本体（controller/service/agent/prompt/tool），spring-boot fat jar 交付</description>
 
     <properties>
@@ -20,7 +20,7 @@
     <dependencies>
         <dependency>
             <groupId>com.dark</groupId>
-            <artifactId>harness-api</artifactId>
+            <artifactId>deerfect-harness-api</artifactId>
             <version>${project.version}</version>
         </dependency>
 

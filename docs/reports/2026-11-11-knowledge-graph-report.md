@@ -15,12 +15,12 @@
 
 | 风险级 | 模块 / 文件 | 依据 | 建议关注点 |
 |---|---|---|---|
-| P0 | [ChatServiceImpl.java](../../server/src/main/java/com/dark/javaHarness/service/impl/ChatServiceImpl.java) | 全项目扇出最高（24 条出边、0 条入边），一个类同时承担建档 / 路由判定 / 直答 / 编排 / SSE / 续跑 / 写回 / RAG / 限流 / 降级；`complex` | 任一环节异常直接影响主链路，优先拆分职责 |
-| P0 | [ParallelOrchestrationEngine.java](../../server/src/main/java/com/dark/javaHarness/graph/engine/ParallelOrchestrationEngine.java) + [MultiAgentGraphAgent.java](../../server/src/main/java/com/dark/javaHarness/graph/MultiAgentGraphAgent.java) + [OrchestrationNodes.java](../../server/src/main/java/com/dark/javaHarness/graph/OrchestrationNodes.java) | Graph 路径核心，三者互相依赖形成导入环；涉及并发子任务、检查点续跑、聚合降级，状态机复杂 | 子任务失败隔离、续跑一致性、聚合降级边界 |
-| P1 | [SandboxToolProvider.java](../../server/src/main/java/com/dark/javaHarness/tool/builtin/SandboxToolProvider.java) + `SandboxToolkit.java`（已拆分为 File/Shell/Browser 工具与 `SandboxGuards`） | 容器沙箱 = 任意命令 / 文件 / 浏览器权限；20 个 ToolCallback 集中在一个类；无 Docker 时静默降级为空工具面 | 权限最小化、降级可观测性、工具面按类别拆分 |
-| P1 | [McpToolProvider.java](../../server/src/main/java/com/dark/javaHarness/tool/mcp/McpToolProvider.java) + [ToolAssignments.java](../../server/src/main/java/com/dark/javaHarness/tool/ToolAssignments.java) | 外部 MCP 服务懒连接、失败隔离；工具权限边界（agent 表 `tools` 列）在此收口，配置错即越权或空工具；与两个 Provider 构成导入环 | 工具名与注册名一致性校验、启动期一次性告警 |
-| P2 | [LlmCallRecorder.java](../../server/src/main/java/com/dark/javaHarness/observability/LlmCallRecorder.java) | 异步落库且「异常只告警」，观测数据可能静默丢失；被 20 个文件引用 | 有界队列 + 丢弃 / 失败指标，避免排障数据缺失 |
-| P2 | [KnowledgeServiceImpl.java](../../server/src/main/java/com/dark/javaHarness/knowledge/KnowledgeServiceImpl.java) | 增量摄取 + 孤儿清理 + 向量 / BM25 混合检索，写路径有数据一致性风险（16 个符号） | 摄取幂等、孤儿清理事务边界、检索失败隔离 |
+| P0 | [ChatServiceImpl.java](../../deerfect-server/src/main/java/com/dark/javaHarness/service/impl/ChatServiceImpl.java) | 全项目扇出最高（24 条出边、0 条入边），一个类同时承担建档 / 路由判定 / 直答 / 编排 / SSE / 续跑 / 写回 / RAG / 限流 / 降级；`complex` | 任一环节异常直接影响主链路，优先拆分职责 |
+| P0 | [ParallelOrchestrationEngine.java](../../deerfect-server/src/main/java/com/dark/javaHarness/graph/engine/ParallelOrchestrationEngine.java) + [MultiAgentGraphAgent.java](../../deerfect-server/src/main/java/com/dark/javaHarness/graph/MultiAgentGraphAgent.java) + [OrchestrationNodes.java](../../deerfect-server/src/main/java/com/dark/javaHarness/graph/OrchestrationNodes.java) | Graph 路径核心，三者互相依赖形成导入环；涉及并发子任务、检查点续跑、聚合降级，状态机复杂 | 子任务失败隔离、续跑一致性、聚合降级边界 |
+| P1 | [SandboxToolProvider.java](../../deerfect-server/src/main/java/com/dark/javaHarness/tool/builtin/SandboxToolProvider.java) + `SandboxToolkit.java`（已拆分为 File/Shell/Browser 工具与 `SandboxGuards`） | 容器沙箱 = 任意命令 / 文件 / 浏览器权限；20 个 ToolCallback 集中在一个类；无 Docker 时静默降级为空工具面 | 权限最小化、降级可观测性、工具面按类别拆分 |
+| P1 | [McpToolProvider.java](../../deerfect-server/src/main/java/com/dark/javaHarness/tool/mcp/McpToolProvider.java) + [ToolAssignments.java](../../deerfect-server/src/main/java/com/dark/javaHarness/tool/ToolAssignments.java) | 外部 MCP 服务懒连接、失败隔离；工具权限边界（agent 表 `tools` 列）在此收口，配置错即越权或空工具；与两个 Provider 构成导入环 | 工具名与注册名一致性校验、启动期一次性告警 |
+| P2 | [LlmCallRecorder.java](../../deerfect-server/src/main/java/com/dark/javaHarness/observability/LlmCallRecorder.java) | 异步落库且「异常只告警」，观测数据可能静默丢失；被 20 个文件引用 | 有界队列 + 丢弃 / 失败指标，避免排障数据缺失 |
+| P2 | [KnowledgeServiceImpl.java](../../deerfect-server/src/main/java/com/dark/javaHarness/knowledge/KnowledgeServiceImpl.java) | 增量摄取 + 孤儿清理 + 向量 / BM25 混合检索，写路径有数据一致性风险（16 个符号） | 摄取幂等、孤儿清理事务边界、检索失败隔离 |
 | P2 | [OneBotEventServiceImpl.java](../../channel-qq/src/main/java/com/dark/javaHarness/channel/qq/event/OneBotEventServiceImpl.java) | 渠道入口扇出 15，外部 OneBot 协议 + 长连接状态 | 事件重放 / 断连恢复 / 消息去重 |
 
 ---
@@ -31,37 +31,37 @@
 
 | 文件 | 扇入 | 扇出 | 备注 |
 |---|---|---|---|
-| [ToolAssignments.java](../../server/src/main/java/com/dark/javaHarness/tool/ToolAssignments.java) | 18 | 7 | 处于导入环，权限装配与工具实现纠缠 |
-| [MultiAgentGraphAgent.java](../../server/src/main/java/com/dark/javaHarness/graph/MultiAgentGraphAgent.java) | 4 | 22 | 编排器同时依赖引擎、节点与工厂 |
-| [PromptAssembler.java](../../server/src/main/java/com/dark/javaHarness/prompt/PromptAssembler.java) | 17 | 5 | 提示装配成为多路径公共依赖 |
-| [KnowledgeRetriever.java](../../server/src/main/java/com/dark/javaHarness/knowledge/KnowledgeRetriever.java) | 15 | 5 | RAG 入口被多路径复用 |
+| [ToolAssignments.java](../../deerfect-server/src/main/java/com/dark/javaHarness/tool/ToolAssignments.java) | 18 | 7 | 处于导入环，权限装配与工具实现纠缠 |
+| [MultiAgentGraphAgent.java](../../deerfect-server/src/main/java/com/dark/javaHarness/graph/MultiAgentGraphAgent.java) | 4 | 22 | 编排器同时依赖引擎、节点与工厂 |
+| [PromptAssembler.java](../../deerfect-server/src/main/java/com/dark/javaHarness/prompt/PromptAssembler.java) | 17 | 5 | 提示装配成为多路径公共依赖 |
+| [KnowledgeRetriever.java](../../deerfect-server/src/main/java/com/dark/javaHarness/knowledge/KnowledgeRetriever.java) | 15 | 5 | RAG 入口被多路径复用 |
 
 ### 单向下游巨口（改一处牵连多）
 
 | 文件 | 扇出 | 说明 |
 |---|---|---|
-| [ChatServiceImpl.java](../../server/src/main/java/com/dark/javaHarness/service/impl/ChatServiceImpl.java) | 24 | 依赖面最广，任何下游签名变化都会波及 |
-| [AgentScopeGeneralAgent.java](../../server/src/main/java/com/dark/javaHarness/agent/AgentScopeGeneralAgent.java) | 22 | ReAct 执行器依赖消息、工具、观测多个子系统 |
-| [AgentRequestSpecFactory.java](../../server/src/main/java/com/dark/javaHarness/agent/AgentRequestSpecFactory.java) | 21 | 请求规格组装横跨 prompt / 工具 / 检索 |
+| [ChatServiceImpl.java](../../deerfect-server/src/main/java/com/dark/javaHarness/service/impl/ChatServiceImpl.java) | 24 | 依赖面最广，任何下游签名变化都会波及 |
+| [AgentScopeGeneralAgent.java](../../deerfect-server/src/main/java/com/dark/javaHarness/agent/AgentScopeGeneralAgent.java) | 22 | ReAct 执行器依赖消息、工具、观测多个子系统 |
+| [AgentRequestSpecFactory.java](../../deerfect-server/src/main/java/com/dark/javaHarness/agent/AgentRequestSpecFactory.java) | 21 | 请求规格组装横跨 prompt / 工具 / 检索 |
 
 ### 高扇入基座（动它就全站回归）
 
 | 文件 | 扇入 |
 |---|---|
-| [AgentService.java](../../harness-api/src/main/java/com/dark/javaHarness/contract/api/AgentService.java) | 25 |
-| [ChatClientRegistry.java](../../server/src/main/java/com/dark/javaHarness/config/agent/ChatClientRegistry.java) | 24 |
-| [SessionService.java](../../harness-api/src/main/java/com/dark/javaHarness/contract/api/SessionService.java) | 23 |
-| [Goal.java](../../harness-api/src/main/java/com/dark/javaHarness/contract/model/Goal.java) | 20 |
+| [AgentService.java](../../deerfect-api/src/main/java/com/dark/javaHarness/contract/api/AgentService.java) | 25 |
+| [ChatClientRegistry.java](../../deerfect-server/src/main/java/com/dark/javaHarness/config/agent/ChatClientRegistry.java) | 24 |
+| [SessionService.java](../../deerfect-api/src/main/java/com/dark/javaHarness/contract/api/SessionService.java) | 23 |
+| [Goal.java](../../deerfect-api/src/main/java/com/dark/javaHarness/contract/model/Goal.java) | 20 |
 
 ### 「上帝文件」（文件内符号数最多）
 
 | 文件 | 符号数 |
 |---|---|
 | `SandboxToolkit.java`（当时，已拆分） | 20 |
-| [client.ts](../../web/src/api/client.ts) | 18（整个前端的 HTTP + SSE 都在一个文件里） |
-| [KnowledgeServiceImpl.java](../../server/src/main/java/com/dark/javaHarness/knowledge/KnowledgeServiceImpl.java) | 16 |
-| [ChatServiceImpl.java](../../server/src/main/java/com/dark/javaHarness/service/impl/ChatServiceImpl.java) | 15 |
-| [ChatCli.java](../../cli/src/main/java/com/dark/javaHarness/cli/ChatCli.java) | 13 |
+| [client.ts](../../deerfect-web/src/api/client.ts) | 18（整个前端的 HTTP + SSE 都在一个文件里） |
+| [KnowledgeServiceImpl.java](../../deerfect-server/src/main/java/com/dark/javaHarness/knowledge/KnowledgeServiceImpl.java) | 16 |
+| [ChatServiceImpl.java](../../deerfect-server/src/main/java/com/dark/javaHarness/service/impl/ChatServiceImpl.java) | 15 |
+| [ChatCli.java](../../deerfect-cli/src/main/java/com/dark/javaHarness/cli/ChatCli.java) | 13 |
 
 ### 导入环（2 处）
 

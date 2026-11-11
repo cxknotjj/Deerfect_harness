@@ -20,7 +20,7 @@
 | ---------- | ------------------------------------ | ------------------------------ |
 | JDK        | 25（Microsoft build，`D:\env\jdk-25`）  | `JAVA_HOME` 必须指向它              |
 | Maven      | 3.9.4（`D:\apache-maven-3.9.4`）       | 仓库没有 `mvnw`，直接用 `mvn`          |
-| Node / npm | v22.20.0 / 10.9.3                    | 只给 `web/` 用；经 nvm 安装，见「前端运行要求」 |
+| Node / npm | v22.20.0 / 10.9.3                    | 只给 `deerfect-web/` 用；经 nvm 安装，见「前端运行要求」 |
 | MySQL      | 8.4.5（`D:\mysql\mysql-8.4.5-winx64`） | 见「端口与依赖服务」                     |
 
 `.mvn/settings.xml` 是本机文件，**不在仓库里**（`.gitignore` 排除了 `.mvn/`）：它把本地仓库  
@@ -50,15 +50,15 @@
 
 ### 数据库迁移（Flyway）
 
-Flyway 随 server 启动自动执行 `server/src/main/resources/db/migration/` 下的脚本；
+Flyway 随 deerfect-server 启动自动执行 `deerfect-server/src/main/resources/db/migration/` 下的脚本；
 新增迁移取**目录里当前最大版本号 +1**，已应用的脚本不可再改。
 
 这里不记录「当前版本是多少」——数字每次加迁移都会变，权威来源就是那个目录。
 各版本做了什么见 [project-structure.md](./project-structure.md) 的「数据库迁移」一节。
 
-### 前端运行要求（`web/`）
+### 前端运行要求（`deerfect-web/`）
 
-Node 版本以 `web/.nvmrc` 为准（22，本机 nvm 装的是 22.20.0）：vite 7 / jsdom 29 最低要求 20.19，  
+Node 版本以 `deerfect-web/.nvmrc` 为准（22，本机 nvm 装的是 22.20.0）：vite 7 / jsdom 29 最低要求 20.19，  
 vitest 5 要求 ≥ 22.12——旧 Node 20.18 跑 `npm test` 会报 `ERR_REQUIRE_ESM`，属于版本不满足而非  
 代码缺陷。
 
@@ -95,7 +95,7 @@ HTTPS 或 localhost 才能注册 SW，局域网 `http://IP:端口` 无法「添�
 分支保护（required status checks = `backend` / `web` / `e2e`）需仓库管理员在 GitHub  
 `Settings → Branches`（或 Gitee 保护分支）勾选，CLI 无法自动配置。
 
-镜像构建 [docker-image.yml](../.github/workflows/docker-image.yml)：仅当 docker/server/pom 等  
+镜像构建 [docker-image.yml](../.github/workflows/docker-image.yml)：仅当 docker/deerfect-server/pom 等  
 路径有变化时触发。`master` 推送 `ghcr.io/cxknotjj/deerfect-harness:sha-<7位>` 与 `latest`，  
 `v*` tag 推送同名版本；PR 只构建不推送。镜像仅 linux/amd64，使用 buildx + gha 层缓存。  
 镜像名固定 `deerfect-harness`（展示名 DeerFect-harness）：Docker/GHCR 仓库名强制小写，  
@@ -121,9 +121,9 @@ set -a; source .env.local; set +a
 
 ```bash
 mvn -s .mvn/settings.xml -DskipTests install          # 全量构建
-mvn -s .mvn/settings.xml -pl server -am test          # 单模块测试（必须 -am）
+mvn -s .mvn/settings.xml -pl deerfect-server -am test          # 单模块测试（必须 -am）
 mvn -s .mvn/settings.xml verify                       # 全量测试 + 覆盖率门禁（提交前跑这个）
-mvn -s .mvn/settings.xml -pl server spring-boot:run   # 只起服务
+mvn -s .mvn/settings.xml -pl deerfect-server spring-boot:run   # 只起服务
 mvn -s .mvn/settings.xml -pl <module> -am verify -Djacoco.line.minimum=0.99   # 临时验证会被拦
 ```
 
@@ -136,7 +136,7 @@ mvn -s .mvn/settings.xml -pl <module> -am verify -Djacoco.line.minimum=0.99   # 
 
 ```bash
 mvn -s .mvn/settings.xml -DskipTests install       # 首次，或改了模块依赖
-java -jar server/target/server-0.0.1-SNAPSHOT.jar  # 默认 8080
+java -jar deerfect-server/target/deerfect-server-0.0.1-SNAPSHOT.jar  # 默认 8080
 ```
 
 - 服务就绪判据：`GET http://localhost:8080/api/harness/agents` 能返回。
@@ -148,7 +148,7 @@ java -jar server/target/server-0.0.1-SNAPSHOT.jar  # 默认 8080
 必须先 `compile` 再 `exec:exec`，否则 `target/classes` 是旧的（曾导致乱码回归）：
 
 ```bash
-mvn -s .mvn/settings.xml -pl cli -Pcli compile exec:exec
+mvn -s .mvn/settings.xml -pl deerfect-cli -Pcli compile exec:exec
 ```
 
 ### 检查依赖服务连通
@@ -162,7 +162,7 @@ Test-NetConnection 127.0.0.1 -Port 3306
 ### 前端开发与验证
 
 ```bash
-cd web
+cd deerfect-web
 npm install
 npm run dev        # 5173，proxy 到 8080
 npm run typecheck  # vue-tsc --noEmit
@@ -249,13 +249,13 @@ IMAGE_REPO=ghcr.io/cxknotjj/deerfect-harness IMAGE_TAG=sha-xxxxxxx \
 |  |  |
 | --- | --- |
 - **8080 被占用**：`netstat -aon | findstr :8080` 找 PID，`taskkill /F /PID <pid>` 结束；没有脚本会自动清理。
-- **只改 `channel-*` 后跑起来还是旧代码**：`server` 源码没变时 `mvn -pl server -am package`
+- **只改 `channel-*` 后跑起来还是旧代码**：`deerfect-server` 源码没变时 `mvn -pl deerfect-server -am package`
   会复用旧 fat jar，加 `clean`。
 - **MySQL 反复退出**：确认用的是 `--console` 前台模式；后台方式在无服务权限的机器上容易被系统回收。
 - **改了接口却编译不过**：先确认命令带了 `-am`（`-s .mvn/settings.xml` 只有本机有，不是必需）。
 - **`mvn verify` 里 cli 测试卡几十秒**：JLine 探测终端的副作用，已修（详见
   [design/2026-11-11-cli-terminal-probe.md](./design/2026-11-11-cli-terminal-probe.md)）；
-  新环境若复现，先看 `cli/target/surefire-reports` 里 `TerminalInputTest` 的 `time`。
+  新环境若复现，先看 `deerfect-cli/target/surefire-reports` 里 `TerminalInputTest` 的 `time`。
 - **`nvm use` 报权限不足**：nvm-windows 切换版本需要管理员权限；切换失败时 `D:\nodejs` 链接
   可能被移除，重新 `nvm use` 即可重建。
 ```

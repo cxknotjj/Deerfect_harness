@@ -55,9 +55,9 @@ controller（REST + SSE 流式 + 全局异常处理 + 观测查询三接口，�
         ├─ advisor（ContextAssemblingAdvisor：上下文组装/token 裁剪）
         ├─ tool（WebTools 网页抓取 / DemoTools 示例 / SandboxToolProvider 容器沙箱 / ToolAssignments 工具分配）
         ├─ knowledge（RAG 知识库：KnowledgeDocumentScanner 扫描 / MarkdownChunker 切分 / KnowledgeIngestor 增量摄取 / HybridKnowledgeRetriever 混合检索 / KnowledgeRetriever 检索注入）
-        ├─ cli（独立模块：ChatCli 启动组装 / CommandDispatcher 命令分发 / StreamRenderer SSE 渲染 / cli/api ChatApiClient：OkHttp + SSE 解析）
+        ├─ deerfect-cli（独立模块：ChatCli 启动组装 / CommandDispatcher 命令分发 / StreamRenderer SSE 渲染 / cli/api ChatApiClient：OkHttp + SSE 解析）
         ├─ channel-qq（独立模块：NapCat/OneBot 接入；会话绑定持久化在同模块 persistence）
-        ├─ domain（server 自身领域模型：RouteDecision 分流决策 / LlmCallLog 等观测记录；契约 DTO 在 harness-api 的 view/，实体在 harness-api domain/）
+        ├─ domain（server 自身领域模型：RouteDecision 分流决策 / LlmCallLog 等观测记录；契约 DTO 在 deerfect-api 的 view/，实体在 deerfect-api domain/）
         ├─ mapper（Agent / Goal / Session / SessionMessage / ModelProvider / 各观测日志 Mapper；OneBot 绑定 Mapper 在 channel-qq）
         ├─ enums（server 侧 AgentConstants；GoalStatus/SseProtocol 在 harness-api）
         └─ 配置（application.yaml 入口 + application-*.yaml 分域 + config/agent：ChatAgentConfig、ChatClientFactory、ChatClientRegistry）

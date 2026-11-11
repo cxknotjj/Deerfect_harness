@@ -6,7 +6,7 @@
 
 <div align="center">
 
-<img src="web/public/deer_logo.png" width="88" alt="Deerfect Harness" />
+<img src="deerfect-web/public/deer_logo.png" width="88" alt="Deerfect Harness" />
 
 # Deerfect Harness
 
@@ -122,19 +122,19 @@ flowchart TD
 **1️⃣ Start the main service**
 
 ```bash
-# Build then run (recommended): install from the project root, fat jar lands in server/target/
+# Build then run (recommended): install from the project root, fat jar lands in deerfect-server/target/
 mvn -DskipTests install
-java -jar server/target/server-0.0.1-SNAPSHOT.jar
+java -jar deerfect-server/target/deerfect-server-0.0.1-SNAPSHOT.jar
 
-# Or run in dev mode (the server needs harness-api/channel-qq in the local repo)
-mvn -pl harness-api,channel-qq -DskipTests install
-mvn -pl server spring-boot:run
+# Or run in dev mode (the server needs deerfect-api/channel-qq in the local repo)
+mvn -pl deerfect-api,channel-qq -DskipTests install
+mvn -pl deerfect-server spring-boot:run
 ```
 
 **2️⃣ In another terminal, start the CLI**
 
 ```bash
-mvn -pl cli -Pcli compile exec:exec
+mvn -pl deerfect-cli -Pcli compile exec:exec
 ```
 
 > [!TIP]
@@ -305,21 +305,21 @@ A multi-module Maven project plus a standalone frontend. Each module documents i
 
 | Module | Role | Depends on |
 | --- | --- | --- |
-| [`harness-api`](./harness-api/README.md) | Contracts: callable ports, implementation SPIs, port payloads, outward DTOs | nothing in the reactor |
-| [`server`](./server/README.md) | Spring Boot service, core implementation, fat-jar host | compile → `harness-api`; runtime → `channel-*` |
-| [`channel-qq`](./channel-qq/README.md) | QQ channel (NapCat / OneBot 11), bidirectional | compile → `harness-api` |
-| [`channel-email`](./channel-email/README.md) | Email channel, outbound only | compile → `harness-api` |
-| [`channel-feishu`](./channel-feishu/README.md) | Feishu: group webhook (out) + app long connection (bidirectional) | compile → `harness-api` |
-| [`cli`](./cli/README.md) | Terminal client, pure HTTP + SSE | compile → `harness-api` |
-| [`web`](./web/README.md) | Vue 3 console, built and deployed separately (not in the Maven reactor) | HTTP only, talks to `server` |
-| [`wms-mcp-adapter`](./wms-mcp-adapter/README.md) | WMS read-only MCP adapter example, separate process | standalone | `server` wires `channel-*` with **runtime** scope, so core cannot see any channel code at compile time (guarded by `maven-enforcer-plugin`); channel output controls go through the generic `ReplyPostProcessor` SPI. The server follows the classic layered architecture (Controller → Service → Mapper/Entity) with domain models grouped under the `domain` parent package.
+| [`deerfect-api`](./deerfect-api/README.md) | Contracts: callable ports, implementation SPIs, port payloads, outward DTOs | nothing in the reactor |
+| [`deerfect-server`](./deerfect-server/README.md) | Spring Boot service, core implementation, fat-jar host | compile → `deerfect-api`; runtime → `channel-*` |
+| [`channel-qq`](./channel-qq/README.md) | QQ channel (NapCat / OneBot 11), bidirectional | compile → `deerfect-api` |
+| [`channel-email`](./channel-email/README.md) | Email channel, outbound only | compile → `deerfect-api` |
+| [`channel-feishu`](./channel-feishu/README.md) | Feishu: group webhook (out) + app long connection (bidirectional) | compile → `deerfect-api` |
+| [`deerfect-cli`](./deerfect-cli/README.md) | Terminal client, pure HTTP + SSE | compile → `deerfect-api` |
+| [`deerfect-web`](./deerfect-web/README.md) | Vue 3 console, built and deployed separately (not in the Maven reactor) | HTTP only, talks to `deerfect-server` |
+| [`wms-mcp-adapter`](./wms-mcp-adapter/README.md) | WMS read-only MCP adapter example, separate process | standalone | `deerfect-server` wires `channel-*` with **runtime** scope, so core cannot see any channel code at compile time (guarded by `maven-enforcer-plugin`); channel output controls go through the generic `ReplyPostProcessor` SPI. The server follows the classic layered architecture (Controller → Service → Mapper/Entity) with domain models grouped under the `domain` parent package.
 
 > [!TIP]
 > Full server-side directory tree with per-file notes: **[`docs/project-structure_EN.md`](./docs/project-structure_EN.md)**.
 
 ## 🧪 Running Tests
 
-Unit tests run on JUnit 5 + Mockito and need **no real database / network / API keys** (currently 1302 test cases: harness-api 52 / server 1020 / channel-qq 83 / channel-email 15 / channel-feishu 61 / cli 28 / wms-mcp-adapter 43; `JavaHarnessApplicationTests#contextLoads` is the only exception and needs local MySQL):
+Unit tests run on JUnit 5 + Mockito and need **no real database / network / API keys** (test counts come from each module's `target/surefire-reports`, see [functional-testing.md](./docs/guides/functional-testing.md); `JavaHarnessApplicationTests#contextLoads` is the only exception and needs local MySQL):
 
 ```bash
 mvn -s .mvn/settings.xml test

@@ -46,7 +46,7 @@ cd '$PROJ'
 if [ -f .env.local ]; then . ./.env.local; fi
 export JAVA_HOME="$JAVA_HOME"
 export PATH="$PATH"
-$MVN -pl server spring-boot:run
+$MVN -pl deerfect-server spring-boot:run
 echo
 echo '--- 服务已退出，按回车关闭窗口 ---'
 read _
@@ -62,7 +62,7 @@ EOF
         return 0
     fi
     echo "[WARN] 无法开新窗口，服务转入后台模式（日志: /tmp/javaHarness-server.log，tail -f 查看）"
-    nohup $MVN -pl server spring-boot:run > /tmp/javaHarness-server.log 2>&1 &
+    nohup $MVN -pl deerfect-server spring-boot:run > /tmp/javaHarness-server.log 2>&1 &
 }
 
 wait_ready() {
@@ -121,21 +121,21 @@ case "${1:-}" in
         exit 1
     fi
     echo "[4/4] 进入 CLI 聊天（/exit 退出）"
-    $MVN -pl cli -Pcli compile exec:exec
+    $MVN -pl deerfect-cli -Pcli compile exec:exec
     echo "--- CLI 已退出。服务窗口仍在运行（停止: 在该窗口 Ctrl+C 或 ./run.sh stop）---"
     ;;
   server)
     # 单模块启动前确保契约/渠道已装入本地仓库（全新 clone 场景）
-    $MVN -pl harness-api,channel-qq -DskipTests install -q
-    $MVN -pl server spring-boot:run
+    $MVN -pl deerfect-api,channel-qq -DskipTests install -q
+    $MVN -pl deerfect-server spring-boot:run
     ;;
   stop)
     stop_server || exit 1
     ;;
   cli)
     # CLI 依赖 harness-api：先安装契约，再启动 CLI（避免全新 clone 解析失败）
-    $MVN -pl harness-api -DskipTests install -q
-    $MVN -pl cli -Pcli compile exec:exec
+    $MVN -pl deerfect-api -DskipTests install -q
+    $MVN -pl deerfect-cli -Pcli compile exec:exec
     ;;
   build)
     $MVN -DskipTests install

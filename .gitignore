@@ -62,6 +62,7 @@ build/
 # docker compose 环境变量(含 API key/数据库口令,compose 自动读取;勿提交)
 docker/.env
 docs/superpowers/
+docs/archive/
 
 # MCP server 连接配置（含各 server 的 API key，转本地配置；模板见 README「MCP 工具接入」）
 mcp-config.json
@@ -71,15 +72,19 @@ mcp-config.json
 .zcode/
 .workbuddy/
 
-# 表情包资源（图片 + 映射表）由使用者自行放置：
-# 首次启动会自动创建空的 emoji-index.json，填好映射后重启生效
-emojis/
-voice/
+# 表情包资源（图片 + 映射表）与音乐曲库由使用者自行放置：
+# 首次启动会自动创建空的 emoji-index.json，填好映射后重启生效。
+# 开头的 / 不能省：不带前缀会匹配任意层级的同名目录，
+# 曾把 deerfect-server/.../voice/ 里的 Java 类一起忽略掉（改名后差点丢源码）。
+/emojis/
+/voice/
+# 运行时自动创建的空映射表（工作目录不在仓库根时会落在模块目录下）
+**/emojis/emoji-index.json
 
 # 用户偏好画像（运行期由 UserProfileService 自动生成/合并的持久化数据，不入 git）
 user-profile/user-profile.md
 
 # Playwright E2E 产物
-web/test-results/
-web/playwright-report/
-web/blob-report/
+deerfect-web/test-results/
+deerfect-web/playwright-report/
+deerfect-web/blob-report/

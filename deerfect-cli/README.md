@@ -10,7 +10,7 @@
 ## 目录结构
 
 ```text
-cli/
+deerfect-cli/
 ├── pom.xml                       # 可执行 jar，mainClass = ChatCli
 └── src/
     ├── main/java/com/dark/javaHarness/cli/

@@ -28,19 +28,19 @@ CREATE DATABASE IF NOT EXISTS harness DEFAULT CHARACTER SET utf8mb4;
 **1️⃣ 启动主服务**
 
 ```bash
-# 打包后启动（推荐）：根聚合 install，fat jar 在 server/target/
+# 打包后启动（推荐）：根聚合 install，fat jar 在 deerfect-server/target/
 mvn -DskipTests install
-java -jar server/target/server-0.0.1-SNAPSHOT.jar
+java -jar deerfect-server/target/deerfect-server-0.0.1-SNAPSHOT.jar
 
 # 或开发模式直接运行（需先把契约/渠道模块装进本地仓库）
-mvn -pl harness-api,channel-qq -DskipTests install
-mvn -pl server spring-boot:run
+mvn -pl deerfect-api,channel-qq -DskipTests install
+mvn -pl deerfect-server spring-boot:run
 ```
 
 **2️⃣ 另开终端，启动 CLI**
 
 ```bash
-mvn -pl cli -Pcli compile exec:exec
+mvn -pl deerfect-cli -Pcli compile exec:exec
 ```
 
 > [!TIP]

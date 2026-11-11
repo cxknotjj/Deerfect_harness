@@ -18,13 +18,13 @@
 
 ---
 
-Classic layered architecture (Controller → Service → Mapper/Entity), with the domain model grouped under the `domain` parent package. The tree below is the **`server` module** (`server/src/main/java/com/dark/javaHarness/`):
+Classic layered architecture (Controller → Service → Mapper/Entity), with the domain model grouped under the `domain` parent package. The tree below is the **`deerfect-server` module** (`deerfect-server/src/main/java/com/dark/javaHarness/`):
 
 <details>
 <summary><b>📂 Click to expand the full directory tree</b></summary>
 
 ```text
-server/src/main/java/com/dark/javaHarness/
+deerfect-server/src/main/java/com/dark/javaHarness/
 ├── JavaHarnessApplication.java   # Spring Boot entry (@MapperScan("com.dark.javaHarness.mapper") scans core only; channel mappers are scanned by channel-qq itself)
 ├── controller/                   # Presentation layer: REST endpoints + SSE streaming
 │   ├── ChatController.java       # Chat endpoints (/api/chat, /stream, /resume, /goal-status)
@@ -128,7 +128,7 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── UserProfileSectionProviderImpl.java  # Profile section injected into general/lead system prompts (order 150)
 │   ├── SessionSummaryService.java  # Rolling summary of trimmed turns, cursor-based incremental merge (P2-3)
 │   └── ExplicitMemorySectionProviderImpl.java  # Explicit-memory section (order 140, before profile; user-stated facts win)
-├── cli/                          # Moved out to the standalone `cli` module (`cli/src/main/java/com/dark/javaHarness/cli`, pure HTTP to 8080)
+├── deerfect-cli/                  # Moved out to the standalone `deerfect-cli` module (`deerfect-cli/src/main/java/com/dark/javaHarness/cli`, pure HTTP to 8080)
 └── tool/                         # Tools
     ├── WebTools.java             # Web fetch facade (fetchUrl: fetch + 30-min content cache + query-relevant clipping)
     ├── HtmlToMarkdown.java / ContentRelevance.java  # Noise removal / main-content Markdown extraction / query-intent clipping
@@ -154,7 +154,7 @@ server/src/main/java/com/dark/javaHarness/
 
 ## Database Migrations (Flyway, V1–V11)
 
-`server/src/main/resources/db/migration/` — applied automatically at startup. **Never edit an applied script**: a changed checksum blocks startup until `flyway repair` (or a manual checksum fix in `flyway_schema_history`).
+`deerfect-server/src/main/resources/db/migration/` — applied automatically at startup. **Never edit an applied script**: a changed checksum blocks startup until `flyway repair` (or a manual checksum fix in `flyway_schema_history`).
 
 | Version | Purpose |
 | --- | --- |

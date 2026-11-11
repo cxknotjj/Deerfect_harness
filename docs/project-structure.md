@@ -18,13 +18,13 @@
 
 ---
 
-采用经典分层架构（Controller → Service → Mapper/Entity），领域模型统一收纳在 `domain` 父包下。以下目录树为 **`server` 模块**（`server/src/main/java/com/dark/javaHarness/`）：
+采用经典分层架构（Controller → Service → Mapper/Entity），领域模型统一收纳在 `domain` 父包下。以下目录树为 **`deerfect-server` 模块**（`deerfect-server/src/main/java/com/dark/javaHarness/`）：
 
 <details>
 <summary><b>📂 点击展开完整目录树</b></summary>
 
 ```text
-server/src/main/java/com/dark/javaHarness/
+deerfect-server/src/main/java/com/dark/javaHarness/
 ├── JavaHarnessApplication.java   # Spring Boot 启动类（@MapperScan("com.dark.javaHarness.mapper") 仅扫 core；渠道 mapper 由 channel-qq 自身扫描）
 ├── controller/                   # 表现层：REST 接口 + SSE 流式
 │   ├── ChatController.java       # 聊天接口（/api/chat、/stream、/resume、/goal-status）
@@ -184,7 +184,7 @@ server/src/main/java/com/dark/javaHarness/
 │   ├── UserProfileSectionProviderImpl.java  # 画像段注入 general/lead 的 system prompt（order 150）
 │   ├── SessionSummaryService.java  # 会话滚动摘要：裁剪丢弃的轮次压缩落库，游标增量合并（P2-3）
 │   └── ExplicitMemorySectionProviderImpl.java  # 显式记忆段注入（order 140，排在画像之前，冲突以用户明说为准）
-├── cli/                          # 已独立为 `cli` 模块（`cli/src/main/java/com/dark/javaHarness/cli`，纯 HTTP 连 8080）
+├── deerfect-cli/                  # 已独立为 `deerfect-cli` 模块（`deerfect-cli/src/main/java/com/dark/javaHarness/cli`，纯 HTTP 连 8080）
 ├── tool/                         # 工具层
     ├── WebTools.java             # 网页抓取门面（fetchUrl：抓取 + 30min 内容缓存 + 相关段落裁剪）
     ├── HtmlToMarkdown.java / ContentRelevance.java  # 噪声剔除/主内容 Markdown 化 / 按查询意图裁剪
@@ -221,7 +221,7 @@ server/src/main/java/com/dark/javaHarness/
 
 ## 数据库迁移（Flyway）
 
-`server/src/main/resources/db/migration/`，启动时自动执行。编号取**目录里当前最大版本号 +1**，
+`deerfect-server/src/main/resources/db/migration/`，启动时自动执行。编号取**目录里当前最大版本号 +1**，
 不在这里维护「当前版本」——那个数字每次加迁移都会变，以目录为准。
 **已应用的脚本不可再改**——改动会导致校验和不匹配，需 `flyway repair`（或按 Flyway 的
 逐行 CRC32 算法校正 `flyway_schema_history.checksum`）后才能启动。
