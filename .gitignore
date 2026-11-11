@@ -57,7 +57,11 @@ build/
 
 .trae/documents/
 .vscode/
-.mvn/
+# .mvn 只放行 settings.xml：CI 的 `mvn -s .mvn/settings.xml` 与镜像构建的
+# COPY 都依赖它，而它只配了本地仓库路径与阿里云镜像、不含任何密钥。
+# 其余本地状态（wrapper 缓存等）照旧不进仓库。
+.mvn/*
+!.mvn/settings.xml
 
 # docker compose 环境变量(含 API key/数据库口令,compose 自动读取;勿提交)
 docker/.env
