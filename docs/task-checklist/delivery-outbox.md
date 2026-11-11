@@ -3,7 +3,7 @@
 - 范围：`server` 的 `message` 包与新增 V14 迁移；不改 `channel-*` 模块
 - 创建：2026-11-08
 - 状态：共 10 项，已完成 10 项，待办 0 项
-- 规划书：[docs/design/2026-11-08-delivery-reliability-feishu-email-plan.md](../docs/design/2026-11-08-delivery-reliability-feishu-email-plan.md) 第 4 / 5 / 6 节
+- 规划书：[docs/design/2026-11-08-delivery-reliability-feishu-email-plan.md](../design/2026-11-08-delivery-reliability-feishu-email-plan.md) 第 4 / 5 / 6 节
 - 关系：本清单只做「投递层」。邮件渠道见 `email-channel.md`，探活告警见 `channel-health.md`，飞书渠道见 `feishu-channel.md`
 
 ## 进度概览

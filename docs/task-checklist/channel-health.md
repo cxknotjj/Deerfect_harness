@@ -3,7 +3,7 @@
 - 范围：`server` 的 `message` 包与 `app.channel-watchdog.*` 配置；复用已有的 `ChannelHealth` 端口
 - 创建：2026-11-08
 - 状态：共 4 项，已完成 4 项
-- 规划书：[docs/design/2026-11-08-delivery-reliability-feishu-email-plan.md](../docs/design/2026-11-08-delivery-reliability-feishu-email-plan.md) 第 7 节
+- 规划书：[docs/design/2026-11-08-delivery-reliability-feishu-email-plan.md](../design/2026-11-08-delivery-reliability-feishu-email-plan.md) 第 7 节
 - 关系：依赖 `delivery-outbox.md` 的 D1-1（`sendWithFallback` 的 `excludeChannel`）与 `email-channel.md`（告警的落点）
 
 ## 进度概览
@@ -48,7 +48,7 @@
   - 作用：避免后来者把「进程死亡无人知」当成漏做，反复提议加外部探活
   - 位置：`docs/dev.md` 的运行观测章节、本清单结果行
   - 做法：写明本层只覆盖「进程活着、渠道发不出去」；进程/主机死亡不在范围，理由见规划书 7.2 的三条（单实例下自己会察觉 / 外部观察者是无人监控的依赖 / `restart: unless-stopped` 已覆盖崩溃拉起）；注明将来接外部探活**不需要改本方案结构**
-  - 验收：`docs/dev.md` 能查到该边界；`task-checklist/project-hardening.md` 的 H2-3 仍标待办，不与本清单混淆
+  - 验收：`docs/dev.md` 能查到该边界；`docs/task-checklist/project-hardening.md` 的 H2-3 仍标待办，不与本清单混淆
   - 结果（2026-11-08）：`docs/dev.md` 新增「渠道探活告警（能报什么 / 不能报什么）」，含四态判定口径、非本渠道规则、进程死亡边界与残余风险。H2-3 未动。
 
 ## 与初稿的两处偏差

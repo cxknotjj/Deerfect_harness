@@ -3,7 +3,7 @@
 - 范围：新增 `channel-feishu` 模块；M3a 只做出站推送，M3b 才有入站对话
 - 创建：2026-11-08
 - 状态：共 9 项，已完成 8 项；其中 **M3a 4/5**（F2-5 只差真实群 webhook 验证）、**M3b 4/4 完成**（含群聊 @ 扩展）
-- 规划书：[docs/design/2026-11-08-delivery-reliability-feishu-email-plan.md](../docs/design/2026-11-08-delivery-reliability-feishu-email-plan.md) 第 5.3 / 8 节
+- 规划书：[docs/design/2026-11-08-delivery-reliability-feishu-email-plan.md](../design/2026-11-08-delivery-reliability-feishu-email-plan.md) 第 5.3 / 8 节
 - 关系：依赖 `delivery-outbox.md`（错误码要能落到 `markFailed(retryable)`）；与 `email-channel.md` 结构对称，登记方式相同
 
 ## 进度概览

@@ -5,7 +5,7 @@
 > 术语说明：历史条目中的「路径 A / SIMPLE」对应 **Agentic 路径**，「路径 B / COMPLEX」对应 **Graph 编排路径**。
 > 版本基线：Spring Boot 4.1.2 / Spring AI 2.0.2 / Java 25（以根 `pom.xml` 与 [TECH\_STACK.md](./TECH_STACK.md) 为准）；升级任何 AI 相关依赖前先验证兼容性。
 > 首次可用性约定：新增功能/入口合入前按 `docs/guides/first-run-audit.md`「五、首次使用流程规则」复查，走查结论追加至该报告「六、走查记录」。
-> 产品视角的能力补齐进度（主动性 / 记忆 / 触达）见 [task-checklist/personal-agent-gap.md](../task-checklist/personal-agent-gap.md)：2026-11-07 为 10/14，P0 / P1 全完成，P2 完成 4/4。
+> 产品视角的能力补齐进度（主动性 / 记忆 / 触达）见 [task-checklist/personal-agent-gap.md](task-checklist/personal-agent-gap.md)：2026-11-07 为 10/14，P0 / P1 全完成，P2 完成 4/4。
 
 ***
 

@@ -1,7 +1,7 @@
 # Session 上下文构成快照清单
 
 - 范围：`server`（prompt / agent / observability）与 `web` 监控页
-- 设计规格：原稿随 2026-10-30 文档压平移除；实现口径见 [上下文构成监控说明](../docs/dev.md#会话上下文构成快照) 与 [上下文优化指南](../docs/guides/context-optimization.md)
+- 设计规格：原稿随 2026-10-30 文档压平移除；实现口径见 [上下文构成监控说明](../dev.md#会话上下文构成快照) 与 [上下文优化指南](../guides/context-optimization.md)
 - 创建：2026-11-01
 - 状态：共 11 项，已完成 11 项，待办 0 项
 

@@ -63,4 +63,4 @@
 | [guides/functional-testing.md](./guides/functional-testing.md) | 测试全景（类清单 / 场景 / 运行方式） |
 | [reports/](./reports/) | 阶段报告存档（CLI 输出优化 / 沙箱接入 / token 预算评审） |
 | [archive/specs/](./archive/specs/) | 历史实现计划与设计 spec 存档（时点记录，不随代码回溯更新） |
-| [task-checklist/](../task-checklist/) | 可执行清单：[能力补齐](../task-checklist/personal-agent-gap.md)（11/14）、[工程护栏](../task-checklist/project-hardening.md)（13/14）、**投递可靠性四份**（[outbox](../task-checklist/delivery-outbox.md) / [邮件渠道](../task-checklist/email-channel.md) / [探活告警](../task-checklist/channel-health.md) / [飞书渠道](../task-checklist/feishu-channel.md)，2026-11-08 新建）；完整索引见 [readme](../task-checklist/readme.md) |
+| [task-checklist/](task-checklist/) | 可执行清单：[能力补齐](task-checklist/personal-agent-gap.md)（11/14）、[工程护栏](task-checklist/project-hardening.md)（13/14）、**投递可靠性四份**（[outbox](task-checklist/delivery-outbox.md) / [邮件渠道](task-checklist/email-channel.md) / [探活告警](task-checklist/channel-health.md) / [飞书渠道](task-checklist/feishu-channel.md)，2026-11-08 新建）；完整索引见 [readme](task-checklist/readme.md) |

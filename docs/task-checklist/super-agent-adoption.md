@@ -1,7 +1,7 @@
 # Super-agent 思想落地清单（链式召回 / 事件过滤 / Goal 心跳）
 
 - 范围：`server`、`channel-qq`、`harness-api`、`server/src/main/resources/db/migration`
-- 背景：[super-agent-ideas-adopted.md](../docs/design/super-agent-ideas-adopted.md)（已落地部分对照）、[HARNESS_TODO.md](../docs/HARNESS_TODO.md)（P2 长期记忆 / Goal 失败重投）
+- 背景：[super-agent-ideas-adopted.md](../design/super-agent-ideas-adopted.md)（已落地部分对照）、[HARNESS_TODO.md](../HARNESS_TODO.md)（P2 长期记忆 / Goal 失败重投）
 - 创建：2026-11-03
 - 状态：共 14 项，已完成 14 项，待办 0 项
 
@@ -30,25 +30,25 @@
 
 - [x] A1 会话快照增加消息级稳定 ID
   - 作用：为窗口外历史提供可引用、可召回的定位符；当前快照 item 只有 role/content/ts，裁掉即无法定位
-  - 位置：[SessionServiceImpl.saveContext/loadContext/toMessage](../server/src/main/java/com/dark/javaHarness/service/impl/SessionServiceImpl.java#L105-L228)、[ContextAssemblingAdvisor](../server/src/main/java/com/dark/javaHarness/advisor/ContextAssemblingAdvisor.java#L82-L89)
+  - 位置：[SessionServiceImpl.saveContext/loadContext/toMessage](../../server/src/main/java/com/dark/javaHarness/service/impl/SessionServiceImpl.java#L105-L228)、[ContextAssemblingAdvisor](../../server/src/main/java/com/dark/javaHarness/advisor/ContextAssemblingAdvisor.java#L82-L89)
   - 做法：快照 JSON 的每个 item 增加 `id`（写入时生成，建议 `m-<uuid>`）；读取时把 id 放进 Spring AI `Message` 的 metadata；存量 item 在下次写回时补 id（不改表结构、不做双读兼容）
   - 验收：新写入消息带稳定 id；旧快照写回后 id 补齐；裁剪后的消息仍能从 metadata 读回 id
 
 - [x] A2 归档表与裁剪转归档
   - 作用：快照写回本身会物理丢弃旧消息，只改上下文窗口不够；归档是召回的数据源
-  - 位置：[SessionServiceImpl.trimSnapshot](../server/src/main/java/com/dark/javaHarness/service/impl/SessionServiceImpl.java#L237-L274)、新增 `SessionMessageArchiveMapper/Entity`、Flyway `V3__session_message_archive.sql`
+  - 位置：[SessionServiceImpl.trimSnapshot](../../server/src/main/java/com/dark/javaHarness/service/impl/SessionServiceImpl.java#L237-L274)、新增 `SessionMessageArchiveMapper/Entity`、Flyway `V3__session_message_archive.sql`
   - 做法：新增归档表（`session_id` / `message_id` / `role` / `content` / `ts` / `tenant_id` / `archived_at`，按 `(session_id, message_id)` 建索引）；在 `trimSnapshot` 移除项前先写归档（整条被移除项与单条超限截断的尾部都要保留）；保持 `snapshot-max-messages` 与字符上限语义不变；归档写入与快照写回同一事务
   - 验收：触发条数/字符上限后旧消息进归档且快照行为不变；归档可按 session + messageId 查回原文（含被截断尾部）；写入失败不产生半写快照
 
 - [x] A3 窗口内历史引用提示
   - 作用：模型需要知道「窗口外还有历史、用什么取」，否则不会调用召回工具
-  - 位置：[ContextAssemblingAdvisor.assemble](../server/src/main/java/com/dark/javaHarness/advisor/ContextAssemblingAdvisor.java#L89-L160)
+  - 位置：[ContextAssemblingAdvisor.assemble](../../server/src/main/java/com/dark/javaHarness/advisor/ContextAssemblingAdvisor.java#L89-L160)
   - 做法：裁剪时统计被丢弃消息的 id 范围与条数，在 system 消息中追加一行「历史引用：更早 N 条已归档，ID a..b，可用 recall_history 读取」；未发生裁剪时不输出；不改变原有 role 归一化与 system 置前
   - 验收：超预算时出现引用行且 ID 能被 A4 命中；预算内不出现；system/历史顺序与现有单测一致
 
 - [x] A4 `recall_history` 工具与权限
   - 作用：把「引用」变成可执行的按需召回，替代「裁掉即丢」
-  - 位置：新增 `tool/builtin/history/RecallHistoryTools.java`、[ToolAssignments](../server/src/main/java/com/dark/javaHarness/tool/ToolAssignments.java)、`TOOL_PURPOSES`、agent 表 `tools` 列
+  - 位置：新增 `tool/builtin/history/RecallHistoryTools.java`、[ToolAssignments](../../server/src/main/java/com/dark/javaHarness/tool/ToolAssignments.java)、`TOOL_PURPOSES`、agent 表 `tools` 列
   - 做法：入参 `messageId` 或 `fromId/toId` + `limit`；`sessionId` 经 ToolContext 注入（不作为模型可见参数），服务端强制按会话过滤；返回内容走既有 `ToolCallBudget` 截断；只授予 `general` 与编排 `lead`，子任务专家与 `aggregator` 不注入
   - 验收：general/lead 能取回本会话归档原文；跨会话 ID 被拒绝；其他 agent 不可见；调用进 `tool_call_log` 并占用预算
   - 后续（2026-11-06，P2-2）：`recall_history` 增加 `scope=all`，显式跨会话检索已放行并在结果标注来源会话号；默认 `scope=current` 仍保持本会话隔离，上条验收口径对默认行为继续成立。
@@ -63,7 +63,7 @@
 
 - [x] B1 程序层策略抽成 `ChannelEventPolicy`
   - 作用：去掉 `OneBotEventServiceImpl` 中散落的准入 if，让来源/群/用户/触发方式成为可配置策略，而不是业务代码
-  - 位置：[OneBotEventServiceImpl.doHandle](../channel-qq/src/main/java/com/dark/javaHarness/channel/qq/event/OneBotEventServiceImpl.java#L146-L191)、[EventTextParser](../channel-qq/src/main/java/com/dark/javaHarness/channel/qq/event/EventTextParser.java)、[NapCatProperties](../channel-qq/src/main/java/com/dark/javaHarness/channel/qq/client/NapCatProperties.java)、NapCat yaml
+  - 位置：[OneBotEventServiceImpl.doHandle](../../channel-qq/src/main/java/com/dark/javaHarness/channel/qq/event/OneBotEventServiceImpl.java#L146-L191)、[EventTextParser](../../channel-qq/src/main/java/com/dark/javaHarness/channel/qq/event/EventTextParser.java)、[NapCatProperties](../../channel-qq/src/main/java/com/dark/javaHarness/channel/qq/client/NapCatProperties.java)、NapCat yaml
   - 做法：新增 `Decision { RESPOND, CANDIDATE, IGNORE }` 与首条匹配规则表（来源 group/private、群/用户白名单、触发方式 at/reply/prefix/all → 决策）；默认规则逐条等价当前行为；`doHandle` 只做「取文本 → 策略判定 → 分发」
   - 验收：默认配置下现有 `OneBotEventServiceImplTest` 全绿；改 yaml 可调整响应范围且不改代码
 
@@ -75,13 +75,13 @@
 
 - [x] B3 `ChatRequest` 增加 `channel` 并贯通到执行层
   - 作用：让 core 知道消息来自哪个渠道，prompt 才能按信道定制
-  - 位置：[ChatRequest](../harness-api/src/main/java/com/dark/javaHarness/view/ChatRequest.java)、[ChatServiceImpl](../server/src/main/java/com/dark/javaHarness/service/impl/ChatServiceImpl.java)、`AgentService/AgentServiceImpl`、`Goal/GoalEntity`、QQ `chatWithTimeout`、CLI `ChatApiClient`
+  - 位置：[ChatRequest](../../harness-api/src/main/java/com/dark/javaHarness/view/ChatRequest.java)、[ChatServiceImpl](../../server/src/main/java/com/dark/javaHarness/service/impl/ChatServiceImpl.java)、`AgentService/AgentServiceImpl`、`Goal/GoalEntity`、QQ `chatWithTimeout`、CLI `ChatApiClient`
   - 做法：新增可空 `channel` 字段（`qq` / `cli` / `web` / `api`）；QQ 显式传 `qq`；经 Goal 携带到 Agent 执行与 `AgentChatCaller`；同步更新所有构造调用与测试，不保留旧重载
   - 验收：QQ 触发的 Goal 带 `qq`；CLI/Web 带各自值或 null；全模块编译与测试通过
 
 - [x] B4 信道段落注入 `PromptAssembler`
   - 作用：在生成侧约束输出，替代发送侧「先写长再截断」
-  - 位置：[PromptAssembler](../server/src/main/java/com/dark/javaHarness/prompt/PromptAssembler.java)、[ContextCompositionCalculator](../server/src/main/java/com/dark/javaHarness/prompt/ContextCompositionCalculator.java)、`AgentRequestSpecFactory`
+  - 位置：[PromptAssembler](../../server/src/main/java/com/dark/javaHarness/prompt/PromptAssembler.java)、[ContextCompositionCalculator](../../server/src/main/java/com/dark/javaHarness/prompt/ContextCompositionCalculator.java)、`AgentRequestSpecFactory`
   - 做法：新增「信道规范」段（order 放在输出约定附近）：IM = ≤100 词、只问直接问题、给简短结论；CLI/API = 结构化完整交付；null/未知渠道不注入；快照 part 登记 `system.channel`
   - 验收：QQ 请求 system 含 IM 段；CLI/Web/API 只含结构化交付段、不含 IM 长度限制；空渠道不注入；上下文快照能统计该段 token（E2E：QQ 会话 `system.channel` 70 token，CLI 会话为结构化段）
 
@@ -95,13 +95,13 @@
 
 - [x] C1 `goal` 表增加 `last_progress_at`
   - 作用：让「有没有进展」成为可查询事实，作为 Watchdog 判据
-  - 位置：Flyway `V4__goal_last_progress.sql`（在 A2 的 V3 之后）、[GoalEntity](../server/src/main/java/com/dark/javaHarness/domain/entity/GoalEntity.java)、[Goal](../harness-api/src/main/java/com/dark/javaHarness/domain/Goal.java)、[GoalServiceImpl](../server/src/main/java/com/dark/javaHarness/service/impl/GoalServiceImpl.java)
+  - 位置：Flyway `V4__goal_last_progress.sql`（在 A2 的 V3 之后）、[GoalEntity](../../server/src/main/java/com/dark/javaHarness/domain/entity/GoalEntity.java)、[Goal](../../harness-api/src/main/java/com/dark/javaHarness/contract/model/Goal.java)、[GoalServiceImpl](../../server/src/main/java/com/dark/javaHarness/service/impl/GoalServiceImpl.java)
   - 做法：新增可空列 `last_progress_at`；Goal 增加字段与 `touchProgress()`；`markRunning()` 时初始化；GoalService 增加 `touchProgress(goalId)`，条件更新仅当 `status=RUNNING`
   - 验收：新建并运行的 Goal 有值；非 RUNNING 状态不更新；Flyway 在存量库上正常应用
 
 - [x] C2 进度打点（节流）
   - 作用：心跳不能按 token 逐帧写库，需要固定在阶段/时间边界
-  - 位置：[AgentServiceImpl.streamWithLifecycle](../server/src/main/java/com/dark/javaHarness/service/impl/AgentServiceImpl.java#L140-L172)、`OrchestrationCheckpointStore` 保存处、`AgentChatCaller` 每轮往返完成处（按需）
+  - 位置：[AgentServiceImpl.streamWithLifecycle](../../server/src/main/java/com/dark/javaHarness/service/impl/AgentServiceImpl.java#L140-L172)、`OrchestrationCheckpointStore` 保存处、`AgentChatCaller` 每轮往返完成处（按需）
   - 做法：统一节流（如 30 秒一次）调用 `touchProgress`；Graph 在 `LEAD_DONE` / `SUBTASKS_DONE` 检查点保存时同步打点；同步路径在检查点与每轮 LLM 完成时打点；完成/失败后不再更新
   - 验收：长任务 RUNNING 期间 `last_progress_at` 持续刷新且写入频率受控；结束后不再变化
 

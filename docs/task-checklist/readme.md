@@ -56,4 +56,4 @@
 
 > 上表只列仍有待办的清单。`delivery-outbox.md`（10/10，2026-11-08 完成）、`channel-health.md`（4/4，2026-11-08 完成）、`session-context-composition.md`（11/11）、`super-agent-adoption.md`（14/14）、`skill-optimization.md`（17/17）、`project-optimization.md`（15/15）已全部验收，按约定留档、不再回填。
 >
-> 投递可靠性相关的几份清单来自同一份规划书 [2026-11-08-delivery-reliability-feishu-email-plan.md](../docs/design/2026-11-08-delivery-reliability-feishu-email-plan.md)，拆成多个文件是因为它们**能独立提交、独立验收**：投递层不依赖邮件实现（用测试替身就能验），邮件不依赖飞书，飞书 M3a 也不依赖 M3b。拆开的边界是「一次提交能完整说明一件事」，不是按代码目录切。
+> 投递可靠性相关的几份清单来自同一份规划书 [2026-11-08-delivery-reliability-feishu-email-plan.md](../design/2026-11-08-delivery-reliability-feishu-email-plan.md)，拆成多个文件是因为它们**能独立提交、独立验收**：投递层不依赖邮件实现（用测试替身就能验），邮件不依赖飞书，飞书 M3a 也不依赖 M3b。拆开的边界是「一次提交能完整说明一件事」，不是按代码目录切。

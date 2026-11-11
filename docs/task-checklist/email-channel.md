@@ -3,7 +3,7 @@
 - 范围：新增 `channel-email` 模块 + 根 `pom.xml` / `server/pom.xml` 登记 + `application-channel.yaml`
 - 创建：2026-11-08
 - 状态：共 6 项，已完成 5 项，待办 1 项（E1-5 只差真实 SMTP 验证）
-- 规划书：[docs/design/2026-11-08-delivery-reliability-feishu-email-plan.md](../docs/design/2026-11-08-delivery-reliability-feishu-email-plan.md) 第 6.3 节
+- 规划书：[docs/design/2026-11-08-delivery-reliability-feishu-email-plan.md](../design/2026-11-08-delivery-reliability-feishu-email-plan.md) 第 6.3 节
 - 关系：依赖 `delivery-outbox.md` 的 D1-1（通道链）才能被降级链调用；本清单只做渠道实现，不含投递层
 
 ## 进度概览
