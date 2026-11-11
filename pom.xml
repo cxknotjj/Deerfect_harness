@@ -44,7 +44,7 @@
         <agentscope.version>1.0.2</agentscope.version>
         <!-- AgentScope Java Agent 框架（ReActAgent/Toolkit/事件），与上面的 runtime 沙箱是两条产品线 -->
         <agentscope.agent.version>2.0.4</agentscope.agent.version>
-        <mybatis-plus.version>3.5.17</mybatis-plus.version>
+        <mybatis-plus.version>3.5.18.1</mybatis-plus.version>
         <!-- 显式固定编译编码：源码含大量中文字符串，不声明则跟随平台默认
              （Windows=GBK / WSL=UTF-8），两套工具链编出的 class 字符串常量会不一致 -->
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -92,12 +92,12 @@
             <dependency>
                 <groupId>com.squareup.okhttp3</groupId>
                 <artifactId>okhttp-jvm</artifactId>
-                <version>5.5.0</version>
+                <version>5.5.1</version>
             </dependency>
             <dependency>
                 <groupId>org.jsoup</groupId>
                 <artifactId>jsoup</artifactId>
-                <version>1.22.1</version>
+                <version>1.24.1</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -152,7 +152,7 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.15</version>
+                <version>0.8.16</version>
                 <executions>
                     <!-- 采集：测试 JVM 挂 agent（argLine 由插件注入，勿在其他插件硬编码 argLine） -->
                     <execution>

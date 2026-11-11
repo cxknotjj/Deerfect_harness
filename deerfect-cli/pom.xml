@@ -72,7 +72,7 @@
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
-                <version>3.5.0</version>
+                <version>3.6.4</version>
                 <configuration>
                     <mainClass>com.dark.javaHarness.cli.ChatCli</mainClass>
                 </configuration>
@@ -90,7 +90,7 @@
                     <plugin>
                         <groupId>org.codehaus.mojo</groupId>
                         <artifactId>exec-maven-plugin</artifactId>
-                        <version>3.5.0</version>
+                        <version>3.6.4</version>
                         <configuration>
                             <executable>java</executable>
                             <arguments>
