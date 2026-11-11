@@ -55,7 +55,7 @@ channel-feishu/
 | `FeishuApiClient` | `im/v1/messages` 发送，`tenant_access_token` 缓存到过期前 60 秒 |
 | `FeishuInboundMessage` / `FeishuMessageHandler` | 入站消息值对象 / 处理器接口 |
 
-**两个必须知道的坑**（`docs/dev.md` 有详细版）：
+**两个必须知道的坑**（[设计文档](../docs/design/2026-11-11-feishu-channel-design.md) 有详细版）：
 
 - **SDK 无法停止**：oapi-sdk 2.4.19 的 `Client` 没有公开 stop，`pingLoop` 死循环且吞中断，
   OkHttp 线程非守护——JVM 不会自然退出。`FeishuWsClient.stop()` 断开后延迟 3 秒
@@ -171,6 +171,28 @@ send_file(path, name?)                     服务端读沙箱文件（stat + bas
 - 只允许 `/workspace` 内的路径（越界读同样会泄漏工作区外内容），路径含单引号一律拒绝
   （要拼进 shell 命令，无法安全转义）。
 - `send_file` 归在 `sandbox.read` 组：它只读容器、不修改任何东西，所以默认 Agent 就能用。
+
+## 接入准备
+
+设计与根因见 [设计文档](../docs/design/2026-11-11-feishu-channel-design.md)；这里只列操作。
+
+`.env.local`：
+
+```bash
+export CHANNEL_FEISHU_WS_ENABLED=true
+export FEISHU_APP_ID=cli_xxx
+export FEISHU_APP_SECRET=xxx
+export CHANNEL_FEISHU_WS_ALLOWED_USERS=ou_xxx   # 多个用逗号分隔
+```
+
+自建应用侧要开三件事（缺一条就是「连上了但收不到」）：
+
+1. 权限 `im:message`（单聊）、`im:message.group_at_msg`（群聊 @ 机器人）、`im:message:send_as_bot`（回复）
+2. 事件与回调 → 事件配置 → **使用长连接接收事件**，添加 `im.message.receive_v1`
+3. 创建版本并发布；可用范围要包含使用者
+
+配对：`allowed-users` 为空时只把 `open_id` 打进日志、不回复；把日志里的 `open_id` 加进白名单
+并重启才能对话。长连接没有回调端点，白名单是机器人被拉进陌生群后唯一能拦住「对所有人开口」的闸。
 
 ## 运行参数
 

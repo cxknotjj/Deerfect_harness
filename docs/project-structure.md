@@ -219,7 +219,7 @@ server/src/main/java/com/dark/javaHarness/
 > **分层职责**：`controller` 收发 REST/SSE，不承载业务逻辑；`service` 编排核心逻辑（接口与实现分离）；`mapper` / `domain.entity` 负责数据库读写与映射。运行时关注点独立成包：`agent`（Agentic 执行体）、`graph`（Graph 编排）、`state`（检查点/续跑）、`observability`（观测落库与查询）、`validation`（纯规则）。
 
 
-## 数据库迁移（Flyway，V1–V11）
+## 数据库迁移（Flyway，V1–V19）
 
 `server/src/main/resources/db/migration/`，启动时自动执行。**已应用的脚本不可再改**——改动会导致校验和不匹配，需 `flyway repair`（或按 Flyway 的逐行 CRC32 算法校正 `flyway_schema_history.checksum`）后才能启动。
 
@@ -239,6 +239,11 @@ server/src/main/java/com/dark/javaHarness/
 | V12 | `session_summary` 会话滚动摘要（游标 `covered_message_id`，滚动合并） |
 | V13 | `memory` 显式记忆表（key / content / source / expires_at / deleted_at 软删）+ general/lead 工具列追加 `memory` 组 |
 | V14 | `delivery_outbox` 主动投递 outbox（PENDING/SENT/DEAD，`hop_attempts` 本跳次数 + 领取租约，失败可重投可审计） |
+| V15 | `feishu_session_binding` 飞书会话绑定（open_id + chat_id → session_id；渠道私有表不进 core） |
+| V16 | `session.creator` 放宽到 64（飞书 `feishu:` + open_id 共 42 字符，原 30 装不下） |
+| V17 | general / nailong 追加 `play_music`（点歌工具） |
+| V18 | WMS 十个工具 → HTTP pack `wms.query`（已被 V19 取代，保留为历史） |
+| V19 | WMS 改为 MCP 分发器 `wms_query`（十六个资源，替代十个专用工具） |
 
 ---
 
