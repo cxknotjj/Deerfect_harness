@@ -1,0 +1,82 @@
+# Dependabot 版本更新：自动开 PR 升级依赖，CI 通过后人工（或自动）合并。
+#
+# 为什么用 Dependabot 而不是 Renovate：仓库已经在 GitHub 上、已有 Actions 工作流，
+# Dependabot 是平台自带能力，不需要额外 App、不需要 token，配置就这一个文件。
+#
+# 注意：Dependabot 的 PR 拿到的是只读 GITHUB_TOKEN、且**看不到仓库 secrets**。
+# 本仓库的两个工作流都不依赖 secrets 就能跑（ci.yml 用 service 容器起 MySQL；
+# docker-image.yml 在 PR 事件下 push=false 且跳过登录），所以 PR 上能正常验证。
+version: 2
+
+updates:
+  # ---------- Maven：根 pom 管着全部模块的版本 ----------
+  # 只需配根目录：Dependabot 会顺着根 pom 的 <modules> 递归去读子模块 pom，
+  # 所以 server/pom.xml 里的 archunit、cli 里的 exec 插件版本同样能升级。
+  # 实际能升级的是「有显式版本」的那些：spring-boot-starter-parent、spring-ai-bom、
+  # mybatis-plus、jline、okhttp、agentscope、archunit；其余依赖由 BOM 管理，
+  # 只能随 BOM 一起动。
+  - package-ecosystem: maven
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - dependencies
+    groups:
+      # 同一条线上的升级合成一个 PR，避免 Spring 全家桶各开一条
+      spring:
+        patterns:
+          - "org.springframework*"
+      test:
+        patterns:
+          - "org.junit*"
+          - "org.mockito*"
+      # 其余的小版本/补丁统一成一个 PR；大版本单独出，便于逐个评估
+      minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # 框架大版本是项目级迁移（Spring Boot 5 / Spring AI 3），不该由机器人提
+      - dependency-name: "org.springframework.boot:spring-boot-starter-parent"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "org.springframework.ai:spring-ai-bom"
+        update-types: ["version-update:semver-major"]
+
+  # ---------- GitHub Actions：工作流里用的 action 版本 ----------
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(ci)"
+    labels:
+      - dependencies
+      - ci
+
+  # ---------- Docker：docker/Dockerfile 里的构建/运行基础镜像 ----------
+  # directory 指 Dockerfile 所在目录，不是项目根
+  - package-ecosystem: docker
+    directory: "/docker"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(docker)"
+    labels:
+      - dependencies
+      - docker
