@@ -93,8 +93,8 @@ Deerfect Harness 是一个基于 Spring AI 的双路径 Agent 平台：**Agentic
 - **数据库演进**：Flyway 版本化迁移，启动自动建表 / 升级。
 - **模块化**：`harness-api` / `channel-qq` / `server` / `cli` / `wms-mcp-adapter` 五模块 + 独立 `web`。
 - **容器化**：Dockerfile + docker-compose（app + MySQL + pgvector），见 [docker-deploy.md](./guides/docker-deploy.md)。
-- **持续集成与质量门禁**：`.github/workflows/ci.yml`（backend / web / e2e 三 job）与 `docker-image.yml`（镜像发布）已落地。backend 跑 `mvn verify`，含 jacoco 行覆盖率门禁（按模块设阈：server 0.79 / channel-qq 0.75 / wms 0.73 / harness-api 0.61 / cli 0.21）与真实 MySQL 仓储集成测试；web 跑 ESLint 再类型检查与单测。CD 自动部署与分支保护强制校验仍需人工配置，见 [dev.md](./dev.md#8-ci-与镜像发布github-actions)。
-- **测试**：129 个测试类 / 1162 个用例（harness-api 5/40、server 109/968、channel-qq 8/83、cli 3/28、wms-mcp-adapter 4/43），详见 [functional-testing.md](./guides/functional-testing.md)。
+- **持续集成与质量门禁**：`.github/workflows/ci.yml`（backend / web / e2e 三 job）与 `docker-image.yml`（镜像发布）已落地。backend 跑 `mvn verify`，含 jacoco 行覆盖率门禁（按模块设阈，数值以各模块 `pom.xml` 的 `jacoco.line.minimum` 为准）与真实 MySQL 仓储集成测试；web 跑 ESLint 再类型检查与单测。CD 自动部署与分支保护强制校验仍需人工配置，见 [dev.md](./dev.md) 的「流水线」一节。
+- **测试**：后端 JUnit 5 + Mockito，前端 vitest / Playwright；用例数以各模块 `target/surefire-reports` 与 CI 报告为准，详见 [functional-testing.md](./guides/functional-testing.md)。
 
 ## 十、尚未实现（路线图未勾选项）
 

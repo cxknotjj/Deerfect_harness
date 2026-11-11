@@ -40,7 +40,7 @@
 4. 语音（可选）：目标 Python 安装 `edge-tts`，并让 `TTS_PYTHON` 指向该解释器（`application-tts.yaml` 默认 `python3.11`）；语音参数在 `app.tts.*`（voice / rate / volume / max-chars / 超时与并发）
 
 > [!NOTE]
-> 跨机部署（NapCat 在远端 Docker、harness 在本机）：`api-base-url` 用 `ssh -L 3000:127.0.0.1:3000` 拉回；上报方向 `httpClients` 填 `http://172.17.0.1:8080/onebot/event`，配合 `ssh -R 8080` 反向隧道 + 远端 socat 转发到本机 harness，完整命令见 [dev.md 3.1](../dev.md#31-qq-机器人联调前提远程-napcat)。
+> 跨机部署（NapCat 在远端 Docker、harness 在本机）：`api-base-url` 用 `ssh -L 3000:127.0.0.1:3000` 拉回；上报方向 `httpClients` 填 `http://172.17.0.1:8080/onebot/event`，配合 `ssh -R 8080` 反向隧道 + 远端 socat 转发到本机 harness，完整命令见 [dev.md](../dev.md) 的「QQ 远程 NapCat 联调」。
 
 
 ---

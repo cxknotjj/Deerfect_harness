@@ -29,9 +29,9 @@
 
 ### 覆盖率门禁（jacoco）
 
-- 阈值是**行覆盖率（LINE）**，按模块独立设置：父 pom 的 `jacoco.line.minimum` 默认 `0.00`（只出报告），  
-  各模块在自己的 `<properties>` 覆盖为「实测值下方约 2 个点」。当前：server 0.79 / channel-qq 0.75 /  
-  channel-feishu 0.74 / channel-email 0.61 / wms-mcp-adapter 0.73 / harness-api 0.61 / cli 0.21。
+- 阈值是**行覆盖率（LINE）**，按模块独立设置：父 pom 只出报告、不设门槛，各模块在自己的
+  `<properties>` 里用 `jacoco.line.minimum` 覆盖，取「实测值下方约 2 个点」。
+  **具体数值以各模块 `pom.xml` 为准**——改阈值只改 pom，这里不维护数字。
 - `report` / `check` 绑在 `verify` 上：只跑 `test` 能过、`verify` 红，就是覆盖率跌破模块阈值——  
   报告在 `target/site/jacoco/index.html`，日志会打印实际值与阈值。
 - 调整方式：先跑 `verify` 看实际值，确认下降合理后再改模块属性；**不要放宽规则本身**。
