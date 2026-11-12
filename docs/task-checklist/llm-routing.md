@@ -2,7 +2,7 @@
 
 - 范围：`deerfect-server` 的 LLM 配置模型、解析链路、Agent 绑定、失败切换、观测与管理面
 - 创建：2026-11-12
-- 状态：共 29 项，已完成 19 项，待办 10 项
+- 状态：共 29 项，已完成 22 项，待办 7 项
 - 规划书：[docs/design/2026-11-12-llm-provider-model-routing.md](../design/2026-11-12-llm-provider-model-routing.md)
 - 前提：按全新设计落地，不保留旧 `model_provider` 表与按名查找接口的兼容层
 
@@ -15,10 +15,10 @@
 | 参数与能力 | 3 | 1 | 4 |
 | 内部调用收口 | 3 | 0 | 3 |
 | 接入改造 | 4 | 0 | 4 |
-| 管理面 | 0 | 3 | 3 |
+| 管理面 | 3 | 0 | 3 |
 | 观测 | 0 | 2 | 2 |
 | 清理与验收 | 0 | 4 | 4 |
-| 合计 | 19 | 10 | 29 |
+| 合计 | 22 | 7 | 29 |
 
 ## 背景
 
@@ -207,26 +207,29 @@
 
 ### F. 管理面
 
-- [ ] F1 供应商 / 模型 / 路由 / Agent 绑定管理接口
+- [x] F1 供应商 / 模型 / 路由 / Agent 绑定管理接口
   - 作用：新增或调整模型只改数据，不改代码
   - 位置：`llm/admin/LlmAdminService.java`、`controller/LlmAdminController.java`
   - 做法：实现规划书第十节接口；写操作先校验再落库；返回结构化校验错误
   - 验收：四类资源 CRUD 可用；非法外键/优先级冲突/空路由被拒绝
   - 依赖：A2、C4
+  - 结果（2026-11-12）：`LlmAdminController` 暴露 `/api/admin/providers|models|routes|agents/{id}/route`；写操作事务内落库并触发热更新，校验失败转 400；11 条单测覆盖非法 URL/凭证缺失/重名/空路由/优先级冲突/禁用成员
 
-- [ ] F2 热加载：校验后原子替换
+- [x] F2 热加载：校验后原子替换
   - 作用：改配置不重启，且失败不破坏现有服务
   - 位置：`llm/catalog/*`、`llm/routing/ModelResolver.java`
   - 做法：变更后重建 catalog、路由缓存与客户端映射；先完整校验，通过后一次性替换引用；失败记录错误并保留旧配置
   - 验收：修改成员优先级后下一次调用生效；提交非法配置时旧配置继续服务
   - 依赖：F1
+  - 结果（2026-11-12）：`LlmConfigRefresher.refresh()` 重读目录 → 清路由缓存 → 全量校验 → 清客户端缓存；校验失败恢复旧快照并重新清空缓存，异常上抛使事务回滚；3 条单测覆盖成功/校验失败/重读失败
 
-- [ ] F3 路由连通性测试端点
+- [x] F3 路由连通性测试端点
   - 作用：上线前确认每个成员真的可用
   - 位置：`LlmAdminController` 的 `POST /api/admin/routes/{id}/test`
   - 做法：按优先级逐个发一条最小请求，返回每个成员的延迟、HTTP 状态、错误分类
   - 验收：可用/超时/4xx/5xx 四类结果可区分；不写入会话与业务表
   - 依赖：B5、B6
+  - 结果（2026-11-12）：`LlmAdminService.testRoute` 用轻量客户端（15s 读超时）逐成员探测，返回 ok/latency/httpStatus/errorClass（timeout/connection/4xx/5xx/other）；不挂 advisor，不写 llm_call_log 与会话表
 
 ### G. 观测
 

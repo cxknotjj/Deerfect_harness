@@ -50,6 +50,22 @@ public class AgentCatalog {
 
     /** 重新读取 agent 表并整体替换映射。 */
     public synchronized void reload() {
+        replace(loadEnabled());
+        log.info("[llm] AgentCatalog 已加载 {} 个启用 Agent", byName.size());
+    }
+
+    /** 当前内存快照（热更新失败时回滚用）。 */
+    public Map<String, AgentEntity> snapshot() {
+        return byName;
+    }
+
+    /** 用给定快照替换当前映射（热更新校验失败回滚 / 两阶段加载用）。 */
+    public synchronized void replace(Map<String, AgentEntity> fresh) {
+        this.byName = Map.copyOf(fresh);
+    }
+
+    /** 从库读取启用 Agent（不修改内存状态）。 */
+    public Map<String, AgentEntity> loadEnabled() {
         List<AgentEntity> rows = agentMapper.selectList(
                 new QueryWrapper<AgentEntity>().eq("status", 1));
         Map<String, AgentEntity> fresh = new HashMap<>();
@@ -58,8 +74,7 @@ public class AgentCatalog {
                 fresh.put(row.getAgentName(), row);
             }
         }
-        this.byName = Map.copyOf(fresh);
-        log.info("[llm] AgentCatalog 已加载 {} 个启用 Agent", fresh.size());
+        return fresh;
     }
 
     private void ensureLoaded() {

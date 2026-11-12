@@ -79,6 +79,29 @@ public class ProviderCatalog {
 
     /** 重新读取供应商与模型表并整体替换映射。 */
     public synchronized void reload() {
+        Snapshot fresh = loadEnabled();
+        replace(fresh);
+        log.info("[llm] ProviderCatalog 已加载 {} 个供应商 / {} 个模型",
+                fresh.providers().size(), fresh.models().size());
+    }
+
+    /** 供应商 + 模型的内存快照（热更新两阶段替换与回滚用）。 */
+    public record Snapshot(Map<Long, LlmProviderEntity> providers, Map<Long, LlmModelEntity> models) {
+    }
+
+    /** 当前内存快照（热更新失败时回滚用）。 */
+    public Snapshot snapshot() {
+        return new Snapshot(providers, models);
+    }
+
+    /** 用给定快照替换当前映射。 */
+    public synchronized void replace(Snapshot fresh) {
+        this.providers = Map.copyOf(fresh.providers());
+        this.models = Map.copyOf(fresh.models());
+    }
+
+    /** 从库读取启用供应商与模型（不修改内存状态）。 */
+    public Snapshot loadEnabled() {
         Map<Long, LlmProviderEntity> freshProviders = new HashMap<>();
         Map<Long, LlmModelEntity> freshModels = new HashMap<>();
         List<LlmProviderEntity> providerRows = providerMapper.selectList(
@@ -95,10 +118,7 @@ public class ProviderCatalog {
                 freshModels.put(row.getId(), row);
             }
         }
-        this.providers = Map.copyOf(freshProviders);
-        this.models = Map.copyOf(freshModels);
-        log.info("[llm] ProviderCatalog 已加载 {} 个供应商 / {} 个模型",
-                freshProviders.size(), freshModels.size());
+        return new Snapshot(Map.copyOf(freshProviders), Map.copyOf(freshModels));
     }
 
     private void ensureLoaded() {
