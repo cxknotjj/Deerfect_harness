@@ -53,6 +53,7 @@
 | [email-channel.md](./email-channel.md) | 邮件渠道模块（M1 后半） | 5/6（E1-5 待真实 SMTP 验证） |
 | [feishu-channel.md](./feishu-channel.md) | 飞书渠道：webhook（M3a）/ 事件订阅（M3b） | 8/9（M3a 4/5，F2-5 待真实群 webhook 验证；M3b 4/4，含群聊 @） |
 | [feishu-inbound-expansion.md](./feishu-inbound-expansion.md) | 飞书入站扩展：群聊全量接收 / 富文本 / 图片多模态 | 10/11（T2 待真机） |
+| [llm-routing.md](./llm-routing.md) | LLM 供应商 / 模型 / 路由三层模型与 Agent 绑定 | 0/29 |
 
 > 上表只列仍有待办的清单。`delivery-outbox.md`（10/10，2026-11-08 完成）、`channel-health.md`（4/4，2026-11-08 完成）、`session-context-composition.md`（11/11）、`super-agent-adoption.md`（14/14）、`skill-optimization.md`（17/17）、`project-optimization.md`（15/15）已全部验收，按约定留档、不再回填。
 >
