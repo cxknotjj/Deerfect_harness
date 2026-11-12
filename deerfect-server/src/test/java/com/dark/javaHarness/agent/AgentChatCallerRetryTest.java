@@ -7,7 +7,11 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
+import com.dark.javaHarness.llm.catalog.AgentCatalog;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RoutePlan;
+import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.contract.api.AgentService;
 import com.dark.javaHarness.tool.ToolAssignments;
 import java.util.List;
@@ -40,24 +44,36 @@ class AgentChatCallerRetryTest {
                 .toArray(ChatResponse[]::new));
     }
 
-    private ChatClientRegistry clientRegistry;
+    private LlmClientRegistry clientRegistry;
     private AgentService agentService;
+    private ModelResolver modelResolver;
+    private AgentCatalog agentCatalog;
     private ToolAssignments toolAssignments;
 
     @BeforeEach
     void setUp() {
-        clientRegistry = mock(ChatClientRegistry.class);
+        clientRegistry = mock(LlmClientRegistry.class);
+        modelResolver = mock(ModelResolver.class);
+        agentCatalog = mock(AgentCatalog.class);
         agentService = mock(AgentService.class);
         toolAssignments = mock(ToolAssignments.class);
         when(agentService.getAgentConfig(anyString())).thenReturn(java.util.Optional.empty());
         when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
+        com.dark.javaHarness.domain.entity.AgentEntity agent = new com.dark.javaHarness.domain.entity.AgentEntity();
+        agent.setAgentName("lead");
+        agent.setRouteId(1L);
+        when(agentCatalog.require(anyString())).thenReturn(agent);
+        when(modelResolver.resolve(1L)).thenReturn(new RoutePlan(1L, "multi", List.of(
+                new RoutePlan.Member(9L, 1L, "dashscope", "https://example.com", "m", "m",
+                        10, "{}", null))));
     }
 
     private AgentChatCaller callerWithClient(ChatClient client) {
-        when(clientRegistry.get(any())).thenReturn(client);
+        when(clientRegistry.get(9L)).thenReturn(client);
         // 基准退避调小加速，确保测试不慢
-        return new AgentChatCaller(clientRegistry, agentService, toolAssignments, null,
-                new LlmRetry(3, 1));
+        return new AgentChatCaller(agentService, toolAssignments, null,
+                new LlmRetry(3, 1), null, new PromptAssembler(agentService, toolAssignments),
+                null, null, null, null, null, null, modelResolver, agentCatalog, clientRegistry, null);
     }
 
     /** 组装一个流式 stub 客户端：chatResponse() 的 Flux 由调用方逐次给出，calls 计数每次尝试 +1 */
@@ -107,9 +123,11 @@ class AgentChatCallerRetryTest {
                 mock(com.dark.javaHarness.observability.LlmCallRecorder.class);
         org.mockito.ArgumentCaptor<com.dark.javaHarness.domain.LlmCallLog> captor =
                 org.mockito.ArgumentCaptor.forClass(com.dark.javaHarness.domain.LlmCallLog.class);
-        when(clientRegistry.get(any())).thenReturn(stub.client());
-        new AgentChatCaller(clientRegistry, agentService, toolAssignments, recorder,
-                new LlmRetry(3, 1)).call("s1", "coder", "sys", "任务");
+        when(clientRegistry.get(9L)).thenReturn(stub.client());
+        new AgentChatCaller(agentService, toolAssignments, recorder,
+                new LlmRetry(3, 1), null, new PromptAssembler(agentService, toolAssignments),
+                null, null, null, null, null, null, modelResolver, agentCatalog, clientRegistry, null)
+                .call("s1", "coder", "sys", "任务");
 
         org.mockito.Mockito.verify(recorder, org.mockito.Mockito.times(2)).record(captor.capture());
         List<com.dark.javaHarness.domain.LlmCallLog> logs = captor.getAllValues();

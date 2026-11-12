@@ -9,7 +9,8 @@ import org.springframework.ai.openai.OpenAiChatOptions;
 import reactor.core.publisher.Flux;
 
 /**
- * 思考开关模型包装器：给思考型端点（model_provider.disable_thinking=1）的每次请求
+ * 思考开关模型包装器：给思考型端点（llm_model.default_params.thinking_mode=off，
+ * 迁移前对应 model_provider.disable_thinking=1）的每次请求
  * 注入 {@code enable_thinking:false}（dashscope qwen3 系供应商私有参数）。
  *
  * <p>为什么是包装器而不是 defaultOptions：经实测（ExtraBodyMergeTest 阶段），

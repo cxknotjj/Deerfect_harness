@@ -11,9 +11,9 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.dark.javaHarness.contract.model.AgentConfig;
 import com.dark.javaHarness.domain.entity.AgentEntity;
-import com.dark.javaHarness.domain.entity.ModelProviderEntity;
+import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RoutePlan;
 import com.dark.javaHarness.mapper.AgentMapper;
-import com.dark.javaHarness.mapper.ModelProviderMapper;
 import java.util.List;
 import java.util.Optional;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -33,7 +33,7 @@ class AgentConfigProviderTest {
     @Mock
     private AgentMapper agentMapper;
     @Mock
-    private ModelProviderMapper modelProviderMapper;
+    private ModelResolver modelResolver;
 
     private AgentConfigProvider provider;
 
@@ -46,7 +46,7 @@ class AgentConfigProviderTest {
     }
 
     private AgentConfigProvider newProvider() {
-        return new AgentConfigProvider(agentMapper, modelProviderMapper);
+        return new AgentConfigProvider(agentMapper, modelResolver);
     }
 
     @Test
@@ -79,19 +79,18 @@ class AgentConfigProviderTest {
         provider = newProvider();
         AgentEntity row = new AgentEntity();
         row.setAgentName("writer");
-        row.setModelProviderId(7L);
+        row.setRouteId(1L);
         row.setPrompt("你是写作助手");
         // getAgentConfig 使用 LambdaQueryWrapper.selectOne，这里 mock 返回该行
         when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(row);
-        ModelProviderEntity mp = new ModelProviderEntity();
-        mp.setId(7L);
-        mp.setModel("gpt-4o");
-        when(modelProviderMapper.selectById(7L)).thenReturn(mp);
+        when(modelResolver.resolve(1L)).thenReturn(new RoutePlan(1L, "main", List.of(
+                new RoutePlan.Member(10L, 1L, "dashscope", "https://example.com", "gpt-4o", "GPT-4o",
+                        10, "{}", null))));
 
         Optional<AgentConfig> cfg = provider.getAgentConfig("writer");
         assertTrue(cfg.isPresent());
-        assertEquals(7L, cfg.get().modelProviderId());
-        assertEquals("gpt-4o", cfg.get().model(), "模型名应由 model_provider.id 解析");
+        assertEquals(10L, cfg.get().modelId());
+        assertEquals("gpt-4o", cfg.get().model(), "模型名应取路由首选成员的 upstream_name");
         assertEquals("你是写作助手", cfg.get().prompt());
     }
 
@@ -119,48 +118,45 @@ class AgentConfigProviderTest {
         provider = newProvider();
         AgentEntity row = new AgentEntity();
         row.setAgentName("writer");
-        row.setModelProviderId(7L);
+        row.setRouteId(1L);
         when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(row);
-        ModelProviderEntity mp = new ModelProviderEntity();
-        mp.setId(7L);
-        mp.setModel("gpt-4o");
-        when(modelProviderMapper.selectById(7L)).thenReturn(mp);
+        when(modelResolver.resolve(1L)).thenReturn(new RoutePlan(1L, "main", List.of(
+                new RoutePlan.Member(10L, 1L, "dashscope", "https://example.com", "gpt-4o", "GPT-4o",
+                        10, "{}", null))));
 
         provider.getAgentConfig("writer");
         provider.getAgentConfig("writer");
         provider.getAgentConfig("writer");
 
         verify(agentMapper, times(1)).selectOne(org.mockito.ArgumentMatchers.any());
-        verify(modelProviderMapper, times(1)).selectById(7L);
+        verify(modelResolver, times(1)).resolve(1L);
     }
 
     @Test
-    void getAgentConfig_nullModelProviderId_shouldReturnNullModel() {
+    void getAgentConfig_noRoute_shouldThrow() {
         provider = newProvider();
         AgentEntity row = new AgentEntity();
         row.setAgentName("general");
-        row.setModelProviderId(null);
-        row.setPrompt(null);
+        row.setRouteId(null);
         when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(row);
+        when(modelResolver.resolve(null))
+                .thenThrow(new IllegalArgumentException("routeId 不能为空"));
 
-        Optional<AgentConfig> cfg = provider.getAgentConfig("general");
-        assertTrue(cfg.isPresent());
-        assertEquals(null, cfg.get().modelProviderId());
-        assertEquals(null, cfg.get().model(), "未绑定部署模型应返回 null（走默认客户端）");
+        assertThrows(IllegalArgumentException.class, () -> provider.getAgentConfig("general"),
+                "未绑定路由是配置错误，不得静默回退默认模型");
     }
 
     @Test
-    void getAgentConfig_modelProviderRowMissing_shouldReturnNullModel() {
+    void getAgentConfig_routeResolveError_shouldPropagate() {
         provider = newProvider();
         AgentEntity row = new AgentEntity();
         row.setAgentName("general");
-        row.setModelProviderId(404L);
+        row.setRouteId(404L);
         when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(row);
-        when(modelProviderMapper.selectById(404L)).thenReturn(null);
+        when(modelResolver.resolve(404L))
+                .thenThrow(new IllegalStateException("llm_route 不存在或未启用: id=404"));
 
-        Optional<AgentConfig> cfg = provider.getAgentConfig("general");
-        assertTrue(cfg.isPresent());
-        assertEquals(null, cfg.get().model(), "部署模型行不存在应回退 null（走默认客户端）");
+        assertThrows(IllegalStateException.class, () -> provider.getAgentConfig("general"));
     }
 
     @Test
@@ -292,6 +288,7 @@ class AgentConfigProviderTest {
     private AgentEntity agentRow(Integer thinking) {
         AgentEntity row = new AgentEntity();
         row.setAgentName("general");
+        row.setRouteId(1L);
         row.setThinking(thinking);
         return row;
     }
@@ -300,6 +297,9 @@ class AgentConfigProviderTest {
     @Test
     void getAgentConfig_thinkingThreeStates() {
         // 每个状态用一个新实例：getAgentConfig 带进程内缓存，同实例重复读会命中首次结果
+        when(modelResolver.resolve(1L)).thenReturn(new RoutePlan(1L, "main", List.of(
+                new RoutePlan.Member(10L, 1L, "dashscope", "https://example.com", "gpt-4o", "GPT-4o",
+                        10, "{}", null))));
         provider = newProvider();
         when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(agentRow(1));
         assertTrue(provider.getAgentConfig("general").orElseThrow().thinking(),

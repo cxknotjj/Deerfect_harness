@@ -51,7 +51,7 @@ public final class OpenAiClients {
 
     /**
      * 端点归一化：官方 SDK 的 baseUrl 需包含版本前缀（默认 {@code https://api.openai.com/v1}，
-     * 请求再拼 {@code /chat/completions}）；而 model_provider 表的 api_url 沿用 Spring AI 1.x
+     * 请求再拼 {@code /chat/completions}）；而 llm_provider.base_url 沿用 Spring AI 1.x
      * 语义（根地址，1.x 内部拼 {@code /v1/chat/completions}）。此处补齐 {@code /v1}，
      * 已带版本后缀的配置保持原样。
      */

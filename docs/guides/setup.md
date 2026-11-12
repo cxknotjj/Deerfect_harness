@@ -14,13 +14,13 @@ CREATE DATABASE IF NOT EXISTS harness DEFAULT CHARACTER SET utf8mb4;
 
 > [!TIP]
 > 两套启动脚本任选其一（**勿同时运行**，8080 端口会冲突）：
-> - **`run-wsl.sh`**（WSL 终端）：`./run-wsl.sh` 全流程——编译 → 杀掉 8080 旧服务 → 新窗口起服务 → 本终端轮询就绪 → 进入 CLI；子命令 `server / stop / cli / build / test`
-> - **`run-win.bat`**（Windows 本机）：Windows 侧检出 + Windows JDK/Maven 环境时使用
+> - **`scripts/run-wsl.sh`**（WSL 终端）：`./scripts/run-wsl.sh` 全流程——编译 → 杀掉 8080 旧服务 → 新窗口起服务 → 本终端轮询就绪 → 进入 CLI；子命令 `server / stop / cli / build / test`
+> - **`scripts/run-win.bat`**（Windows 本机）：Windows 侧检出 + Windows JDK/Maven 环境时使用
 
 > [!NOTE]
 > **Windows 本机启动前核对三件事**
 > - `JAVA_HOME` 必须指向 **JDK 25**（项目 `pom.xml` 为 `release 25`；PATH 上的旧 JDK 会直接编译失败）。验证：`java -version` 输出 25.x；临时生效用 `$env:JAVA_HOME='<JDK25目录>'`，长期生效在"系统环境变量"里配置并重开终端
-> - `run-win.bat` **不读取** `.env.local`（该文件只被 `run-wsl.sh` 加载），API Key 需用 `setx QWEN_API_KEY "sk-..."` / `setx DEEPSEEK_API_KEY "sk-..."` 设为用户环境变量后重开窗口，或在启动服务的窗口里临时 `$env:QWEN_API_KEY='sk-...'`
+> - `scripts/run-win.bat` **不读取** `.env.local`（该文件只被 `run-wsl.sh` 加载），API Key 需用 `setx QWEN_API_KEY "sk-..."` / `setx DEEPSEEK_API_KEY "sk-..."` 设为用户环境变量后重开窗口，或在启动服务的窗口里临时 `$env:QWEN_API_KEY='sk-...'`
 > - Web 控制台需要 **Node 20.19+**（Vite 7 要求）；低于该版本 `npm run dev` 只告警但建议升级（`nvm use 20.19.0` 或安装新版 Node）
 
 ### 🔧 手动启动
@@ -81,17 +81,22 @@ setx MYSQL_USE_SSL "true"           # 公网/跨机必开，否则口令与数�
 ```
 
 > [!IMPORTANT]
-> **首次对话前核对 agent 绑定的服务商**：种子迁移链可能把默认 agent（general/researcher）绑到
-> DeepSeek 端点——只配 `QWEN_API_KEY` 时首次对话会 401。用下面 SQL 核对，若 `provider` 不是你
-> 已配 key 的服务商，二选一：补配该服务商的 key，或把 agent 改绑到已配 key 的部署模型行：
+> **首次对话前核对 Agent 绑定的路由与供应商**：只配 `QWEN_API_KEY`、而路由首选成员指向未配 key 的
+> 供应商时，首次对话会 401。用下面 SQL 核对，必要时通过管理接口调整路由成员或用 `QWEN_API_KEY`
+> 所属供应商的模型替换：
 >
 > ```sql
-> SELECT a.agent_name AS agent, p.provider, p.model, p.id AS provider_id
-> FROM agent a LEFT JOIN model_provider p ON a.model_provider_id = p.id
-> WHERE a.agent_name IN ('general', 'researcher');
+> SELECT a.agent_name AS agent, r.code AS route, m.upstream_name, p.code AS provider
+> FROM agent a
+> LEFT JOIN llm_route r ON a.route_id = r.id
+> LEFT JOIN llm_route_member rm ON rm.route_id = r.id AND rm.enabled = 1
+> LEFT JOIN llm_model m ON rm.model_id = m.id
+> LEFT JOIN llm_provider p ON m.provider_id = p.id
+> WHERE a.agent_name IN ('general', 'researcher')
+> ORDER BY a.agent_name, rm.priority;
 >
-> -- 改绑示例（provider_id 换成上一步查出的已配 key 的行）：
-> UPDATE agent SET model_provider_id = <provider_id> WHERE agent_name = 'general';
+> -- 调整路由成员请走管理接口（自动校验并热更新）：
+> -- PUT /api/admin/routes/{routeId}  {"code":"main","members":[{"modelId":<已配 key 的模型 id>,"priority":10}]}
 > ```
 
 > [!NOTE]

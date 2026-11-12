@@ -60,7 +60,11 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `GET` / `POST` | `/api/providers` | 🔌 模型-供应商映射：列表 / 新增（新增后热刷新） |
+| `GET` / `POST` / `PUT` | `/api/admin/providers` | 🔌 供应商管理：列表 / 新增 / 修改（写操作先校验再热更新） |
+| `GET` / `POST` / `PUT` | `/api/admin/models` | 🧠 模型部署管理（能力与默认参数） |
+| `GET` / `POST` / `PUT` | `/api/admin/routes` | 🗺️ 路由与成员优先级管理 |
+| `POST` | `/api/admin/routes/{id}/test` | 🩺 路由成员连通性测试（逐成员返回延迟与错误分类） |
+| `PUT` | `/api/admin/agents/{id}/route` | 🔗 调整 Agent 绑定的路由 |
 | `GET` | `/api/skills` | 🧰 已注册技能列表 |
 | `POST` | `/api/auth/login` | 🔐 口令登录（换 HttpOnly Cookie） |
 | `GET` | `/api/auth/me` | 🔐 当前登录态 |

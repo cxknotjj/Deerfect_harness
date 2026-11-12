@@ -14,7 +14,11 @@ import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.agent.BudgetLedger;
 import com.dark.javaHarness.config.ContextBudgetProperties;
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
+import com.dark.javaHarness.llm.catalog.AgentCatalog;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RoutePlan;
+import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.contract.model.AgentConfig;
 import com.dark.javaHarness.contract.api.AgentService;
 import java.util.ArrayList;
@@ -101,7 +105,11 @@ class AgentChatCallerTest {
 
 
     @Mock
-    private ChatClientRegistry clientRegistry;
+    private LlmClientRegistry llmClientRegistry;
+    @Mock
+    private AgentCatalog agentCatalog;
+    @Mock
+    private ModelResolver modelResolver;
     @Mock
     private AgentService agentService;
     @Mock
@@ -115,11 +123,20 @@ class AgentChatCallerTest {
 
     @BeforeEach
     void setUp() {
-        caller = new AgentChatCaller(clientRegistry, agentService, null, null);
+        caller = new AgentChatCaller(agentService, null, null, new LlmRetry(), null,
+                new PromptAssembler(agentService, null), null, null, null, null, null, null,
+                modelResolver, agentCatalog, llmClientRegistry, null);
         // lenient：invokeOnce_disableTools 用例直接调 invokeAndRecord，不查表
         org.mockito.Mockito.lenient().when(agentService.getAgentConfig("researcher"))
                 .thenReturn(Optional.of(new AgentConfig(1L, "m1", "系统提示词", null)));
-        when(clientRegistry.get(1L)).thenReturn(client);
+        com.dark.javaHarness.domain.entity.AgentEntity routeAgent = new com.dark.javaHarness.domain.entity.AgentEntity();
+        routeAgent.setAgentName("researcher");
+        routeAgent.setRouteId(1L);
+        org.mockito.Mockito.lenient().when(agentCatalog.require(anyString())).thenReturn(routeAgent);
+        org.mockito.Mockito.lenient().when(modelResolver.resolve(1L)).thenReturn(new RoutePlan(1L, "multi", List.of(
+                new RoutePlan.Member(9L, 1L, "dashscope", "https://example.com", "m1", "m1",
+                        10, "{}", null))));
+        org.mockito.Mockito.lenient().when(llmClientRegistry.get(9L)).thenReturn(client);
         when(client.prompt()).thenReturn(spec);
         when(spec.system(anyString())).thenReturn(spec);
         when(spec.user(anyString())).thenReturn(spec);
@@ -243,8 +260,9 @@ class AgentChatCallerTest {
         budgets.setMaxTokensLead(1000);
         budgets.setMaxTokensFinal(3000);
         budgets.setMaxTokensExpert(2000);
-        AgentChatCaller tiered = new AgentChatCaller(clientRegistry, agentService, null, null,
-                new LlmRetry(), budgets);
+        AgentChatCaller tiered = new AgentChatCaller(agentService, null, null,
+                new LlmRetry(), budgets, new PromptAssembler(agentService, null), null, null, null,
+                null, null, null, modelResolver, agentCatalog, llmClientRegistry, null);
         when(agentService.getAgentConfig("lead"))
                 .thenReturn(Optional.of(new AgentConfig(1L, "m1", "系统提示词", null)));
         when(agentService.getAgentConfig("aggregator"))
@@ -405,15 +423,15 @@ class AgentChatCallerTest {
         com.dark.javaHarness.config.ChatTimeoutProperties timeouts =
                 new com.dark.javaHarness.config.ChatTimeoutProperties();
         timeouts.setStreamIdleTimeoutSeconds(1);
-        AgentChatCaller guarded = new AgentChatCaller(clientRegistry, agentService, null, null,
-                new LlmRetry(), new ContextBudgetProperties(), null, null, null, null, null, timeouts,
-                null);
+        AgentChatCaller guarded = new AgentChatCaller(agentService, null, null,
+                new LlmRetry(), new ContextBudgetProperties(), new PromptAssembler(agentService, null),
+                null, null, null, null, timeouts, null, modelResolver, agentCatalog, llmClientRegistry, null);
         when(spec.stream()).thenReturn(streamSpec);
         when(streamSpec.chatResponse()).thenReturn(Flux.never());
 
         java.util.List<Throwable> errors = new ArrayList<>();
         guarded.tokenStreamWithWatchdog(spec, new java.util.concurrent.atomic.AtomicReference<>(),
-                        null, null, null, "m1", null)
+                        null, null, null, 9L, null)
                 .doOnError(errors::add)
                 .onErrorResume(e -> Flux.empty())
                 .blockLast();
@@ -421,7 +439,7 @@ class AgentChatCallerTest {
         assertEquals(1, errors.size(), "端点在途无响应应触发超时中止");
         assertTrue(errors.get(0) instanceof java.util.concurrent.TimeoutException,
                 "中止原因应为流空闲超时，实际: " + errors.get(0));
-        verify(clientRegistry).invalidateByModel("m1");
+        verify(llmClientRegistry).invalidate(9L);
     }
 
     /** 正常吐字不被兜底打断：流式收集内容与 token 顺序不变 */
@@ -431,19 +449,19 @@ class AgentChatCallerTest {
         com.dark.javaHarness.config.ChatTimeoutProperties timeouts =
                 new com.dark.javaHarness.config.ChatTimeoutProperties();
         timeouts.setStreamIdleTimeoutSeconds(30);
-        AgentChatCaller guarded = new AgentChatCaller(clientRegistry, agentService, null, null,
-                new LlmRetry(), new ContextBudgetProperties(), null, null, null, null, null, timeouts,
-                null);
+        AgentChatCaller guarded = new AgentChatCaller(agentService, null, null,
+                new LlmRetry(), new ContextBudgetProperties(), new PromptAssembler(agentService, null),
+                null, null, null, null, timeouts, null, modelResolver, agentCatalog, llmClientRegistry, null);
         when(spec.stream()).thenReturn(streamSpec);
         when(streamSpec.chatResponse()).thenReturn(fluxOf("a", "b", "c"));
 
         List<String> tokens = guarded.tokenStreamWithWatchdog(spec, new java.util.concurrent.atomic.AtomicReference<>(),
-                        null, null, null, "m1", null)
+                        null, null, null, 9L, null)
                 .collectList()
                 .block();
 
         assertEquals(List.of("a", "b", "c"), tokens);
-        verify(clientRegistry, never()).invalidateByModel(anyString());
+        verify(llmClientRegistry, never()).invalidate(any());
     }
 
     /** 带思考增量的 ChatResponse 帧：AssistantMessage 的 metadata 构造器为 protected，经 mock 注入 */

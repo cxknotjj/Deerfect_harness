@@ -1,10 +1,16 @@
 package com.dark.javaHarness.agent;
 
 import com.dark.javaHarness.agent.BudgetLedger;
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.contract.model.AgentConfig;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.FailurePolicy;
+import com.dark.javaHarness.llm.routing.RouteAttempt;
+import com.dark.javaHarness.llm.routing.RouteExecutor;
+import com.dark.javaHarness.llm.routing.RoutePlan;
+import com.dark.javaHarness.observability.HarnessMetrics;
 import java.time.Duration;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import org.springframework.ai.chat.client.ChatClient;
@@ -22,8 +28,10 @@ final class AgentChatPipeline {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AgentChatPipeline.class);
 
-    private final ChatClientRegistry clientRegistry;
+    private final LlmClientRegistry clientRegistry;
     private final AgentRequestSpecFactory specFactory;
+    /** 路由推进策略（重试/失败切换的唯一实现，阻塞路径经 execute 复用） */
+    private final RouteExecutor routeExecutor;
     /**
      * 流式调用空闲超时：相邻信号间隔超过该时长即判定端点挂起，超时失败（不可重试——
      * 实测厂商端对该类请求为稳定挂死，重试同请求只会成倍放大等待）。
@@ -36,14 +44,16 @@ final class AgentChatPipeline {
      */
     private final Duration firstFrameTimeout;
 
-    AgentChatPipeline(ChatClientRegistry clientRegistry,
+    AgentChatPipeline(LlmClientRegistry clientRegistry,
                       AgentRequestSpecFactory specFactory,
                       Duration streamIdleTimeout,
-                      Duration firstFrameTimeout) {
+                      Duration firstFrameTimeout,
+                      RouteExecutor routeExecutor) {
         this.clientRegistry = clientRegistry;
         this.specFactory = specFactory;
         this.streamIdleTimeout = streamIdleTimeout;
         this.firstFrameTimeout = firstFrameTimeout;
+        this.routeExecutor = routeExecutor;
     }
 
     /**
@@ -71,7 +81,8 @@ final class AgentChatPipeline {
                          BooleanSupplier cancelled,
                          java.util.concurrent.atomic.AtomicReference<Usage> usageRef,
                          java.util.concurrent.atomic.AtomicLong firstTokenAt, BudgetLedger ledger,
-                         Consumer<String> reasoningTap) {
+                         Consumer<String> reasoningTap,
+                         java.util.concurrent.atomic.AtomicReference<RouteAttempt> routeRef) {
         if (cancelled != null && cancelled.getAsBoolean()) {
             throw CallCancellation.cancelException();
         }
@@ -85,7 +96,7 @@ final class AgentChatPipeline {
         try {
             return streamCore(config, sessionId, forAgent, fallbackSystem, user, assembly,
                     extraAdvisors, trace, collected, onToken, cancelled, usageRef, prevTotal, firstTokenAt, ledger,
-                    reasoningTap);
+                    reasoningTap, routeRef);
         } catch (RuntimeException e) {
             // 取消置位时一律按取消归因（流取消竞态下 blockLast 可能抛出其他形态异常）
             if (cancelled != null && cancelled.getAsBoolean()) {
@@ -106,14 +117,14 @@ final class AgentChatPipeline {
      * 重建连接池，不再复用同一根死连接。例外：4xx 客户端错误（除 408，见
      * {@link LlmErrorClassifier#isClientRequestError}）请求被拒但连接健康，跳过丢池。
      *
-     * @param model 失败时用于重建客户端的模型名（null/未命中注册表则跳过丢池）
+     * @param modelId 失败时用于重建客户端的部署模型 id（null 则跳过丢池）
      */
     Flux<String> tokenStreamWithWatchdog(ChatClient.ChatClientRequestSpec spec,
                                          java.util.concurrent.atomic.AtomicReference<Usage> usageRef,
                                          BudgetLedger ledger,
                                          java.util.concurrent.atomic.AtomicLong prevTotal,
                                          java.util.concurrent.atomic.AtomicLong firstTokenAt,
-                                         String model,
+                                         Long modelId,
                                          Consumer<String> reasoningTap) {
         return tokenStream(spec, usageRef, ledger, prevTotal, firstTokenAt, reasoningTap,
                         streamIdleTimeout, firstFrameTimeout)
@@ -121,8 +132,8 @@ final class AgentChatPipeline {
                     // 4xx（除 408）= 请求内容/鉴权被供应商拒绝，连接本身健康：丢池无助益且
                     // 波及同池在途请求，跳过重建；其余（网络黑洞/看门狗超时/5xx）保持丢池，
                     // 重试即拿全新连接
-                    if (!LlmErrorClassifier.isClientRequestError(e)) {
-                        clientRegistry.invalidateByModel(model);
+                    if (!LlmErrorClassifier.isClientRequestError(e) && clientRegistry != null) {
+                        clientRegistry.invalidate(modelId);
                     }
                 });
     }
@@ -141,12 +152,77 @@ final class AgentChatPipeline {
                       java.util.concurrent.atomic.AtomicReference<Usage> usageRef,
                       java.util.concurrent.atomic.AtomicLong prevTotal,
                       java.util.concurrent.atomic.AtomicLong firstTokenAt, BudgetLedger ledger,
-                      Consumer<String> reasoningTap) {
+                      Consumer<String> reasoningTap,
+                      java.util.concurrent.atomic.AtomicReference<RouteAttempt> routeRef) {
+        RoutePlan plan = specFactory.routePlan(config, forAgent);
+        // 终端条件：本次尝试已向 collected 写入内容（跨成员拼接禁止）；预算熔断同理
+        AtomicBoolean attemptProducedContent = new AtomicBoolean();
+        return routeExecutor.execute(plan, cancelled,
+                member -> {
+                    // 观测口径：本轮真正尝试的成员（失败切换时 fallback_from 指向上一个成员）
+                    if (routeRef != null) {
+                        routeRef.set(RouteAttempt.at(plan, plan.members().indexOf(member)));
+                    }
+                    int before = collected.length();
+                    attemptProducedContent.set(false);
+                    try {
+                        return streamSingle(config, sessionId, forAgent, fallbackSystem, user, assembly,
+                                extraAdvisors, trace, collected, onToken, cancelled, usageRef, prevTotal,
+                                firstTokenAt, ledger, reasoningTap, member);
+                    } catch (RuntimeException e) {
+                        attemptProducedContent.set(collected.length() > before);
+                        // 取消置位时一律按取消归因（流取消竞态下 blockLast 可能抛出其他形态异常）
+                        if (cancelled != null && cancelled.getAsBoolean()) {
+                            throw CallCancellation.cancelException();
+                        }
+                        throw e;
+                    }
+                },
+                new RouteExecutor.AttemptObserver() {
+                    @Override
+                    public void onFailure(RoutePlan.Member member, int attempt, Long fallbackFrom,
+                                          RuntimeException error, FailurePolicy.Action action) {
+                        // 终端错误（预算熔断 / 已产生输出）不丢池：连接本身没问题
+                        if (isTerminal(error)) {
+                            return;
+                        }
+                        // 失败即丢池：连接可能已成网络黑洞，下次调用重建（4xx 由判定矩阵放行）
+                        if (clientRegistry != null) {
+                            clientRegistry.invalidate(member.modelId());
+                        }
+                    }
+
+                    @Override
+                    public void onSwitch(RoutePlan.Member from, RoutePlan.Member to) {
+                        HarnessMetrics.routeFallback(plan.routeCode(), from.modelId(), to.modelId());
+                    }
+
+                    @Override
+                    public boolean shouldStop(RuntimeException error) {
+                        return isTerminal(error);
+                    }
+
+                    private boolean isTerminal(RuntimeException error) {
+                        return error instanceof BudgetLedger.BudgetExceededException
+                                || attemptProducedContent.get();
+                    }
+                });
+    }
+
+    private String streamSingle(AgentConfig config, String sessionId, String forAgent, String fallbackSystem,
+                                String user, AgentRequestSpecFactory.Assembly assembly,
+                                org.springframework.ai.chat.client.advisor.api.Advisor[] extraAdvisors,
+                                CallTrace trace, StringBuilder collected, Consumer<String> onToken,
+                                BooleanSupplier cancelled,
+                                java.util.concurrent.atomic.AtomicReference<Usage> usageRef,
+                                java.util.concurrent.atomic.AtomicLong prevTotal,
+                                java.util.concurrent.atomic.AtomicLong firstTokenAt, BudgetLedger ledger,
+                                Consumer<String> reasoningTap, RoutePlan.Member member) {
         tokenStreamWithWatchdog(
-                        specFactory.build(config, sessionId, forAgent, fallbackSystem, user, assembly, trace,
-                                extraAdvisors),
-                        usageRef, ledger, prevTotal, firstTokenAt, config != null ? config.model() : null,
-                        reasoningTap)
+                        specFactory.build(config, sessionId, forAgent, fallbackSystem, user, assembly,
+                                trace, member, extraAdvisors),
+                        usageRef, ledger, prevTotal, firstTokenAt,
+                        member == null ? null : member.modelId(), reasoningTap)
                 .takeUntil(__ -> cancelled != null && cancelled.getAsBoolean())
                 .doOnNext(token -> {
                     if (cancelled != null && cancelled.getAsBoolean()) {

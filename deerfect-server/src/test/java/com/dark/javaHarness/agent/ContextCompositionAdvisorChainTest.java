@@ -8,7 +8,10 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.config.ContextBudgetProperties;
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
+import com.dark.javaHarness.llm.catalog.AgentCatalog;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RoutePlan;
 import com.dark.javaHarness.domain.dto.ContextComposition;
 import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.ContextCompositionStore;
@@ -42,16 +45,27 @@ class ContextCompositionAdvisorChainTest {
         lenient().when(model.call(any(Prompt.class)))
                 .thenReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("ok")))));
 
-        ChatClientRegistry registry = mock(ChatClientRegistry.class);
-        when(registry.get(any())).thenReturn(ChatClient.builder(model).build());
+        LlmClientRegistry registry = mock(LlmClientRegistry.class);
+        AgentCatalog agentCatalog = mock(AgentCatalog.class);
+        ModelResolver modelResolver = mock(ModelResolver.class);
+        com.dark.javaHarness.domain.entity.AgentEntity routeAgent =
+                new com.dark.javaHarness.domain.entity.AgentEntity();
+        routeAgent.setAgentName("general");
+        routeAgent.setRouteId(1L);
+        when(agentCatalog.require("general")).thenReturn(routeAgent);
+        when(modelResolver.resolve(1L)).thenReturn(new RoutePlan(1L, "main", List.of(
+                new RoutePlan.Member(9L, 1L, "dashscope", "https://example.com", "m", "m",
+                        10, "{}", null))));
+        when(registry.get(9L)).thenReturn(ChatClient.builder(model).build());
         PromptAssembler assembler = mock(PromptAssembler.class);
         when(assembler.assembleSections(anyString(), anyString(), any(), any(), any()))
                 .thenReturn(List.of(new PromptAssembler.RenderedSection("角色", "SYS", 1)));
 
         ContextCompositionStore store = new ContextCompositionStore();
         ContextCompositionRecorder recorder = new ContextCompositionRecorder(store);
-        AgentRequestSpecFactory factory = new AgentRequestSpecFactory(registry, assembler,
-                null, null, null, null, new ContextBudgetProperties(), null, null, List.of(), recorder);
+        AgentRequestSpecFactory factory = new AgentRequestSpecFactory(assembler,
+                null, null, null, null, new ContextBudgetProperties(), null, null, List.of(), recorder,
+                modelResolver, agentCatalog, registry);
 
         AgentRequestSpecFactory.Assembly assembly =
                 new AgentRequestSpecFactory.Assembly(null, false, false, false, 0, null);

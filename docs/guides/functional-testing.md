@@ -8,7 +8,7 @@
 
 ## 一、总览
 
-> 129 个测试类 / 1162 个用例（harness-api 5 类 / 40 例、server 109 类 / 968 例、channel-qq 8 类 / 83 例、cli 3 类 / 28 例、wms-mcp-adapter 4 类 / 43 例；按 surefire 报告统计，含参数化展开，2026-11-07 核对）。
+> 2026-11-12 全量实跑 1474 例（1 skip）：deerfect-api 52、deerfect-server 1082、channel-qq 85、channel-email 15、channel-feishu 152、deerfect-cli 30、wms-mcp-adapter 58。类数与逐类明细以各模块 `target/surefire-reports` 为准，下方表格为历史整理版本。
 
 **入口与异常**
 
@@ -38,11 +38,13 @@
 | `AuthControllerFailureCleanupTest` | 登录失败计数按窗口清理（过期清除 / 锁定中保留） | 3 |
 | `LoginStateStoreTest` | 登录态存储（滑动续期/吊销） | 6 |
 | `ChatClientFactoryTest` | ChatClient 工厂 API Key 解析（yaml 映射/环境变量回退） | 5 |
-| `ChatClientRegistryTest` | 多服务商模型注册表（禁用回退/未知兜底） | 5 |
+| `LlmClientRegistryTest` | 按 model_id 缓存/失效/热替换（不按模型名查找） | 5 |
+| `ModelResolverTest` | 路由成员顺序、禁用过滤、空路由 | 5 |
+| `LlmAdminServiceTest` | 管理面校验、热更新失败、路由连通性分类 | 11 |
 | `ThinkingSwitchChatModelTest` | 思考开关模型层注入（enable_thinking 显式声明优先） | 5 |
-| `ArchitectureTest` | 分层依赖与模块边界守卫 | 5 |
+| `ArchitectureTest` | 分层依赖、LLM 表访问边界与客户端隔离守卫 | 8 |
 
-**契约层（harness-api）**
+**契约层（deerfect-api）**
 
 | 测试类 | 覆盖功能域 | 用例数 |
 | --- | --- | --- |
@@ -189,7 +191,7 @@
 | `WmsToolListGuardTest` | WMS 工具白名单守卫 | 4 |
 | `WmsToolsTest` | WMS 语义工具集 | 20 |
 
-**合计：129 个测试类 / 1162 个用例（harness-api 5/40、server 109/968、channel-qq 8/83、cli 3/28、wms-mcp-adapter 4/43；按 surefire 报告统计，2026-11-07 核对）。表格按类名列 128 行——`RagPrefetcherTest` 在 Agentic / Graph 两个包各有一组，合并计 12 例。除 `JavaHarnessApplicationTests` 需本机 MySQL 外，其余不依赖真实 DB/外网。**
+**合计：1474 个用例（2026-11-12 全量实跑，1 skip；分模块见「总览」）。下方明细表为历史整理版本，类数/用例数以 surefire 报告为准。除 `JavaHarnessApplicationTests` 需本机 MySQL 外，其余不依赖真实 DB/外网。**
 
 ***
 
@@ -238,7 +240,7 @@ IDEA 中直接点测试方法旁的绿色按钮即可；报告输出在 `target/
 
 ### 2. `MultiAgentGraphAgentTest` —— Graph 编排路径
 
-mock `ChatClientRegistry` / `ChatClient` 固定 content（lead 固定返回两条子任务的 JSON），整图执行不真实出网。
+mock `AgentCatalog` / `ModelResolver` / `LlmClientRegistry` 与 `ChatClient` 固定 content（lead 固定返回两条子任务的 JSON），整图执行不真实出网。
 
 | 用例 | 验证点 |
 | --- | --- |
@@ -329,13 +331,13 @@ mock `ChatClientRegistry` / `ChatClient` 固定 content（lead 固定返回两�
 | `getAgentConfig_hit_shouldReturnModelAndPrompt` | 命中行返回 model + prompt |
 | `getAgentConfig_miss_shouldReturnEmpty` / `nullModelShouldBeBlankToNull` | 未查到返回 empty；DB 空串/null 归一化 |
 
-`ChatClientRegistryTest`（model_provider 表 → ChatClient 注册表）：
+`LlmClientRegistryTest`（按部署模型 id → ChatClient 注册表）：
 
 | 用例 | 验证点 |
 | --- | --- |
-| `loadFromDatabase_gpt4oRegistered_shouldHit` | 表内启用的模型能命中对应客户端 |
-| `loadFromDatabase_disabledDeepseek_shouldFallbackToDefault` | status=0 禁用的模型不注册，get 回退默认 |
-| `get_unknownModel_shouldFallbackToDefault` | 完全未知的 model 兜底默认客户端 |
+| `get_registeredModel_shouldHit` | 已注册模型按 id 命中对应客户端 |
+| `get_unknownModel_shouldThrow` | 未知 id 直接报错，不回退默认客户端 |
+| `invalidate_rebuildsOnNextGet` | 失效后下一次 get 重建（连接池可替换） |
 
 ### 8. `ChatControllerTest` —— HTTP 输出层契约
 

@@ -39,6 +39,7 @@
 | [design/2026-11-11-session-serialization.md](./design/2026-11-11-session-serialization.md) | 渠道侧按会话串行：锁为什么必须加在读上下文之前 |
 | [design/2026-11-11-external-tools.md](./design/2026-11-11-external-tools.md) | 外部工具三层模型（core / MCP + 声明式 HTTP / skill）与 WMS 收敛 |
 | [design/2026-11-11-cli-terminal-probe.md](./design/2026-11-11-cli-terminal-probe.md) | CLI 终端探测 40 秒阻塞的根因与最终取舍 |
+| [design/2026-11-12-llm-provider-model-routing.md](./design/2026-11-12-llm-provider-model-routing.md) | LLM 供应商 / 模型 / 路由三层模型与 Agent 绑定设计（待实施） |
 | [design/](./design/) | 设计文档存档（流式改造 / 路由判定 / 多 Agent 图等，按日期） |
 
 ## 功能指南

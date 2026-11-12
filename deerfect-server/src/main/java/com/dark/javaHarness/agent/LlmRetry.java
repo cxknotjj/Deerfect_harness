@@ -85,7 +85,7 @@ public final class LlmRetry {
             }
             // 流式空闲看门狗超时（Flux.timeout）：疑似连接黑洞（池内 keep-alive 连接已被
             // 网络路径静默丢弃，请求石沉大海）——AgentChatPipeline 的 doOnError 已在错误
-            // 传播时丢池重建（invalidateByModel），重试即拿全新连接，一次请求内自愈，
+            // 传播时丢池重建（invalidate），重试即拿全新连接，一次请求内自愈，
             // 不再让「空闲后第一发必 FAILED」等用户手动重试（2026-10-02 初次访问复现）
             if (t instanceof java.util.concurrent.TimeoutException) {
                 return true;
