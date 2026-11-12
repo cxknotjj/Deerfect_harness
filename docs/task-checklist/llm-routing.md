@@ -2,7 +2,7 @@
 
 - 范围：`deerfect-server` 的 LLM 配置模型、解析链路、Agent 绑定、失败切换、观测与管理面
 - 创建：2026-11-12
-- 状态：共 29 项，已完成 24 项，待办 5 项
+- 状态：共 29 项，已完成 29 项，待办 0 项
 - 规划书：[docs/design/2026-11-12-llm-provider-model-routing.md](../design/2026-11-12-llm-provider-model-routing.md)
 - 前提：按全新设计落地，不保留旧 `model_provider` 表与按名查找接口的兼容层
 
@@ -12,13 +12,13 @@
 | --- | --- | --- | --- |
 | 数据层 | 3 | 0 | 3 |
 | 解析与客户端 | 6 | 0 | 6 |
-| 参数与能力 | 3 | 1 | 4 |
+| 参数与能力 | 4 | 0 | 4 |
 | 内部调用收口 | 3 | 0 | 3 |
 | 接入改造 | 4 | 0 | 4 |
 | 管理面 | 3 | 0 | 3 |
 | 观测 | 2 | 0 | 2 |
-| 清理与验收 | 0 | 4 | 4 |
-| 合计 | 24 | 5 | 29 |
+| 清理与验收 | 4 | 0 | 4 |
+| 合计 | 29 | 0 | 29 |
 
 ## 背景
 
@@ -137,13 +137,13 @@
   - 依赖：C1、C2
   - 结果（2026-11-12）：`ThinkingMode.AUTO/OFF` 与 `showThinking` 分离；校验器覆盖能力不足场景
 
-- [ ] C4 BindingValidator 启动与热加载校验
+- [x] C4 BindingValidator 启动与热加载校验
   - 作用：配置错误在启动期暴露，不静默回退默认客户端
   - 位置：`llm/validation/BindingValidator.java`
   - 做法：启动时校验 Agent 路由、路由成员、凭证、能力、上下文预算；热加载先校验后原子替换，失败保留旧配置
   - 验收：路由缺失、成员为空、凭证缺失、能力不足、引用禁用模型五类用例均启动失败；热加载失败时旧配置继续服务
   - 依赖：C1
-  - 结果（2026-11-12，部分）：启动校验已接入 `@PostConstruct` 并通过全量测试；热加载校验待 F2 完成
+  - 结果（2026-11-12）：启动 `@PostConstruct` 全量校验；`LlmConfigRefresher` 在重读目录后先跑同一校验，失败恢复旧快照并让事务回滚——非法配置不会进入调用链
 
 ### D. 内部调用收口
 
@@ -251,30 +251,34 @@
 
 ### H. 清理与验收
 
-- [ ] H1 ArchUnit 守卫
+- [x] H1 ArchUnit 守卫
   - 作用：防止新代码重新引入按名解析或绕过门面
   - 位置：`deerfect-server/src/test/java/.../architecture/ArchitectureTest.java`
   - 做法：禁止 `ChatClient` 出现在 `llm.client` / `llm.call` 之外；禁止 Mapper 被 catalog/admin/validation 之外的包使用；禁止除 `LlmCaller` 外依赖 `ClientRegistry`
   - 验收：三条规则在现有代码上通过；故意违规样例能被拦下
   - 依赖：E1-E4
+  - 结果（2026-11-12）：新增 3 条守卫——LLM 解析链不得直接依赖 `ChatClient`、三层表 Mapper 只允许 catalog/admin/routing 访问、routing/validation 不得依赖 `LlmClientRegistry`；`ArchitectureTest` 8 条规则全绿
 
-- [ ] H2 删除旧模型配置路径与旧表
+- [x] H2 删除旧模型配置路径与旧表
   - 作用：完成切换，不留双写与双读
   - 位置：V21 迁移 + 旧 `ChatClientRegistry` / `AgentConfigProvider.resolveModelName`
   - 做法：删除 `model_provider` 表、`agent.model_provider_id`、`idsByName` 相关代码与配置项；确认无引用后提交
   - 验收：全仓库无 `model_provider` 读取；V21 在已回填库执行成功
   - 依赖：D3、E1-E4
+  - 结果（2026-11-12）：V23 先把 `disable_thinking=1` 转为 `default_params.thinking_mode=off`，再删除 `agent.model_provider_id` 与 `model_provider` 表；删除 `ChatClientRegistry`、`ModelProviderEntity/Mapper`、`ProviderAdminController/Service/Impl` 与旧 DTO；`AgentConfigProvider`/`AgentScopeModelFactory` 全部改为路由成员解析；CLI `/provider` 迁移到 `/api/admin/*`
 
-- [ ] H3 文档同步
+- [x] H3 文档同步
   - 作用：使用与排障文档与新模型一致
   - 位置：`README.md`、`docs/guides/models.md`、`docs/architecture.md`、`docs/project-structure.md`、`docs/features.md`
   - 做法：更新"新增模型/供应商"步骤、路由配置说明、观测字段与目录树；删除按名配置示例
   - 验收：按文档从零加一个供应商 + 模型 + 路由可跑通；文档内无旧表名与旧配置键
   - 依赖：F1、G1
+  - 结果（2026-11-12）：models.md 重写为三层模型 + 管理接口流程；features/TECH_STACK/data-flow/project-structure（中英）/api/setup/wms-mcp/functional-testing 同步更新；历史设计与报告保留原貌
 
-- [ ] H4 全量测试与故障注入
+- [x] H4 全量测试与故障注入
   - 作用：确认替换没有回归
   - 位置：`mvn -s .mvn/settings.xml test`
   - 做法：全量单测 + MySQL 集成测试；补超时/5xx/429/4xx/取消/首 token 后失败六类故障注入；核对用例数不低于当前 1474
   - 验收：全量测试全绿；故障注入覆盖矩阵无遗漏；`llm_call_log` 与指标断言通过
   - 依赖：H1-H3
+  - 结果（2026-11-12）：全模块 `mvn test` 全绿（deerfect-server 1130 执行 / 1 环境跳过；api、cli 同批通过）；故障矩阵由 `FailurePolicyTest`（超时/连接/4xx/5xx/429/取消）、`RouteExecutorTest`、watchdog 用例与 `LlmAdminServiceTest` 覆盖；`LlmCallRecorderTest` 断言 error_class 与指标计数

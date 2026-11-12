@@ -34,8 +34,8 @@ Deerfect Harness 是一个基于 Spring AI 的双路径 Agent 平台：**Agentic
 
 ## 四、Agent 与模型体系
 
-- **全表驱动**：`agent` 表一行即一个 Agent（prompt / model / tools / knowledge / thinking），`model_provider` 表一行即一个模型或供应商。
-- **零代码扩展**：新增 Agent、接入第三方 OpenAI 兼容供应商均只需加数据行，重启或改库即生效（[models.md](./guides/models.md)）。
+- **全表驱动**：`agent` 表一行即一个 Agent（prompt / route_id / tools / knowledge / thinking）；`llm_provider` → `llm_model` → `llm_route` 三层描述端点、部署与失败链。
+- **零代码扩展**：新增 Agent 只加数据行；接入第三方 OpenAI 兼容供应商通过 `/api/admin/*` 登记，服务端校验后热更新（[models.md](./guides/models.md)）。
 - **内置角色**：`general`、`deepseek` 聊天 Agent，`multi-agent` / `lead` / `aggregator` 内部编排角色，`researcher` / `coder` / `analyst` / `writer` 四类专家，另可按表扩展领域专员（如 `java-tutor`、`wms`）。
 - **按 Agent 配置**：模型、系统提示词、工具集、知识库绑定、思考内容显示均按行生效。
 
