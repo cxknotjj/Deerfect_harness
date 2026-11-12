@@ -18,8 +18,8 @@ import org.springframework.ai.chat.client.ChatClient;
 
 /**
  * ChatClientRegistry（多服务商注册表）单测（部署模型 id 键版）：
- * - 加载后按 id 命中对应客户端，getByModel 按名索引命中
- * - 禁用行（status=0 不在结果里）按名/按 id 均回退默认客户端
+ * - 加载后按 id 命中对应客户端
+ * - 禁用行（status=0 不在结果里）按 id 回退默认客户端
  * - 跨供应商同名模型各自成行，id 各自命中
  * - 热刷新后按表最新内容重建映射
  */
@@ -50,7 +50,7 @@ class ChatClientRegistryTest {
     }
 
     @Test
-    void loadFromDatabase_rowRegistered_shouldHitByIdAndByName() {
+    void loadFromDatabase_rowRegistered_shouldHitById() {
         when(modelProviderMapper.selectList(any())).thenReturn(List.of(
                 row(1L, "gpt-4o", "dashscope", "https://dashscope.aliyuncs.com/compatible-mode", 1)));
         when(clientFactory.defaultClient(any())).thenReturn(defaultClient);
@@ -59,8 +59,6 @@ class ChatClientRegistryTest {
         registry = new ChatClientRegistry(dashScopeBuilder, clientFactory, modelProviderMapper);
 
         assertSame(gptClient, registry.get(1L), "按 id 应命中注册的客户端");
-        assertSame(gptClient, registry.getByModel("gpt-4o"), "按名索引应命中同一客户端");
-        assertSame(gptClient, registry.getByModel("GPT-4O"), "按名查找大小写不敏感");
     }
 
     @Test
@@ -73,7 +71,6 @@ class ChatClientRegistryTest {
 
         registry = new ChatClientRegistry(dashScopeBuilder, clientFactory, modelProviderMapper);
 
-        assertSame(defaultClient, registry.getByModel("deepseek-chat"), "禁用模型按名应回退默认客户端");
         assertSame(defaultClient, registry.get(99L), "未注册 id 应回退默认客户端");
     }
 
@@ -86,11 +83,9 @@ class ChatClientRegistryTest {
 
         assertSame(defaultClient, registry.get(1L));
         assertSame(defaultClient, registry.get(null));
-        assertSame(defaultClient, registry.getByModel("unknown-model"));
-        assertSame(defaultClient, registry.getByModel(null));
     }
 
-    /** 跨供应商同名模型：各自成行各自注册，按 id 精确区分，按名查找取先加载行 */
+    /** 跨供应商同名模型：各自成行各自注册，按 id 精确区分 */
     @Test
     void load_sameModelDifferentProviders_registeredIndependently() {
         when(modelProviderMapper.selectList(any())).thenReturn(List.of(
@@ -104,7 +99,6 @@ class ChatClientRegistryTest {
 
         assertSame(defaultClient, registry.get(10L), "官方行按 id 命中自己的客户端");
         assertSame(gptClient, registry.get(11L), "腾讯行按 id 命中自己的客户端");
-        assertSame(defaultClient, registry.getByModel("deepseek-v4-flash"), "同名按名查找取先加载行");
     }
 
     /** 热刷新：reload 后按表最新内容重建映射（url 变更生效、新模型注册、旧映射不残留） */
@@ -132,6 +126,5 @@ class ChatClientRegistryTest {
 
         assertSame(newGpt, registry.get(1L), "url 变更后应使用新客户端");
         assertSame(kimi, registry.get(2L), "新模型应被注册");
-        assertSame(kimi, registry.getByModel("kimi-k2"), "按名索引应随热刷新重建");
     }
 }

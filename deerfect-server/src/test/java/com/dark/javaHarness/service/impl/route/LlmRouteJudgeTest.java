@@ -43,6 +43,12 @@ class LlmRouteJudgeTest {
     @Mock
     private ChatClientRegistry clientRegistry;
     @Mock
+    private com.dark.javaHarness.llm.catalog.AgentCatalog agentCatalog;
+    @Mock
+    private com.dark.javaHarness.llm.routing.ModelResolver modelResolver;
+    @Mock
+    private com.dark.javaHarness.llm.client.LlmClientRegistry llmClientRegistry;
+    @Mock
     private AgentConfigProvider agentConfigProvider;
     @Mock
     private ChatClient chatClient;
@@ -53,10 +59,10 @@ class LlmRouteJudgeTest {
 
     private LlmRouteJudge judge;
 
-    /** 组装：registry.getLightweightByModel(判定模型) 返回 mock client，prompt 链式 stub 到 chatResponse()。
-     *  agentConfigProvider 不显式 stub 时 Mockito 默认返回 Optional.empty（= 无行，走常量回退） */
+    /** 组装：路由首选成员 → llmClientRegistry.getLightweight(modelId) 返回 mock client，prompt 链式 stub 到 chatResponse()。
+     *  agentConfigProvider 不显式 stub 时 Mockito 默认返回 Optional.empty（= prompt 走常量回退） */
     private void stubContent(String content) {
-        when(clientRegistry.getLightweightByModel(anyString(), any())).thenReturn(chatClient);
+        stubRoute(ROUTE_MODEL);
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
         when(requestSpec.user(anyString())).thenReturn(requestSpec);
@@ -65,7 +71,27 @@ class LlmRouteJudgeTest {
         when(requestSpec.call()).thenReturn(responseSpec);
         when(responseSpec.chatResponse()).thenReturn(new ChatResponse(
                 List.of(new Generation(new AssistantMessage(content)))));
-        judge = new LlmRouteJudge(clientRegistry, null, null, agentConfigProvider);
+        judge = new LlmRouteJudge(null, null, agentConfigProvider, agentCatalog, modelResolver,
+                llmClientRegistry);
+    }
+
+    private void stubRoute(String model) {
+        stubRouteOnly(model);
+        when(llmClientRegistry.getLightweight(eq(10L), any())).thenReturn(chatClient);
+    }
+
+    /** 只 stub Agent → 路由首选成员，不涉及客户端获取（供「不发起 LLM 调用」的用例使用） */
+    private void stubRouteOnly(String model) {
+        com.dark.javaHarness.domain.entity.AgentEntity agent =
+                new com.dark.javaHarness.domain.entity.AgentEntity();
+        agent.setAgentName("route-judge");
+        agent.setRouteId(1L);
+        when(agentCatalog.require("route-judge")).thenReturn(agent);
+        com.dark.javaHarness.llm.routing.RoutePlan.Member member =
+                new com.dark.javaHarness.llm.routing.RoutePlan.Member(10L, 1L, "dashscope",
+                        "https://example.com", model, model, 10, "{}", null);
+        when(modelResolver.resolve(1L)).thenReturn(
+                new com.dark.javaHarness.llm.routing.RoutePlan(1L, "judge", List.of(member)));
     }
 
     /** 灰区消息（>12 字且不含规则强信号），确保走到 LLM 判定 */
@@ -92,17 +118,18 @@ class LlmRouteJudgeTest {
     /** 调用异常兜底 Agentic，且失败即丢弃轻量客户端缓存（连接可能已成黑洞，重试需换新连接） */
     @Test
     void plan_whenCallThrows_shouldFallbackAgenticAndDropPool() {
-        when(clientRegistry.getLightweightByModel(anyString(), any())).thenReturn(chatClient);
+        stubRoute(ROUTE_MODEL);
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
         when(requestSpec.user(anyString())).thenReturn(requestSpec);
         when(requestSpec.options(any(OpenAiChatOptions.Builder.class))).thenReturn(requestSpec);
         when(requestSpec.advisors(any(Advisor[].class))).thenReturn(requestSpec);
         when(requestSpec.call()).thenThrow(new IllegalStateException("llm down"));
-        judge = new LlmRouteJudge(clientRegistry, null, null, agentConfigProvider);
+        judge = new LlmRouteJudge(null, null, agentConfigProvider, agentCatalog, modelResolver,
+                llmClientRegistry);
 
         assertEquals("agentic", judge.plan(GREY_MESSAGE, null, null).path(), "调用异常应兜底 Agentic 而不抛出");
-        verify(clientRegistry).invalidateLightweight(ROUTE_MODEL);
+        verify(llmClientRegistry).invalidate(10L);
     }
 
     /** 判定读超时来自配置（app.chat.timeouts.judge-read-timeout-seconds），透传给轻量客户端取用 */
@@ -111,26 +138,28 @@ class LlmRouteJudgeTest {
         stubContent("{\"route\":\"agentic\"}");
         ChatTimeoutProperties props = new ChatTimeoutProperties();
         props.setJudgeReadTimeoutSeconds(7);
-        judge = new LlmRouteJudge(clientRegistry, null, props, agentConfigProvider);
+        judge = new LlmRouteJudge(null, props, agentConfigProvider, agentCatalog, modelResolver,
+                llmClientRegistry);
 
         judge.plan(GREY_MESSAGE, null, null);
 
-        verify(clientRegistry).getLightweightByModel(ROUTE_MODEL, 7);
+        verify(llmClientRegistry).getLightweight(10L, 7);
     }
 
     @Test
     void plan_whenMessageBlank_shouldReturnAgenticWithoutCall() {
-        judge = new LlmRouteJudge(clientRegistry, null, null, agentConfigProvider);
+        judge = new LlmRouteJudge(null, null, agentConfigProvider, agentCatalog, modelResolver,
+                llmClientRegistry);
         assertEquals("agentic", judge.plan("  ", null, null).path());
         assertEquals("agentic", judge.plan(null, null, null).path());
     }
 
-    /** 表驱动：agent 表 route-judge 行命中时，用库中 model/prompt 判定（改库即生效） */
+    /** 表驱动：prompt 取自 agent 行，模型取自路由首选成员 */
     @Test
     void plan_whenAgentRowPresent_shouldUseConfiguredModelAndPrompt() {
         when(agentConfigProvider.getAgentConfig("route-judge")).thenReturn(Optional.of(
                 new AgentConfig(1L, "test-route-model", "表驱动判定提示词", null)));
-        when(clientRegistry.getLightweightByModel(eq("test-route-model"), any())).thenReturn(chatClient);
+        stubRoute("test-route-model");
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
         when(requestSpec.user(anyString())).thenReturn(requestSpec);
@@ -139,11 +168,12 @@ class LlmRouteJudgeTest {
         when(requestSpec.call()).thenReturn(responseSpec);
         when(responseSpec.chatResponse()).thenReturn(new ChatResponse(
                 List.of(new Generation(new AssistantMessage("{\"route\":\"agentic\"}")))));
-        judge = new LlmRouteJudge(clientRegistry, null, null, agentConfigProvider);
+        judge = new LlmRouteJudge(null, null, agentConfigProvider, agentCatalog, modelResolver,
+                llmClientRegistry);
 
         assertEquals("agentic", judge.plan(GREY_MESSAGE, null, null).path());
 
-        verify(clientRegistry).getLightweightByModel("test-route-model", null);
+        verify(llmClientRegistry).getLightweight(10L, null);
         // 表驱动 prompt 原文作为前缀下发，输出契约随后追加（保证富 JSON 形状）
         verify(requestSpec).system((String) org.mockito.ArgumentMatchers.argThat(
                 (String s) -> s.startsWith("表驱动判定提示词") && s.contains("\"workstreams\"")));
@@ -155,43 +185,47 @@ class LlmRouteJudgeTest {
         stubContent("{\"route\":\"agentic\"}");
 
         assertEquals("agentic", judge.plan(GREY_MESSAGE, null, null).path());
-        verify(clientRegistry).getLightweightByModel(ROUTE_MODEL, null);
+        verify(llmClientRegistry).getLightweight(10L, null);
     }
 
-    /** agent 表查询异常：回退内置常量，判定不阻塞（兜底语义不受配置读取影响） */
+    /** agent 表查询异常：判定不阻塞，直接兜底 Agentic（不发起 LLM 调用） */
     @Test
-    void plan_whenConfigReadThrows_shouldFallbackToConstants() {
+    void plan_whenConfigReadThrows_shouldFallbackAgenticWithoutCall() {
         when(agentConfigProvider.getAgentConfig("route-judge")).thenThrow(new IllegalStateException("db down"));
-        stubContent("{\"route\":\"agentic\"}");
+        stubRouteOnly(ROUTE_MODEL);
+        judge = new LlmRouteJudge(null, null, agentConfigProvider, agentCatalog, modelResolver,
+                llmClientRegistry);
 
         assertEquals("agentic", judge.plan(GREY_MESSAGE, null, null).path());
-        verify(clientRegistry).getLightweightByModel(ROUTE_MODEL, null);
+        verify(llmClientRegistry, org.mockito.Mockito.never()).getLightweight(any(), any());
     }
 
     /** 规则短路：短消息（≤12 字符）直接 Agentic，不付判定调用 */
     @Test
     void plan_whenMessageShort_shouldShortCircuitToAgentic() {
-        judge = new LlmRouteJudge(clientRegistry, null, null, agentConfigProvider);
+        judge = new LlmRouteJudge(null, null, agentConfigProvider, agentCatalog, modelResolver,
+                llmClientRegistry);
 
         RoutePlan plan = judge.plan("你好", null, null);
 
         assertEquals("agentic", plan.path());
         assertEquals(RoutePlan.Source.RULE, plan.source());
         assertEquals(0.95, plan.confidence());
-        verify(clientRegistry, org.mockito.Mockito.never()).getLightweightByModel(anyString(), any());
+        verify(llmClientRegistry, org.mockito.Mockito.never()).getLightweight(any(), any());
     }
 
     /** 规则短路：强多工作流措辞直接 Graph，不付判定调用 */
     @Test
     void plan_whenMultiWorkstreamPhrase_shouldShortCircuitToGraph() {
-        judge = new LlmRouteJudge(clientRegistry, null, null, agentConfigProvider);
+        judge = new LlmRouteJudge(null, null, agentConfigProvider, agentCatalog, modelResolver,
+                llmClientRegistry);
 
         RoutePlan plan = judge.plan("帮我同时调研三家竞品的定价策略与用户口碑", null, null);
 
         assertEquals("graph", plan.path());
         assertEquals(RoutePlan.Source.RULE, plan.source());
         assertEquals(0.9, plan.confidence());
-        verify(clientRegistry, org.mockito.Mockito.never()).getLightweightByModel(anyString(), any());
+        verify(llmClientRegistry, org.mockito.Mockito.never()).getLightweight(any(), any());
     }
 
     /** LLM 判灰区：Graph + 2 个工作流 + 高置信度 → 保持 Graph，字段完整透出 */
@@ -252,13 +286,14 @@ class LlmRouteJudgeTest {
     /** 规则信号支持英文触发词（大小写不敏感） */
     @Test
     void plan_whenEnglishParallelPhrase_shouldShortCircuitToGraph() {
-        judge = new LlmRouteJudge(clientRegistry, null, null, agentConfigProvider);
+        judge = new LlmRouteJudge(null, null, agentConfigProvider, agentCatalog, modelResolver,
+                llmClientRegistry);
 
         RoutePlan plan = judge.plan("Research each competitor separately and give me the comparison", null, null);
 
         assertEquals("graph", plan.path());
         assertEquals(RoutePlan.Source.RULE, plan.source());
-        verify(clientRegistry, org.mockito.Mockito.never()).getLightweightByModel(anyString(), any());
+        verify(llmClientRegistry, org.mockito.Mockito.never()).getLightweight(any(), any());
     }
 
     /** 工作流形态：Graph 但可独立工作流不足 2 个 → 收敛为 Agentic（单工作流无并行收益） */

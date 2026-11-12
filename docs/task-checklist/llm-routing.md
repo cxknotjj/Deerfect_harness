@@ -2,7 +2,7 @@
 
 - 范围：`deerfect-server` 的 LLM 配置模型、解析链路、Agent 绑定、失败切换、观测与管理面
 - 创建：2026-11-12
-- 状态：共 29 项，已完成 16 项，待办 13 项
+- 状态：共 29 项，已完成 19 项，待办 10 项
 - 规划书：[docs/design/2026-11-12-llm-provider-model-routing.md](../design/2026-11-12-llm-provider-model-routing.md)
 - 前提：按全新设计落地，不保留旧 `model_provider` 表与按名查找接口的兼容层
 
@@ -13,12 +13,12 @@
 | 数据层 | 3 | 0 | 3 |
 | 解析与客户端 | 6 | 0 | 6 |
 | 参数与能力 | 3 | 1 | 4 |
-| 内部调用收口 | 0 | 3 | 3 |
+| 内部调用收口 | 3 | 0 | 3 |
 | 接入改造 | 4 | 0 | 4 |
 | 管理面 | 0 | 3 | 3 |
 | 观测 | 0 | 2 | 2 |
 | 清理与验收 | 0 | 4 | 4 |
-| 合计 | 16 | 13 | 29 |
+| 合计 | 19 | 10 | 29 |
 
 ## 背景
 
@@ -147,26 +147,29 @@
 
 ### D. 内部调用收口
 
-- [ ] D1 route-judge 改为系统 Agent + 路由
+- [x] D1 route-judge 改为系统 Agent + 路由
   - 作用：路由判定不再读配置里的模型名
   - 位置：`service/impl/route/LlmRouteJudge.java`、Agent 种子数据
   - 做法：读取 `route-judge` Agent 的 `route_id`；轻量超时参数保留；失败兜底语义不变
   - 验收：判定使用 `judge` 路由；改路由成员后判定模型随之改变，Agent 配置零改动；单测覆盖
   - 依赖：B3、B5
+  - 结果（2026-11-12）：`settings()` 经 `AgentCatalog.require("route-judge")` → `ModelResolver` 首选成员取 modelId/模型名，prompt 仍取 agent 行；轻量客户端按 modelId 获取、失败按 modelId 丢池；模型常量已删除，路由缺失直接兜底 Agentic
 
-- [ ] D2 summary / profile / trigger-judge 改为系统 Agent + 路由
+- [x] D2 summary / profile / trigger-judge 改为系统 Agent + 路由
   - 作用：消除最后三处按模型名解析
   - 位置：`memory/UserProfileService.java`、`memory/SessionSummaryService.java`、`service/impl/route/LlmSemanticTriggerJudge.java`
   - 做法：各自读取对应系统 Agent 的 `route_id`；删除 `@Value("...model")` 注入口径；提示词保留在各自代码或 Agent 行
   - 验收：三个功能的模型来源均为路由；配置 `summary-model` / `trigger-judge.model` 不再被读取；单测覆盖
   - 依赖：B3、B5、A3
+  - 结果（2026-11-12）：V21 注册 profile / summary（fast）与 trigger-judge（judge）系统 Agent；三处均改为 `AgentCatalog → ModelResolver → LlmClientRegistry`，观测模型名取实际路由成员；`@Value` 模型配置已删除
 
-- [ ] D3 删除按名查找 API
+- [x] D3 删除按名查找 API
   - 作用：从结构上消除重名歧义
   - 位置：旧 `ChatClientRegistry`
   - 做法：删除 `idsByName`、`getByModel`、`getLightweightByModel`、`invalidateLightweight`；确认全仓库无引用
   - 验收：`grep` 零命中；全量测试通过；ArchUnit 禁止新增按名解析
   - 依赖：D1、D2
+  - 结果（2026-11-12）：四个按名 API 已删除，源码零引用（仅 checklist 历史记录保留字样）；全量 1121 测试通过；ArchUnit 守卫在 H1 补齐
 
 ### E. 接入改造
 

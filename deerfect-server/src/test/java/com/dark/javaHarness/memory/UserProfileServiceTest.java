@@ -54,7 +54,11 @@ class UserProfileServiceTest {
     @Mock
     private SessionService sessionService;
     @Mock
-    private ChatClientRegistry clientRegistry;
+    private com.dark.javaHarness.llm.client.LlmClientRegistry llmClientRegistry;
+    @Mock
+    private com.dark.javaHarness.llm.catalog.AgentCatalog agentCatalog;
+    @Mock
+    private com.dark.javaHarness.llm.routing.ModelResolver modelResolver;
     @Mock
     private LlmCallRecorder recorder;
     @Mock
@@ -77,8 +81,8 @@ class UserProfileServiceTest {
     }
 
     private UserProfileService newService(Path file) {
-        return new UserProfileService(sessionMapper, sessionService, clientRegistry, recorder,
-                file.toString(), 30, 4000, 300000);
+        return new UserProfileService(sessionMapper, sessionService, llmClientRegistry, agentCatalog,
+                modelResolver, recorder, file.toString(), 30, 4000, 300000);
     }
 
     private SessionEntity staleSession(long id) {
@@ -101,7 +105,7 @@ class UserProfileServiceTest {
     }
 
     private void stubLlm(String content) {
-        when(clientRegistry.getByModel(anyString())).thenReturn(chatClient);
+        stubRoute();
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
         when(requestSpec.user(anyString())).thenReturn(requestSpec);
@@ -110,6 +114,20 @@ class UserProfileServiceTest {
         when(requestSpec.call()).thenReturn(responseSpec);
         when(responseSpec.chatResponse()).thenReturn(new ChatResponse(
                 List.of(new Generation(new AssistantMessage(content)))));
+    }
+
+    private void stubRoute() {
+        com.dark.javaHarness.domain.entity.AgentEntity agent =
+                new com.dark.javaHarness.domain.entity.AgentEntity();
+        agent.setAgentName("profile");
+        agent.setRouteId(1L);
+        when(agentCatalog.require("profile")).thenReturn(agent);
+        com.dark.javaHarness.llm.routing.RoutePlan.Member member =
+                new com.dark.javaHarness.llm.routing.RoutePlan.Member(10L, 1L, "dashscope",
+                        "https://example.com", "qwen3.8-27b", "m", 10, "{}", null);
+        when(modelResolver.resolve(1L)).thenReturn(
+                new com.dark.javaHarness.llm.routing.RoutePlan(1L, "fast", List.of(member)));
+        when(llmClientRegistry.get(10L)).thenReturn(chatClient);
     }
 
     /** 提炼进度更新（markUpToDate）：取最后一次 update 的 Wrapper */
@@ -250,7 +268,7 @@ class UserProfileServiceTest {
     void llmFailure_keepsFileAndSkipsMark() {
         stubScan(staleSession(9L));
         stubItems("9", item("m1", "user", "用户提到了偏好"));
-        when(clientRegistry.getByModel(anyString())).thenReturn(chatClient);
+        stubRoute();
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
         when(requestSpec.user(anyString())).thenReturn(requestSpec);
@@ -293,7 +311,7 @@ class UserProfileServiceTest {
 
         service.scanOnce();
 
-        verify(clientRegistry, never()).getByModel(anyString());
+        verify(llmClientRegistry, never()).get(any());
         assertTrue(markWrapper().getSqlSet().contains("profile_extracted_at"), "无内容也应推进（避免空转重扫）");
     }
 
@@ -363,7 +381,7 @@ class UserProfileServiceTest {
         // 第一次调用（会话 9）抛异常，第二次（会话 10）成功
         when(chatClient.prompt()).thenThrow(new RuntimeException("first fails"))
                 .thenReturn(requestSpec);
-        when(clientRegistry.getByModel(anyString())).thenReturn(chatClient);
+        stubRoute();
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
         when(requestSpec.user(anyString())).thenReturn(requestSpec);
         when(requestSpec.options(any(org.springframework.ai.openai.OpenAiChatOptions.Builder.class)))

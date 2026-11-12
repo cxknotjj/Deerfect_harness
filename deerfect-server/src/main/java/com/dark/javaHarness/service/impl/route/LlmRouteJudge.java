@@ -38,16 +38,10 @@ public class LlmRouteJudge implements RouteJudge {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-    /**
-     * 判定用模型 key 回退默认：agent 表 route-judge 行（V22 注册，is_internal=1）存在时以
-     * 表配置为准（改库即生效）；无行/异常时回退此常量，行为与表驱动化之前一致。
-     */
-    private static final String ROUTE_MODEL = "qwen3.8-27b";
-
     /** 观测/落库用的调用方标识（llm_call_log.agent_name 与发起日志一致），兼作 agent 表行名 */
     private static final String ROUTE_AGENT = "route-judge";
 
-    /** 判定提示词回退默认：与 V43 迁移写入 agent 表 route-judge 行的 prompt 原文一致 */
+    /** 判定提示词回退默认：与 agent 表 route-judge 行的 prompt 原文一致（V1 基线） */
     private static final String SYSTEM_PROMPT =
             "你是 Harness 的主路径判断器。判断一条用户请求应走「Agentic」还是「Graph 编排」路径。\n"
             + "Graph 判据（满足任一）：存在至少 2 个可独立执行、互不依赖、可并行推进的工作流；"
@@ -88,46 +82,49 @@ public class LlmRouteJudge implements RouteJudge {
      */
     private static final int JUDGE_MAX_TOKENS = 512;
 
-    private final ChatClientRegistry clientRegistry;
-    /** LLM 调用观测记录器：judge 调用耗时/token 也落 llm_call_log（agent_name='route-judge'） */
     private final LlmCallRecorder recorder;
-    /** agent 表配置读取：route-judge 行（V22，is_internal=1）提供 model/prompt，改库即生效 */
+    /** agent 表配置读取：route-judge 行提供 prompt，模型由路由解析 */
     private final AgentConfigProvider agentConfigProvider;
+    private final com.dark.javaHarness.llm.catalog.AgentCatalog llmAgentCatalog;
+    private final com.dark.javaHarness.llm.routing.ModelResolver llmModelResolver;
+    private final com.dark.javaHarness.llm.client.LlmClientRegistry llmClientRegistry;
     /** 模型调用重试策略（最多执行 3 次、指数退避；重试耗尽或不可重试的解析错误才兜底 SIMPLE） */
     private final com.dark.javaHarness.agent.LlmRetry retry;
 
     /** LLM 超时配置：判定调用用独立短读超时（app.chat.timeouts.judge-read-timeout-seconds） */
     private final ChatTimeoutProperties timeouts;
 
-    public LlmRouteJudge(ChatClientRegistry clientRegistry, LlmCallRecorder recorder,
-                         ChatTimeoutProperties timeouts, AgentConfigProvider agentConfigProvider) {
-        this.clientRegistry = clientRegistry;
+    public LlmRouteJudge(LlmCallRecorder recorder, ChatTimeoutProperties timeouts,
+                         AgentConfigProvider agentConfigProvider,
+                         com.dark.javaHarness.llm.catalog.AgentCatalog llmAgentCatalog,
+                         com.dark.javaHarness.llm.routing.ModelResolver llmModelResolver,
+                         com.dark.javaHarness.llm.client.LlmClientRegistry llmClientRegistry) {
         this.recorder = recorder;
         this.timeouts = timeouts;
         this.agentConfigProvider = agentConfigProvider;
+        this.llmAgentCatalog = llmAgentCatalog;
+        this.llmModelResolver = llmModelResolver;
+        this.llmClientRegistry = llmClientRegistry;
         // 判定失败即兜底 Agentic，重试只会把首字延迟成倍放大（每次尝试同样受 judge 读超时约束）
         this.retry = new com.dark.javaHarness.agent.LlmRetry(1, 500);
     }
 
-    /** 本次判定的生效配置：模型 key + 判定提示词（表驱动，回退默认见各常量注释） */
-    private record JudgeSettings(String model, String prompt) {
+    /** 本次判定的生效配置：模型 id/名 + 判定提示词（模型来自路由，提示词来自 agent 行） */
+    private record JudgeSettings(Long modelId, String model, String prompt) {
     }
 
     /**
-     * 解析生效配置：agent 表 route-judge 行（V22 注册）的 model/prompt 优先，
-     * 无行/字段空白/查询异常逐项回退内置常量——judge 不因配置读取失败而阻塞。
+     * 解析生效配置：Agent(route-judge) → 路由首选成员提供模型 id/名；prompt 仍取 agent 行，
+     * 空白回退内置常量。路由缺失直接抛错，由调用方兜底 Agentic。
      */
     private JudgeSettings settings() {
-        try {
-            return agentConfigProvider.getAgentConfig(ROUTE_AGENT)
-                    .map(cfg -> new JudgeSettings(
-                            cfg.model() == null || cfg.model().isBlank() ? ROUTE_MODEL : cfg.model(),
-                            cfg.prompt() == null || cfg.prompt().isBlank() ? SYSTEM_PROMPT : cfg.prompt()))
-                    .orElseGet(() -> new JudgeSettings(ROUTE_MODEL, SYSTEM_PROMPT));
-        } catch (Exception e) {
-            log.warn("[route] 读取 route-judge 配置失败，回退内置默认：{}", safeMessage(e));
-            return new JudgeSettings(ROUTE_MODEL, SYSTEM_PROMPT);
-        }
+        com.dark.javaHarness.llm.routing.RoutePlan plan = llmModelResolver.resolve(
+                llmAgentCatalog.require(ROUTE_AGENT).getRouteId());
+        com.dark.javaHarness.llm.routing.RoutePlan.Member primary = plan.members().get(0);
+        String prompt = agentConfigProvider.getAgentConfig(ROUTE_AGENT)
+                .map(cfg -> cfg.prompt() == null || cfg.prompt().isBlank() ? SYSTEM_PROMPT : cfg.prompt())
+                .orElse(SYSTEM_PROMPT);
+        return new JudgeSettings(primary.modelId(), primary.upstreamName(), prompt);
     }
 
     /**
@@ -179,7 +176,7 @@ public class LlmRouteJudge implements RouteJudge {
                         record(durationMs, err == null, err, message, settings, sessionId, turnId);
                         // 失败即丢池：连接可能已成网络黑洞，让重试拿到全新连接而不是再挂一次
                         if (err != null) {
-                            clientRegistry.invalidateLightweight(settings.model());
+                            llmClientRegistry.invalidate(settings.modelId());
                         }
                     });
             return parse(content);
@@ -194,7 +191,7 @@ public class LlmRouteJudge implements RouteJudge {
     private String doCall(String message, JudgeSettings settings) {
         // 轻量客户端：短读超时（带 SIMPLE 兜底，无需等长回答口径的 300s）+ 不挂默认工具；
         // 客户端按生效模型名缓存（丢池 key 与此一致）
-        ChatClient client = clientRegistry.getLightweightByModel(settings.model(),
+        ChatClient client = llmClientRegistry.getLightweight(settings.modelId(),
                 timeouts == null ? null : timeouts.getJudgeReadTimeoutSeconds());
         // 请求级显式携带 model：ChatClientFactory 的 defaultOptions 不含模型名，
         // 缺失时 DashScope 返回 400「you must provide a model parameter」（与

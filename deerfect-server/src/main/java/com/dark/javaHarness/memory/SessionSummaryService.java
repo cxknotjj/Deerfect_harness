@@ -52,11 +52,12 @@ public class SessionSummaryService implements SessionSummaryPort {
     private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
 
     private final SessionSummaryMapper mapper;
-    private final ChatClientRegistry clientRegistry;
     @Nullable
     private final LlmCallRecorder recorder;
+    private final com.dark.javaHarness.llm.client.LlmClientRegistry llmClientRegistry;
+    private final com.dark.javaHarness.llm.catalog.AgentCatalog llmAgentCatalog;
+    private final com.dark.javaHarness.llm.routing.ModelResolver llmModelResolver;
     private final int maxChars;
-    private final String model;
     private final LlmRetry retry = new LlmRetry();
     private final ThreadPoolExecutor pool = new ThreadPoolExecutor(1, 1, 60L, TimeUnit.SECONDS,
             new LinkedBlockingQueue<>(64), r -> {
@@ -66,15 +67,17 @@ public class SessionSummaryService implements SessionSummaryPort {
             }, new ThreadPoolExecutor.DiscardPolicy());
 
     public SessionSummaryService(SessionSummaryMapper mapper,
-                                 ChatClientRegistry clientRegistry,
+                                 com.dark.javaHarness.llm.client.LlmClientRegistry llmClientRegistry,
+                                 com.dark.javaHarness.llm.catalog.AgentCatalog llmAgentCatalog,
+                                 com.dark.javaHarness.llm.routing.ModelResolver llmModelResolver,
                                  @Nullable LlmCallRecorder recorder,
-                                 @Value("${app.context.summary-max-chars:600}") int maxChars,
-                                 @Value("${app.context.summary-model:qwen3.8-27b}") String model) {
+                                 @Value("${app.context.summary-max-chars:600}") int maxChars) {
         this.mapper = mapper;
-        this.clientRegistry = clientRegistry;
+        this.llmClientRegistry = llmClientRegistry;
+        this.llmAgentCatalog = llmAgentCatalog;
+        this.llmModelResolver = llmModelResolver;
         this.recorder = recorder;
         this.maxChars = Math.max(120, maxChars);
-        this.model = model;
     }
 
     @jakarta.annotation.PreDestroy
@@ -196,12 +199,15 @@ public class SessionSummaryService implements SessionSummaryPort {
     }
 
     private String doCall(String userPrompt) {
-        ChatClient client = clientRegistry.getByModel(model);
+        com.dark.javaHarness.llm.routing.RoutePlan plan = llmModelResolver.resolve(
+                llmAgentCatalog.require("summary").getRouteId());
+        com.dark.javaHarness.llm.routing.RoutePlan.Member member = plan.members().get(0);
+        ChatClient client = llmClientRegistry.get(member.modelId());
         // 请求级显式携带 model：与 AgentChatCaller / RouteJudge / memory-profile 同款约定
         return client.prompt()
                 .system(systemPrompt())
                 .user(userPrompt)
-                .options(OpenAiChatOptions.builder().model(model))
+                .options(OpenAiChatOptions.builder().model(member.upstreamName()))
                 .call()
                 .chatResponse()
                 .getResult()
@@ -272,7 +278,7 @@ public class SessionSummaryService implements SessionSummaryPort {
         int promptTokens = LlmCallRecorder.estimateTokens(systemPrompt())
                 + LlmCallRecorder.estimateTokens(userPrompt);
         long start = System.currentTimeMillis() - durationMs;
-        recorder.record(new LlmCallLog(null, "memory-summary", model, false, ok,
+        recorder.record(new LlmCallLog(null, "memory-summary", modelName(), false, ok,
                 promptTokens, null, null, true,
                 durationMs, LlmCallRecorder.describeError(e),
                 null, null, null, null, null, null, null, null,
@@ -281,5 +287,16 @@ public class SessionSummaryService implements SessionSummaryPort {
 
     private static String describe(Throwable e) {
         return LlmCallRecorder.describeError(e);
+    }
+
+    /** 观测用模型名：路由首选成员；解析失败返回 null（观测不阻塞主链路）。 */
+    private String modelName() {
+        try {
+            com.dark.javaHarness.llm.routing.RoutePlan plan = llmModelResolver.resolve(
+                    llmAgentCatalog.require("summary").getRouteId());
+            return plan.members().get(0).upstreamName();
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 }

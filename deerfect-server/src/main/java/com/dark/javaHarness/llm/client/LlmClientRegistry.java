@@ -26,6 +26,7 @@ public class LlmClientRegistry {
     private final ProviderCatalog providerCatalog;
 
     private final Map<Long, ChatClient> clients = new ConcurrentHashMap<>();
+    private final Map<Long, ChatClient> lightClients = new ConcurrentHashMap<>();
 
     public LlmClientRegistry(LlmClientFactory clientFactory, ProviderCatalog providerCatalog) {
         this.clientFactory = clientFactory;
@@ -61,16 +62,40 @@ public class LlmClientRegistry {
         return existing == null ? built : existing;
     }
 
+    /** 按部署模型 id 取轻量客户端（短读超时），供路由判定/摘要等内部短调用使用。 */
+    public ChatClient getLightweight(Long modelId, Integer readTimeoutSeconds) {
+        if (modelId == null) {
+            throw new IllegalArgumentException("modelId 不能为空");
+        }
+        ChatClient cached = lightClients.get(modelId);
+        if (cached != null) {
+            return cached;
+        }
+        LlmModelEntity model = providerCatalog.requireModel(modelId);
+        LlmProviderEntity provider = providerCatalog.requireProvider(model.getProviderId());
+        RoutePlan.Member member = new RoutePlan.Member(model.getId(), provider.getId(),
+                provider.getCode(), provider.getBaseUrl(), model.getUpstreamName(),
+                model.getDisplayName(), 0, model.getCapabilities(), model.getDefaultParams());
+        ChatClient built = clientFactory.buildLightweight(member, readTimeoutSeconds);
+        if (built == null) {
+            throw new IllegalStateException("轻量客户端构建失败: modelId=" + modelId);
+        }
+        ChatClient existing = lightClients.putIfAbsent(modelId, built);
+        return existing == null ? built : existing;
+    }
+
     /** 按部署模型 id 丢弃旧客户端；下一次 get 重建连接池。 */
     public void invalidate(Long modelId) {
-        if (modelId != null && clients.remove(modelId) != null) {
-            log.info("[llm] 丢弃客户端缓存: modelId={}", modelId);
+        if (modelId != null) {
+            clients.remove(modelId);
+            lightClients.remove(modelId);
         }
     }
 
     /** 清空全部客户端（配置热更新后调用）。 */
     public void clear() {
         clients.clear();
+        lightClients.clear();
         log.info("[llm] 客户端缓存已清空");
     }
 }

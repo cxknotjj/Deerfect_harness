@@ -60,9 +60,6 @@ public class UserProfileService {
 
     private static final Logger log = LoggerFactory.getLogger(UserProfileService.class);
 
-    /** 提取用轻量模型（与 route-judge 同款约定：注册表命中则提速，未命中走默认兜底） */
-    private static final String PROFILE_MODEL = "qwen3.8-27b";
-
     /** 单轮扫描批处理上限（防一次唤醒雪崩：每会话一次 LLM 调用） */
     private static final int SCAN_BATCH_LIMIT = 10;
 
@@ -93,7 +90,9 @@ public class UserProfileService {
     private final SessionMapper sessionMapper;
     /** 复用会话快照读取（含条目 id），不直接碰 session_messages 表 */
     private final SessionService sessionService;
-    private final ChatClientRegistry clientRegistry;
+    private final com.dark.javaHarness.llm.client.LlmClientRegistry llmClientRegistry;
+    private final com.dark.javaHarness.llm.catalog.AgentCatalog llmAgentCatalog;
+    private final com.dark.javaHarness.llm.routing.ModelResolver llmModelResolver;
     /** LLM 调用观测记录器：提炼调用耗时/token 也落 llm_call_log（agent_name='memory-profile'）；null 直通 */
     private final LlmCallRecorder recorder;
     /** 画像文件路径（相对工作目录），文件不存在视为空画像 */
@@ -109,7 +108,9 @@ public class UserProfileService {
 
     public UserProfileService(SessionMapper sessionMapper,
                               SessionService sessionService,
-                              ChatClientRegistry clientRegistry,
+                              com.dark.javaHarness.llm.client.LlmClientRegistry llmClientRegistry,
+                              com.dark.javaHarness.llm.catalog.AgentCatalog llmAgentCatalog,
+                              com.dark.javaHarness.llm.routing.ModelResolver llmModelResolver,
                               @org.springframework.lang.Nullable LlmCallRecorder recorder,
                               @Value("${app.memory.profile-file:user-profile/user-profile.md}") String profileFile,
                               @Value("${app.memory.profile-idle-minutes:30}") int idleMinutes,
@@ -117,7 +118,9 @@ public class UserProfileService {
                               @Value("${app.memory.profile-scan-interval-ms:300000}") long scanIntervalMs) {
         this.sessionMapper = sessionMapper;
         this.sessionService = sessionService;
-        this.clientRegistry = clientRegistry;
+        this.llmClientRegistry = llmClientRegistry;
+        this.llmAgentCatalog = llmAgentCatalog;
+        this.llmModelResolver = llmModelResolver;
         this.recorder = recorder;
         this.profileFile = profileFile;
         this.idleMinutes = idleMinutes;
@@ -287,19 +290,25 @@ public class UserProfileService {
     private String extractPatch(String current, String dialog) {
         String userPrompt = "【当前画像】\n" + (current.isBlank() ? "（空，首次生成）" : current)
                 + "\n\n【新增对话】\n" + dialog;
-        return retry.executeWithRetry(() -> doCall(userPrompt),
-                (attempt, durationMs, err) -> record(durationMs, err == null, err, userPrompt));
+        com.dark.javaHarness.llm.routing.RoutePlan.Member member = primaryMember();
+        return retry.executeWithRetry(() -> doCall(member, userPrompt),
+                (attempt, durationMs, err) -> record(durationMs, err == null, err, userPrompt, member));
+    }
+
+    /** profile 系统 Agent → 路由首选成员（观测与调用使用同一成员，避免日志与实际模型不一致） */
+    private com.dark.javaHarness.llm.routing.RoutePlan.Member primaryMember() {
+        return llmModelResolver.resolve(llmAgentCatalog.require("profile").getRouteId()).members().get(0);
     }
 
     /** 单次 LLM 调用（不含重试语义，可被重试）；返回模型原始输出 */
-    private String doCall(String userPrompt) {
-        ChatClient client = clientRegistry.getByModel(PROFILE_MODEL);
+    private String doCall(com.dark.javaHarness.llm.routing.RoutePlan.Member member, String userPrompt) {
+        ChatClient client = llmClientRegistry.get(member.modelId());
         // 请求级显式携带 model：与 AgentChatCaller/RouteJudge 同款约定（缺 model DashScope 返回 400）
         return client.prompt()
                 .system(SYSTEM_PROMPT)
                 .user(userPrompt)
                 .options(org.springframework.ai.openai.OpenAiChatOptions.builder()
-                        .model(PROFILE_MODEL))
+                        .model(member.upstreamName()))
                 .call()
                 .chatResponse()
                 .getResult()
@@ -419,7 +428,8 @@ public class UserProfileService {
     }
 
     /** 提炼调用观测落库（无会话上下文口径：sessionId 空；轨迹标识全 NULL——不属于任何轮次与执行树） */
-    private void record(long durationMs, boolean ok, Throwable e, String userPrompt) {
+    private void record(long durationMs, boolean ok, Throwable e, String userPrompt,
+                        com.dark.javaHarness.llm.routing.RoutePlan.Member member) {
         if (recorder == null) {
             return;
         }
@@ -427,7 +437,7 @@ public class UserProfileService {
                 + LlmCallRecorder.estimateTokens(userPrompt);
         // 发起时刻由耗时反推（重试回调只给耗时；回调与耗时计算同一时钟读数，差值即发起瞬间）
         long start = System.currentTimeMillis() - durationMs;
-        recorder.record(new LlmCallLog(null, "memory-profile", PROFILE_MODEL, false, ok,
+        recorder.record(new LlmCallLog(null, "memory-profile", member.upstreamName(), false, ok,
                 promptTokens, null, null, true,
                 durationMs, LlmCallRecorder.describeError(e),
                 null, null, null, null, null, null, null, null,

@@ -24,4 +24,9 @@ public class LlmClientFactory {
     public ChatClient build(RoutePlan.Member member) {
         return chatClientFactory.build(member.providerCode(), member.baseUrl(), false);
     }
+
+    /** 轻量客户端（短读超时、无默认工具），供路由判定等内部短调用使用。 */
+    public ChatClient buildLightweight(RoutePlan.Member member, Integer readTimeoutSeconds) {
+        return chatClientFactory.buildLightweight(member.providerCode(), member.baseUrl(), readTimeoutSeconds);
+    }
 }
