@@ -109,7 +109,7 @@ curl -s -X POST http://localhost:8080/api/chat \
 
 > \[!TIP]
 >
-> - 没配 API Key 也能启动（调用模型才报 401）；配 DashScope / DeepSeek 等服务商的 Key 见 **[`docs/guides/setup.md`](./docs/guides/setup.md)**
+> - 启动时校验被引用供应商的凭证：未配 Key 会在启动时给出明确错误（LLM 绑定校验，见 [设计文档](./docs/design/2026-11-12-llm-provider-model-routing.md) §8.1）；配 DashScope / DeepSeek 等服务商的 Key 见 **[`docs/guides/setup.md`](./docs/guides/setup.md)**
 > - 启动时设置环境变量 `APP_PASSWORD=你的口令` 即开启登录鉴权（不设置则跳过登录）
 > - 不想装环境？Docker 三件套一键起：**[`docs/guides/docker-deploy.md`](./docs/guides/docker-deploy.md)**
 > - 国内网络可追加 `-s .mvn/settings.xml` 走阿里云镜像（会改用项目内 `.mvn-repo/` 仓库，首次全量重新下载）

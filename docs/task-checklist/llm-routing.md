@@ -44,6 +44,7 @@
   - 验收：空库从 V1 顺序跑到 V20 成功；`SHOW CREATE TABLE` 四张表的外键与唯一键齐备；删除仍被引用的 provider/model 被数据库拒绝
   - 依赖：无
   - 结果（2026-11-12）：V20 已应用（`flyway_schema_history` 记录 version=20 success=1），本地库产生 3 供应商 / 12 模型 / 4 路由 / 4 成员
+  - 修复（2026-11-12）：V20 的成员回填硬编码 `main -> model_provider.id=12`，而 V1 种子只到 id 11——全新库上 main 路由 0 成员，`BindingValidator` 启动校验失败（本地因人工补过 id=12 未暴露，CI 首跑即红）。新增 `V24__llm_route_member_repair.sql` 幂等修复：任何无启用成员的路由补入 id 最小的启用模型；CI backend 注入占位 `DASHSCOPE_API_KEY`/`DEEPSEEK_API_KEY` 满足凭证校验（不调真实 API）
 
 - [x] A2 新表实体与 Mapper
   - 作用：给解析层与校验层提供持久化入口
