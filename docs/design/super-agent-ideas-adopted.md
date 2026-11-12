@@ -38,7 +38,7 @@
 - 其余灰区才发起一次轻量 LLM 判定，输出 `route / confidence / workstreams / deliverables / reason`；
 - 置信度策略收敛（Graph 需 ≥ 2 个工作流且置信度 ≥ 0.75），任何异常一律兜底 Agentic。
 
-代码：[LlmRouteJudge.java](../../server/src/main/java/com/dark/javaHarness/service/impl/route/LlmRouteJudge.java#L139-L165)
+代码：[LlmRouteJudge.java](../../deerfect-server/src/main/java/com/dark/javaHarness/service/impl/route/LlmRouteJudge.java#L139-L165)
 
 这与文章 3.1 的「程序策略 + 语义策略」同构：规则层零成本、可预测；模型层只处理规则无法覆盖的灰区；失败时宁可走轻量路径，不阻塞请求。
 
@@ -52,7 +52,7 @@
 - 判定完成后进入汇合窗口（2 秒）等待预取；窗口内未完成则取消任务、放弃结果；
 - 预取池饱和时静默丢弃；任何失败都退化为「组装期现查」，主流程零感知。
 
-代码：[RagPrefetcher.java](../../server/src/main/java/com/dark/javaHarness/agent/RagPrefetcher.java#L26-L97)、[RouteDecider.java](../../server/src/main/java/com/dark/javaHarness/service/impl/RouteDecider.java#L66-L98)
+代码：[RagPrefetcher.java](../../deerfect-server/src/main/java/com/dark/javaHarness/agent/RagPrefetcher.java#L26-L97)、[RouteDecider.java](../../deerfect-server/src/main/java/com/dark/javaHarness/service/impl/RouteDecider.java#L66-L98)
 
 编排路径同样应用了该思想：lead 拆解出子任务后、扇出之前，对每个子任务并行提交 RAG 预取，把检索延迟消化在子任务并发限流的排队空档里（见 [data-flow.md](../data-flow.md) 5i 节）。
 
@@ -64,15 +64,15 @@
 
 | 层次 | 落点 | 行为 |
 |---|---|---|
-| 会话历史 | [ContextAssemblingAdvisor.java](../../server/src/main/java/com/dark/javaHarness/advisor/ContextAssemblingAdvisor.java#L82-L89) | 过滤噪声、归一化 role 顺序、按 `app.context.history-budget` 从最旧裁剪，system 始终保留 |
-| Prompt 分段 | [PromptBudgetAdvisor.java](../../server/src/main/java/com/dark/javaHarness/advisor/PromptBudgetAdvisor.java) | 历史 / 当前 user / 工具结果三段分别设预算 |
-| 工具结果 | [ToolCallBudget.java](../../server/src/main/java/com/dark/javaHarness/tool/budget/ToolCallBudget.java) | 单次调用的工具结果总量上限，超限不再真执行并返回引导文本 |
-| 知识注入 | [KnowledgeRetriever.java](../../server/src/main/java/com/dark/javaHarness/knowledge/KnowledgeRetriever.java) | top-k 命中按 token 预算截断后再渲染【出处N】 |
-| 工具 Schema | [ToolLazyManager.java](../../server/src/main/java/com/dark/javaHarness/prompt/ToolLazyManager.java#L18-L39) | 首轮只注入「名称 + 用途」，完整参数 Schema 留在窗口外，模型调 `expand_tool` 按需展开 |
+| 会话历史 | [ContextAssemblingAdvisor.java](../../deerfect-server/src/main/java/com/dark/javaHarness/advisor/ContextAssemblingAdvisor.java#L82-L89) | 过滤噪声、归一化 role 顺序、按 `app.context.history-budget` 从最旧裁剪，system 始终保留 |
+| Prompt 分段 | [PromptBudgetAdvisor.java](../../deerfect-server/src/main/java/com/dark/javaHarness/advisor/PromptBudgetAdvisor.java) | 历史 / 当前 user / 工具结果三段分别设预算 |
+| 工具结果 | [ToolCallBudget.java](../../deerfect-server/src/main/java/com/dark/javaHarness/tool/budget/ToolCallBudget.java) | 单次调用的工具结果总量上限，超限不再真执行并返回引导文本 |
+| 知识注入 | [KnowledgeRetriever.java](../../deerfect-server/src/main/java/com/dark/javaHarness/knowledge/KnowledgeRetriever.java) | top-k 命中按 token 预算截断后再渲染【出处N】 |
+| 工具 Schema | [ToolLazyManager.java](../../deerfect-server/src/main/java/com/dark/javaHarness/prompt/ToolLazyManager.java#L18-L39) | 首轮只注入「名称 + 用途」，完整参数 Schema 留在窗口外，模型调 `expand_tool` 按需展开 |
 
-其中 `ToolLazyManager` 最接近文章 3.3 的 Inline & Spill：窗口内放索引（Inline），完整 Schema 放窗口外（Spill），用一次元工具调用换取参数细节。网页抓取缓存（[WebTools.java](../../server/src/main/java/com/dark/javaHarness/tool/builtin/WebTools.java) 的 30 分钟内容缓存）也是同一思路：被裁掉的长内容可重新读取，而不是要求模型重新抓取。
+其中 `ToolLazyManager` 最接近文章 3.3 的 Inline & Spill：窗口内放索引（Inline），完整 Schema 放窗口外（Spill），用一次元工具调用换取参数细节。网页抓取缓存（[WebTools.java](../../deerfect-server/src/main/java/com/dark/javaHarness/tool/builtin/WebTools.java) 的 30 分钟内容缓存）也是同一思路：被裁掉的长内容可重新读取，而不是要求模型重新抓取。
 
-上下文构成还可观测：[ContextCompositionCalculator.java](../../server/src/main/java/com/dark/javaHarness/prompt/ContextCompositionCalculator.java) 把 system 各段、RAG、工具 Schema、历史消息的 token 占比算成快照，便于确认预算花在哪。
+上下文构成还可观测：[ContextCompositionCalculator.java](../../deerfect-server/src/main/java/com/dark/javaHarness/prompt/ContextCompositionCalculator.java) 把 system 各段、RAG、工具 Schema、历史消息的 token 占比算成快照，便于确认预算花在哪。
 
 **边界**：已补齐「保留引用 + 按需展开」的最小版（见 2.8），但没有 Trigger / Thread / Session 的引用图与多跳召回，归档内容也未向量化。
 
@@ -84,9 +84,9 @@
 
 - 持久状态全部在 MySQL：`session_messages`、`goal`、`orchestration_checkpoint`、四张观测表；
 - 进程内没有权威状态：重启后从库中恢复会话、目标与检查点；
-- Goal 有完整生命周期 `PENDING → RUNNING → SUCCEEDED / FAILED`，异常退出由启动清理兜底（[GoalServiceImpl.java](../../server/src/main/java/com/dark/javaHarness/service/impl/GoalServiceImpl.java#L55-L73)）；
-- 复杂编排按 `LEAD_DONE / SUBTASKS_DONE / DONE` 三阶段落检查点，`/api/chat/resume` 从最近检查点续跑，已完成阶段不重跑（[OrchestrationCheckpointStore.java](../../server/src/main/java/com/dark/javaHarness/state/persistence/OrchestrationCheckpointStore.java)、[resume.md](../guides/resume.md)）；
-- 计算通过受管线程池承载：后台 Goal 走 `goalExecutor`（8 线程 + 50 队列，满则显式落 FAILED），MVC 异步派发走独立槽位（[GoalExecutorConfig.java](../../server/src/main/java/com/dark/javaHarness/config/GoalExecutorConfig.java#L27-L43)、[AgentServiceImpl.java](../../server/src/main/java/com/dark/javaHarness/service/impl/AgentServiceImpl.java#L56-L69)）。
+- Goal 有完整生命周期 `PENDING → RUNNING → SUCCEEDED / FAILED`，异常退出由启动清理兜底（[GoalServiceImpl.java](../../deerfect-server/src/main/java/com/dark/javaHarness/service/impl/GoalServiceImpl.java#L55-L73)）；
+- 复杂编排按 `LEAD_DONE / SUBTASKS_DONE / DONE` 三阶段落检查点，`/api/chat/resume` 从最近检查点续跑，已完成阶段不重跑（[OrchestrationCheckpointStore.java](../../deerfect-server/src/main/java/com/dark/javaHarness/state/persistence/OrchestrationCheckpointStore.java)、[resume.md](../guides/resume.md)）；
+- 计算通过受管线程池承载：后台 Goal 走 `goalExecutor`（8 线程 + 50 队列，满则显式落 FAILED），MVC 异步派发走独立槽位（[GoalExecutorConfig.java](../../deerfect-server/src/main/java/com/dark/javaHarness/config/GoalExecutorConfig.java#L27-L43)、[AgentServiceImpl.java](../../deerfect-server/src/main/java/com/dark/javaHarness/service/impl/AgentServiceImpl.java#L56-L69)）。
 
 **边界**：只完成了「计算与状态」的分离，没有完成「计算与执行环境」的分离——工具执行仍在同机 Docker 沙箱内，调度仍是进程内线程池，`failAllRunning` 与本地队列都基于单实例假设（见 [HARNESS_TODO.md](../HARNESS_TODO.md) 的「多实例水平扩展」）。
 
@@ -97,10 +97,10 @@
 **本项目已应用（部分）**——已有若干「主链路之外的兜底回路」：
 
 - 启动恢复：非正常退出残留的 `RUNNING` Goal 在启动时批量标记 FAILED；
-- 运行中超时：[AgentChatPipeline.java](../../server/src/main/java/com/dark/javaHarness/agent/AgentChatPipeline.java#L195) 对流做首帧/空闲双重超时，厂商端静默挂死时快速失败；
-- 调用重试：[LlmRetry.java](../../server/src/main/java/com/dark/javaHarness/agent/LlmRetry.java) 对可重试错误做有限次数退避；
+- 运行中超时：[AgentChatPipeline.java](../../deerfect-server/src/main/java/com/dark/javaHarness/agent/AgentChatPipeline.java#L195) 对流做首帧/空闲双重超时，厂商端静默挂死时快速失败；
+- 调用重试：[LlmRetry.java](../../deerfect-server/src/main/java/com/dark/javaHarness/agent/LlmRetry.java) 对可重试错误做有限次数退避；
 - 断连收尾：客户端取消时 Goal 落 FAILED，编排节点共享取消标志，不再发起新的 LLM 调用；
-- 定时任务：观测表保留期清理（[ObservabilityLogCleaner.java](../../server/src/main/java/com/dark/javaHarness/observability/ObservabilityLogCleaner.java#L52)）、用户画像静默提炼（[UserProfileService.java](../../server/src/main/java/com/dark/javaHarness/memory/UserProfileService.java#L109)）。
+- 定时任务：观测表保留期清理（[ObservabilityLogCleaner.java](../../deerfect-server/src/main/java/com/dark/javaHarness/observability/ObservabilityLogCleaner.java#L52)）、用户画像静默提炼（[UserProfileService.java](../../deerfect-server/src/main/java/com/dark/javaHarness/memory/UserProfileService.java#L109)）。
 
 **边界**：已新增 `StaleGoalWatchdog`（`app.watchdog.enabled`，默认关闭）扫描「RUNNING 且长时间无进展」的 Goal 并条件标记 FAILED，补上了任务级进展心跳；但仍没有文章所说的独立 Watchdog Agent Session，不会判断任务方向是否偏离目标。
 
@@ -111,8 +111,8 @@
 **本项目已应用（部分）**——渠道与 core 已经分层：
 
 - `channel-qq` 是独立 Maven 模块，core 编译期不依赖渠道（`maven-enforcer-plugin` 守护），渠道只依赖 `harness-api`；
-- 渠道侧输出控制走通用 SPI [ReplyPostProcessor.java](../../harness-api/src/main/java/com/dark/javaHarness/service/ReplyPostProcessor.java)：core 在写回记忆与构造响应前调用，渠道可清洗文本、声明 flag（如语音工件）；
-- SSE 协议与进度行（[SseProtocol.java](../../harness-api/src/main/java/com/dark/javaHarness/view/SseProtocol.java)、[ProgressLine.java](../../server/src/main/java/com/dark/javaHarness/agent/ProgressLine.java)）让 CLI / Web 拿到 token、阶段进度、meta，而 QQ 只收到最终文本；
+- 渠道侧输出控制走通用 SPI [ReplyPostProcessor.java](../../deerfect-api/src/main/java/com/dark/javaHarness/contract/spi/ReplyPostProcessor.java)：core 在写回记忆与构造响应前调用，渠道可清洗文本、声明 flag（如语音工件）；
+- SSE 协议与进度行（[SseProtocol.java](../../deerfect-api/src/main/java/com/dark/javaHarness/view/SseProtocol.java)、[ProgressLine.java](../../deerfect-server/src/main/java/com/dark/javaHarness/agent/ProgressLine.java)）让 CLI / Web 拿到 token、阶段进度、meta，而 QQ 只收到最终文本；
 - 渠道侧有独立的输出参数：长度上限、是否 @ 提问者、引用回复、表情发送、语音 flag、限频与聊天超时（[NapCatProperties.java](../../channel-qq/src/main/java/com/dark/javaHarness/channel/qq/client/NapCatProperties.java)）。
 
 **边界**：已通过 `ChatRequest.channel` → `Goal` → `CallTrace` 把来源渠道贯通到 `PromptAssembler`，按 qq / cli / web / api 生成「信道规范」段（IM 限 100 词、异步端允许结构化交付）；发送层的长度、表情、语音仍由各渠道自行控制。
@@ -143,7 +143,7 @@
 - 上下文裁剪时把被丢弃消息的条数与 ID 示例追加到 system（`ContextAssemblingAdvisor`），提示模型可用 `recall_history`；
 - `recall_history` 工具（`RecallHistoryTools`）按关键词或精确消息 ID 检索归档，`sessionId` 经 ToolContext 注入；默认 `scope=current` 服务端强制本会话过滤，`scope=all` 跨全部历史会话按归档时间倒序召回并标注来源会话（2026-11-06，V11 `idx_archive_time`）；授予 `general` 与编排 `lead`（`V5`）。
 
-代码：[SessionServiceImpl.java](../../server/src/main/java/com/dark/javaHarness/service/impl/SessionServiceImpl.java#L190-L343)、[SessionHistoryArchiveService.java](../../server/src/main/java/com/dark/javaHarness/service/impl/SessionHistoryArchiveService.java)、[RecallHistoryTools.java](../../server/src/main/java/com/dark/javaHarness/tool/builtin/history/RecallHistoryTools.java)
+代码：[SessionServiceImpl.java](../../deerfect-server/src/main/java/com/dark/javaHarness/service/impl/SessionServiceImpl.java#L190-L343)、[SessionHistoryArchiveService.java](../../deerfect-server/src/main/java/com/dark/javaHarness/service/impl/SessionHistoryArchiveService.java)、[RecallHistoryTools.java](../../deerfect-server/src/main/java/com/dark/javaHarness/tool/builtin/history/RecallHistoryTools.java)
 
 **边界**：没有 Trigger / Thread / Worker 的引用图与多跳展开，归档检索靠关键词/精确 ID（跨会话 `scope=all` 走时间倒序 + 关键词，仍是 LIKE 全表扫描），未做摘要与向量化。
 

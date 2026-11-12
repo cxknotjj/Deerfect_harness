@@ -19,17 +19,26 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
- * WMS 只读 MCP 工具集（spec 附录 A 定稿 10 个，全部 {@code wms_} 前缀）：
- * 7 个查询 + 3 个主子表聚合，中文 description 与参数说明供模型正确选择与传参。
+ * WMS 只读 MCP 工具：对模型只暴露一个 {@code wms_query(resource, params)}，
+ * 内部按资源分派到十段查询逻辑。
+ *
+ * <p>原先这里是十个独立工具（{@code wms_search_stock} / {@code wms_search_stock_in_orders} …），
+ * 近义名字挤在工具面里，模型在「选哪个工具」这一步就开始出错；收敛后「查什么」变成资源枚举，
+ * 「怎么查」放在 skills/wms/SKILL.md。{@link #ALLOWED} 是模型可见参数的唯一契约。
+ *
+ * <p>下面这些查询方法已移除 {@code @Tool}（不再是 MCP 工具），保留 {@code @ToolParam}
+ * 仅作参数说明。
  *
  * <p>约定：
  * <ul>
  *   <li>全部只读 GET——写操作、exportXls、面单打印/发送、{@code /ai/*} 一律不包装</li>
  *   <li>错误以结构化 JSON 文本返回（{@code {"error":true,"message":...}}），不抛崩，MCP 会话保持存活</li>
- *   <li>组合查询：{@code wms_search_stock} 支持 productName 入参，服务端先查商品表换 productId
+ *   <li>组合查询：{@code resource=stock} 支持 productName，服务端先查商品表换 productId
  *       再查库存，组合行为对模型透明</li>
  * </ul>
  */
@@ -53,12 +62,170 @@ public class WmsTools {
         this.mapper = mapper;
     }
 
+    /**
+     * 资源 → 允许的参数。未知参数直接拒绝，而不是静默忽略——
+     * 忽略会让「字段名写错」变成「返回全量数据」，比报错更难发现。
+     */
+    private static final Map<String, Set<String>> ALLOWED = new LinkedHashMap<>();
+
+    static {
+        ALLOWED.put("stock", Set.of("productId", "productName", "locationCode", "batchNumber",
+                "containerCode", "pageNo", "pageSize"));
+        ALLOWED.put("product", Set.of("productName", "productCode", "productBarcode",
+                "productBrand", "ownerId", "pageNo", "pageSize"));
+        ALLOWED.put("product_detail", Set.of("id"));
+        ALLOWED.put("stock_in_order", Set.of("orderNumber", "orderType", "status",
+                "expectedArrivalTime", "pageNo", "pageSize"));
+        ALLOWED.put("stock_in_order_detail", Set.of("id"));
+        ALLOWED.put("out_order", Set.of("orderNo", "orderType", "status", "warehouseId",
+                "ownerId", "pageNo", "pageSize"));
+        ALLOWED.put("out_order_detail", Set.of("id"));
+        ALLOWED.put("shipment", Set.of("shipmentNo", "trackingNo", "orderNo", "status",
+                "pageNo", "pageSize"));
+        ALLOWED.put("warehouse", Set.of("code", "name", "status", "pageNo", "pageSize"));
+        ALLOWED.put("storage_zone", Set.of("code", "name", "warehouseId", "status",
+                "pageNo", "pageSize"));
+        ALLOWED.put("storage_location", Set.of("code", "warehouseId", "zoneId", "status",
+                "pageNo", "pageSize"));
+        ALLOWED.put("receive_task", Set.of("taskNumber", "status", "productId", "pageNo", "pageSize"));
+        ALLOWED.put("putaway_task", Set.of("taskNumber", "status", "productId", "pageNo", "pageSize"));
+        ALLOWED.put("picking_task", Set.of("taskNumber", "status", "productId", "pageNo", "pageSize"));
+        ALLOWED.put("wave", Set.of("waveNo", "status", "pageNo", "pageSize"));
+        ALLOWED.put("shortage", Set.of("status", "productId", "pageNo", "pageSize"));
+    }
+
+    /** 可用资源名（供测试与运维核对） */
+    public static Set<String> resources() {
+        return ALLOWED.keySet();
+    }
+
+    /** 参数契约（守护测试核对：每个资源都应有白名单） */
+    static Map<String, Set<String>> contract() {
+        return ALLOWED;
+    }
+
+    /**
+     * 唯一对模型暴露的工具：resource 决定查什么，params 传过滤条件与分页。
+     *
+     * <p>params 用 Object 而不是 Map：实测有的模型会把嵌套对象序列化成字符串
+     * （{@code "params":"{\"productId\":\"p1\"}"}），声明成 Map 会在绑定阶段直接失败。
+     */
+    @Tool(name = "wms_query",
+            description = "查询 WMS 仓储只读数据的唯一入口。resource 决定查什么"
+                    + "（库存/商品/出入库单/发运/仓库网络/作业任务），params 传过滤条件与分页"
+                    + "（pageNo/pageSize，服务端上限 20）。各 resource 支持的参数与查询套路见"
+                    + " skill「wms」——不确定时先读它，不要猜参数")
+    public String query(
+            @ToolParam(description = "资源类型：stock / product / product_detail / stock_in_order / "
+                    + "stock_in_order_detail / out_order / out_order_detail / shipment / warehouse / "
+                    + "storage_zone / storage_location / receive_task / putaway_task / picking_task / "
+                    + "wave / shortage") String resource,
+            @ToolParam(description = "JSON 对象（键值对）：分页 pageNo/pageSize，其余字段见 skill「wms」；"
+                    + "不确定就只传 resource", required = false) Object params) {
+        String name = resource == null ? "" : resource.trim().toLowerCase(Locale.ROOT);
+        Set<String> allowed = ALLOWED.get(name);
+        if (allowed == null) {
+            return errorJson("未知 resource=" + resource + "；可选：" + String.join(" / ", ALLOWED.keySet()));
+        }
+
+        Map<String, Object> input = new LinkedHashMap<>();
+        if (params instanceof Map<?, ?> map) {
+            map.forEach((key, value) -> input.put(String.valueOf(key), value));
+        } else if (params instanceof String text) {
+            try {
+                Map<?, ?> parsed = mapper.readValue(text, Map.class);
+                if (parsed != null) {
+                    parsed.forEach((key, value) -> input.put(String.valueOf(key), value));
+                }
+            } catch (JacksonException e) {
+                return errorJson("params 不是合法 JSON 对象");
+            }
+        } else if (params != null) {
+            return errorJson("params 必须是对象（键值对）");
+        }
+
+        List<String> unknown = input.keySet().stream().filter(key -> !allowed.contains(key)).toList();
+        if (!unknown.isEmpty()) {
+            return errorJson(name + " 不支持参数 " + unknown + "；可用：" + allowed);
+        }
+
+        return switch (name) {
+            case "stock" -> searchStock(text(input, "productId"), text(input, "productName"),
+                    text(input, "locationCode"), text(input, "batchNumber"), text(input, "containerCode"),
+                    number(input, "pageNo"), number(input, "pageSize"));
+            case "product" -> searchProducts(text(input, "productName"), text(input, "productCode"),
+                    text(input, "productBarcode"), text(input, "productBrand"), text(input, "ownerId"),
+                    number(input, "pageNo"), number(input, "pageSize"));
+            case "product_detail" -> requireId(name, input, this::getProduct);
+            case "stock_in_order" -> searchStockInOrders(text(input, "orderNumber"),
+                    text(input, "orderType"), text(input, "status"), text(input, "expectedArrivalTime"),
+                    number(input, "pageNo"), number(input, "pageSize"));
+            case "stock_in_order_detail" -> requireId(name, input, this::getStockInOrder);
+            case "out_order" -> searchOutOrders(text(input, "orderNo"), text(input, "orderType"),
+                    text(input, "status"), text(input, "warehouseId"), text(input, "ownerId"),
+                    number(input, "pageNo"), number(input, "pageSize"));
+            case "out_order_detail" -> requireId(name, input, this::getOutOrder);
+            case "shipment" -> searchShipments(text(input, "shipmentNo"), text(input, "trackingNo"),
+                    text(input, "orderNo"), text(input, "status"),
+                    number(input, "pageNo"), number(input, "pageSize"));
+            case "warehouse" -> searchWarehouseNetwork("warehouse", text(input, "code"),
+                    text(input, "name"), null, null, text(input, "status"),
+                    number(input, "pageNo"), number(input, "pageSize"));
+            case "storage_zone" -> searchWarehouseNetwork("zone", text(input, "code"),
+                    text(input, "name"), text(input, "warehouseId"), null, text(input, "status"),
+                    number(input, "pageNo"), number(input, "pageSize"));
+            case "storage_location" -> searchWarehouseNetwork("location", text(input, "code"),
+                    null, text(input, "warehouseId"), text(input, "zoneId"), text(input, "status"),
+                    number(input, "pageNo"), number(input, "pageSize"));
+            case "receive_task" -> searchTasks("receive", text(input, "taskNumber"),
+                    text(input, "status"), text(input, "productId"),
+                    number(input, "pageNo"), number(input, "pageSize"));
+            case "putaway_task" -> searchTasks("putaway", text(input, "taskNumber"),
+                    text(input, "status"), text(input, "productId"),
+                    number(input, "pageNo"), number(input, "pageSize"));
+            case "picking_task" -> searchTasks("picking", text(input, "taskNumber"),
+                    text(input, "status"), text(input, "productId"),
+                    number(input, "pageNo"), number(input, "pageSize"));
+            case "wave" -> searchTasks("wave", text(input, "waveNo"),
+                    text(input, "status"), null, number(input, "pageNo"), number(input, "pageSize"));
+            case "shortage" -> searchTasks("shortage", null,
+                    text(input, "status"), text(input, "productId"),
+                    number(input, "pageNo"), number(input, "pageSize"));
+            default -> errorJson("未知 resource=" + resource);
+        };
+    }
+
+    /** 详情类资源统一校验 id，缺了给出可纠正的错误而不是查空 */
+    private String requireId(String resource, Map<String, Object> input,
+                             java.util.function.Function<String, String> lookup) {
+        String id = text(input, "id");
+        return id == null || id.isBlank()
+                ? errorJson(resource + " 缺少必填参数 id")
+                : lookup.apply(id);
+    }
+
+    private static String text(Map<String, Object> params, String key) {
+        Object value = params.get(key);
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private static Integer number(Map<String, Object> params, String key) {
+        Object value = params.get(key);
+        if (value instanceof Number num) {
+            return num.intValue();
+        }
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(String.valueOf(value).trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     // ---------- 1. 库存（组合查询：productName → productId 透明换查） ----------
 
-    @Tool(name = "wms_search_stock",
-            description = "查询 WMS 库存（数量/批次/储位）：按商品、储位编码、批次号、容器编码过滤，"
-                    + "返回库存数量、分配数量、可用数量等。支持直接传 productName，"
-                    + "服务端自动先查商品表换 productId 再查库存（对调用方透明）")
     public String searchStock(
             @ToolParam(description = "商品 id（可选；与 productName 至少提供其一，也可两者都不传改用其他过滤条件）", required = false)
             String productId,
@@ -104,8 +271,6 @@ public class WmsTools {
 
     // ---------- 2. 商品 ----------
 
-    @Tool(name = "wms_search_products",
-            description = "检索 WMS 商品档案：按商品名称/编码/条码/品牌/货主过滤，返回商品名称、编码、规格、条码、品牌等信息")
     public String searchProducts(
             @ToolParam(description = "商品名称（可选，精确过滤）", required = false) String productName,
             @ToolParam(description = "商品编码/SKU 编码（可选，精确过滤）", required = false) String productCode,
@@ -126,8 +291,6 @@ public class WmsTools {
         }
     }
 
-    @Tool(name = "wms_get_product",
-            description = "查询单个 WMS 商品完整档案（按商品 id）")
     public String getProduct(
             @ToolParam(description = "商品 id") String id) {
         try {
@@ -147,8 +310,6 @@ public class WmsTools {
 
     // ---------- 3. 入库单 ----------
 
-    @Tool(name = "wms_search_stock_in_orders",
-            description = "检索 WMS 入库单：按入库单号/单据类型/状态/预期到货时间过滤，返回单号、类型、收货/上架进度等")
     public String searchStockInOrders(
             @ToolParam(description = "入库单号（可选，精确过滤）", required = false) String orderNumber,
             @ToolParam(description = "单据类型（可选，如采购入库等，以 WMS 字典为准）", required = false) String orderType,
@@ -168,8 +329,6 @@ public class WmsTools {
         }
     }
 
-    @Tool(name = "wms_get_stock_in_order",
-            description = "查询单个 WMS 入库单完整详情：主表单据 + 商品明细行一次返回（免多次往返）")
     public String getStockInOrder(
             @ToolParam(description = "入库单 id（可先用 wms_search_stock_in_orders 检索得到）") String id) {
         try {
@@ -191,8 +350,6 @@ public class WmsTools {
 
     // ---------- 4. 出库单 ----------
 
-    @Tool(name = "wms_search_out_orders",
-            description = "检索 WMS 出库单：按出库单号/单据类型/状态/仓库/货主过滤，返回单号、类型、数量、收件人、发货信息等")
     public String searchOutOrders(
             @ToolParam(description = "出库单号（可选，精确过滤）", required = false) String orderNo,
             @ToolParam(description = "单据类型（可选，以 WMS 字典为准）", required = false) String orderType,
@@ -213,8 +370,6 @@ public class WmsTools {
         }
     }
 
-    @Tool(name = "wms_get_out_order",
-            description = "查询单个 WMS 出库单完整详情：主表单据 + 商品明细 + 库存分配明细一次返回（免多次往返）")
     public String getOutOrder(
             @ToolParam(description = "出库单 id（可先用 wms_search_out_orders 检索得到）") String id) {
         try {
@@ -238,9 +393,6 @@ public class WmsTools {
 
     // ---------- 5. 包裹/发运（list + 逐单附带明细） ----------
 
-    @Tool(name = "wms_search_shipments",
-            description = "检索 WMS 包裹/发运记录（含包裹明细）：按发运单号/运单号/订单号/状态过滤，"
-                    + "返回物流承运、包裹数量、收发地址等，结果自动附带每个包裹的明细（最多前 10 条）")
     public String searchShipments(
             @ToolParam(description = "发运单号（可选，精确过滤）", required = false) String shipmentNo,
             @ToolParam(description = "运单号/物流单号（可选，精确过滤）", required = false) String trackingNo,
@@ -280,9 +432,6 @@ public class WmsTools {
 
     // ---------- 6. 仓储网络（level 分派） ----------
 
-    @Tool(name = "wms_search_warehouse_network",
-            description = "查询 WMS 仓储网络：仓库/库区/库位三级结构。level=warehouse 查仓库、zone 查库区、location 查库位，"
-                    + "配合编码/名称关键词、上级仓库 id、上级库区 id 过滤")
     public String searchWarehouseNetwork(
             @ToolParam(description = "查询层级：warehouse=仓库 / zone=库区 / location=库位") String level,
             @ToolParam(description = "编码关键词（仓库编码/库区编码/库位编码，精确过滤）", required = false) String code,
@@ -320,9 +469,6 @@ public class WmsTools {
 
     // ---------- 7. 作业任务（taskType 分派） ----------
 
-    @Tool(name = "wms_search_tasks",
-            description = "查询 WMS 作业任务：收货/上架/拣货任务、波次、缺货登记。"
-                    + "taskType=receive 查收货任务、putaway 查上架任务、picking 查拣货任务、wave 查波次、shortage 查缺货登记")
     public String searchTasks(
             @ToolParam(description = "任务类型：receive=收货 / putaway=上架 / picking=拣货 / wave=波次 / shortage=缺货登记") String taskType,
             @ToolParam(description = "任务号（receive/putaway/picking 对应任务号；wave 对应波次号；shortage 不支持）", required = false) String taskNumber,

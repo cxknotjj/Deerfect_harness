@@ -1,0 +1,491 @@
+package com.dark.javaHarness.agent;
+
+import com.dark.javaHarness.agent.BranchProgressListener;
+import com.dark.javaHarness.agent.agentic.AgentScopeModelFactory;
+import com.dark.javaHarness.agent.agentic.SpringAiToolBridge;
+import com.dark.javaHarness.config.AgenticProperties;
+import com.dark.javaHarness.config.ChatTimeoutProperties;
+import com.dark.javaHarness.config.ContextBudgetProperties;
+import com.dark.javaHarness.contract.model.AgentConfig;
+import com.dark.javaHarness.contract.model.ChatAttachment;
+import com.dark.javaHarness.contract.model.Goal;
+import com.dark.javaHarness.knowledge.KnowledgeRetriever;
+import com.dark.javaHarness.llm.catalog.AgentCatalog;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.observability.LlmCallObserver;
+import com.dark.javaHarness.observability.LlmCallRecorder;
+import com.dark.javaHarness.prompt.ContextCompositionRecorder;
+import com.dark.javaHarness.prompt.PromptAssembler;
+import com.dark.javaHarness.prompt.SkillManager;
+import com.dark.javaHarness.prompt.SystemAssembly;
+import com.dark.javaHarness.prompt.ToolLazyManager;
+import com.dark.javaHarness.contract.api.AgentService;
+import com.dark.javaHarness.contract.api.SessionService;
+import com.dark.javaHarness.tool.ToolAssignments;
+import com.dark.javaHarness.tool.trace.ToolCallTracer;
+import io.agentscope.core.ReActAgent;
+import io.agentscope.core.agent.RuntimeContext;
+import io.agentscope.core.event.AgentEvent;
+import io.agentscope.core.event.AgentResultEvent;
+import io.agentscope.core.event.ExceedMaxItersEvent;
+import io.agentscope.core.event.ModelCallEndEvent;
+import io.agentscope.core.event.TextBlockDeltaEvent;
+import io.agentscope.core.event.ThinkingBlockDeltaEvent;
+import io.agentscope.core.message.AssistantMessage;
+import io.agentscope.core.message.Base64Source;
+import io.agentscope.core.message.ContentBlock;
+import io.agentscope.core.message.GenerateReason;
+import io.agentscope.core.message.ImageBlock;
+import io.agentscope.core.message.Msg;
+import io.agentscope.core.message.TextBlock;
+import io.agentscope.core.message.UserMessage;
+import io.agentscope.core.model.ChatUsage;
+import io.agentscope.core.model.ExecutionConfig;
+import io.agentscope.core.model.GenerateOptions;
+import io.agentscope.core.model.Model;
+import io.agentscope.core.tool.Toolkit;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.metadata.Usage;
+import org.springframework.ai.tool.ToolCallback;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.SignalType;
+import reactor.core.publisher.Sinks;
+
+/**
+ * Agentic SIMPLE 路径（路径 A）：以 AgentScope {@code ReActAgent} 驱动推理-行动循环，
+ * 工具/模型/记忆/观测仍由项目既有设施提供。
+ *
+ * <p>与 {@link GeneralAssistantAgent} 的差异：后者是「单次 ChatClient 调用 + Spring AI 内部
+ * 工具循环」，本类是显式 ReAct（多轮推理/工具、最大迭代次数、可中断）；两条路径输出契约一致
+ * （内容 token + {@link ProgressLine} 进度行 + meta 由上层收口）。
+ *
+ * <p>关键边界：
+ * <ul>
+ *   <li>工具：Spring AI {@code ToolCallback}（含 MCP/沙箱）经 {@link SpringAiToolBridge} 注册进
+ *       AgentScope Toolkit，不使用 AgentScope 自带 MCP client；预算/观测/懒加载装饰链照常生效；</li>
+ *   <li>记忆：不启用 AgentScope AgentStateStore，每次请求把裁剪后的 MySQL 历史转成 Msg 列表注入，
+ *       避免与 SessionService 双写；</li>
+ *   <li>模型：AgentScope OpenAI 兼容扩展按 llm_model 部署行（经路由成员解析）构建，Key 解析与 ChatClient 同源；</li>
+ *   <li>观测：{@link LlmCallObserver} 记一轮 llm_call_log（usage 优先取模型末帧真实值）；</li>
+ *   <li>取消：外层 Flux cancel → {@code agent.interrupt(RuntimeContext)}；</li>
+ *   <li>回退：AgentScope 初始化失败（模型/Key/工具装配）时按开关回退 {@link GeneralAssistantAgent}，
+ *       流已开始后不切换。</li>
+ * </ul>
+ */
+public class AgentScopeGeneralAgent implements Agent {
+
+    private static final Logger log = LoggerFactory.getLogger(AgentScopeGeneralAgent.class);
+
+    private static final String DEFAULT_SYSTEM_PROMPT =
+            "你是一个执行任务的 AI 助手，请直接给出简洁、可执行的完成结果。你能记住本会话之前的对话内容，回答时结合历史上下文。";
+
+    private final String agentName;
+    private final AgentService agentService;
+    private final SessionService memoryStore;
+    private final PromptAssembler promptAssembler;
+    private final ContextBudgetProperties budgets;
+    private final ChatTimeoutProperties timeouts;
+    private final AgenticProperties agentic;
+    private final AgentScopeModelFactory modelFactory;
+    private final AgentRequestSpecFactory specFactory;
+    private final LlmCallObserver observer;
+    /** ChatClient 路径回退实例（初始化失败时使用；null = 不回退） */
+    private final Agent fallback;
+    /** 上下文构成快照写入器（null = 不记录，单测场景） */
+    private final ContextCompositionRecorder compositionRecorder;
+
+    public AgentScopeGeneralAgent(String agentName,
+                                  AgentService agentService,
+                                  SessionService memoryStore,
+                                  ToolAssignments toolAssignments,
+                                  LlmCallRecorder recorder,
+                                  ContextBudgetProperties budgets,
+                                  ToolLazyManager lazyTools,
+                                  PromptAssembler promptAssembler,
+                                  SkillManager skillManager,
+                                  KnowledgeRetriever knowledgeRetriever,
+                                  ChatTimeoutProperties timeouts,
+                                  AgentScopeModelFactory modelFactory,
+                                  AgenticProperties agentic,
+                                  Agent fallback,
+                                  ContextCompositionRecorder compositionRecorder,
+                                  ModelResolver modelResolver,
+                                  AgentCatalog llmAgentCatalog,
+                                  LlmClientRegistry llmClientRegistry) {
+        this.agentName = agentName;
+        this.agentService = agentService;
+        this.memoryStore = memoryStore;
+        this.promptAssembler = promptAssembler;
+        this.budgets = budgets;
+        this.timeouts = timeouts;
+        this.agentic = agentic;
+        this.modelFactory = modelFactory;
+        this.fallback = fallback;
+        this.compositionRecorder = compositionRecorder;
+        this.specFactory = new AgentRequestSpecFactory(promptAssembler, toolAssignments,
+                lazyTools, skillManager, memoryStore, budgets, knowledgeRetriever, recorder,
+                com.dark.javaHarness.tool.DefaultToolDecorators.defaults(lazyTools, skillManager,
+                        budgets, recorder), null,
+                modelResolver, llmAgentCatalog, llmClientRegistry);
+        this.observer = new LlmCallObserver(recorder);
+    }
+
+    @Override
+    public String name() {
+        return agentName;
+    }
+
+    @Override
+    public String execute(Goal goal) {
+        String content = executeStreamReactive(goal)
+                .filter(line -> !ProgressLine.isProgress(line))
+                .collect(Collectors.joining())
+                .block();
+        return content == null ? "" : content;
+    }
+
+    /**
+     * 带图片的执行：图片作为多模态内容块直接交给模型，而不是转成一句「用户发了张图」。
+     *
+     * <p>只处理图片（`image/*`）：其他类型当前没有来源，出现了也按忽略处理，避免把
+     * 未知字节塞进模型请求。
+     */
+    @Override
+    public String execute(Goal goal, List<ChatAttachment> attachments) {
+        if (attachments == null || attachments.isEmpty()) {
+            return execute(goal);
+        }
+        String content = executeStreamReactive(goal, attachments)
+                .filter(line -> !ProgressLine.isProgress(line))
+                .collect(Collectors.joining())
+                .block();
+        return content == null ? "" : content;
+    }
+
+    @Override
+    public void executeStream(Goal goal, Consumer<String> onToken) {
+        if (onToken == null) {
+            execute(goal);
+            return;
+        }
+        executeStreamReactive(goal)
+                .filter(line -> !ProgressLine.isProgress(line))
+                .doOnNext(onToken)
+                .blockLast();
+    }
+
+    @Override
+    public Flux<String> executeStreamReactive(Goal goal) {
+        return executeStreamReactive(goal, List.of());
+    }
+
+    /** 流式执行（带附件）：与无附件版本共用 streamInternal，只是消息多几个内容块 */
+    private Flux<String> executeStreamReactive(Goal goal, List<ChatAttachment> attachments) {
+        return Flux.defer(() -> {
+            try {
+                return streamInternal(goal, attachments);
+            } catch (Exception e) {
+                if (agentic.isFallbackEnabled() && fallback != null) {
+                    log.warn("[agentic-{}] AgentScope 初始化失败，回退 ChatClient 路径（附件不随回退传递）：{}",
+                            agentName, safe(e), e);
+                    return fallback.executeStreamReactive(goal);
+                }
+                return Flux.error(e);
+            }
+        });
+    }
+
+    private Flux<String> streamInternal(Goal goal) {
+        return streamInternal(goal, List.of());
+    }
+
+    private Flux<String> streamInternal(Goal goal, List<ChatAttachment> attachments) {
+        String sessionId = goal.sessionId();
+        AgentConfig config = agentService.getAgentConfig(agentName)
+                .orElse(new AgentConfig(null, null, null, null));
+        String spanId = CallTrace.newSpanId();
+        CallTrace trace = CallTrace.fromGoal(goal).withSpan(spanId);
+        long start = System.currentTimeMillis();
+        int maxAttempts = Math.max(1, agentic.getMaxAttempts());
+
+        // 1) system（PromptAssembler + RAG）与历史（MySQL → 预算裁剪）复用 ChatClient 路径的组装面
+        SystemAssembly system = specFactory.assembleSystem(config, sessionId, agentName,
+                DEFAULT_SYSTEM_PROMPT, goal.objective(), trace);
+        List<Message> history = specFactory.loadHistory(sessionId);
+        List<Message> trimmed = specFactory.trimHistory(sessionId, history);
+
+        // 2) 工具：装饰后的 Spring AI ToolCallback → AgentScope ToolBase（进度行仍由装饰链发射）
+        Sinks.Many<String> content = Sinks.many().unicast().onBackpressureBuffer();
+        Sinks.Many<String> progress = Sinks.many().unicast().onBackpressureBuffer();
+        List<ToolCallback> tools = specFactory.resolveTools(agentName, sessionId,
+                row -> BranchProgressListener.tryEmitSerialized(progress, row), false, null);
+        Toolkit toolkit = new Toolkit();
+        for (ToolCallback tool : tools) {
+            toolkit.registerTool(new SpringAiToolBridge(tool));
+        }
+
+        // 3) 模型与 ReAct 执行体
+        Model model = modelFactory.build(agentName, config);
+        ReActAgent agent = buildAgent(model, system.text(), toolkit, config);
+        List<Msg> messages = toAgentScopeMessages(trimmed);
+        messages.add(userMessage(goal.objective(), attachments));
+        // 上下文构成快照（Path B）：不经 advisor，直接取裁剪后的历史 + 当前 user + system/工具口径
+        if (compositionRecorder != null && sessionId != null && !sessionId.isBlank()) {
+            List<Message> finalMessages = new ArrayList<>(trimmed);
+            finalMessages.add(new org.springframework.ai.chat.messages.UserMessage(goal.objective()));
+            compositionRecorder.record(sessionId, agentName, modelFactory.modelName(agentName, config),
+                    trace.turnId(), system, AgentRequestSpecFactory.toolSchemaTokens(tools),
+                    finalMessages);
+        }
+        RuntimeContext runtime = runtimeContext(sessionId, trace);
+
+        // 4) 事件映射与观测
+        StringBuilder collected = new StringBuilder();
+        int[] usageTotals = new int[3];
+        AtomicLong firstTokenAt = new AtomicLong();
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        AtomicBoolean completed = new AtomicBoolean();
+        CallContext ctx = new CallContext(observer, sessionId, agentName, modelFactory.modelName(agentName, config),
+                promptAssembler.attachmentsOf(agentName), trace.turnId(), trace.traceId(), spanId,
+                trace.parentSpan(), modelFactory.routeAttempt(agentName, config));
+
+        Flux<AgentEvent> events = agent.streamEvents(messages, runtime)
+                .doOnNext(event -> onEvent(event, content, progress, collected, usageTotals, firstTokenAt, config))
+                .doOnError(errorRef::set)
+                .doFinally(sig -> record(ctx, start, collected, usageTotals, firstTokenAt, errorRef,
+                        sig, maxAttempts, content, progress, completed));
+
+        // events 必须被订阅才会驱动 ReAct 执行：以 thenMany 空流并入 merge（只做驱动，不产出 String）
+        return Flux.merge(content.asFlux(), progress.asFlux(), events.thenMany(Flux.<String>empty()))
+                .doOnCancel(() -> {
+                    try {
+                        agent.interrupt(runtime);
+                        log.warn("[agentic-{}] 客户端断开，已中断 ReAct 执行", agentName);
+                    } catch (Exception e) {
+                        log.warn("[agentic-{}] 中断 ReAct 执行失败：{}", agentName, safe(e));
+                    }
+                });
+    }
+
+    private ReActAgent buildAgent(Model model, String system, Toolkit toolkit, AgentConfig config) {
+        int maxIters = agentic.getMaxIters() > 0 ? agentic.getMaxIters() : 5;
+        int readTimeout = timeouts.getReadTimeoutSeconds() == null
+                ? 300 : timeouts.getReadTimeoutSeconds();
+        ReActAgent.Builder builder = ReActAgent.builder()
+                .name(agentName)
+                .sysPrompt(system)
+                .model(model)
+                .toolkit(toolkit)
+                .maxIters(maxIters)
+                .modelExecutionConfig(ExecutionConfig.builder()
+                        .timeout(Duration.ofSeconds(readTimeout))
+                        .maxAttempts(Math.max(1, agentic.getMaxAttempts()))
+                        .initialBackoff(Duration.ofMillis(500))
+                        .maxBackoff(Duration.ofSeconds(4))
+                        .backoffMultiplier(2.0)
+                        .build());
+        if (budgets.getMaxTokensFinal() > 0) {
+            builder.generateOptions(GenerateOptions.builder()
+                    .maxTokens(budgets.getMaxTokensFinal())
+                    .build());
+        }
+        return builder.build();
+    }
+
+    private static RuntimeContext runtimeContext(String sessionId, CallTrace trace) {
+        RuntimeContext.Builder builder = RuntimeContext.builder()
+                .userId("anonymous")
+                .sessionId(sessionId);
+        if (trace.turnId() != null) {
+            builder.put(ToolCallTracer.CTX_TURN_ID, trace.turnId());
+        }
+        if (trace.traceId() != null) {
+            builder.put(ToolCallTracer.CTX_TRACE_ID, trace.traceId());
+        }
+        if (trace.spanId() != null) {
+            builder.put(ToolCallTracer.CTX_PARENT_SPAN, trace.spanId());
+        }
+        return builder.build();
+    }
+
+    private void onEvent(AgentEvent event, Sinks.Many<String> content, Sinks.Many<String> progress,
+                         StringBuilder collected, int[] usageTotals,
+                         AtomicLong firstTokenAt, AgentConfig config) {
+        if (event instanceof TextBlockDeltaEvent delta) {
+            firstTokenAt.compareAndSet(0, System.currentTimeMillis());
+            collected.append(delta.getDelta());
+            BranchProgressListener.tryEmitSerialized(content, delta.getDelta());
+        } else if (event instanceof ThinkingBlockDeltaEvent thinking) {
+            if (Boolean.TRUE.equals(config.thinking())) {
+                BranchProgressListener.tryEmitSerialized(progress,
+                        ProgressLine.encode("思考 · " + agentName, thinking.getDelta()));
+            }
+        } else if (event instanceof ModelCallEndEvent end) {
+            // ReAct 多轮工具调用会多次 MODEL_CALL：usage 逐次累加，避免只记末轮导致低估
+            ChatUsage usage = end.getUsage();
+            if (usage != null) {
+                usageTotals[0] += nullSafe(usage.getInputTokens());
+                usageTotals[1] += nullSafe(usage.getOutputTokens());
+                usageTotals[2] += nullSafe(usage.getTotalTokens());
+            }
+        } else if (event instanceof AgentResultEvent result) {
+            // 事件流偶发只回放文本前缀，最终 Msg 才含完整回答：补发未上屏的尾部（不重复已输出部分）
+            String text = result.getResult() == null ? null : result.getResult().getTextContent();
+            if (text != null && text.length() > collected.length() && text.startsWith(collected.toString())) {
+                String suffix = text.substring(collected.length());
+                collected.append(suffix);
+                BranchProgressListener.tryEmitSerialized(content, suffix);
+            }
+            // ReAct 达到 maxIters 后不会直接失败：AgentScope 会进入 summarizing 阶段再调一次模型，
+            // 最终是否有总结由 GenerateReason.MAX_ITERATIONS 的结果 Msg 决定——
+            // 有输出即「部分完成」正常返回，无输出才交由上层降级（此前在 Exceed 事件处就断言，语义不准）
+            GenerateReason reason = result.getResult() == null ? null : result.getResult().getGenerateReason();
+            if (reason == GenerateReason.MAX_ITERATIONS) {
+                boolean hasOutput = (text != null && !text.isEmpty()) || !collected.isEmpty();
+                if (hasOutput) {
+                    BranchProgressListener.tryEmitSerialized(progress,
+                            ProgressLine.encode("agentic", "部分完成：达到最大迭代轮次，已输出整理结果"));
+                    log.warn("[agentic-{}] 达到最大迭代轮次，summarizing 产出整理结果，按部分完成返回", agentName);
+                } else {
+                    // 总结为空/整理失败：Agentic 链路不升级 Graph，返回兜底话术，避免空回答
+                    String fallbackText = "本次任务未能在限定轮次内完成，请重试或把问题拆小一些。";
+                    collected.append(fallbackText);
+                    BranchProgressListener.tryEmitSerialized(content, fallbackText);
+                    BranchProgressListener.tryEmitSerialized(progress,
+                            ProgressLine.encode("agentic", "达到最大迭代轮次，未产出有效总结，已返回兜底提示"));
+                    log.warn("[agentic-{}] 达到最大迭代轮次，summarizing 未产出有效总结，已返回兜底话术", agentName);
+                }
+            }
+        } else if (event instanceof ExceedMaxItersEvent) {
+            // 只提示进入整理阶段：maxIters 后仍会 summarizing 再出总结（结果判定见 AgentResultEvent）；
+            // Agentic 链路不做 Graph 升级，这里不再发内部控制信号
+            BranchProgressListener.tryEmitSerialized(progress,
+                    ProgressLine.encode("agentic", "达到最大迭代轮次，正在整理当前结果…"));
+        }
+    }
+
+    private void record(CallContext ctx, long start, StringBuilder collected,
+                        int[] usageTotals, AtomicLong firstTokenAt,
+                        AtomicReference<Throwable> errorRef, SignalType sig, int maxAttempts,
+                        Sinks.Many<String> content, Sinks.Many<String> progress,
+                        AtomicBoolean completed) {
+        if (!completed.compareAndSet(false, true)) {
+            return;
+        }
+        Throwable err = errorRef.get();
+        if (err == null && sig == SignalType.CANCEL) {
+            err = new IllegalStateException("客户端断开（stream cancel）");
+        } else if (err == null && sig == SignalType.ON_ERROR) {
+            err = new IllegalStateException("流式异常终止");
+        }
+        try {
+            if (err == null) {
+                ctx.ok(null, start, collected.toString(), toUsage(usageTotals), firstTokenAt.get(),
+                        1, maxAttempts);
+                BranchProgressListener.tryCompleteSerialized(content);
+                BranchProgressListener.tryCompleteSerialized(progress);
+            } else {
+                ctx.error(start, asException(err), 1, maxAttempts);
+                content.tryEmitError(err);
+                progress.tryEmitError(err);
+            }
+        } catch (Exception e) {
+            log.warn("[agentic-{}] 收尾失败（不影响主链路）：{}", agentName, safe(e));
+        }
+    }
+
+    /**
+     * 构造本轮用户消息：无附件是纯文本；有图片则拼成「一个文本块 + 若干图片块」，
+     * 图片以 base64 内联交给支持视觉的模型。
+     *
+     * <p>非图片附件跳过：当前没有来源，把未知字节塞进请求只会让模型侧报错。
+     *
+     * <p>包内可见：单测直接验证内容块构造，不必把整个 Agent 跑起来。
+     */
+    static UserMessage userMessage(String text, List<ChatAttachment> attachments) {
+        if (attachments == null || attachments.isEmpty()) {
+            return new UserMessage(text);
+        }
+        List<ContentBlock> blocks = new ArrayList<>(attachments.size() + 1);
+        blocks.add(TextBlock.builder().text(text).build());
+        for (ChatAttachment attachment : attachments) {
+            if (attachment.mimeType() == null || !attachment.mimeType().startsWith("image/")) {
+                continue;
+            }
+            String base64 = Base64.getEncoder().encodeToString(attachment.data());
+            blocks.add(ImageBlock.builder()
+                    .source(new Base64Source(attachment.mimeType(), base64))
+                    .build());
+        }
+        return new UserMessage(blocks);
+    }
+
+    private static List<Msg> toAgentScopeMessages(
+            List<Message> history) {
+        List<Msg> messages = new ArrayList<>(history.size());
+        for (Message message : history) {
+            String text = message.getText();
+            if (text == null || text.isBlank()) {
+                continue;
+            }
+            if (message instanceof org.springframework.ai.chat.messages.AssistantMessage) {
+                messages.add(new AssistantMessage(text));
+            } else if (message instanceof org.springframework.ai.chat.messages.UserMessage) {
+                messages.add(new UserMessage(text));
+            }
+            // 历史中的 system/tool 消息不注入：system 由 sysPrompt 承载，工具结果不入历史快照
+        }
+        return messages;
+    }
+
+    private static Usage toUsage(int[] totals) {
+        if (totals[2] == 0 && totals[0] == 0 && totals[1] == 0) {
+            return null;
+        }
+        return new Usage() {
+            @Override
+            public Integer getPromptTokens() {
+                return totals[0];
+            }
+
+            @Override
+            public Integer getCompletionTokens() {
+                return totals[1];
+            }
+
+            @Override
+            public Integer getTotalTokens() {
+                return totals[2];
+            }
+
+            @Override
+            public Object getNativeUsage() {
+                return null;
+            }
+        };
+    }
+
+    private static int nullSafe(Integer value) {
+        return value == null ? 0 : value;
+    }
+
+    private static Exception asException(Throwable t) {
+        return t instanceof Exception ex ? ex : new IllegalStateException(String.valueOf(t), t);
+    }
+
+    private static String safe(Throwable t) {
+        return t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage();
+    }
+}

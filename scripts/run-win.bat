@@ -1,14 +1,16 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0.."
 
 REM ================================================================
 REM  javaHarness one-click launcher (Windows-native edition).
 REM  Requires a Windows-side checkout of this repo plus Windows
 REM  JDK 25 (JAVA_HOME must point at it) + Maven on PATH
-REM  (script resolves .mvn\settings.xml via %~dp0).
+REM  (script switches to the repo root; pom.xml / .mvn\settings.xml live there).
 REM  NOTE: this script does NOT load .env.local; set API keys via setx.
 REM  For the WSL-based environment use run-wsl.sh instead.
+REM  This file lives in scripts\; it switches to the repo root before
+REM  invoking Maven (pom.xml and .mvn\settings.xml only exist there).
 REM  Run only ONE launcher at a time (port 8080 conflict).
 REM  NOTE: keep this file ASCII-only (cmd parses .bat with the console
 REM  codepage; multi-byte chars in a UTF-8 .bat break line parsing).
@@ -37,7 +39,7 @@ echo [2/3] Stopping stale server on port 8080 (if any)...
 for /f "tokens=5" %%p in ('netstat -aon ^| findstr ":8080" ^| findstr "LISTENING"') do taskkill /F /PID %%p >nul 2>&1
 echo.
 echo [2/3] Starting server...
-start "javaHarness-server" cmd /k "cd /d %~dp0 && mvn -s .mvn\settings.xml -pl server spring-boot:run"
+start "javaHarness-server" cmd /k "cd /d %~dp0.. && mvn -s .mvn\settings.xml -pl deerfect-server spring-boot:run"
 echo Server window opened.
 echo.
 
@@ -64,7 +66,7 @@ echo Opening CLI chat window...
 echo Type text to chat, /exit to quit.
 REM exec:java is not part of the compile lifecycle - compile must run first,
 REM otherwise stale classes stay in target\classes (caused mojibake regression once)
-start "java_harness_cli" cmd /k "cd /d %~dp0 && mvn -s .mvn\settings.xml -pl cli -Pcli compile exec:exec"
+start "java_harness_cli" cmd /k "cd /d %~dp0.. && mvn -s .mvn\settings.xml -pl deerfect-cli -Pcli compile exec:exec"
 
 echo.
 echo Server and CLI launched. Two windows opened.

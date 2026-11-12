@@ -1,0 +1,115 @@
+package com.dark.javaHarness.domain.entity;
+
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import java.time.LocalDateTime;
+import lombok.Data;
+
+/**
+ * LLM 调用观测实体，对应表 llm_call_log。
+ * 由 LlmCallRecorder 在每次 LLM 调用结束后异步写入。
+ */
+@Data
+@TableName("llm_call_log")
+public class LlmCallLogEntity {
+
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
+    /** 关联会话ID（路由判断等无会话场景为空） */
+    private String sessionId;
+
+    /** 调用方角色（lead/researcher/aggregator/general/route-judge 等） */
+    private String agentName;
+
+    /** 实际使用的模型名 */
+    private String model;
+
+    /** 调用形态：SYNC-阻塞 / STREAM-流式 */
+    private String callKind;
+
+    /** 结果：OK / ERROR */
+    private String status;
+
+    /** 输入 token 数（流式为近似估算） */
+    private Integer promptTokens;
+
+    /** 输出 token 数（流式为近似估算） */
+    private Integer completionTokens;
+
+    /** 总 token 数 */
+    private Integer totalTokens;
+
+    /** token 是否为近似估算：1-是 */
+    private Integer tokensEstimated;
+
+    /** 调用耗时（毫秒） */
+    private Long durationMs;
+
+    /** 失败原因（status=ERROR 时） */
+    private String errorMsg;
+
+    /** prompt 装配的技能名单（CSV，空为 NULL） */
+    private String skillNames;
+
+    /** prompt 装配的工具名单（CSV，空为 NULL） */
+    private String toolNames;
+
+    /** prompt 装配的 MCP 工具名单（tool_names 子集，CSV，空为 NULL） */
+    private String mcpToolNames;
+
+    /** LLM 回复文本摘要（成功调用截断 200 字符；失败为 NULL） */
+    private String outputSummary;
+
+    /** 首 token 到达延迟（毫秒；流式成功调用有值，SYNC 与失败为 NULL） */
+    private Long firstTokenMs;
+
+    /** 供应商缓存命中 token（原生 usage 无该信息为 NULL） */
+    private Integer cachedTokens;
+
+    /** 本次记录为第几次尝试（1 起；无重试通道记 1；路由判定/画像为 NULL） */
+    private Integer attempt;
+
+    /** 重试上限（与 LlmRetry.maxAttempts 口径一致；无重试通道记 1） */
+    private Integer maxAttempts;
+
+    /** 轮次标识（一条用户消息触发的完整处理；/submit 直发与历史数据为 NULL） */
+    private String turnId;
+
+    /** 调用链标识（一次 Agent 执行链；route-judge/画像等非执行树调用为 NULL） */
+    private String traceId;
+
+    /** 单次调用标识（调用发起前生成；观测行必有） */
+    private String spanId;
+
+    /** 父调用的 span_id（根调用为 NULL） */
+    private String parentSpan;
+
+    /** 调用发起时刻（轨迹时序排序键；NULL=历史行/未采集，前端排序回退 created_at） */
+    private LocalDateTime startedAt;
+
+    /** 命中的路由 id（无路由/非路由调用为 NULL） */
+    private Long routeId;
+
+    /** 命中的路由代码（main/fast/judge 等） */
+    private String routeCode;
+
+    /** 实际使用的模型部署 id */
+    private Long modelId;
+
+    /** 实际供应商代码 */
+    private String providerCode;
+
+    /** 实际请求下发的模型名 */
+    private String upstreamName;
+
+    /** 从哪个模型切换而来（首选成员为 NULL） */
+    private Long fallbackFromModelId;
+
+    /** 失败分类：timeout/connection/4xx/5xx/cancel/other（成功为 NULL） */
+    private String errorClass;
+
+    /** 调用结束时间 */
+    private LocalDateTime createdAt;
+}

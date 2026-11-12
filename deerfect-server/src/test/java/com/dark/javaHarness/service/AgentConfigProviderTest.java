@@ -1,0 +1,318 @@
+package com.dark.javaHarness.service;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.dark.javaHarness.contract.model.AgentConfig;
+import com.dark.javaHarness.domain.entity.AgentEntity;
+import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RoutePlan;
+import com.dark.javaHarness.mapper.AgentMapper;
+import java.util.List;
+import java.util.Optional;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+/**
+ * AgentConfigProvider 单测：按 agentId 查名称、按 agentName 读部署模型绑定/提示词。
+ * agent.model_provider_id → model_provider.id 解析模型名。
+ */
+@ExtendWith(MockitoExtension.class)
+class AgentConfigProviderTest {
+
+    @Mock
+    private AgentMapper agentMapper;
+    @Mock
+    private ModelResolver modelResolver;
+
+    private AgentConfigProvider provider;
+
+    @BeforeAll
+    static void initEntityMeta() {
+        // LambdaQueryWrapper 的 select(lambda 列) 依赖 TableInfo 缓存（单测无 MyBatis 环境，与
+        // GoalServiceImplTest 同法手工初始化），否则 findToolPack/findAgentTools 构建 wrapper 即抛异常
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), ""), AgentEntity.class);
+    }
+
+    private AgentConfigProvider newProvider() {
+        return new AgentConfigProvider(agentMapper, modelResolver);
+    }
+
+    @Test
+    void findAgentNameById_hit_shouldReturnWriter() {
+        provider = newProvider();
+        AgentEntity row = new AgentEntity();
+        row.setAgentId(2L);
+        row.setAgentName("writer");
+        when(agentMapper.selectById(2L)).thenReturn(row);
+
+        assertEquals("writer", provider.findAgentNameById(2L).orElse("general"));
+    }
+
+    @Test
+    void findAgentNameById_miss_shouldReturnEmpty() {
+        provider = newProvider();
+        when(agentMapper.selectById(999L)).thenReturn(null);
+
+        assertTrue(provider.findAgentNameById(999L).isEmpty(), "agentId=999 无记录应回退空");
+    }
+
+    @Test
+    void findAgentNameById_null_shouldReturnEmpty() {
+        provider = newProvider();
+        assertTrue(provider.findAgentNameById(null).isEmpty(), "null agentId 应返回空");
+    }
+
+    @Test
+    void getAgentConfig_hit_shouldResolveModelNameFromProviderRow() {
+        provider = newProvider();
+        AgentEntity row = new AgentEntity();
+        row.setAgentName("writer");
+        row.setRouteId(1L);
+        row.setPrompt("你是写作助手");
+        // getAgentConfig 使用 LambdaQueryWrapper.selectOne，这里 mock 返回该行
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(row);
+        when(modelResolver.resolve(1L)).thenReturn(new RoutePlan(1L, "main", List.of(
+                new RoutePlan.Member(10L, 1L, "dashscope", "https://example.com", "gpt-4o", "GPT-4o",
+                        10, "{}", null))));
+
+        Optional<AgentConfig> cfg = provider.getAgentConfig("writer");
+        assertTrue(cfg.isPresent());
+        assertEquals(10L, cfg.get().modelId());
+        assertEquals("gpt-4o", cfg.get().model(), "模型名应取路由首选成员的 upstream_name");
+        assertEquals("你是写作助手", cfg.get().prompt());
+    }
+
+    @Test
+    void getAgentConfig_miss_shouldReturnEmpty() {
+        provider = newProvider();
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(null);
+
+        assertTrue(provider.getAgentConfig("nonexistent").isEmpty());
+    }
+
+    /** 查询失败应上抛：返回 empty 会让上层按「未配置」回退默认模型，事后无法从响应里察觉 */
+    @Test
+    void getAgentConfig_queryError_shouldPropagate() {
+        provider = newProvider();
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new RuntimeException("db down"));
+
+        assertThrows(RuntimeException.class, () -> provider.getAgentConfig("general"));
+    }
+
+    /** 同一 agent 连续读取走缓存：命中后不再查 agent / model_provider 两张表（编排内 10+ 次读取只落 2 条查询） */
+    @Test
+    void getAgentConfig_repeated_shouldQueryTablesOnce() {
+        provider = newProvider();
+        AgentEntity row = new AgentEntity();
+        row.setAgentName("writer");
+        row.setRouteId(1L);
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(row);
+        when(modelResolver.resolve(1L)).thenReturn(new RoutePlan(1L, "main", List.of(
+                new RoutePlan.Member(10L, 1L, "dashscope", "https://example.com", "gpt-4o", "GPT-4o",
+                        10, "{}", null))));
+
+        provider.getAgentConfig("writer");
+        provider.getAgentConfig("writer");
+        provider.getAgentConfig("writer");
+
+        verify(agentMapper, times(1)).selectOne(org.mockito.ArgumentMatchers.any());
+        verify(modelResolver, times(1)).resolve(1L);
+    }
+
+    @Test
+    void getAgentConfig_noRoute_shouldThrow() {
+        provider = newProvider();
+        AgentEntity row = new AgentEntity();
+        row.setAgentName("general");
+        row.setRouteId(null);
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(row);
+        when(modelResolver.resolve(null))
+                .thenThrow(new IllegalArgumentException("routeId 不能为空"));
+
+        assertThrows(IllegalArgumentException.class, () -> provider.getAgentConfig("general"),
+                "未绑定路由是配置错误，不得静默回退默认模型");
+    }
+
+    @Test
+    void getAgentConfig_routeResolveError_shouldPropagate() {
+        provider = newProvider();
+        AgentEntity row = new AgentEntity();
+        row.setAgentName("general");
+        row.setRouteId(404L);
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(row);
+        when(modelResolver.resolve(404L))
+                .thenThrow(new IllegalStateException("llm_route 不存在或未启用: id=404"));
+
+        assertThrows(IllegalStateException.class, () -> provider.getAgentConfig("general"));
+    }
+
+    @Test
+    void listAgentNames_multiRows_shouldFilterBlankNames() {
+        provider = newProvider();
+        AgentEntity general = new AgentEntity();
+        general.setAgentName("general");
+        AgentEntity writer = new AgentEntity();
+        writer.setAgentName("writer");
+        AgentEntity blank = new AgentEntity();
+        blank.setAgentName("  ");
+        when(agentMapper.selectList(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of(general, writer, blank));
+
+        List<String> names = provider.listAgentNames();
+
+        assertEquals(List.of("general", "writer"), names, "应返回行名并过滤空白名");
+    }
+
+    @Test
+    void listAgentNames_emptyTable_shouldReturnEmptyList() {
+        provider = newProvider();
+        when(agentMapper.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of());
+
+        assertTrue(provider.listAgentNames().isEmpty(), "空表应返回空列表");
+    }
+
+    @Test
+    void listAgentNames_queryError_shouldReturnEmptyListNotThrow() {
+        provider = newProvider();
+        when(agentMapper.selectList(org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new RuntimeException("db down"));
+
+        assertTrue(provider.listAgentNames().isEmpty(), "查询异常应返回空列表而非抛出");
+    }
+
+    // ================================================================
+    // 工具包定义（findToolPack）：包名 = is_internal=0 且 tools 列非空的行名
+    // ================================================================
+
+    @Test
+    void findToolPack_hit_shouldParseToolNamesAndPrompt() {
+        provider = newProvider();
+        AgentEntity row = new AgentEntity();
+        row.setIsInternal(0);
+        row.setTools("wms_stock_query, wms_inbound_create");
+        row.setPrompt("仓储操作纪律：先查后写");
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(row);
+
+        Optional<AgentConfigProvider.ToolPackDef> pack = provider.findToolPack("wms");
+
+        assertTrue(pack.isPresent());
+        assertEquals(List.of("wms_stock_query", "wms_inbound_create"), pack.get().toolNames(),
+                "tools CSV 按逗号拆分、trim、保序");
+        assertEquals("仓储操作纪律：先查后写", pack.get().disciplinePrompt());
+    }
+
+    @Test
+    void findToolPack_internalRow_shouldReturnEmpty() {
+        provider = newProvider();
+        AgentEntity row = new AgentEntity();
+        row.setIsInternal(1);
+        row.setTools("wms_stock_query");
+        row.setPrompt("内部角色");
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(row);
+
+        assertTrue(provider.findToolPack("lead").isEmpty(), "is_internal=1 的编排内部行不是工具包");
+    }
+
+    @Test
+    void findToolPack_nullInternal_shouldReturnEmpty() {
+        provider = newProvider();
+        AgentEntity row = new AgentEntity();
+        row.setIsInternal(null);
+        row.setTools("wms_stock_query");
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(row);
+
+        assertTrue(provider.findToolPack("wms").isEmpty(), "is_internal NULL 防御性视为非包");
+    }
+
+    @Test
+    void findToolPack_blankTools_shouldReturnEmpty() {
+        provider = newProvider();
+        AgentEntity row = new AgentEntity();
+        row.setIsInternal(0);
+        row.setTools("   ");
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(row);
+
+        assertTrue(provider.findToolPack("wms").isEmpty(), "tools 空白 → 非包");
+    }
+
+    @Test
+    void findToolPack_onlyBlankTokens_shouldReturnEmpty() {
+        provider = newProvider();
+        AgentEntity row = new AgentEntity();
+        row.setIsInternal(0);
+        row.setTools(" , , ");
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(row);
+
+        assertTrue(provider.findToolPack("wms").isEmpty(), "tools 拆分后无有效项 → 非包");
+    }
+
+    @Test
+    void findToolPack_rowMissing_shouldReturnEmpty() {
+        provider = newProvider();
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(null);
+
+        assertTrue(provider.findToolPack("no-such-pack").isEmpty(), "无该行 → 非包");
+    }
+
+    /** 查询失败应上抛：静默返回 empty 会让该包的工具与纪律段整段消失，Agent 降级作答 */
+    @Test
+    void findToolPack_queryError_shouldPropagate() {
+        provider = newProvider();
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new RuntimeException("db down"));
+
+        assertThrows(RuntimeException.class, () -> provider.findToolPack("wms"));
+    }
+
+    @Test
+    void findToolPack_nullOrBlankName_shouldReturnEmpty() {
+        provider = newProvider();
+
+        assertTrue(provider.findToolPack(null).isEmpty(), "null 包名应返回 empty");
+        assertTrue(provider.findToolPack("  ").isEmpty(), "空白包名应返回 empty");
+    }
+
+    private AgentEntity agentRow(Integer thinking) {
+        AgentEntity row = new AgentEntity();
+        row.setAgentName("general");
+        row.setRouteId(1L);
+        row.setThinking(thinking);
+        return row;
+    }
+
+    /** thinking 列三态读取（显示口径）：1=透传 true；0/NULL=不透传 false */
+    @Test
+    void getAgentConfig_thinkingThreeStates() {
+        // 每个状态用一个新实例：getAgentConfig 带进程内缓存，同实例重复读会命中首次结果
+        when(modelResolver.resolve(1L)).thenReturn(new RoutePlan(1L, "main", List.of(
+                new RoutePlan.Member(10L, 1L, "dashscope", "https://example.com", "gpt-4o", "GPT-4o",
+                        10, "{}", null))));
+        provider = newProvider();
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(agentRow(1));
+        assertTrue(provider.getAgentConfig("general").orElseThrow().thinking(),
+                "thinking=1 应映射为 true（透传显示）");
+
+        provider = newProvider();
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(agentRow(0));
+        assertTrue(!provider.getAgentConfig("general").orElseThrow().thinking(),
+                "thinking=0 应映射为 false（不透传）");
+
+        provider = newProvider();
+        when(agentMapper.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(agentRow(null));
+        assertTrue(!provider.getAgentConfig("general").orElseThrow().thinking(),
+                "thinking=NULL 应映射为 false（不透传）");
+    }
+}

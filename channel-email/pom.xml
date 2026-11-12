@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>com.dark</groupId>
-        <artifactId>java-harness</artifactId>
+        <artifactId>deerfect-harness</artifactId>
         <version>0.0.1-SNAPSHOT</version>
     </parent>
     <artifactId>channel-email</artifactId>
@@ -21,7 +21,7 @@
     <dependencies>
         <dependency>
             <groupId>com.dark</groupId>
-            <artifactId>harness-api</artifactId>
+            <artifactId>deerfect-harness-api</artifactId>
             <version>${project.version}</version>
         </dependency>
         <!-- SMTP 客户端：只在渠道模块里，server 的依赖树不含它（不启用邮件时完全不引入） -->

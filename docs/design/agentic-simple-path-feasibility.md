@@ -26,14 +26,14 @@
 
 ### 2.1 两条路径现状
 
-- **路由分流**：`RouteJudge` 输出 `SIMPLE` / `COMPLEX`，异常兜底 SIMPLE（[LlmRouteJudge.java](../../server/src/main/java/com/dark/javaHarness/service/impl/route/LlmRouteJudge.java)）。
+- **路由分流**：`RouteJudge` 输出 `SIMPLE` / `COMPLEX`，异常兜底 SIMPLE（[LlmRouteJudge.java](../../deerfect-server/src/main/java/com/dark/javaHarness/service/impl/route/LlmRouteJudge.java)）。
 - **SIMPLE（路径 A）**：`GeneralAssistantAgent` → `AgentChatCaller` → Spring AI `ChatClient`，已具备：
   - 多轮工具调用（`ToolCallback` 由 Spring AI 内部循环执行）
   - 工具调用硬上限（`tool-call-limit: 4`）、工具结果预算（5000 token）、懒加载 Schema、技能索引
   - 流式 token、思考内容透传、工具起止进度行
   - 重试（`LlmRetry` 3 次）、取消、`llm_call_log` 观测、MCP/沙箱/RAG 工具
-  - 见 [GeneralAssistantAgent.java](../../server/src/main/java/com/dark/javaHarness/agent/GeneralAssistantAgent.java#L27-L45) 与 [AgentChatCaller.java](../../server/src/main/java/com/dark/javaHarness/agent/AgentChatCaller.java#L163-L214)
-- **COMPLEX（路径 B）**：自研 `ParallelOrchestrationEngine`（Lead 拆解 → 子任务并行 → 聚合 → 检查点续跑），见 [ParallelOrchestrationEngine.java](../../server/src/main/java/com/dark/javaHarness/graph/engine/ParallelOrchestrationEngine.java#L28-L98)。
+  - 见 [GeneralAssistantAgent.java](../../deerfect-server/src/main/java/com/dark/javaHarness/agent/GeneralAssistantAgent.java#L27-L45) 与 [AgentChatCaller.java](../../deerfect-server/src/main/java/com/dark/javaHarness/agent/AgentChatCaller.java#L163-L214)
+- **COMPLEX（路径 B）**：自研 `ParallelOrchestrationEngine`（Lead 拆解 → 子任务并行 → 聚合 → 检查点续跑），见 [ParallelOrchestrationEngine.java](../../deerfect-server/src/main/java/com/dark/javaHarness/graph/engine/ParallelOrchestrationEngine.java#L28-L98)。
 
 ### 2.2 项目里的 AgentScope 是什么（同名不同物）
 
@@ -50,7 +50,7 @@
 | `agentscope-core:2.0.4` | ReActAgent / Toolkit / 事件 / 状态框架 | ❌ 未引入 |
 | `agentscope-extensions-model-*` | DashScope / OpenAI 等模型扩展 | ❌ 未引入 |
 
-- 版本属性 `agentscope.version=1.0.2` 仅为沙箱模块服务（[pom.xml](../../pom.xml#L42)、[server/pom.xml](../../server/pom.xml#L41-L48)）。
+- 版本属性 `agentscope.version=1.0.2` 仅为沙箱模块服务（[pom.xml](../../pom.xml#L42)、[server/pom.xml](../../deerfect-server/pom.xml#L41-L48)）。
 - 因此引入 `agentscope-core` 属于**新增第二套 Agent 执行框架**，不是复用已有能力。
 
 ### 2.3 关键依赖实测（`mvn dependency:tree -pl server`）
@@ -318,7 +318,7 @@ SpringAiToolBridge extends ToolBase
   结果：`agentscope-core:2.0.4:test`、`agentscope-extensions-model-openai:2.0.4:test`、
   `io.modelcontextprotocol.sdk:mcp:2.1.0:compile`（无 0.17.2）。
 
-**用例与结果**：[AgentScopeReActPoC](../../server/src/test/java/com/dark/javaHarness/agent/agentic/AgentScopeReActPoC.java)
+**用例与结果**：[AgentScopeReActPoC](../../deerfect-server/src/test/java/com/dark/javaHarness/agent/agentic/AgentScopeReActPoC.java)
 
 | 用例 | 验证内容 | 结果 |
 |---|---|---|
@@ -378,10 +378,10 @@ AGENT_START → MODEL_CALL_START → TOOL_CALL_START → TOOL_CALL_DELTA → TOO
 ## 13. 参考
 
 **仓库代码**
-- [GeneralAssistantAgent.java](../../server/src/main/java/com/dark/javaHarness/agent/GeneralAssistantAgent.java)
-- [AgentChatCaller.java](../../server/src/main/java/com/dark/javaHarness/agent/AgentChatCaller.java)
-- [ParallelOrchestrationEngine.java](../../server/src/main/java/com/dark/javaHarness/graph/engine/ParallelOrchestrationEngine.java)
-- [server/pom.xml](../../server/pom.xml#L41-L48)
+- [GeneralAssistantAgent.java](../../deerfect-server/src/main/java/com/dark/javaHarness/agent/GeneralAssistantAgent.java)
+- [AgentChatCaller.java](../../deerfect-server/src/main/java/com/dark/javaHarness/agent/AgentChatCaller.java)
+- [ParallelOrchestrationEngine.java](../../deerfect-server/src/main/java/com/dark/javaHarness/graph/engine/ParallelOrchestrationEngine.java)
+- [server/pom.xml](../../deerfect-server/pom.xml#L41-L48)
 - [TECH_STACK.md](../TECH_STACK.md)
 
 **AgentScope Java 文档**

@@ -19,10 +19,10 @@
 
 | 分类       | 技术                         | 版本     | 用途 / 说明                                                                        |
 | -------- | -------------------------- | ------ | ------------------------------------------------------------------------------ |
-| 语言       | Java                       | 25     | JDK 版本（`pom.xml` release 25；启动前把 `JAVA_HOME` 指向 JDK 25，`run-wsl.sh` / `run-win.bat` 均按此校验）                 |
+| 语言       | Java                       | 25     | JDK 版本（`pom.xml` release 25；Maven Enforcer 在 validate 阶段强制 JDK 25+，低版本直接构建失败并提示）                 |
 | 构建       | Maven                      | -      | 依赖与构建管理，本地仓库重定向 `.mvn-repo`                                                    |
 | 核心框架     | Spring Boot                | 4.1.2  | Web 应用框架（与 Spring AI 2.0.2 对齐）                                               |
-| AI 框架    | Spring AI                  | 2.0.2  | `spring-ai-starter-model-openai`，以 OpenAI 兼容协议统一对接多供应商（DashScope qwen3.7-flash / DeepSeek deepseek-v4-flash），按 `model_provider` 表路由 |
+| AI 框架    | Spring AI                  | 2.0.2  | `spring-ai-starter-model-openai`，以 OpenAI 兼容协议统一对接多供应商（DashScope / DeepSeek / 第三方代理），按 `llm_route` 路由成员选择端点 |
 | Agent 执行 | agentscope-core            | 2.0.4  | Agentic 路径显式 ReAct（`AgentScopeGeneralAgent`）：工具仍走 Spring AI ToolCallback 桥接，排除其自带 MCP SDK/Victools 旧版；`app.agentic.enabled=false` 回退 ChatClient 路径 |
 | 编排引擎    | 自研 `ParallelOrchestrationEngine` | -      | lead→并行子任务→聚合；阶段检查点落 `orchestration_checkpoint`（LEAD_DONE/SUBTASKS_DONE/DONE），替代 StateGraph |
 | 沙箱工具  | agentscope-runtime-sandbox-core | 1.0.2  | 容器级工具隔离（`SandboxToolkit` 本地薄封装）：base 容器（Python/Shell/文件读写检索）+ browser 容器（导航/快照/点击/输入），Docker 硬依赖 |
@@ -36,7 +36,7 @@
 | HTTP 客户端 | OkHttp                     | 5.5.0  | CLI 端调用主服务 REST/SSE（`cli/api/ChatApiClient`）；模型调用经 Spring AI 内置 OkHttp 传输 |
 | 序列化      | Jackson                    | 3.x（随 Boot） | DTO 序列化 / SSE meta 解析 / 工具入参（`tools.jackson` 包）                          |
 | 代码生成     | Lombok                     | -      | 实体类简化                                                                          |
-| 测试       | JUnit 5 / Mockito          | 随 Boot | harness-api 5 类 / 40 例、服务端 109 类 / 968 例（另有 channel-qq 8/83、cli 3/28、wms-mcp-adapter 4/43，合计 129 类 / 1162 例）；除 `JavaHarnessApplicationTests` 需本机 MySQL 外不依赖真实 DB/网络，见 docs/guides/functional-testing.md（2026-11-07 核对） |
+| 测试       | JUnit 5 / Mockito          | 随 Boot | 2026-11-12 实跑 1474 例（1 skip）：deerfect-api 52、deerfect-server 1082、channel-qq 85、channel-email 15、channel-feishu 152、deerfect-cli 30、wms-mcp-adapter 58；除 `JavaHarnessApplicationTests` 需本机 MySQL 外不依赖真实 DB/网络，见 docs/guides/functional-testing.md |
 | 日志       | SLF4J + Logback            | 随 Boot | Agent 执行状态日志                                                                   |
 | 初始化 SQL  | ~~schema.sql~~ 已移除         | -      | 由 Flyway 迁移脚本接管（见上）                                                            |
 
@@ -55,12 +55,12 @@ controller（REST + SSE 流式 + 全局异常处理 + 观测查询三接口，�
         ├─ advisor（ContextAssemblingAdvisor：上下文组装/token 裁剪）
         ├─ tool（WebTools 网页抓取 / DemoTools 示例 / SandboxToolProvider 容器沙箱 / ToolAssignments 工具分配）
         ├─ knowledge（RAG 知识库：KnowledgeDocumentScanner 扫描 / MarkdownChunker 切分 / KnowledgeIngestor 增量摄取 / HybridKnowledgeRetriever 混合检索 / KnowledgeRetriever 检索注入）
-        ├─ cli（独立模块：ChatCli 启动组装 / CommandDispatcher 命令分发 / StreamRenderer SSE 渲染 / cli/api ChatApiClient：OkHttp + SSE 解析）
+        ├─ deerfect-cli（独立模块：ChatCli 启动组装 / CommandDispatcher 命令分发 / StreamRenderer SSE 渲染 / cli/api ChatApiClient：OkHttp + SSE 解析）
         ├─ channel-qq（独立模块：NapCat/OneBot 接入；会话绑定持久化在同模块 persistence）
-        ├─ domain（server 自身领域模型：RouteDecision 分流决策 / LlmCallLog 等观测记录；契约 DTO 在 harness-api 的 view/，实体在 harness-api domain/）
-        ├─ mapper（Agent / Goal / Session / SessionMessage / ModelProvider / 各观测日志 Mapper；OneBot 绑定 Mapper 在 channel-qq）
-        ├─ enums（server 侧 AgentConstants；GoalStatus/SseProtocol 在 harness-api）
-        └─ 配置（application.yaml 入口 + application-*.yaml 分域 + config/agent：ChatAgentConfig、ChatClientFactory、ChatClientRegistry）
+        ├─ domain（server 自身领域模型：RouteDecision 分流决策 / LlmCallLog 等观测记录；契约 DTO 在 deerfect-api 的 view/，实体在 deerfect-api domain/）
+        ├─ mapper（Agent / Goal / Session / SessionMessage / LlmProvider / LlmModel / LlmRoute / 各观测日志 Mapper；OneBot 绑定 Mapper 在 channel-qq）
+        ├─ enums（deerfect-server 侧 AgentConstants；GoalStatus/SseProtocol 在 deerfect-api）
+        └─ 配置（application.yaml 入口 + application-*.yaml 分域 + config/agent：ChatAgentConfig、ChatClientFactory）
 ```
 
 ### 关键设计
@@ -144,8 +144,8 @@ controller（REST + SSE 流式 + 全局异常处理 + 观测查询三接口，�
 ## 四、注意事项
 
 - **版本约束**：Java 25 / Spring Boot 4.1.2 / Spring AI 2.0.2（Jackson 3、OpenAI Java SDK）为当前基线，升级需整体回归模型调用与工具链。
-- **模型路由**：模型按 `model_provider` 表路由到各服务商（DashScope / DeepSeek，OpenAI 兼容协议）。API Key 解析规则：`app.providers.<provider>.api-key`（yaml）→ `<PROVIDER大写>_API_KEY`（环境变量，如 `DEEPSEEK_API_KEY`）。`general`/`researcher` 走 deepseek-v4-flash，`lead`/`aggregator`/`coder`/`analyst` 等质量敏感环节走 qwen3.7-flash。
-- **DB 迁移**：schema 由 Flyway 管理（`db/migration/V1~V11`）。存量库首次接入自动 baseline（V1 跳过、增量执行）；全新库从 V1 全量建表。新增表结构变更只需追加 `V12__xxx.sql`，启动自动应用。
+- **模型路由**：Agent 绑定 `llm_route`，成员按 `priority` 构成失败链；端点与凭证来自 `llm_provider`，部署名与能力来自 `llm_model`。API Key 解析规则：`credential_ref` → `app.providers.<provider>.api-key`（yaml）→ `<PROVIDER大写>_API_KEY`（环境变量）。
+- **DB 迁移**：schema 由 Flyway 管理（`db/migration/V1~V23`）。新增表结构变更只需追加 `Vxx__xxx.sql`，启动自动应用。
 - **RAG 可选依赖**：知识库需要自备 PostgreSQL（启用 vector 扩展）并在 `app.knowledge.*` 配置连接与嵌入端点；`knowledge/` 目录不存在或 PG 未就绪不影响启动与其它功能（检索静默降级为空，管理端点报清晰错误）。
 - **Docker 硬依赖**：沙箱工具依赖本机 Docker；两个镜像需预拉取（aliyun 新加坡 registry）：`runtime-sandbox-base:latest`（约 1.4GB）与 `runtime-sandbox-browser:latest`（约 2GB），否则首个工具调用会现场拉镜像拖慢执行。无 Docker 时沙箱工具组为空（warn 日志），其余功能不受影响。该次接入的过程记录为当时存档、仓库已清理；现行沙箱工具面见 [project-structure.md](./project-structure.md)。
 - **容器生命周期**：容器随首次工具调用懒创建、服务优雅停止时随 `@PreDestroy` 销毁；强杀 `mvn spring-boot:run` 不触发优雅关闭会残留容器，需正常停服或 `docker rm -f` 清理。

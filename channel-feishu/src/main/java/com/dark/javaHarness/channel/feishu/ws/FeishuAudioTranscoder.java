@@ -54,6 +54,13 @@ public class FeishuAudioTranscoder {
      * <p>返回空不是异常：语音是锦上添花，发不出去应当退回文字，而不是让整条回复失败。
      */
     public Optional<Encoded> toOpus(byte[] audio) {
+        return toOpus(audio, false);
+    }
+
+    /**
+     * @param music true = 音乐（高码率 + 立体声），false = 语音
+     */
+    public Optional<Encoded> toOpus(byte[] audio, boolean music) {
         FeishuProperties.Ws.Voice cfg = props.getWs().getVoice();
         if (!cfg.isEnabled()) {
             return Optional.empty();
@@ -67,7 +74,7 @@ public class FeishuAudioTranscoder {
             in = Files.createTempFile("harness-voice-", ".mp3");
             out = Files.createTempFile("harness-voice-", ".opus");
             Files.write(in, audio);
-            Process process = new ProcessBuilder(command(in, out))
+            Process process = new ProcessBuilder(command(in, out, music))
                     .redirectErrorStream(true)
                     .start();
             boolean finished = process.waitFor(cfg.getTimeoutSeconds(), TimeUnit.SECONDS);
@@ -114,8 +121,10 @@ public class FeishuAudioTranscoder {
      * <p>{@code -nostdin} 不能省：否则 ffmpeg 可能去读标准输入，在「没接终端」的进程里
      * 直接挂住——服务端正是这种环境。
      */
-    List<String> command(Path in, Path out) {
+    List<String> command(Path in, Path out, boolean music) {
         FeishuProperties.Ws.Voice cfg = props.getWs().getVoice();
+        String bitrate = music ? cfg.getMusic().getBitrate() : cfg.getBitrate();
+        int channels = music ? cfg.getMusic().getChannels() : cfg.getChannels();
         return List.of(
                 cfg.getFfmpeg(),
                 "-hide_banner",
@@ -123,9 +132,9 @@ public class FeishuAudioTranscoder {
                 "-y",
                 "-i", in.toString(),
                 "-c:a", "libopus",
-                "-b:a", cfg.getBitrate(),
+                "-b:a", bitrate,
                 "-ar", "48000",
-                "-ac", "1",
+                "-ac", String.valueOf(channels),
                 out.toString());
     }
 

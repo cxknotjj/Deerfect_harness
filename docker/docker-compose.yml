@@ -156,6 +156,9 @@ services:
       # knowledge 改完调 POST /api/knowledge/sync 增量摄取（mtime 对比，免重启）
       - ../knowledge:/workspace/knowledge:ro
       - ../skills:/workspace/skills:ro
+      # 声明式 HTTP 工具清单（tools/http/*.yaml）：改完调 POST /api/capabilities/reload 生效，
+      # 不用重建容器；凭据走环境变量，清单本身不含密钥
+      - ../tools:/workspace/tools:ro
       # 表情包图片 + 映射表（都不进 git/镜像）。可写挂载：映射表缺失时应用自动建空文件，
       # 宿主机直接编辑后 restart app 生效；图片放进去即时生效
       - ../emojis:/workspace/emojis
@@ -163,8 +166,8 @@ services:
       # prompt 画像段全文读取；整目录挂载防单文件 inode 陷阱（原子替换产生新 inode 后
       # 容器内旧文件挂载失效）；首次部署宿主目录可不存在（docker 自动创建，服务首写落盘）
       - ../user-profile:/workspace/user-profile
-      # MCP server 配置（不进 git，含 API key）：McpToolProvider 启动时读一次，
-      # 改后需 up -d --force-recreate app（或 cat > 覆盖写保 inode 后 restart）
+      # MCP server 配置（不进 git，含 API key）：启动时读一次，改完调
+      # POST /api/capabilities/reload 重载即可（旧连接宽限 30 秒关闭），不用重建容器
       - ../mcp-config.json:/workspace/mcp-config.json:ro
       # 批量覆盖 jar 内 yaml 属性（无需重打镜像）：Spring Boot 默认扫描工作目录 ./config/，
       # 外置文件按键叠加在 jar 内 yaml 之上，只写要改的键、其余沿用默认值；改后 restart app：

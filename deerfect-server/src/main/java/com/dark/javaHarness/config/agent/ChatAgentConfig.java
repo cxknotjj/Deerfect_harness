@@ -1,0 +1,155 @@
+package com.dark.javaHarness.config.agent;
+
+import com.dark.javaHarness.agent.AgentRegistry;
+import com.dark.javaHarness.agent.RagPrefetcher;
+import com.dark.javaHarness.agent.agentic.AgentScopeModelFactory;
+import com.dark.javaHarness.config.AgenticProperties;
+import com.dark.javaHarness.config.ChatTimeoutProperties;
+import com.dark.javaHarness.config.ContextBudgetProperties;
+import com.dark.javaHarness.enums.AgentConstants;
+import com.dark.javaHarness.graph.MultiAgentGraphAgent;
+import com.dark.javaHarness.knowledge.KnowledgeRetriever;
+import com.dark.javaHarness.llm.catalog.AgentCatalog;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RouteExecutor;
+import com.dark.javaHarness.observability.LlmCallRecorder;
+import com.dark.javaHarness.prompt.ContextCompositionRecorder;
+import com.dark.javaHarness.prompt.ActiveGoalSectionProvider;
+import com.dark.javaHarness.prompt.ExplicitMemorySectionProvider;
+import com.dark.javaHarness.prompt.PromptAssembler;
+import com.dark.javaHarness.prompt.SkillManager;
+import com.dark.javaHarness.prompt.SkillSectionProvider;
+import com.dark.javaHarness.prompt.ToolLazyManager;
+import com.dark.javaHarness.prompt.UserProfileSectionProvider;
+import com.dark.javaHarness.service.AgentConfigProvider;
+import com.dark.javaHarness.contract.api.AgentService;
+import com.dark.javaHarness.contract.api.SessionService;
+import com.dark.javaHarness.state.persistence.OrchestrationCheckpointStore;
+import com.dark.javaHarness.tool.ToolAssignments;
+import java.util.List;
+import javax.sql.DataSource;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
+
+/**
+ * 多 Agent 装配：对话 Agent 由 agent 表驱动自动注册（AgentRegistry 承载），
+ * 新增 Agent = agent 表一行（is_internal=0 即对话 Agent，内部角色行置 1，免改代码）。
+ *
+ * 模型客户端统一由 {@code LlmClientRegistry} 按部署模型 id 管理：
+ * Agent 运行时经 Agent → 路由 → 首选成员取对应客户端，模型接入与 Agent 行为彻底解耦。
+ *
+ * 对话 Agent 统一采用 GeneralAssistantAgent（直接单次调用大模型的简单路径），
+ * 实例由 AgentRegistry 按表行构造，不再逐个注册 bean。多 Agent 任务编排链路
+ * （Spring-AI Graph）由 multiAgent bean 承载，供复杂请求（COMPLEX）使用，
+ * 经 AgentRegistry 预注入路由。
+ * 所有 Agent 共享 LlmCallRecorder：每次 LLM 调用的耗时/token 异步落 llm_call_log（观测层）。
+ * 所有 Agent 共享 ToolLazyManager：会话级工具展开集跨路径（A/B）通用——该 bean 只依赖
+ * ToolAssignments（纯工具面数据），与 AgentService/Agent bean 无依赖关系，无循环依赖。
+ */
+@Configuration
+public class ChatAgentConfig {
+
+    /**
+     * 工具 Schema 延迟加载管理器（app.prompt.lazy-tools.enabled，默认 true）：
+     * 路径 A 与编排路径 B 共用同一实例，同一 sessionId 的展开集跨路径通用。
+     */
+    @Bean
+    public ToolLazyManager toolLazyManager(ToolAssignments toolAssignments,
+                                           @Value("${app.prompt.lazy-tools.enabled:true}") boolean lazyToolsEnabled) {
+        return new ToolLazyManager(toolAssignments, lazyToolsEnabled);
+    }
+
+    /**
+     * 共享 Prompt 组装器（prompt 的动态加载）：两路径（GeneralAssistantAgent / multi-agent 编排）
+     * 统一实例——skill 段提供者 Spring 自动收集（当前 {@link SkillManager}，子项 1），
+     * lazy 开关与 toolLazyManager 对齐。@Lazy AgentService 解创建期循环（AgentRegistry
+     * 装配期构造 Agent 实例时才用到组装器，组装器本身只在请求期调 agentService）。
+     */
+    @Bean
+    public PromptAssembler promptAssembler(@Lazy AgentService agentService,
+                                           ToolAssignments toolAssignments,
+                                           List<SkillSectionProvider> skillProviders,
+                                           List<ExplicitMemorySectionProvider> memoryProviders,
+                                           List<UserProfileSectionProvider> profileProviders,
+                                           List<ActiveGoalSectionProvider> goalProviders,
+                                           ToolLazyManager toolLazyManager) {
+        return new PromptAssembler(agentService, toolAssignments, skillProviders,
+                memoryProviders, profileProviders, goalProviders, toolLazyManager.isEnabled());
+    }
+
+    /**
+     * Agent 表驱动注册表：对话 Agent 路由表的唯一来源。
+     * 装配顺序在方法体内显式编排（不用 initMethod，顺序最清晰）：
+     * 先预注入 multi-agent 编排 bean（表行不构造编排实例），再启动注册
+     * （agent 表全部 is_internal=0 行逐行容错注册 + general 行缺失时代码兜底）。
+     */
+    @Bean
+    public AgentRegistry agentRegistry(AgentConfigProvider agentConfigProvider,
+                                       ObjectProvider<AgentService> agentService,
+                                       SessionService memoryStore,
+                                       ToolAssignments toolAssignments,
+                                       LlmCallRecorder recorder,
+                                       ContextBudgetProperties budgets,
+                                       ToolLazyManager toolLazyManager,
+                                       PromptAssembler promptAssembler,
+                                       SkillManager skillManager,
+                                       MultiAgentGraphAgent multiAgent,
+                                       ObjectProvider<KnowledgeRetriever> knowledgeRetriever,
+                                       ChatTimeoutProperties timeouts,
+                                       AgenticProperties agenticProperties,
+                                       AgentScopeModelFactory agentScopeModelFactory,
+                                       ContextCompositionRecorder compositionRecorder,
+                                       ModelResolver modelResolver,
+                                       AgentCatalog llmAgentCatalog,
+                                       LlmClientRegistry llmClientRegistry,
+                                       RouteExecutor routeExecutor) {
+        AgentRegistry agentRegistry = new AgentRegistry(agentConfigProvider, agentService,
+                memoryStore, toolAssignments, recorder, budgets, toolLazyManager,
+                promptAssembler, skillManager, knowledgeRetriever.getIfAvailable(), timeouts,
+                agenticProperties, agentScopeModelFactory, compositionRecorder,
+                modelResolver, llmAgentCatalog, llmClientRegistry, routeExecutor);
+        agentRegistry.register(multiAgent);
+        agentRegistry.init();
+        return agentRegistry;
+    }
+
+    /**
+     * 复杂路径执行体：多 Agent 编排（lead 拆解 → 并行子任务 → 聚合），检查点落
+     * orchestration_checkpoint 表（自研引擎，替代 graph-core MysqlSaver）；memoryStore 与
+     * GeneralAssistantAgent 同源，lead 拆解据此注入会话记忆；toolLazyManager 与路径 A 共享
+     * （会话展开集跨路径通用）；promptAssembler/skillManager 共享实例（skill 索引段与
+     * load_skill 跨路径一致）；knowledgeRetriever 仅知识库启用时非 null（getIfAvailable 惰性解析，
+     * 禁用时编排退化为无知识段）；ragPrefetcher 与 knowledgeRetriever 同条件缺位（禁用时子任务
+     * 入口预取钩子零行为）；agentConfigProvider 为工具包定义读取器（子任务 toolPacks 挂载：
+     * 包工具并入工具面 + 包纪律段拼入 user）。
+     */
+    @Bean
+    public MultiAgentGraphAgent multiAgent(@Lazy AgentService agentService,
+                                           SessionService memoryStore,
+                                           ToolAssignments toolAssignments,
+                                           LlmCallRecorder recorder,
+                                           OrchestrationCheckpointStore checkpointStore,
+                                           ContextBudgetProperties budgets,
+                                           ToolLazyManager toolLazyManager,
+                                           PromptAssembler promptAssembler,
+                                           SkillManager skillManager,
+                                           ObjectProvider<KnowledgeRetriever> knowledgeRetriever,
+                                           ObjectProvider<RagPrefetcher> ragPrefetcher,
+                                           ChatTimeoutProperties timeouts,
+                                           AgentConfigProvider agentConfigProvider,
+                                           ContextCompositionRecorder compositionRecorder,
+                                           ModelResolver modelResolver,
+                                           AgentCatalog llmAgentCatalog,
+                                           LlmClientRegistry llmClientRegistry,
+                                           RouteExecutor routeExecutor) {
+        return new MultiAgentGraphAgent(AgentConstants.MULTI_AGENT, agentService,
+                toolAssignments, recorder, checkpointStore, budgets, memoryStore,
+                toolLazyManager, promptAssembler, skillManager, knowledgeRetriever.getIfAvailable(),
+                timeouts, ragPrefetcher.getIfAvailable(), agentConfigProvider, compositionRecorder,
+                modelResolver, llmAgentCatalog, llmClientRegistry, routeExecutor);
+    }
+}
