@@ -200,6 +200,6 @@ channel-qq: QqMessageSender.send → NapCatApiClient.sendPrivateMsg → POST /se
 - **目标校验**：`target` 必须是合法 QQ 号，解析失败返回 `false` 并 WARN，不抛异常；客户端本身不抛异常、返回 `null` 即未送达
 - **幂等**：推送判定走轮询而非完成事件（Goal 完成点有三处，事件易漏发/重发），`notified_at` 置位后不再重推；发送失败也标记，避免反复刷渠道
 - **与入站回复的区别**：共用 `NapCatApiClient`（客户端自带 1 次重试），但**不经** `SentMessageTracker`，所以 `/recall` 不会撤回主动推送消息；也不参与入站限频与会话绑定
-- **模块边界**：`QqMessageSender` 实现 `harness-api` 的 `MessageSender` 端口（`channel()` 返回 `qq`），core 编译期不依赖渠道代码，由 runtime scope 装配
+- **模块边界**：`QqMessageSender` 实现 `deerfect-api` 的 `MessageSender` 端口（`channel()` 返回 `qq`），core 编译期不依赖渠道代码，由 runtime scope 装配
 
-组件：`channel-qq/.../client/QqMessageSender.java`；端口与注册表见 `harness-api` 的 `MessageSender` / `MessageSenderRegistry`。
+组件：`channel-qq/.../client/QqMessageSender.java`；端口与注册表见 `deerfect-api` 的 `MessageSender` / `MessageSenderRegistry`。

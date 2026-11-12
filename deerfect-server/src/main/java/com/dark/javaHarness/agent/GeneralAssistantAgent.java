@@ -3,10 +3,13 @@ package com.dark.javaHarness.agent;
 import com.dark.javaHarness.agent.BranchProgressListener;
 import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.contract.model.AgentConfig;
 import com.dark.javaHarness.contract.model.Goal;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
+import com.dark.javaHarness.llm.catalog.AgentCatalog;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RouteExecutor;
 import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.PromptAssembler;
@@ -62,69 +65,13 @@ public class GeneralAssistantAgent implements Agent {
     /** 流式重试策略：响应式直答路径与调用器内部阻塞路径共享同一 LlmRetry 实例（口径/上限单一来源） */
     private final LlmRetry streamRetry;
 
-    public GeneralAssistantAgent(String agentName,
-                                 ChatClientRegistry clientRegistry,
-                                 SessionService memoryStore,
-                                 AgentService agentService,
-                                 ToolAssignments toolAssignments,
-                                 LlmCallRecorder recorder) {
-        this(agentName, clientRegistry, memoryStore, agentService, toolAssignments, recorder, null);
-    }
-
-    /** budgets：上下文预算配置（路径 A 会话历史裁剪预算；null 时用内置默认值，单测场景） */
-    public GeneralAssistantAgent(String agentName,
-                                 ChatClientRegistry clientRegistry,
-                                 SessionService memoryStore,
-                                 AgentService agentService,
-                                 ToolAssignments toolAssignments,
-                                 LlmCallRecorder recorder,
-                                 ContextBudgetProperties budgets) {
-        this(agentName, clientRegistry, memoryStore, agentService, toolAssignments, recorder, budgets, null);
-    }
-
-    /**
-     * 全参构造：lazyTools 为 null 时构造禁用态实例（旧构造链/单测场景，工具面全量注入现状）。
-     * 正式装配由 ChatAgentConfig 注入共享实例（app.prompt.lazy-tools.enabled 开关）。
-     */
-    public GeneralAssistantAgent(String agentName,
-                                 ChatClientRegistry clientRegistry,
-                                 SessionService memoryStore,
-                                 AgentService agentService,
-                                 ToolAssignments toolAssignments,
-                                 LlmCallRecorder recorder,
-                                 ContextBudgetProperties budgets,
-                                 ToolLazyManager lazyTools) {
-        this(agentName, clientRegistry, memoryStore, agentService, toolAssignments,
-                recorder, budgets, lazyTools, null, null);
-    }
-
-    /**
-     * 全参构造（含 skill 装配）：promptAssembler/skillManager 为 null 时内部裸构建
-     * （旧构造链/单测场景，无 skill 段、不注册 load_skill）；正式装配由 ChatAgentConfig/
-     * AgentRegistry 注入共享实例（skill 段提供者与 toolLazyManager 开关对齐）。
-     */
-    public GeneralAssistantAgent(String agentName,
-                                 ChatClientRegistry clientRegistry,
-                                 SessionService memoryStore,
-                                 AgentService agentService,
-                                 ToolAssignments toolAssignments,
-                                 LlmCallRecorder recorder,
-                                 ContextBudgetProperties budgets,
-                                 ToolLazyManager lazyTools,
-                                 PromptAssembler promptAssembler,
-                                 SkillManager skillManager) {
-        this(agentName, clientRegistry, memoryStore, agentService, toolAssignments,
-                recorder, budgets, lazyTools, promptAssembler, skillManager, null, null, null);
-    }
-
     /**
      * 全参构造（含 skill 装配与 RAG 知识检索）：knowledgeRetriever 仅知识库启用时非 null
-     * （AgentRegistry 经 ObjectProvider 注入），null 时无知识段注入、行为退化现状。
+     * （AgentRegistry 经 ObjectProvider 注入），null 时无知识段注入。
      * 内部构建 {@link AgentChatCaller} 共享执行引擎（组装链/重试/观测同源）。timeouts 透传
-     * 给调用器作流式空闲超时（null 时走调用器默认）。
+     * 给调用器作流式空闲超时（null 时走调用器默认）。路由解析三件套必填。
      */
     public GeneralAssistantAgent(String agentName,
-                                 ChatClientRegistry clientRegistry,
                                  SessionService memoryStore,
                                  AgentService agentService,
                                  ToolAssignments toolAssignments,
@@ -135,7 +82,11 @@ public class GeneralAssistantAgent implements Agent {
                                  SkillManager skillManager,
                                  KnowledgeRetriever knowledgeRetriever,
                                  ChatTimeoutProperties timeouts,
-                                 ContextCompositionRecorder compositionRecorder) {
+                                 ContextCompositionRecorder compositionRecorder,
+                                 ModelResolver modelResolver,
+                                 AgentCatalog llmAgentCatalog,
+                                 LlmClientRegistry llmClientRegistry,
+                                 RouteExecutor routeExecutor) {
         this.agentName = agentName;
         this.agentService = agentService;
         ToolLazyManager effectiveLazy = lazyTools != null ? lazyTools : new ToolLazyManager(toolAssignments, false);
@@ -148,9 +99,10 @@ public class GeneralAssistantAgent implements Agent {
                 budgets != null ? budgets : new ContextBudgetProperties();
         this.maxTokensFinal = effectiveBudgets.getMaxTokensFinal();
         this.streamRetry = new LlmRetry();
-        this.chatCaller = new AgentChatCaller(clientRegistry, agentService, toolAssignments, recorder,
+        this.chatCaller = new AgentChatCaller(agentService, toolAssignments, recorder,
                 streamRetry, effectiveBudgets, effectiveAssembler, memoryStore, effectiveLazy,
-                skillManager, knowledgeRetriever, timeouts, compositionRecorder);
+                skillManager, knowledgeRetriever, timeouts, compositionRecorder,
+                modelResolver, llmAgentCatalog, llmClientRegistry, routeExecutor);
     }
 
     /** 返回 Agent 名称（用于注册与路由） */
@@ -210,6 +162,8 @@ public class GeneralAssistantAgent implements Agent {
         // 当前尝试序号与起始时刻（观测行 attempt 口径：重试轮由尝试工厂回写，doFinally 终局行取实时值）
         AtomicInteger attemptRef = new AtomicInteger();
         AtomicLong attemptStartRef = new AtomicLong();
+        // 观测口径：本次尝试实际命中的路由成员（失败切换时由 streamRouteMember 回写）
+        AtomicReference<com.dark.javaHarness.llm.routing.RouteAttempt> routeRef = new AtomicReference<>();
         AgentConfig config = agentService.getAgentConfig(agentName)
                 .orElse(new AgentConfig(null, null, null, null));
         // 思考透传旁路（agent 表 thinking 列显示口径：仅控制是否显示思考内容，并不是控制模型是否思考）：
@@ -235,11 +189,11 @@ public class GeneralAssistantAgent implements Agent {
                         attempt -> {
                             attemptRef.set(attempt);
                             attemptStartRef.set(System.currentTimeMillis());
-                            return chatCaller.tokenStreamWithWatchdog(
-                                            chatCaller.buildSpec(config, goal.sessionId(), agentName,
-                                                    DEFAULT_SYSTEM_PROMPT, goal.objective(), assembly,
-                                                    CallTrace.fromGoal(goal).withSpan(spanId)),
-                                            usageRef, null, null, firstTokenAt, config.model(), reasoningTap)
+                            return chatCaller.streamWithRoute(
+                                            config, goal.sessionId(), agentName,
+                                            DEFAULT_SYSTEM_PROMPT, goal.objective(), assembly,
+                                            CallTrace.fromGoal(goal).withSpan(spanId),
+                                            null, usageRef, firstTokenAt, reasoningTap, routeRef)
                                     .doOnNext(collected::append)
                                     .doOnError(streamError::set);
                         },
@@ -250,8 +204,8 @@ public class GeneralAssistantAgent implements Agent {
                                     "重试", "模型调用失败，正在重试（第 " + (attempt + 1) + "/"
                                             + streamRetry.maxAttempts() + " 次）"));
                             // 被重试丢弃的失败尝试：按尝试粒度落观测行（ctx.error 与阻塞路径同构）
-                            ctx.error(attemptStartRef.get(), asException(e), attempt,
-                                    streamRetry.maxAttempts());
+                            ctx.withRoute(routeRef.get()).error(attemptStartRef.get(), asException(e),
+                                    attempt, streamRetry.maxAttempts());
                             if (attempt == 1) {
                                 // 首次失败带全量堆栈记一次（根因链是排错现场）；后续重试保持紧凑
                                 log.warn("[agent-{}] 流式调用失败，将重试（attempt {}/{}）：{}", agentName,
@@ -284,11 +238,12 @@ public class GeneralAssistantAgent implements Agent {
                         err = null;
                     }
                     if (err == null) {
-                        ctx.ok(null, attemptStartRef.get(), collected.toString(), usageRef.get(),
-                                firstTokenAt.get(), attemptRef.get(), streamRetry.maxAttempts());
-                    } else {
-                        ctx.error(attemptStartRef.get(), asException(err), attemptRef.get(),
+                        ctx.withRoute(routeRef.get()).ok(null, attemptStartRef.get(), collected.toString(),
+                                usageRef.get(), firstTokenAt.get(), attemptRef.get(),
                                 streamRetry.maxAttempts());
+                    } else {
+                        ctx.withRoute(routeRef.get()).error(attemptStartRef.get(), asException(err),
+                                attemptRef.get(), streamRetry.maxAttempts());
                     }
                     BranchProgressListener.tryCompleteSerialized(toolEvents);
                 });

@@ -59,9 +59,8 @@
 - [ ] **限制思考预算（Thinking Budget）**：qwen3 类混合推理模型的思考段不受控——长思考拖慢首 token、烧 token。经模型参数透传思考开关与预算上限（如 `enable_thinking` / `thinking_budget`），按 agent/场景粒度生效
   - 设计要点待细化：参数透传方式（Spring AI 2.x `ChatOptions` 扩展）、配置落点（agent 表列 vs `app.chat.*`）、路由场景（SIMPLE 直答可关思考）；思考开关本身已落地（agent 表 `thinking` 列 + `ThinkingSwitchChatModel`），预算上限未做
   - 验收：指定 agent 的思考 token 有上限且可观测；关闭思考的会话直答不含思考段
-- [ ] **沙箱读写工具的重置与安全校验**：沙箱容器懒创建一次后无重置/重建机制（坏状态无法自愈，仅停服 `@PreDestroy` 销毁，强杀进程还会残留容器）；写入/执行工具完全信任模型输出透传容器，容器内无路径越界与危险命令拦截
-  - 改造要点：容器健康探测 + 调用失败自动重建（限重建次数、超限降级空工具面并告警）；写入类工具（`WriteFileTool`/`EditFileTool`/`MoveFileTool` 等）限制在容器工作目录内，拒绝绝对路径与 `..` 越界；执行类工具（`RunShellCommandTool`/`RunPythonCodeTool`）危险命令黑名单拦截（`rm -rf /`、mkfs、fork 炸弹等）并返回可自愈提示
-  - 验收：手动 kill 容器后下次工具调用自动重建成功；写入工作目录外路径被拒绝；危险命令被拦截且编排不中断
+- [x] **沙箱读写工具的重置与安全校验**：已完成（2026-11-12 核对）。`SandboxGuards` 强制读写路径落在 `/workspace`（拒绝 `~` 展开与 `..` 越界），并拦截 `rm -rf /`、`mkfs`、`dd of=/dev/`、fork 炸弹等破坏性命令；`SandboxToolProvider` 已有健康探测（`PROBE_TOKEN`）与失败自动重建（`rebuildBase`，单飞互斥 + 限时探测），坏容器无需停服即可自愈
+  - 已知边界：符号链接逃逸依赖容器隔离兜底（容器不挂载宿主目录）；若将来给沙箱挂载宿主卷，需补容器内 `realpath` 校验
 
 ## P1 · 能力扩展主线（产品核心价值）
 
@@ -105,8 +104,8 @@
 
 ## P3 · 工程化与产品化（按需启动）
 
-- [ ] **Actuator + 监控**：加 `spring-boot-starter-actuator`，暴露健康/指标端点，接 Prometheus + Grafana
-  - 验收：`/actuator/health` 可用，指标可被 Prometheus 抓取
+- [x] **Actuator + 监控**：已落地（2026-11-12 核对）。`spring-boot-starter-actuator` + `micrometer-registry-prometheus`，`application.yaml` 暴露 `health,info,prometheus`；Grafana 看板由部署侧自行配置（仓库不含）
+  - 验收：`/actuator/health` 可用，`/actuator/prometheus` 可被 Prometheus 抓取
 - [ ] **完整链路追踪（Micrometer Tracing）**：接 Spring AI 原生 observation（micrometer-tracing + Zipkin exporter + Zipkin 容器），补齐 `llm_call_log`（成本账本）不具备的**单次请求耗时瀑布**——HTTP → 路由 → lead 拆解 → 各专家 → 聚合每段耗时与父子 span 关系；建议与「Actuator + 监控」同批实施（共享 Micrometer 基建）
   - 验收：Zipkin UI 能看到一次聊天请求的完整瀑布图，观测埋点代码不重写（llm\_call\_log 与 Tracing 互补共存）
 - [x] **工具调用查询端点** **`/api/tool-calls`**（拆自工具日志条目验收尾巴）：`/api/tool-calls?sessionId=` 可查询一次编排内全部工具调用（含 MCP 工具及来源 server）；MCP 某 server 故障时能从日志定位到该 server
@@ -117,13 +116,13 @@
   - 验收：`mvn test` 在容器化 DB 上全绿
 - [ ] **API 文档**：springdoc-openapi 自动生成 Swagger UI
   - 验收：`/swagger-ui.html` 可浏览所有接口
-- [x] **Maven 多模块拆分**（2026-09-18 立项，2026-10-24 完成最终形态）：根 pom `packaging=pom` + `harness-api` / `channel-qq` / `server` / `cli` / `wms-mcp-adapter` 五个模块。
-  - **`harness-api`**：渠道与 core 共用的契约层（`ChatService`/`SessionService`/`AgentService`/`SessionBindingCleaner` 端口、DTO、`SessionEntity`、`GoalStatus`、`SseProtocol`、`ReplyPostProcessor`），包名不变、全项目 import 零改动；框架类型依赖声明为 optional，不向下游传递。
-  - **`server`**：Spring Boot 主服务与 fat jar 宿主（产物路径不变 `server/target/server-0.0.1-SNAPSHOT.jar`），编译期依赖 `harness-api`，以 **runtime** scope 装配 `channel-qq`（core 编译期看不到渠道，`maven-enforcer-plugin` 守护不允许改成 compile）。
-  - **`channel-qq`**：QQ 渠道（NapCat/OneBot 11）整体独立成模块，仅依赖 `harness-api`；mapper 扫描由渠道自身 `NapCatChannelConfig` 承担；渠道输出控制走 core 的通用 `ReplyPostProcessor` SPI（新增处理器 + flag，不改 core）。
-  - **`cli`**：纯 HTTP 客户端，依赖 `harness-api` 获取 DTO/SseProtocol（不再自持副本），运行期 classpath 不引入 spring-ai/mybatis。
+- [x] **Maven 多模块拆分**（2026-09-18 立项，2026-10-24 完成最终形态；2026-11-11 核心模块统一加 `deerfect-` 前缀）：根 pom `packaging=pom` + `deerfect-api` / `channel-qq` / `deerfect-server` / `deerfect-cli` / `wms-mcp-adapter`，后续新增 `channel-email` / `channel-feishu`。
+  - **`deerfect-api`**：渠道与 core 共用的契约层（`ChatService`/`SessionService`/`AgentService`/`SessionBindingCleaner` 端口、DTO、`SessionEntity`、`GoalStatus`、`SseProtocol`、`ReplyPostProcessor`），包名不变、全项目 import 零改动；框架类型依赖声明为 optional，不向下游传递。
+  - **`deerfect-server`**：Spring Boot 主服务与 fat jar 宿主（产物 `deerfect-server/target/deerfect-server-0.0.1-SNAPSHOT.jar`），编译期依赖 `deerfect-api`，以 **runtime** scope 装配 `channel-qq`（core 编译期看不到渠道，`maven-enforcer-plugin` 守护不允许改成 compile）。
+  - **`channel-qq`**：QQ 渠道（NapCat/OneBot 11）整体独立成模块，仅依赖 `deerfect-api`；mapper 扫描由渠道自身 `NapCatChannelConfig` 承担；渠道输出控制走 core 的通用 `ReplyPostProcessor` SPI（新增处理器 + flag，不改 core）。
+  - **`deerfect-cli`**：纯 HTTP 客户端，依赖 `deerfect-api` 获取 DTO/SseProtocol（不再自持副本），运行期 classpath 不引入 spring-ai/mybatis。
   - **`wms-mcp-adapter`**：领域 MCP 适配范例，独立于本次拆分。
-  - 验收：`mvn test` 全绿；`mvn -DskipTests package` 后 `server/target/*.jar` 可直接启动；`server` 主源码树零 `channel.qq` 引用；`docker compose build` 待在具备 Docker 的环境验证。
+  - 验收：`mvn test` 全绿；`mvn -DskipTests package` 后 `deerfect-server/target/*.jar` 可直接启动；`deerfect-server` 主源码树零 `channel.qq` 引用；`docker compose build` 待在具备 Docker 的环境验证。
 - [x] **容器化交付**：Dockerfile + docker-compose（app + MySQL + pgvector）一键启动
   - 验收：`docker compose up` 后完整可访问
 - [x] **CI/CD**：GitHub Actions / Gitee Go 自动流水线（2026-09-18 充实，检查项取自多模块拆分验收清单）

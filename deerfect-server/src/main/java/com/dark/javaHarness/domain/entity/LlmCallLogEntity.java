@@ -89,6 +89,27 @@ public class LlmCallLogEntity {
     /** 调用发起时刻（轨迹时序排序键；NULL=历史行/未采集，前端排序回退 created_at） */
     private LocalDateTime startedAt;
 
+    /** 命中的路由 id（无路由/非路由调用为 NULL） */
+    private Long routeId;
+
+    /** 命中的路由代码（main/fast/judge 等） */
+    private String routeCode;
+
+    /** 实际使用的模型部署 id */
+    private Long modelId;
+
+    /** 实际供应商代码 */
+    private String providerCode;
+
+    /** 实际请求下发的模型名 */
+    private String upstreamName;
+
+    /** 从哪个模型切换而来（首选成员为 NULL） */
+    private Long fallbackFromModelId;
+
+    /** 失败分类：timeout/connection/4xx/5xx/cancel/other（成功为 NULL） */
+    private String errorClass;
+
     /** 调用结束时间 */
     private LocalDateTime createdAt;
 }

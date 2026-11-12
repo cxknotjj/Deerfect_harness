@@ -14,7 +14,6 @@ import com.dark.javaHarness.agent.agentic.AgentScopeModelFactory;
 import com.dark.javaHarness.config.AgenticProperties;
 import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.contract.model.Goal;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.observability.LlmCallRecorder;
@@ -57,8 +56,6 @@ class AgentRegistryTest {
     @Mock
     private ObjectProvider<AgentService> agentServiceProvider;
     @Mock
-    private ChatClientRegistry clientRegistry;
-    @Mock
     private SessionService memoryStore;
     @Mock
     private ToolAssignments toolAssignments;
@@ -67,7 +64,7 @@ class AgentRegistryTest {
 
     private AgentRegistry newRegistry() {
         // recorder/lazyTools 传 null：GA 支持无观测/禁用延迟加载构造（单测场景）
-        return new AgentRegistry(provider, agentServiceProvider, clientRegistry, memoryStore,
+        return new AgentRegistry(provider, agentServiceProvider, memoryStore,
                 toolAssignments, null, new ContextBudgetProperties(), null);
     }
 
@@ -235,7 +232,7 @@ class AgentRegistryTest {
     void agenticEnabled_allRoutableAgentsUseReAct() {
         when(provider.listAgentNames()).thenReturn(List.of("general", "coder"));
         when(agentServiceProvider.getObject()).thenReturn(agentService);
-        AgentRegistry registry = new AgentRegistry(provider, agentServiceProvider, clientRegistry,
+        AgentRegistry registry = new AgentRegistry(provider, agentServiceProvider,
                 memoryStore, toolAssignments, mock(LlmCallRecorder.class), new ContextBudgetProperties(),
                 null, mock(PromptAssembler.class), mock(SkillManager.class),
                 mock(KnowledgeRetriever.class), mock(ChatTimeoutProperties.class),

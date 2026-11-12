@@ -12,7 +12,10 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
+import com.dark.javaHarness.llm.catalog.AgentCatalog;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RoutePlan;
 import com.dark.javaHarness.contract.model.AgentConfig;
 import com.dark.javaHarness.contract.model.Goal;
 import com.dark.javaHarness.domain.LlmCallLog;
@@ -75,7 +78,11 @@ class GeneralAssistantAgentScaffoldTest {
     }
 
     @Mock
-    private ChatClientRegistry clientRegistry;
+    private LlmClientRegistry llmClientRegistry;
+    @Mock
+    private AgentCatalog agentCatalog;
+    @Mock
+    private ModelResolver modelResolver;
     @Mock
     private SessionService memoryStore;
     @Mock
@@ -97,13 +104,21 @@ class GeneralAssistantAgentScaffoldTest {
 
     @BeforeEach
     void setUp() {
-        agent = new GeneralAssistantAgent("general", clientRegistry, memoryStore, agentService,
-                toolAssignments, recorder);
+        agent = new GeneralAssistantAgent("general", memoryStore, agentService,
+                toolAssignments, recorder, null, null, null, null, null, null, null,
+                modelResolver, agentCatalog, llmClientRegistry, null);
         when(agentService.getAgentConfig("general"))
                 .thenReturn(Optional.of(new AgentConfig(1L, "m1", "系统提示词", null)));
         lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
         lenient().when(memoryStore.get(anyString())).thenReturn(List.of());
-        when(clientRegistry.get(1L)).thenReturn(chatClient);
+        com.dark.javaHarness.domain.entity.AgentEntity routeAgent = new com.dark.javaHarness.domain.entity.AgentEntity();
+        routeAgent.setAgentName("general");
+        routeAgent.setRouteId(1L);
+        org.mockito.Mockito.lenient().when(agentCatalog.require(anyString())).thenReturn(routeAgent);
+        org.mockito.Mockito.lenient().when(modelResolver.resolve(1L)).thenReturn(new RoutePlan(1L, "main", List.of(
+                new RoutePlan.Member(9L, 1L, "dashscope", "https://example.com", "m1", "m1",
+                        10, "{}", null))));
+        when(llmClientRegistry.get(9L)).thenReturn(chatClient);
         when(chatClient.prompt()).thenReturn(requestSpec);
         // 请求链公共段：返回值全部丢弃（build 只用 spec 变量），仅 prompt/system/user/advisors 需回链
         lenient().when(requestSpec.system(anyString())).thenReturn(requestSpec);

@@ -5,9 +5,16 @@ import com.dark.javaHarness.agent.BudgetLedger;
 import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.config.agent.ChatClientFactory;
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.contract.model.AgentConfig;
+import com.dark.javaHarness.llm.catalog.AgentCatalog;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.FailurePolicy;
+import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RouteAttempt;
+import com.dark.javaHarness.llm.routing.RouteExecutor;
+import com.dark.javaHarness.llm.routing.RoutePlan;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
+import com.dark.javaHarness.observability.HarnessMetrics;
 import com.dark.javaHarness.observability.LlmCallObserver;
 import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.prompt.ContextCompositionRecorder;
@@ -74,43 +81,21 @@ public final class AgentChatCaller {
     private final AgentChatPipeline pipeline;
     /** 角色装配策略（超长类拆分 2026-09-25 拆出） */
     private final CallSpecAssembler assembler;
-
-    AgentChatCaller(ChatClientRegistry clientRegistry,
-                    AgentService agentService,
-                    ToolAssignments toolAssignments,
-                    LlmCallRecorder recorder) {
-        this(clientRegistry, agentService, toolAssignments, recorder, new LlmRetry());
-    }
-
-    AgentChatCaller(ChatClientRegistry clientRegistry,
-                    AgentService agentService,
-                    ToolAssignments toolAssignments,
-                    LlmCallRecorder recorder,
-                    LlmRetry retry) {
-        this(clientRegistry, agentService, toolAssignments, recorder, retry, null);
-    }
-
-    AgentChatCaller(ChatClientRegistry clientRegistry,
-                    AgentService agentService,
-                    ToolAssignments toolAssignments,
-                    LlmCallRecorder recorder,
-                    LlmRetry retry,
-                    ContextBudgetProperties budgets) {
-        this(clientRegistry, agentService, toolAssignments, recorder, retry, budgets,
-                new PromptAssembler(agentService, toolAssignments), null, null, null, null, null,
-                null);
-    }
+    /** 新解析链的客户端注册表（按 model_id）：失败切换时按成员 id 丢池 */
+    private final LlmClientRegistry llmClientRegistry;
+    /** 路由推进策略：阻塞/流式两条链路的失败切换与重试唯一实现（null 时按默认上限自建） */
+    private final RouteExecutor routeExecutor;
 
     /**
      * 全参构造（含 skill 装配与 RAG 知识检索，正式装配由 MultiAgentGraphAgent/GeneralAssistantAgent
      * 统一构建传入）：knowledgeRetriever 仅知识库启用时非 null（MultiAgentGraphAgent 经
-     * ObjectProvider 传入），null 时无知识段注入、行为退化现状。
-     * timeouts 为 null（单测/旧构造链场景）时流式空闲超时走默认
+     * ObjectProvider 传入），null 时无知识段注入。
+     * timeouts 为 null（单测场景）时流式空闲超时走默认
      * {@link #DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS}。
-     * 其余仅保留 4/5/6 参单测便捷重载（尾部组件取禁用态/null），中间历史重载已收敛删除。
+     * 路由解析三件套（modelResolver / llmAgentCatalog / llmClientRegistry）必填：
+     * 调用链只按 Agent → 路由 → 模型 id 取客户端。
      */
-    public AgentChatCaller(ChatClientRegistry clientRegistry,
-                    AgentService agentService,
+    public AgentChatCaller(AgentService agentService,
                     ToolAssignments toolAssignments,
                     LlmCallRecorder recorder,
                     LlmRetry retry,
@@ -121,25 +106,33 @@ public final class AgentChatCaller {
                     SkillManager skillManager,
                     KnowledgeRetriever knowledgeRetriever,
                     ChatTimeoutProperties timeouts,
-                    ContextCompositionRecorder compositionRecorder) {
+                    ContextCompositionRecorder compositionRecorder,
+                    ModelResolver modelResolver,
+                    AgentCatalog llmAgentCatalog,
+                    LlmClientRegistry llmClientRegistry,
+                    RouteExecutor routeExecutor) {
         this.agentService = agentService;
+        this.llmClientRegistry = llmClientRegistry;
+        this.routeExecutor = routeExecutor != null ? routeExecutor
+                : new RouteExecutor(RouteExecutor.DEFAULT_MAX_SAME_MEMBER_RETRIES);
         this.observer = new LlmCallObserver(recorder);
         this.retry = retry;
         this.budgets = budgets != null ? budgets : new ContextBudgetProperties();
         ToolLazyManager lazy = lazyTools != null ? lazyTools : new ToolLazyManager(toolAssignments, false);
-        this.specFactory = new AgentRequestSpecFactory(clientRegistry, promptAssembler,
+        this.specFactory = new AgentRequestSpecFactory(promptAssembler,
                 toolAssignments, lazy, skillManager, memoryStore, this.budgets,
                 knowledgeRetriever, recorder,
                 DefaultToolDecorators.defaults(lazy, skillManager,
-                        this.budgets, recorder), compositionRecorder);
+                        this.budgets, recorder), compositionRecorder,
+                modelResolver, llmAgentCatalog, llmClientRegistry);
         Duration streamIdleTimeout = ChatClientFactory.resolve(
                 timeouts != null ? timeouts.getStreamIdleTimeoutSeconds() : null,
                 DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS);
         Duration firstFrameTimeout = ChatClientFactory.resolve(
                 timeouts != null ? timeouts.getFirstFrameTimeoutSeconds() : null,
                 DEFAULT_FIRST_FRAME_TIMEOUT_SECONDS);
-        this.pipeline = new AgentChatPipeline(clientRegistry, this.specFactory, streamIdleTimeout,
-                firstFrameTimeout);
+        this.pipeline = new AgentChatPipeline(llmClientRegistry, this.specFactory, streamIdleTimeout,
+                firstFrameTimeout, this.routeExecutor);
         this.assembler = new CallSpecAssembler(promptAssembler, memoryStore, this.budgets);
     }
 
@@ -229,7 +222,7 @@ public final class AgentChatCaller {
         CallTrace eff = t.withSpan(spanId);
         CallContext ctx = new CallContext(observer, sessionId, forAgent, model,
                 attachmentsFor(forAgent, assembly), eff.turnId(), eff.traceId(), spanId,
-                eff.parentSpan());
+                eff.parentSpan(), null);
         // 重试可见性：计数器必须在重试循环外创建（放进 lambda 每次尝试都会重置,
         // 重试成功的行会错报 attempt=1）；每次尝试执行 lambda 时自增即第几次尝试
         AtomicInteger attemptCounter =
@@ -238,6 +231,8 @@ public final class AgentChatCaller {
         return retry.executeWithRetry(() -> {
             long start = System.currentTimeMillis();
             int maxAttempts = retry.maxAttempts();
+            // 观测口径：本次尝试实际命中的路由成员（重试/切换时由 pipeline 回写）
+            AtomicReference<RouteAttempt> routeRef = new AtomicReference<>();
             try {
                 AtomicReference<Usage> usageRef =
                         new AtomicReference<>();
@@ -246,27 +241,29 @@ public final class AgentChatCaller {
                 int attempt = attemptCounter.incrementAndGet();
                 String content = pipeline.streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
                         assembly, extraAdvisors, eff, null, cancelled, usageRef, firstTokenAt, ledger,
-                        reasoningTap);
-                ctx.ok(ledger, start, content, usageRef.get(), firstTokenAt.get(), attempt, maxAttempts);
+                        reasoningTap, routeRef);
+                ctx.withRoute(routeRef.get()).ok(ledger, start, content, usageRef.get(),
+                        firstTokenAt.get(), attempt, maxAttempts);
                 return content;
             } catch (RuntimeException e) {
                 int attempt = Math.max(attemptCounter.get(), 1);
+                CallContext attemptCtx = ctx.withRoute(routeRef.get());
                 // 客户端断连中止：记录后立即上抛（CancellationException 不可重试，直接放行）
                 if (e instanceof CancellationException) {
-                    ctx.error(start, e, attempt, maxAttempts);
+                    attemptCtx.error(start, e, attempt, maxAttempts);
                     throw e;
                 }
                 // 编排预算熔断：政策性中止（非模型错误），记录后立即上抛（不可重试，
                 // 编排节点捕获后写「预算超限跳过」占位）
                 if (e instanceof BudgetExceededException) {
-                    ctx.error(start, e, attempt, maxAttempts);
+                    attemptCtx.error(start, e, attempt, maxAttempts);
                     throw e;
                 }
                 // 账户级硬错误（余额不足/配额耗尽 402/403、鉴权失败 401）：重试无意义，
                 // 立即转人话异常向上传播（分类口径收敛于 LlmErrorClassifier）
                 RuntimeException translated = LlmErrorClassifier.translate(e, model);
                 if (translated != null) {
-                    ctx.error(start, e, attempt, maxAttempts);
+                    attemptCtx.error(start, e, attempt, maxAttempts);
                     throw translated;
                 }
                 // 模型可能把提示词里的专家名（researcher 等）误当工具发起调用——
@@ -276,6 +273,7 @@ public final class AgentChatCaller {
                     log.warn("[caller] {} 发起未知名工具调用，去工具重试一次：{}", forAgent, LlmCallRecorder.describeError(e));
                     CallContext noToolsCtx = ctx.blankTools();
                     long start2 = System.currentTimeMillis();
+                    AtomicReference<RouteAttempt> routeRef2 = new AtomicReference<>();
                     try {
                         AtomicReference<Usage> usageRef2 =
                                 new AtomicReference<>();
@@ -284,15 +282,17 @@ public final class AgentChatCaller {
                         int attempt2 = attemptCounter.incrementAndGet();
                         String content = pipeline.streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
                                 assembly.withoutTools(), extraAdvisors, eff, null, cancelled, usageRef2,
-                                firstTokenAt2, ledger, reasoningTap);
-                        noToolsCtx.ok(ledger, start2, content, usageRef2.get(), firstTokenAt2.get(), attempt2, maxAttempts);
+                                firstTokenAt2, ledger, reasoningTap, routeRef2);
+                        noToolsCtx.withRoute(routeRef2.get()).ok(ledger, start2, content, usageRef2.get(),
+                                firstTokenAt2.get(), attempt2, maxAttempts);
                         return content;
                     } catch (RuntimeException e2) {
-                        noToolsCtx.error(start2, e2, attemptCounter.get(), maxAttempts);
+                        noToolsCtx.withRoute(routeRef2.get())
+                                .error(start2, e2, attemptCounter.get(), maxAttempts);
                         throw e2;
                     }
                 }
-                ctx.error(start, e, attempt, maxAttempts);
+                attemptCtx.error(start, e, attempt, maxAttempts);
                 throw e;
             }
         });
@@ -307,13 +307,14 @@ public final class AgentChatCaller {
         String spanId = CallTrace.newSpanId();
         CallTrace eff = new CallTrace(null, null, null, spanId, null);
         CallContext ctx = new CallContext(observer, sessionId, forAgent, model,
-                attachmentsFor(forAgent, assembly), null, null, spanId, null);
+                attachmentsFor(forAgent, assembly), null, null, spanId, null, null);
         AtomicReference<Usage> usageRef =
                 new AtomicReference<>();
         AtomicLong firstTokenAt = new AtomicLong();
+        AtomicReference<RouteAttempt> routeRef = new AtomicReference<>();
         String content = pipeline.streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
-                assembly, extraAdvisors, eff, null, null, usageRef, firstTokenAt, null, null);
-        ctx.ok(null, start, content, usageRef.get(), firstTokenAt.get(), 1, 1);
+                assembly, extraAdvisors, eff, null, null, usageRef, firstTokenAt, null, null, routeRef);
+        ctx.withRoute(routeRef.get()).ok(null, start, content, usageRef.get(), firstTokenAt.get(), 1, 1);
         return content;
     }
 
@@ -327,17 +328,58 @@ public final class AgentChatCaller {
      * <p>失败即丢池：连接可能已成网络黑洞（对端静默失活、不发 RST），丢池使下次调用
      * 重建连接池，不再复用同一根死连接。
      *
-     * @param model 失败时用于重建客户端的模型名（null/未命中注册表则跳过丢池）
+     * @param modelId 失败时用于重建客户端的部署模型 id（null 则跳过丢池）
      */
     Flux<String> tokenStreamWithWatchdog(ChatClient.ChatClientRequestSpec spec,
                                          AtomicReference<Usage> usageRef,
                                          BudgetLedger ledger,
                                          AtomicLong prevTotal,
                                          AtomicLong firstTokenAt,
-                                         String model,
+                                         Long modelId,
                                          Consumer<String> reasoningTap) {
-        return pipeline.tokenStreamWithWatchdog(spec, usageRef, ledger, prevTotal, firstTokenAt, model,
+        return pipeline.tokenStreamWithWatchdog(spec, usageRef, ledger, prevTotal, firstTokenAt, modelId,
                 reasoningTap);
+    }
+
+    /**
+     * 路由感知的响应式流：按成员优先级尝试，只有"尚未输出任何 token"时才切换下一个成员；
+     * 同成员重试仍由调用方外层的 {@link #streamWithRetry} 负责。
+     */
+    Flux<String> streamWithRoute(AgentConfig config, String sessionId, String forAgent,
+                                 String fallbackSystem, String user,
+                                 AgentRequestSpecFactory.Assembly assembly, CallTrace trace,
+                                 BooleanSupplier cancelled,
+                                 AtomicReference<Usage> usageRef,
+                                 AtomicLong firstTokenAt,
+                                 Consumer<String> reasoningTap,
+                                 AtomicReference<RouteAttempt> routeRef) {
+        RoutePlan plan = specFactory.routePlan(config, forAgent);
+        return routeExecutor.stream(plan, cancelled,
+                member -> {
+                    // 观测口径：真正发起请求前记录本次命中的成员
+                    if (routeRef != null) {
+                        routeRef.set(RouteAttempt.at(plan, plan.members().indexOf(member)));
+                    }
+                    return tokenStreamWithWatchdog(
+                            specFactory.build(config, sessionId, forAgent, fallbackSystem, user, assembly,
+                                    trace, member),
+                            usageRef, null, null, firstTokenAt, member.modelId(), reasoningTap);
+                },
+                new RouteExecutor.AttemptObserver() {
+                    @Override
+                    public void onFailure(RoutePlan.Member member, int attempt, Long fallbackFrom,
+                                          RuntimeException error, FailurePolicy.Action action) {
+                        // 与阻塞路径同口径：失败按成员 id 丢池（4xx 由判定矩阵放行前已在此丢池）
+                        if (llmClientRegistry != null) {
+                            llmClientRegistry.invalidate(member.modelId());
+                        }
+                    }
+
+                    @Override
+                    public void onSwitch(RoutePlan.Member from, RoutePlan.Member to) {
+                        HarnessMetrics.routeFallback(plan.routeCode(), from.modelId(), to.modelId());
+                    }
+                });
     }
 
     /**
@@ -347,7 +389,7 @@ public final class AgentChatCaller {
     CallContext ctxFor(String sessionId, String forAgent, String model,
                        PromptAssembler.PromptAttachments attachments, CallTrace trace) {
         return new CallContext(observer, sessionId, forAgent, model, attachments,
-                trace.turnId(), trace.traceId(), trace.spanId(), trace.parentSpan());
+                trace.turnId(), trace.traceId(), trace.spanId(), trace.parentSpan(), null);
     }
 
     /**
@@ -439,7 +481,7 @@ public final class AgentChatCaller {
         CallTrace eff = t.withSpan(spanId);
         CallContext ctx = new CallContext(observer, sessionId, forAgent,
                 null, attachmentsFor(forAgent, assembly), eff.turnId(), eff.traceId(),
-                spanId, eff.parentSpan());
+                spanId, eff.parentSpan(), null);
         if (cancelled != null && cancelled.getAsBoolean()) {
             throw cancelAndRecord(ctx, System.currentTimeMillis(), 1, retry.maxAttempts());
         }
@@ -462,21 +504,25 @@ public final class AgentChatCaller {
             AtomicLong firstTokenAt = new AtomicLong();
             // roundtrip 增量记账游标（口径同 streamAttempt，见其注释）
             AtomicLong prevTotal = new AtomicLong();
+            // 观测口径：本次尝试实际命中的路由成员（失败切换时由 pipeline 回写）
+            AtomicReference<RouteAttempt> routeRef = new AtomicReference<>();
             try {
                 String out = pipeline.streamCore(config, sessionId, forAgent, fallbackSystem, user, assembly,
                         extraAdvisors, eff, collected, onToken, cancelled, usageRef, prevTotal,
-                        firstTokenAt, ledger, reasoningTap);
+                        firstTokenAt, ledger, reasoningTap, routeRef);
                 // streamUsage 回传真实 usage 时记真实值，无则按已收输出文本近似估算（原口径兜底）；
                 // 账本兜底入账：无真实 usage 帧时按输出估算补记（有则增量已在流帧上记账，不重复）
-                ctx.ok(ledger, start, out, usageRef.get(), firstTokenAt.get(), attempt, retry.maxAttempts());
+                ctx.withRoute(routeRef.get()).ok(ledger, start, out, usageRef.get(),
+                        firstTokenAt.get(), attempt, retry.maxAttempts());
                 return out;
             } catch (RuntimeException e) {
                 boolean isCancel = e instanceof CancellationException
                         || (cancelled != null && cancelled.getAsBoolean());
+                CallContext attemptCtx = ctx.withRoute(routeRef.get());
                 if (isCancel) {
-                    throw cancelAndRecord(ctx, start, attempt, retry.maxAttempts());
+                    throw cancelAndRecord(attemptCtx, start, attempt, retry.maxAttempts());
                 }
-                ctx.error(start, e, attempt, retry.maxAttempts());
+                attemptCtx.error(start, e, attempt, retry.maxAttempts());
                 // 账户级硬错误：与阻塞（call）路径同口径转换，不重试直接抛人话异常
                 RuntimeException translated = LlmErrorClassifier.translate(e, model);
                 if (translated != null) {
@@ -527,8 +573,8 @@ public final class AgentChatCaller {
         if (config != null) {
             // 每条 LLM 调用都会走到这里（含每个子任务），命中明细只在排错时需要，压到 debug；
             // 「未命中/回退」由 AgentConfigProvider 的 warn 覆盖，不会丢信号
-            log.debug("[agent配置] agentName='{}' -> modelProviderId={}, model={}, prompt={}, knowledge={}, thinking={}",
-                    forAgent, config.modelProviderId(), config.model(), config.prompt(),
+            log.debug("[agent配置] agentName='{}' -> modelId={}, model={}, prompt={}, knowledge={}, thinking={}",
+                    forAgent, config.modelId(), config.model(), config.prompt(),
                     config.knowledge(), config.thinking());
         }
         return config;

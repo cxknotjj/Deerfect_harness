@@ -1,6 +1,6 @@
 # AGENTS.md
 
-本仓库是 Maven 多模块 Java 项目（Spring Boot 4 + Spring AI + AgentScope），核心是 `server` 模块。
+本仓库是 Maven 多模块 Java 项目（Spring Boot 4 + Spring AI + AgentScope），核心是 `deerfect-server` 模块。
 
 ## 动手前必读
 
