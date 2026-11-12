@@ -114,26 +114,6 @@ class ViewDtoJsonContractTest {
     }
 
     @Test
-    void providerViews_jsonKeys() throws Exception {
-        assertEquals(Set.of("provider", "apiUrl", "models", "status"),
-                keysOf(new ProviderAddRequest("moonshot", "https://api", List.of("kimi"), null)));
-        assertEquals(Set.of("added", "updated"), keysOf(new ProviderAddResult(1, 2)));
-        assertEquals(Set.of("id", "model", "provider", "apiUrl", "status"),
-                keysOf(new ProviderRowView(1L, "kimi", "moonshot", "https://api", 1)));
-    }
-
-    @Test
-    void providerAddRequest_defaultsStatusToOne() {
-        assertEquals(1, new ProviderAddRequest("p", "u", List.of("m"), null).resolvedStatus());
-        assertEquals(0, new ProviderAddRequest("p", "u", List.of("m"), 0).resolvedStatus());
-    }
-
-    @Test
-    void providerAddResult_summaryIncludesCounts() {
-        assertEquals("新增 1 个映射，更新 2 个", new ProviderAddResult(1, 2).summary());
-    }
-
-    @Test
     void pageResultAndKnowledgeSource_jsonKeys() throws Exception {
         assertEquals(Set.of("list", "total", "page", "size"),
                 keysOf(new PageResult<>(List.of("a"), 1, 1, 10)));

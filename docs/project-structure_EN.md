@@ -8,13 +8,13 @@
 
 | Module | Responsibility | Depends on |
 |---|---|---|
-| `harness-api` | Shared contracts for channels and core: `contract.api` (callable ports), `contract.spi` (implementation SPIs), `contract.model` (port payloads), `view` (outward DTOs) | no reactor-internal deps |
-| `server` | Spring Boot main service, core implementation, fat-jar host | compile → `harness-api`; runtime → `channel-qq` |
-| `channel-qq` | QQ channel (NapCat/OneBot 11): client / events / replies / persistence | compile → `harness-api` |
-| `cli` | Terminal client, pure HTTP + SSE | compile → `harness-api` |
+| `deerfect-api` | Shared contracts for channels and core: `contract.api` (callable ports), `contract.spi` (implementation SPIs), `contract.model` (port payloads), `view` (outward DTOs) | no reactor-internal deps |
+| `deerfect-server` | Spring Boot main service, core implementation, fat-jar host | compile → `deerfect-api`; runtime → `channel-qq` |
+| `channel-qq` | QQ channel (NapCat/OneBot 11): client / events / replies / persistence | compile → `deerfect-api` |
+| `deerfect-cli` | Terminal client, pure HTTP + SSE | compile → `deerfect-api` |
 | `wms-mcp-adapter` | Domain MCP adapter example | independent |
 
-> Rule: core (`server`) must not reference `channel.qq` at compile time (enforced by `com.dark:channel-qq:*:*:compile`); new channel output controls go through `ReplyPostProcessor` without touching core.
+> Rule: core (`deerfect-server`) must not reference `channel.qq` at compile time (enforced by `com.dark:channel-qq:*:*:compile`); new channel output controls go through `ReplyPostProcessor` without touching core.
 
 ---
 
@@ -29,17 +29,15 @@ deerfect-server/src/main/java/com/dark/javaHarness/
 ├── controller/                   # Presentation layer: REST endpoints + SSE streaming
 │   ├── ChatController.java       # Chat endpoints (/api/chat, /stream, /resume, /goal-status)
 │   ├── HarnessController.java    # Management endpoints (agents / submit / goals / sessions / session-bound agent)
-│   ├── ProviderAdminController.java  # Model-mapping management (/api/providers: list & hot-refresh add)
 │   ├── KnowledgeAdminController.java # Knowledge-base management (document list / upload / delete / incremental sync)
 │   ├── LlmCallController.java    # LLM call observability queries (/api/llm-calls)
 │   ├── ToolCallController.java   # Tool-call observability queries (/api/tool-calls)
 │   └── KbRetrievalController.java # RAG retrieval observability queries (/api/kb-retrievals)
 ├── service/                      # Business layer (interfaces + impl/)
-│   ├── GoalService.java          # Goal ledger (AgentService/SessionService/ChatService/SessionBindingCleaner ports live in harness-api)
+│   ├── GoalService.java          # Goal ledger (AgentService/SessionService/ChatService/SessionBindingCleaner ports live in deerfect-api)
 │   ├── RouteJudge.java           # Main-agent routing decision (SIMPLE / COMPLEX)
-│   ├── AgentConfigProvider.java  # Runtime config from the agent table (routing map)
-│   ├── ProviderAdminService.java # model_provider mapping management (hot refresh on add)
-│   └── impl/                     # Implementations (AgentServiceImpl / ChatServiceImpl / SessionServiceImpl / ProviderAdminServiceImpl / SseEncoder etc.)
+│   ├── AgentConfigProvider.java  # Reads agent runtime config (model name from route primary member)
+│   └── impl/                     # Implementations (AgentServiceImpl / ChatServiceImpl / SessionServiceImpl / SseEncoder etc.)
 │       ├── ChatServiceImpl.java  # Chat facade (only chat/streamReactive/resume dispatch)
 │       ├── ChatTurnExecutor.java / ChatStreamPipeline.java  # Sync execution / streaming & SSE
 │       ├── RouteDecider.java / TurnPersistence.java / ReplyDecorator.java  # Routing & prefetch join / session persistence / reply decoration
@@ -61,9 +59,8 @@ deerfect-server/src/main/java/com/dark/javaHarness/
 │   │   └── MybatisPlusConfig.java    # MyBatis-Plus configuration (pagination etc.)
 │   └── agent/                    # Agent configuration & assembly
 │       ├── ChatAgentConfig.java      # Registers agent beans + orchestration checkpoint store
-│       ├── ChatClientFactory.java    # Builds OpenAI-compatible ChatClients per provider (Registry pattern)
-│       ├── ChatClientRegistry.java   # Model-name → ChatClient registry (hot-refreshable)
-│       └── ThinkingSwitchChatModel.java  # Injects thinking switch per model_provider.disable_thinking
+│       ├── ChatClientFactory.java    # Builds OpenAI-compatible ChatClient per provider + endpoint
+│       └── ThinkingSwitchChatModel.java  # Injects thinking switch when default_params.thinking_mode=off
 ├── prompt/                       # Prompt assembly pipeline (shared by both paths)
 │   ├── PromptAssembler.java      # Five-section system prompt (role / tool index / discipline / output / skill)
 │   ├── MemoryPolicy.java         # Per-role session-memory injection matrix
@@ -78,14 +75,14 @@ deerfect-server/src/main/java/com/dark/javaHarness/
 │   ├── RouteDecision.java        # Routing decision enum (SIMPLE / COMPLEX)
 │   ├── LlmCallLog.java           # Observability record of one LLM call (latency/tokens/outcome)
 │   ├── KbRetrievalLog / McpServerLog / ToolCallLog  # Remaining observability records
-│   └── entity/                   # DB entities (agent / goal / session_message / model_provider / observability log tables)
+│   └── entity/                   # DB entities (agent / goal / session_message / llm_provider / llm_model / llm_route / observability log tables)
 ├── enums/                        # Shared constants: AgentConstants (GoalStatus → contract.model, SseProtocol → view)
 ├── exception/                    # Global exception handling (@RestControllerAdvice, uniform {code, message})
 ├── agent/                        # Agent abstractions, orchestration & LLM calls
 │   ├── Agent.java / AgentRegistry.java    # Agent interface and registry
 │   ├── AgentScopeGeneralAgent.java # Agentic path: AgentScope ReAct reasoning-action loop
 │   ├── agentic/                    # Agentic path adapters
-│   │   ├── AgentScopeModelFactory.java  # model_provider row → AgentScope OpenAI-compatible Model
+│   │   ├── AgentScopeModelFactory.java  # Agent route primary member → AgentScope OpenAI-compatible Model
 │   │   └── SpringAiToolBridge.java      # Spring AI ToolCallback → AgentScope ToolBase (MCP/sandbox reuse)
 │   ├── GeneralAssistantAgent.java  # Agentic path fallback: ChatClient single-model chat (true token-by-token stream)
 │   ├── AgentChatCaller.java        # LLM call lifecycle facade (call/stream retry loops, cancellation interception, observation recording)

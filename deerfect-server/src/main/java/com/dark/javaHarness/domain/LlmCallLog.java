@@ -29,6 +29,13 @@ import java.util.List;
  * @param spanId          单次调用标识（调用发起前生成；观测行必有）
  * @param parentSpan      父调用的 span_id（根调用为 null）
  * @param startedAt       调用发起时刻（轨迹时序排序键：落库晚于工具行，排序须用发起时刻；历史行/未采集为 null）
+ * @param routeId         命中的路由 id（无路由/非路由调用为 null）
+ * @param routeCode       命中的路由代码（main/fast/judge 等）
+ * @param modelId         实际使用的模型部署 id
+ * @param providerCode    实际供应商代码
+ * @param upstreamName    实际请求下发的模型名
+ * @param fallbackFromModelId 从哪个模型切换而来（首选成员为 null）
+ * @param errorClass      失败分类：timeout/connection/4xx/5xx/cancel/other（成功为 null）
  */
 public record LlmCallLog(String sessionId, String agentName, String model,
                          boolean stream, boolean ok,
@@ -41,5 +48,7 @@ public record LlmCallLog(String sessionId, String agentName, String model,
                          String outputSummary, Long firstTokenMs, Integer cachedTokens,
                          Integer attempt, Integer maxAttempts,
                          String turnId, String traceId, String spanId, String parentSpan,
-                         java.time.LocalDateTime startedAt) {
+                         java.time.LocalDateTime startedAt,
+                         Long routeId, String routeCode, Long modelId, String providerCode,
+                         String upstreamName, Long fallbackFromModelId, String errorClass) {
 }

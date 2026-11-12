@@ -74,6 +74,36 @@ public final class HarnessMetrics {
         tokens(agent, model, "prompt", call.promptTokens());
         tokens(agent, model, "completion", call.completionTokens());
         tokens(agent, model, "total", call.totalTokens());
+
+        // 路由口径：按部署模型 id 记录错误分类与耗时（modelId 为空=非路由调用，不记）
+        if (call.modelId() != null) {
+            String modelId = String.valueOf(call.modelId());
+            if (!call.ok() && call.errorClass() != null) {
+                Counter.builder("harness.llm.model.errors")
+                        .description("按模型部署的错误数（error_class=timeout/connection/4xx/5xx/cancel/other）")
+                        .tags("model_id", modelId, "error_class", call.errorClass())
+                        .register(REGISTRY)
+                        .increment();
+            }
+            Timer.builder("harness.llm.model.latency")
+                    .description("按模型部署的单次调用耗时")
+                    .tags("model_id", modelId, "kind", kind)
+                    .publishPercentileHistogram()
+                    .minimumExpectedValue(Duration.ofMillis(5))
+                    .maximumExpectedValue(Duration.ofSeconds(300))
+                    .register(REGISTRY)
+                    .record(call.durationMs(), TimeUnit.MILLISECONDS);
+        }
+    }
+
+    /** 路由失败切换计数：from/to 为部署模型 id（首选成员失败切到下一成员时 +1）。 */
+    public static void routeFallback(String routeCode, Long fromModelId, Long toModelId) {
+        Counter.builder("harness.llm.route.fallbacks")
+                .description("路由失败切换次数")
+                .tags("route", label(routeCode), "from_model", label(fromModelId),
+                        "to_model", label(toModelId))
+                .register(REGISTRY)
+                .increment();
     }
 
     /** 路径判定结果（Graph 降级率的分母：Graph 决策数 vs 降级次数）。 */
@@ -205,5 +235,9 @@ public final class HarnessMetrics {
 
     private static String label(String value) {
         return value == null || value.isBlank() ? UNKNOWN : value;
+    }
+
+    private static String label(Long value) {
+        return value == null ? UNKNOWN : String.valueOf(value);
     }
 }

@@ -50,7 +50,8 @@ class LlmCallRecorderTest {
         LocalDateTime startedAt = LocalDateTime.of(2026, 9, 27, 10, 0, 0);
         recorder.record(new LlmCallLog("s1", "lead", "qwen3.8-27b", false, true,
                 100, 20, 120, false, 1500, null, null, null, null, "你好", 300L, null, 2, 3,
-                "turn-1", "trace-1", "span-1", "parent-1", startedAt));
+                "turn-1", "trace-1", "span-1", "parent-1", startedAt,
+                null, null, null, null, null, null, null));
 
         verify(mapper, timeout(2000)).insert(org.mockito.ArgumentMatchers.argThat((LlmCallLogEntity e) -> {
             return "s1".equals(e.getSessionId())
@@ -81,7 +82,8 @@ class LlmCallRecorderTest {
         // route-judge/画像等调用 trace/span 落 NULL；/submit 直发 turnId 亦为 NULL
         recorder.record(new LlmCallLog("s1", "route-judge", "qwen3.8-27b", false, true,
                 10, 5, 15, false, 100, null, null, null, null, null, null, null, null, null,
-                null, null, "span-1", null, null));
+                null, null, "span-1", null, null,
+                null, null, null, null, null, null, null));
 
         verify(mapper, timeout(2000)).insert(argThat((LlmCallLogEntity e) ->
                 e.getTurnId() == null && e.getTraceId() == null
@@ -98,7 +100,8 @@ class LlmCallRecorderTest {
         // 不应向调用方抛出（异步边界吞掉并 warn）
         recorder.record(new LlmCallLog(null, "route-judge", "qwen3.8-27b", true, false,
                 null, 5, 5, true, 80, "boom", null, null, null, null, null, null, null, null,
-                null, null, null, null, null));
+                null, null, null, null, null,
+                null, null, null, null, null, null, null));
         // 用「落库确实被调用过」作为异步完成信号（异常被吞，但调用本身有记录）；
         // 原来的「睡 300ms + assertTrue(true)」既拖时间又什么都没验证
         verify(mapper, timeout(1000)).insert(any(LlmCallLogEntity.class));
@@ -113,7 +116,8 @@ class LlmCallRecorderTest {
         recorder.record(new LlmCallLog("s1", "general", "qwen3.8-27b", false, true,
                 10, 5, 15, false, 100, null,
                 List.of("pdf-handling"), List.of("fetchUrl", "tavily_search"), List.of("tavily_search"),
-                null, null, null, 1, 1, null, null, null, null, null));
+                null, null, null, 1, 1, null, null, null, null, null,
+                null, null, null, null, null, null, null));
 
         verify(mapper, timeout(2000)).insert(argThat((LlmCallLogEntity e) ->
                 "pdf-handling".equals(e.getSkillNames())
@@ -128,7 +132,8 @@ class LlmCallRecorderTest {
 
         recorder.record(new LlmCallLog("s1", "route-judge", "m", false, true,
                 1, 1, 2, false, 5, null, List.of(), List.of(), List.of(), null, null, null, 1, 1,
-                null, null, null, null, null));
+                null, null, null, null, null,
+                null, null, null, null, null, null, null));
 
         verify(mapper, timeout(2000)).insert(argThat((LlmCallLogEntity e) ->
                 e.getSkillNames() == null && e.getToolNames() == null && e.getMcpToolNames() == null));
@@ -142,7 +147,8 @@ class LlmCallRecorderTest {
         String longReply = "好".repeat(300);
         recorder.record(new LlmCallLog("s1", "general", "m", true, true,
                 10, 5, 15, false, 100, null, null, null, null,
-                longReply, 250L, 64, 1, 3, null, null, null, null, null));
+                longReply, 250L, 64, 1, 3, null, null, null, null, null,
+                null, null, null, null, null, null, null));
 
         verify(mapper, timeout(2000)).insert(argThat((LlmCallLogEntity e) ->
                 e.getOutputSummary() != null
@@ -219,9 +225,35 @@ class LlmCallRecorderTest {
         }
     }
 
+    @Test
+    void record_routeFields_incrementModelErrorAndFallbackMetrics() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        Metrics.addRegistry(registry);
+        try {
+            LlmCallLogMapper mapper = mock(LlmCallLogMapper.class);
+            LlmCallRecorder recorder = new LlmCallRecorder(mapper, mock(ToolCallLogMapper.class));
+
+            recorder.record(new LlmCallLog("s1", "general", "m-b", true, false,
+                    10, 0, 10, true, 800, "read timeout", null, null, null, null, null, null, 1, 1,
+                    null, null, null, null, null,
+                    7L, "main", 11L, "deepseek", "m-b", 10L, "timeout"));
+            HarnessMetrics.routeFallback("main", 10L, 11L);
+
+            assertEquals(1.0, registry.get("harness.llm.model.errors")
+                    .tags("model_id", "11", "error_class", "timeout").counter().count());
+            assertEquals(1.0, registry.get("harness.llm.route.fallbacks")
+                    .tags("route", "main", "from_model", "10", "to_model", "11").counter().count());
+            assertTrue(registry.find("harness.llm.model.latency").tag("model_id", "11").timer() != null,
+                    "按模型耗时 timer 应存在");
+        } finally {
+            Metrics.removeRegistry(registry);
+        }
+    }
+
     private static LlmCallLog sampleLog() {
         return new LlmCallLog("s1", "general", "m", false, true,
                 10, 5, 15, false, 100, null, null, null, null, null, null, null, 1, 1,
-                null, null, null, null, null);
+                null, null, null, null, null,
+                null, null, null, null, null, null, null);
     }
 }

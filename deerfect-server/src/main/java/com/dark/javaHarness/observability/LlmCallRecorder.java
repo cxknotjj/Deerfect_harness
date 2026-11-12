@@ -130,6 +130,13 @@ public class LlmCallRecorder {
         e.setSpanId(c.spanId());
         e.setParentSpan(c.parentSpan());
         e.setStartedAt(c.startedAt());
+        e.setRouteId(c.routeId());
+        e.setRouteCode(c.routeCode());
+        e.setModelId(c.modelId());
+        e.setProviderCode(c.providerCode());
+        e.setUpstreamName(c.upstreamName());
+        e.setFallbackFromModelId(c.fallbackFromModelId());
+        e.setErrorClass(c.errorClass());
         e.setCreatedAt(LocalDateTime.now());
         mapper.insert(e);
     }
