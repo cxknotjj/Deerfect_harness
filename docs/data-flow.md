@@ -206,7 +206,7 @@ MultiAgentGraphAgent.execute(goal)
 └── 统一出口：AgentService / ChatService 写回多轮记忆
 ```
 
-**关键点**：① Lead 拆 ≤ `MAX_SUBTASKS=4`；② `addEdge(lead,List)` 并行；③ 复用 `ChatClientRegistry`；④ 输出 `final`。
+**关键点**：① Lead 拆 ≤ `MAX_SUBTASKS=4`；② `addEdge(lead,List)` 并行；③ 复用 `AgentChatCaller`（按路由成员取客户端）；④ 输出 `final`。
 
 **流式执行（`executeStreamReactive`：「主干帧 + 三条旁路」多通道）**：
 
@@ -450,10 +450,9 @@ AgentChatCaller.buildSpec()（统一出口）
      - 无会话 ID 自动跳过（无记忆场景零开销）
 │
 ③ options：模型参数注入
-     - model ← agent 行配置（经 AgentRegistry/ChatClientRegistry）
+     - model ← Agent 绑定路由的首选成员 upstream_name（经 AgentCatalog/ModelResolver）
      - frequencyPenalty=0.5（编排调用，抑制复读）
-     - enable_thinking:false ← ThinkingSwitchChatModel 包装器按 model_provider.disable_thinking
-       字段动态注入（模型层实现，dashscope 思考型模型单轮推理分钟级 → 秒级）
+     - enable_thinking:false ← 模型 default_params.thinking_mode=off 时由请求选项注入
 ```
 
 **关键点**：① 组装管线两路径统一（编排节点硬编码 persona/纪律拼接已删除）；② 记忆注入策略
@@ -730,7 +729,7 @@ sequenceDiagram
 | 主 Agent 判断 | `RouteJudge` / `LlmRouteJudge` / `RouteDecision`     |
 | Agent 注册/路由 | `AgentRegistry`（表驱动自动注册 + 惰性热注册）+ `AgentConfigProvider`（`is_internal` 过滤） |
 | Prompt 组装  | `PromptAssembler`（分段式，含信道规范段）+ `MemoryPolicy`（角色记忆矩阵）+ `SkillSectionProvider`（扩展点） |
-| 思考开关       | `ThinkingSwitchChatModel`（按 `model_provider.disable_thinking` 注入 `enable_thinking`） |
+| 思考开关       | `LlmCallOptions`（`default_params` / `agent.params` 中 `thinking_mode=off` → 请求级 `enable_thinking:false`） |
 | 路径 A（简单）   | `GeneralAssistantAgent`（薄适配：装配差异声明 + 响应式流终结钩子，执行委托 `AgentChatCaller`） |
 | 路径 B（复杂）   | `MultiAgentGraphAgent`（自研引擎：lead→并行→aggregate） |
 | 统一调用出口     | `AgentChatCaller`（路径 A/B 执行层单一来源：流式背书 + 取消令牌 + 重试/配额映射 + 工具装饰链）     |

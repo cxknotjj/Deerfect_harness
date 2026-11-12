@@ -193,6 +193,29 @@
                     </execution>
                 </executions>
             </plugin>
+            <!-- JDK 版本守卫：Maven 本身跑在低版本 JDK 时，编译产物与 surefire 只会报
+                 「class file version xx」这类难定位的错误，这里在 validate 阶段直接失败并提示 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>require-java-25</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[25,)</version>
+                                    <message>This project requires JDK 25+ (pom.xml release 25). Point JAVA_HOME at JDK 25 and retry (Windows example: set JAVA_HOME=D:\env\jdk-25).</message>
+                                </requireJavaVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 

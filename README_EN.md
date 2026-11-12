@@ -114,8 +114,8 @@ flowchart TD
 
 > [!TIP]
 > Two launcher scripts — pick one (**never run two at once**, port 8080 would clash):
-> - **`run-wsl.sh`** (WSL terminal): `./run-wsl.sh` runs the full flow — compile → kill any stale server on 8080 → open a new window for the service → poll until ready in this terminal → enter the CLI; subcommands `server / stop / cli / build / test`
-> - **`run-win.bat`** (native Windows): for a Windows-side checkout with Windows JDK 25 + Maven; make sure `JAVA_HOME` points at JDK 25 (an older JDK on PATH fails the build), and note the batch file does not load `.env.local` — set API keys with `setx` instead
+> - **`scripts/run-wsl.sh`** (WSL terminal): `./scripts/run-wsl.sh` runs the full flow — compile → kill any stale server on 8080 → open a new window for the service → poll until ready in this terminal → enter the CLI; subcommands `server / stop / cli / build / test`
+> - **`scripts/run-win.bat`** (native Windows): for a Windows-side checkout with Windows JDK 25 + Maven; make sure `JAVA_HOME` points at JDK 25 (an older JDK on PATH fails the build), and note the batch file does not load `.env.local` — set API keys with `setx` instead
 
 ### 🔧 Manual Start
 

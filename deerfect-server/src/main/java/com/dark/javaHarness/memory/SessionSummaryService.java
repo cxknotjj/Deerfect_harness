@@ -1,7 +1,6 @@
 package com.dark.javaHarness.memory;
 
 import com.dark.javaHarness.agent.LlmRetry;
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.ChatMessageMetadata;
 import com.dark.javaHarness.domain.LlmCallLog;
 import com.dark.javaHarness.domain.entity.SessionSummaryEntity;
@@ -52,11 +51,12 @@ public class SessionSummaryService implements SessionSummaryPort {
     private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
 
     private final SessionSummaryMapper mapper;
-    private final ChatClientRegistry clientRegistry;
     @Nullable
     private final LlmCallRecorder recorder;
+    private final com.dark.javaHarness.llm.client.LlmClientRegistry llmClientRegistry;
+    private final com.dark.javaHarness.llm.catalog.AgentCatalog llmAgentCatalog;
+    private final com.dark.javaHarness.llm.routing.ModelResolver llmModelResolver;
     private final int maxChars;
-    private final String model;
     private final LlmRetry retry = new LlmRetry();
     private final ThreadPoolExecutor pool = new ThreadPoolExecutor(1, 1, 60L, TimeUnit.SECONDS,
             new LinkedBlockingQueue<>(64), r -> {
@@ -66,15 +66,17 @@ public class SessionSummaryService implements SessionSummaryPort {
             }, new ThreadPoolExecutor.DiscardPolicy());
 
     public SessionSummaryService(SessionSummaryMapper mapper,
-                                 ChatClientRegistry clientRegistry,
+                                 com.dark.javaHarness.llm.client.LlmClientRegistry llmClientRegistry,
+                                 com.dark.javaHarness.llm.catalog.AgentCatalog llmAgentCatalog,
+                                 com.dark.javaHarness.llm.routing.ModelResolver llmModelResolver,
                                  @Nullable LlmCallRecorder recorder,
-                                 @Value("${app.context.summary-max-chars:600}") int maxChars,
-                                 @Value("${app.context.summary-model:qwen3.8-27b}") String model) {
+                                 @Value("${app.context.summary-max-chars:600}") int maxChars) {
         this.mapper = mapper;
-        this.clientRegistry = clientRegistry;
+        this.llmClientRegistry = llmClientRegistry;
+        this.llmAgentCatalog = llmAgentCatalog;
+        this.llmModelResolver = llmModelResolver;
         this.recorder = recorder;
         this.maxChars = Math.max(120, maxChars);
-        this.model = model;
     }
 
     @jakarta.annotation.PreDestroy
@@ -191,17 +193,25 @@ public class SessionSummaryService implements SessionSummaryPort {
     private String merge(String existing, String dialog) {
         String userPrompt = "【已有摘要】\n" + (existing.isBlank() ? "（空，首次生成）" : existing)
                 + "\n\n【新增对话】\n" + dialog;
-        return retry.executeWithRetry(() -> doCall(userPrompt),
-                (attempt, durationMs, err) -> record(durationMs, err == null, err, userPrompt));
+        com.dark.javaHarness.llm.routing.RouteAttempt route = routeAttempt();
+        return retry.executeWithRetry(() -> doCall(route, userPrompt),
+                (attempt, durationMs, err) -> record(durationMs, err == null, err, userPrompt, route));
     }
 
-    private String doCall(String userPrompt) {
-        ChatClient client = clientRegistry.getByModel(model);
+    /** summary 系统 Agent → 路由首选成员（观测与调用使用同一成员） */
+    private com.dark.javaHarness.llm.routing.RouteAttempt routeAttempt() {
+        com.dark.javaHarness.llm.routing.RoutePlan plan = llmModelResolver.resolve(
+                llmAgentCatalog.require("summary").getRouteId());
+        return com.dark.javaHarness.llm.routing.RouteAttempt.primary(plan, plan.members().get(0));
+    }
+
+    private String doCall(com.dark.javaHarness.llm.routing.RouteAttempt route, String userPrompt) {
+        ChatClient client = llmClientRegistry.get(route.modelId());
         // 请求级显式携带 model：与 AgentChatCaller / RouteJudge / memory-profile 同款约定
         return client.prompt()
                 .system(systemPrompt())
                 .user(userPrompt)
-                .options(OpenAiChatOptions.builder().model(model))
+                .options(OpenAiChatOptions.builder().model(route.upstreamName()))
                 .call()
                 .chatResponse()
                 .getResult()
@@ -265,18 +275,22 @@ public class SessionSummaryService implements SessionSummaryPort {
     }
 
     /** 摘要调用观测落库（无会话上下文口径：sessionId 空；不属于任何轮次与执行树） */
-    private void record(long durationMs, boolean ok, Throwable e, String userPrompt) {
+    private void record(long durationMs, boolean ok, Throwable e, String userPrompt,
+                        com.dark.javaHarness.llm.routing.RouteAttempt route) {
         if (recorder == null) {
             return;
         }
         int promptTokens = LlmCallRecorder.estimateTokens(systemPrompt())
                 + LlmCallRecorder.estimateTokens(userPrompt);
         long start = System.currentTimeMillis() - durationMs;
-        recorder.record(new LlmCallLog(null, "memory-summary", model, false, ok,
+        recorder.record(new LlmCallLog(null, "memory-summary", route.upstreamName(), false, ok,
                 promptTokens, null, null, true,
                 durationMs, LlmCallRecorder.describeError(e),
                 null, null, null, null, null, null, null, null,
-                null, null, null, null, LlmCallRecorder.startedAt(start)));
+                null, null, null, null, LlmCallRecorder.startedAt(start),
+                route.routeId(), route.routeCode(), route.modelId(), route.providerCode(),
+                route.upstreamName(), route.fallbackFromModelId(),
+                ok ? null : com.dark.javaHarness.llm.routing.FailurePolicy.errorClass(e)));
     }
 
     private static String describe(Throwable e) {

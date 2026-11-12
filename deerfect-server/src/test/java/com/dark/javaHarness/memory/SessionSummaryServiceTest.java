@@ -13,7 +13,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.ChatMessageMetadata;
 import com.dark.javaHarness.domain.entity.SessionSummaryEntity;
 import com.dark.javaHarness.mapper.SessionSummaryMapper;
@@ -53,7 +52,11 @@ class SessionSummaryServiceTest {
     @Mock
     private SessionSummaryMapper mapper;
     @Mock
-    private ChatClientRegistry clientRegistry;
+    private com.dark.javaHarness.llm.client.LlmClientRegistry llmClientRegistry;
+    @Mock
+    private com.dark.javaHarness.llm.catalog.AgentCatalog agentCatalog;
+    @Mock
+    private com.dark.javaHarness.llm.routing.ModelResolver modelResolver;
     @Mock
     private ChatClient chatClient;
     @Mock
@@ -65,7 +68,8 @@ class SessionSummaryServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new SessionSummaryService(mapper, clientRegistry, null, MAX_CHARS, "qwen3.8-27b");
+        service = new SessionSummaryService(mapper, llmClientRegistry, agentCatalog, modelResolver,
+                null, MAX_CHARS);
     }
 
     @AfterEach
@@ -89,7 +93,7 @@ class SessionSummaryServiceTest {
     }
 
     private void stubLlm(String content) {
-        when(clientRegistry.getByModel(anyString())).thenReturn(chatClient);
+        stubRoute();
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
         when(requestSpec.user(anyString())).thenReturn(requestSpec);
@@ -97,6 +101,20 @@ class SessionSummaryServiceTest {
         when(requestSpec.call()).thenReturn(responseSpec);
         when(responseSpec.chatResponse()).thenReturn(
                 new ChatResponse(List.of(new Generation(new AssistantMessage(content)))));
+    }
+
+    private void stubRoute() {
+        com.dark.javaHarness.domain.entity.AgentEntity agent =
+                new com.dark.javaHarness.domain.entity.AgentEntity();
+        agent.setAgentName("summary");
+        agent.setRouteId(1L);
+        when(agentCatalog.require("summary")).thenReturn(agent);
+        com.dark.javaHarness.llm.routing.RoutePlan.Member member =
+                new com.dark.javaHarness.llm.routing.RoutePlan.Member(10L, 1L, "dashscope",
+                        "https://example.com", "qwen3.8-27b", "m", 10, "{}", null);
+        when(modelResolver.resolve(1L)).thenReturn(
+                new com.dark.javaHarness.llm.routing.RoutePlan(1L, "fast", List.of(member)));
+        when(llmClientRegistry.get(10L)).thenReturn(chatClient);
     }
 
     @Test
@@ -141,7 +159,7 @@ class SessionSummaryServiceTest {
 
         service.summarizeNow("9", List.of(message("8", "已在摘要内"), message("9", "也在摘要内")));
 
-        verifyNoInteractions(clientRegistry);
+        verifyNoInteractions(llmClientRegistry, agentCatalog, modelResolver);
         verify(mapper, never()).updateById(any(SessionSummaryEntity.class));
     }
 
@@ -174,7 +192,7 @@ class SessionSummaryServiceTest {
     @Test
     void summarizeNow_llmFailure_doesNotWrite() {
         when(mapper.selectById(9L)).thenReturn(row("旧", "5"));
-        when(clientRegistry.getByModel(anyString())).thenReturn(chatClient);
+        stubRoute();
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
         when(requestSpec.user(anyString())).thenReturn(requestSpec);
@@ -193,7 +211,7 @@ class SessionSummaryServiceTest {
         when(mapper.selectById(9L)).thenReturn(null);
         CountDownLatch llmStarted = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
-        when(clientRegistry.getByModel(anyString())).thenReturn(chatClient);
+        stubRoute();
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
         when(requestSpec.user(anyString())).thenReturn(requestSpec);

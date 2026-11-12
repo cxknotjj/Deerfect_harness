@@ -3,13 +3,14 @@ package com.dark.javaHarness.agent;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.RouteExecutor;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeoutException;
@@ -38,7 +39,7 @@ import reactor.core.publisher.Flux;
 class AgentChatPipelineTest {
 
     @Mock
-    private ChatClientRegistry clientRegistry;
+    private LlmClientRegistry clientRegistry;
     @Mock
     private ChatClient.ChatClientRequestSpec spec;
     @Mock
@@ -50,7 +51,7 @@ class AgentChatPipelineTest {
     void setUp() {
         // 首帧 200ms / 帧间 200ms：测试内快速触发；生产默认 20s / 120s
         pipeline = new AgentChatPipeline(clientRegistry, mock(AgentRequestSpecFactory.class),
-                Duration.ofMillis(200), Duration.ofMillis(200));
+                Duration.ofMillis(200), Duration.ofMillis(200), new RouteExecutor(2));
     }
 
     private void stubStream(Flux<ChatResponse> frames) {
@@ -65,7 +66,7 @@ class AgentChatPipelineTest {
     private void runStream() {
         pipeline.tokenStreamWithWatchdog(spec,
                         new java.util.concurrent.atomic.AtomicReference<>(), null, null,
-                        new AtomicLong(), "m1", null)
+                        new AtomicLong(), 9L, null)
                 .blockLast();
     }
 
@@ -90,7 +91,7 @@ class AgentChatPipelineTest {
         expectTimeout(this::runStream);
         long elapsed = System.currentTimeMillis() - t0;
         assertTrue(elapsed < 3000, "首帧超时应快速失败（黑洞快速判定），实际 " + elapsed + "ms");
-        verify(clientRegistry).invalidateByModel("m1");
+        verify(clientRegistry).invalidate(9L);
     }
 
     @Test
@@ -98,7 +99,7 @@ class AgentChatPipelineTest {
         // 首帧立即到达（首帧 deadline 不触发）；此后零帧 → 帧间看门狗触发
         stubStream(Flux.concat(frameOf("你"), Flux.never()));
         expectTimeout(this::runStream);
-        verify(clientRegistry).invalidateByModel("m1");
+        verify(clientRegistry).invalidate(9L);
     }
 
     @Test
@@ -122,7 +123,7 @@ class AgentChatPipelineTest {
         } catch (WebClientResponseException expected) {
             // 错误原样上抛
         }
-        verify(clientRegistry, never()).invalidateByModel(anyString());
+        verify(clientRegistry, never()).invalidate(any());
     }
 
     @Test
@@ -135,20 +136,20 @@ class AgentChatPipelineTest {
         } catch (WebClientResponseException expected) {
             // 错误原样上抛
         }
-        verify(clientRegistry).invalidateByModel("m1");
+        verify(clientRegistry).invalidate(9L);
     }
 
     @Test
-    void watchdog_errorCarriesModelForPoolInvalidation() {
+    void watchdog_errorCarriesProviderIdForPoolInvalidation() {
         stubStream(Flux.error(WebClientResponseException.create(500, "Internal Server Error",
                 HttpHeaders.EMPTY, (byte[]) null, null)));
         try {
             pipeline.tokenStreamWithWatchdog(spec,
                             new java.util.concurrent.atomic.AtomicReference<>(), null, null,
-                            new AtomicLong(), "deepseek-v4-pro-0813", null).blockLast();
+                            new AtomicLong(), 10L, null).blockLast();
         } catch (WebClientResponseException expected) {
             // 错误原样上抛
         }
-        verify(clientRegistry).invalidateByModel("deepseek-v4-pro-0813");
+        verify(clientRegistry).invalidate(10L);
     }
 }

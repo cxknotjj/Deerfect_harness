@@ -2,7 +2,7 @@
 
 Spring Boot 主服务：**core 实现 + HTTP 接口 + fat jar 宿主**。所有渠道、CLI、Web 最终都落到这里。
 
-它同时是唯一实现 `harness-api` 契约的模块——`contract.api` 的每个端口在这里都有 `Impl`，
+它同时是唯一实现 `deerfect-api` 契约的模块——`contract.api` 的每个端口在这里都有 `Impl`，
 `contract.spi` 的每个 SPI 由渠道实现、在这里被调用。
 
 ## 目录结构
@@ -90,6 +90,6 @@ Flyway 脚本 V1 ~ V16，**只增不改**。已应用的脚本不要再编辑—
 
 - **不实现渠道**：`server` 对 `channel-*` 只有 runtime 依赖，compile 期看不见任何渠道类
   （enforcer 守着）。新增渠道不改 core。
-- **不放 HTTP DTO 到契约层之外的地方**：对外契约类型在 `harness-api` 的 `view`，
+- **不放 HTTP DTO 到契约层之外的地方**：对外契约类型在 `deerfect-api` 的 `view`，
   这里只负责装配。
 - **不直接返回实体**：端口返回 `record`（如 `SessionInfo`），实体留在 `domain/entity`。

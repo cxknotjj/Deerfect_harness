@@ -4,9 +4,9 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dark.javaHarness.contract.model.AgentConfig;
 import com.dark.javaHarness.view.AgentItemView;
 import com.dark.javaHarness.domain.entity.AgentEntity;
-import com.dark.javaHarness.domain.entity.ModelProviderEntity;
+import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RoutePlan;
 import com.dark.javaHarness.mapper.AgentMapper;
-import com.dark.javaHarness.mapper.ModelProviderMapper;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -31,7 +31,8 @@ public class AgentConfigProvider {
     private static final long CONFIG_CACHE_TTL_MILLIS = 30_000L;
 
     private final AgentMapper agentMapper;
-    private final ModelProviderMapper modelProviderMapper;
+    /** 路由解析：模型名取 Agent 绑定路由的首选成员（不再读 model_provider） */
+    private final ModelResolver modelResolver;
 
     /** 命中结果缓存（key=agentName）：配置是热路径上的只读小表，避免每条 LLM 调用两查 */
     private final Map<String, CachedConfig> configCache = new ConcurrentHashMap<>();
@@ -40,9 +41,14 @@ public class AgentConfigProvider {
     private record CachedConfig(AgentConfig config, long expiresAt) {
     }
 
-    public AgentConfigProvider(AgentMapper agentMapper, ModelProviderMapper modelProviderMapper) {
+    public AgentConfigProvider(AgentMapper agentMapper, ModelResolver modelResolver) {
         this.agentMapper = agentMapper;
-        this.modelProviderMapper = modelProviderMapper;
+        this.modelResolver = modelResolver;
+    }
+
+    /** 清空配置缓存（配置热更新后由 LlmConfigRefresher 调用，避免旧模型名滞后一个 TTL）。 */
+    public void invalidateCache() {
+        configCache.clear();
     }
 
     /**
@@ -103,13 +109,12 @@ public class AgentConfigProvider {
     }
 
     /**
-     * 从 agent 表读取指定 Agent 的运行配置（部署模型 + 系统提示词 + 知识库绑定 + 思考显示开关；模型名经 model_provider 表解析）。
+     * 从 agent 表读取指定 Agent 的运行配置（首选模型 + 系统提示词 + 知识库绑定 + 思考显示开关）。
      *
      * <p>带进程内缓存（TTL 见 {@link #CONFIG_CACHE_TTL_MILLIS}）：本方法是全部真实 LLM 调用的
-     * 唯一配置读取点，一次 4 子任务编排会命中 10+ 次，而 agent / model_provider 都是几百行、
-     * 极少变的小表——每次两查没有收益（优化审查 2026-11-03）。改库后最多滞后一个 TTL 生效；
-     * 新增 model_provider 行不受影响（新 id 必然未命中缓存）。只缓存命中结果：行不存在仍每次
-     * 查库并告警，避免「补了 agent 行要等 TTL」。
+     * 唯一配置读取点，一次 4 子任务编排会命中 10+ 次，而 agent 表是几百行、极少变的小表——
+     * 每次两查没有收益。改库后最多滞后一个 TTL 生效；配置热更新会调 {@link #invalidateCache()}。
+     * 只缓存命中结果：行不存在仍每次查库并告警，避免「补了 agent 行要等 TTL」。
      */
     public Optional<AgentConfig> getAgentConfig(String agentName) {
         if (agentName == null || agentName.isBlank()) {
@@ -127,16 +132,18 @@ public class AgentConfigProvider {
             log.warn("[agent配置] agent 表无 agentName='{}' 记录，将使用默认配置", agentName);
             return Optional.empty();
         }
-        String modelName = resolveModelName(row.getModelProviderId());
+        RoutePlan plan = modelResolver.resolve(row.getRouteId());
+        RoutePlan.Member primary = plan.members().get(0);
         AgentConfig cfg = new AgentConfig(
-                row.getModelProviderId(),
-                modelName,
+                primary.modelId(),
+                primary.upstreamName(),
                 blankToNull(row.getPrompt()),
                 blankToNull(row.getKnowledge()),
                 row.getThinking() != null && row.getThinking() == 1);
         configCache.put(agentName, new CachedConfig(cfg, now + CONFIG_CACHE_TTL_MILLIS));
-        log.debug("[agent配置] agentName='{}' -> modelProviderId={}, model={}, prompt={}, knowledge={}, thinking={}",
-                agentName, cfg.modelProviderId(), cfg.model(), cfg.prompt(), cfg.knowledge(), cfg.thinking());
+        log.debug("[agent配置] agentName='{}' -> route={}, modelId={}, model={}, prompt={}, knowledge={}, thinking={}",
+                agentName, plan.routeCode(), cfg.modelId(), cfg.model(), cfg.prompt(),
+                cfg.knowledge(), cfg.thinking());
         return Optional.of(cfg);
     }
 
@@ -190,18 +197,6 @@ public class AgentConfigProvider {
 
     /** 工具包定义值对象：toolNames 为工具名单（trim 去空白后保序），disciplinePrompt 为领域纪律段原文（可 null=无纪律段） */
     public record ToolPackDef(List<String> toolNames, String disciplinePrompt) {
-    }
-
-    /**
-     * 按 model_provider.id 解析模型名（请求级 model 参数用）；id 空或行不存在返回 null（走默认）。
-     * 查询失败向上抛：回退默认模型会让整轮对话悄悄换到另一个模型，事后无法从响应里看出。
-     */
-    private String resolveModelName(Long modelProviderId) {
-        if (modelProviderId == null) {
-            return null;
-        }
-        ModelProviderEntity mp = modelProviderMapper.selectById(modelProviderId);
-        return mp == null ? null : mp.getModel();
     }
 
     private String blankToNull(String s) {

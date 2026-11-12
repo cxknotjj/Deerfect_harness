@@ -11,7 +11,10 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.dark.javaHarness.config.ContextBudgetProperties;
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
+import com.dark.javaHarness.llm.catalog.AgentCatalog;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RoutePlan;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -45,14 +48,25 @@ class LlmRequestLogAdvisorChainTest {
 
         ChatClient client = ChatClient.builder(model).build();
 
-        ChatClientRegistry registry = mock(ChatClientRegistry.class);
-        when(registry.get(any())).thenReturn(client);
+        LlmClientRegistry registry = mock(LlmClientRegistry.class);
+        AgentCatalog agentCatalog = mock(AgentCatalog.class);
+        ModelResolver modelResolver = mock(ModelResolver.class);
+        com.dark.javaHarness.domain.entity.AgentEntity routeAgent =
+                new com.dark.javaHarness.domain.entity.AgentEntity();
+        routeAgent.setAgentName("general");
+        routeAgent.setRouteId(1L);
+        when(agentCatalog.require("general")).thenReturn(routeAgent);
+        when(modelResolver.resolve(1L)).thenReturn(new RoutePlan(1L, "main", List.of(
+                new RoutePlan.Member(9L, 1L, "dashscope", "https://example.com", "m", "m",
+                        10, "{}", null))));
+        when(registry.get(9L)).thenReturn(client);
         PromptAssembler assembler = mock(PromptAssembler.class);
         when(assembler.assembleSections(anyString(), anyString(), any(), any(), any()))
                 .thenReturn(List.of(new PromptAssembler.RenderedSection("角色", "SYS", 1)));
 
-        AgentRequestSpecFactory factory = new AgentRequestSpecFactory(registry, assembler,
-                null, null, null, null, new ContextBudgetProperties(), null, null, List.of(), null);
+        AgentRequestSpecFactory factory = new AgentRequestSpecFactory(assembler,
+                null, null, null, null, new ContextBudgetProperties(), null, null, List.of(), null,
+                modelResolver, agentCatalog, registry);
 
         Logger logger = (Logger) LoggerFactory.getLogger(com.dark.javaHarness.observability.LlmRequestLogAdvisor.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();

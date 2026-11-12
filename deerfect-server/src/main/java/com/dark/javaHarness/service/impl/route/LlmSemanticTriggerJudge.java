@@ -1,7 +1,6 @@
 package com.dark.javaHarness.service.impl.route;
 
 import com.dark.javaHarness.config.ChatTimeoutProperties;
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.contract.api.SemanticTriggerJudge;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -37,28 +36,34 @@ public class LlmSemanticTriggerJudge implements SemanticTriggerJudge {
 
     private static final int MAX_TOKENS = 128;
 
-    private final ChatClientRegistry clientRegistry;
+    private final com.dark.javaHarness.llm.client.LlmClientRegistry llmClientRegistry;
+    private final com.dark.javaHarness.llm.catalog.AgentCatalog llmAgentCatalog;
+    private final com.dark.javaHarness.llm.routing.ModelResolver llmModelResolver;
     private final ChatTimeoutProperties timeouts;
-    private final String model;
 
-    public LlmSemanticTriggerJudge(ChatClientRegistry clientRegistry,
-                                   ChatTimeoutProperties timeouts,
-                                   @Value("${app.trigger-judge.model:qwen3.8-27b}") String model) {
-        this.clientRegistry = clientRegistry;
+    public LlmSemanticTriggerJudge(com.dark.javaHarness.llm.client.LlmClientRegistry llmClientRegistry,
+                                   com.dark.javaHarness.llm.catalog.AgentCatalog llmAgentCatalog,
+                                   com.dark.javaHarness.llm.routing.ModelResolver llmModelResolver,
+                                   ChatTimeoutProperties timeouts) {
+        this.llmClientRegistry = llmClientRegistry;
+        this.llmAgentCatalog = llmAgentCatalog;
+        this.llmModelResolver = llmModelResolver;
         this.timeouts = timeouts;
-        this.model = model;
     }
 
     @Override
     public boolean shouldRespond(String channel, String conversationKey, String message) {
         try {
-            ChatClient client = clientRegistry.getLightweightByModel(model,
+            com.dark.javaHarness.llm.routing.RoutePlan plan = llmModelResolver.resolve(
+                    llmAgentCatalog.require("trigger-judge").getRouteId());
+            com.dark.javaHarness.llm.routing.RoutePlan.Member member = plan.members().get(0);
+            ChatClient client = llmClientRegistry.getLightweight(member.modelId(),
                     timeouts == null ? null : timeouts.getJudgeReadTimeoutSeconds());
             String content = client.prompt()
                     .system(SYSTEM_PROMPT)
                     .user("渠道：" + channel + "\n会话：" + conversationKey + "\n消息：" + message)
                     .options(OpenAiChatOptions.builder()
-                            .model(model)
+                            .model(member.upstreamName())
                             .maxTokens(MAX_TOKENS)
                             .temperature(0.0))
                     .call()
