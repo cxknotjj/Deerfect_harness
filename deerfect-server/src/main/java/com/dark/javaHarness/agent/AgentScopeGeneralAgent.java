@@ -6,11 +6,13 @@ import com.dark.javaHarness.agent.agentic.SpringAiToolBridge;
 import com.dark.javaHarness.config.AgenticProperties;
 import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.contract.model.AgentConfig;
 import com.dark.javaHarness.contract.model.ChatAttachment;
 import com.dark.javaHarness.contract.model.Goal;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
+import com.dark.javaHarness.llm.catalog.AgentCatalog;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.ModelResolver;
 import com.dark.javaHarness.observability.LlmCallObserver;
 import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.prompt.ContextCompositionRecorder;
@@ -75,7 +77,7 @@ import reactor.core.publisher.Sinks;
  *       AgentScope Toolkit，不使用 AgentScope 自带 MCP client；预算/观测/懒加载装饰链照常生效；</li>
  *   <li>记忆：不启用 AgentScope AgentStateStore，每次请求把裁剪后的 MySQL 历史转成 Msg 列表注入，
  *       避免与 SessionService 双写；</li>
- *   <li>模型：AgentScope OpenAI 兼容扩展按 model_provider 行构建，Key 解析与 ChatClient 同源；</li>
+ *   <li>模型：AgentScope OpenAI 兼容扩展按 llm_model 部署行（经路由成员解析）构建，Key 解析与 ChatClient 同源；</li>
  *   <li>观测：{@link LlmCallObserver} 记一轮 llm_call_log（usage 优先取模型末帧真实值）；</li>
  *   <li>取消：外层 Flux cancel → {@code agent.interrupt(RuntimeContext)}；</li>
  *   <li>回退：AgentScope 初始化失败（模型/Key/工具装配）时按开关回退 {@link GeneralAssistantAgent}，
@@ -105,7 +107,6 @@ public class AgentScopeGeneralAgent implements Agent {
     private final ContextCompositionRecorder compositionRecorder;
 
     public AgentScopeGeneralAgent(String agentName,
-                                  ChatClientRegistry clientRegistry,
                                   AgentService agentService,
                                   SessionService memoryStore,
                                   ToolAssignments toolAssignments,
@@ -119,7 +120,10 @@ public class AgentScopeGeneralAgent implements Agent {
                                   AgentScopeModelFactory modelFactory,
                                   AgenticProperties agentic,
                                   Agent fallback,
-                                  ContextCompositionRecorder compositionRecorder) {
+                                  ContextCompositionRecorder compositionRecorder,
+                                  ModelResolver modelResolver,
+                                  AgentCatalog llmAgentCatalog,
+                                  LlmClientRegistry llmClientRegistry) {
         this.agentName = agentName;
         this.agentService = agentService;
         this.memoryStore = memoryStore;
@@ -130,8 +134,11 @@ public class AgentScopeGeneralAgent implements Agent {
         this.modelFactory = modelFactory;
         this.fallback = fallback;
         this.compositionRecorder = compositionRecorder;
-        this.specFactory = new AgentRequestSpecFactory(clientRegistry, promptAssembler, toolAssignments,
-                lazyTools, skillManager, memoryStore, budgets, knowledgeRetriever, recorder);
+        this.specFactory = new AgentRequestSpecFactory(promptAssembler, toolAssignments,
+                lazyTools, skillManager, memoryStore, budgets, knowledgeRetriever, recorder,
+                com.dark.javaHarness.tool.DefaultToolDecorators.defaults(lazyTools, skillManager,
+                        budgets, recorder), null,
+                modelResolver, llmAgentCatalog, llmClientRegistry);
         this.observer = new LlmCallObserver(recorder);
     }
 
@@ -230,7 +237,7 @@ public class AgentScopeGeneralAgent implements Agent {
         }
 
         // 3) 模型与 ReAct 执行体
-        Model model = modelFactory.build(config);
+        Model model = modelFactory.build(agentName, config);
         ReActAgent agent = buildAgent(model, system.text(), toolkit, config);
         List<Msg> messages = toAgentScopeMessages(trimmed);
         messages.add(userMessage(goal.objective(), attachments));
@@ -238,7 +245,7 @@ public class AgentScopeGeneralAgent implements Agent {
         if (compositionRecorder != null && sessionId != null && !sessionId.isBlank()) {
             List<Message> finalMessages = new ArrayList<>(trimmed);
             finalMessages.add(new org.springframework.ai.chat.messages.UserMessage(goal.objective()));
-            compositionRecorder.record(sessionId, agentName, modelFactory.modelName(config),
+            compositionRecorder.record(sessionId, agentName, modelFactory.modelName(agentName, config),
                     trace.turnId(), system, AgentRequestSpecFactory.toolSchemaTokens(tools),
                     finalMessages);
         }
@@ -250,9 +257,9 @@ public class AgentScopeGeneralAgent implements Agent {
         AtomicLong firstTokenAt = new AtomicLong();
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
         AtomicBoolean completed = new AtomicBoolean();
-        CallContext ctx = new CallContext(observer, sessionId, agentName, modelFactory.modelName(config),
+        CallContext ctx = new CallContext(observer, sessionId, agentName, modelFactory.modelName(agentName, config),
                 promptAssembler.attachmentsOf(agentName), trace.turnId(), trace.traceId(), spanId,
-                trace.parentSpan());
+                trace.parentSpan(), modelFactory.routeAttempt(agentName, config));
 
         Flux<AgentEvent> events = agent.streamEvents(messages, runtime)
                 .doOnNext(event -> onEvent(event, content, progress, collected, usageTotals, firstTokenAt, config))

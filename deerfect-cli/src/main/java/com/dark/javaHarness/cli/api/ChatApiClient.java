@@ -9,9 +9,6 @@ import com.dark.javaHarness.view.GoalsView;
 import com.dark.javaHarness.view.MemoriesView;
 import com.dark.javaHarness.view.MemoryCreateRequest;
 import com.dark.javaHarness.view.MemoryView;
-import com.dark.javaHarness.view.ProviderAddRequest;
-import com.dark.javaHarness.view.ProviderAddResult;
-import com.dark.javaHarness.view.ProviderRowView;
 import com.dark.javaHarness.view.ScheduleCreateRequest;
 import com.dark.javaHarness.view.SchedulesView;
 import com.dark.javaHarness.view.SessionPageView;
@@ -23,7 +20,9 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -358,13 +357,13 @@ public class ChatApiClient {
     }
 
     /**
-     * 调用 GET /api/providers 获取全量模型-服务商映射（含禁用行）。
+     * 调用 GET /api/admin/providers 获取供应商列表（含禁用行）。
      *
      * @throws IOException 网络错误，或非 2xx 响应（消息含 HTTP 状态码与响应体）
      */
-    public List<ProviderRowView> listProviders() throws IOException {
+    public List<AdminProvider> listProviders() throws IOException {
         Request request = new Request.Builder()
-                .url(baseUrl + "/api/providers")
+                .url(baseUrl + "/api/admin/providers")
                 .get()
                 .build();
         try (Response resp = http.newCall(request).execute()) {
@@ -372,30 +371,71 @@ public class ChatApiClient {
             if (!resp.isSuccessful()) {
                 throw new IOException("HTTP " + resp.code() + ": " + body);
             }
-            return mapper.readValue(body, new TypeReference<List<ProviderRowView>>() {
+            return mapper.readValue(body, new TypeReference<List<AdminProvider>>() {
             });
         }
     }
 
     /**
-     * 调用 POST /api/providers 新增供应商/模型映射。服务端落库后热刷新注册表，免重启生效。
+     * 调用 POST /api/admin/providers + POST /api/admin/models 新增供应商与其模型。
+     * 服务端每个写操作都会先校验再热更新，免重启生效。
      *
      * @throws IOException 网络错误，或非 2xx 响应（校验失败为 400，消息含服务端原因）
      */
-    public ProviderAddResult addProvider(String provider, String apiUrl, List<String> models)
+    public AddProviderResult addProvider(String provider, String apiUrl, List<String> models)
             throws IOException {
-        String json = mapper.writeValueAsString(new ProviderAddRequest(provider, apiUrl, models, null));
-        Request request = new Request.Builder()
-                .url(baseUrl + "/api/providers")
-                .post(RequestBody.create(json, JSON))
+        Map<String, Object> providerBody = new LinkedHashMap<>();
+        providerBody.put("code", provider);
+        providerBody.put("baseUrl", apiUrl);
+        providerBody.put("credentialRef", provider.toUpperCase() + "_API_KEY");
+        providerBody.put("protocol", "openai");
+        providerBody.put("enabled", 1);
+        String providerJson = mapper.writeValueAsString(providerBody);
+        Request createProvider = new Request.Builder()
+                .url(baseUrl + "/api/admin/providers")
+                .post(RequestBody.create(providerJson, JSON))
                 .build();
-        try (Response resp = http.newCall(request).execute()) {
+        long providerId;
+        try (Response resp = http.newCall(createProvider).execute()) {
             String body = resp.body().string();
             if (!resp.isSuccessful()) {
                 throw new IOException("HTTP " + resp.code() + ": " + body);
             }
-            return mapper.readValue(body, ProviderAddResult.class);
+            providerId = mapper.readValue(body, AdminProvider.class).id();
         }
+        int created = 0;
+        for (String model : models) {
+            Map<String, Object> modelBody = new LinkedHashMap<>();
+            modelBody.put("providerId", providerId);
+            modelBody.put("upstreamName", model);
+            modelBody.put("displayName", model);
+            modelBody.put("capabilities",
+                    "{\"tool_calling\":true,\"vision\":false,\"thinking\":true,"
+                            + "\"json_mode\":true,\"context_window\":65536}");
+            modelBody.put("enabled", 1);
+            String modelJson = mapper.writeValueAsString(modelBody);
+            Request createModel = new Request.Builder()
+                    .url(baseUrl + "/api/admin/models")
+                    .post(RequestBody.create(modelJson, JSON))
+                    .build();
+            try (Response resp = http.newCall(createModel).execute()) {
+                String body = resp.body().string();
+                if (!resp.isSuccessful()) {
+                    throw new IOException("HTTP " + resp.code() + ": " + body);
+                }
+                created++;
+            }
+        }
+        return new AddProviderResult(providerId, created);
+    }
+
+    /** 管理面供应商行（GET /api/admin/providers） */
+    public record AdminProvider(Long id, String code, String baseUrl, String credentialRef,
+                                String protocol, Integer enabled) {
+    }
+
+    /** 新增供应商结果：providerId 与新登记的模型数 */
+    public record AddProviderResult(Long providerId, int models) {
     }
 
     /**

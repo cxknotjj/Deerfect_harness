@@ -33,7 +33,7 @@ class LlmCallObserverTest {
                 new PromptAssembler.PromptAttachments(List.of("pdf"), List.of("fetchUrl", "tavily_search"),
                         List.of("tavily_search")),
                 System.currentTimeMillis(), 1, 1,
-                null, null, null, null);
+                null, null, null, null, null);
 
         verify(mapper, timeout(2000)).insert(Mockito.argThat((LlmCallLogEntity e) ->
                 "pdf".equals(e.getSkillNames())
@@ -51,10 +51,33 @@ class LlmCallObserverTest {
 
         observer.okStream("s1", "general", "m", System.currentTimeMillis(), "答", null, null,
                 System.currentTimeMillis(), 1, 1,
-                null, null, null, null);
+                null, null, null, null, null);
 
         verify(mapper, timeout(2000)).insert(Mockito.argThat((LlmCallLogEntity e) ->
                 e.getSkillNames() == null && e.getToolNames() == null && e.getMcpToolNames() == null
                         && e.getStartedAt() != null));
+    }
+
+    /** 路由字段透传：route/model/provider/upstream/fallback 落库，失败行带 error_class */
+    @Test
+    void record_routeAttempt_fieldsMapped() {
+        LlmCallLogMapper mapper = Mockito.mock(LlmCallLogMapper.class);
+        LlmCallObserver observer = new LlmCallObserver(new LlmCallRecorder(mapper,
+                Mockito.mock(com.dark.javaHarness.mapper.ToolCallLogMapper.class)));
+
+        observer.error("s1", "general", "m-b", true, System.currentTimeMillis(),
+                new java.util.concurrent.TimeoutException("read timeout"), null, 2, 3,
+                null, null, null, null,
+                new com.dark.javaHarness.llm.routing.RouteAttempt(7L, "main", 11L, "deepseek",
+                        "m-b", 10L));
+
+        verify(mapper, timeout(2000)).insert(Mockito.argThat((LlmCallLogEntity e) ->
+                Long.valueOf(7L).equals(e.getRouteId())
+                        && "main".equals(e.getRouteCode())
+                        && Long.valueOf(11L).equals(e.getModelId())
+                        && "deepseek".equals(e.getProviderCode())
+                        && "m-b".equals(e.getUpstreamName())
+                        && Long.valueOf(10L).equals(e.getFallbackFromModelId())
+                        && "timeout".equals(e.getErrorClass())));
     }
 }

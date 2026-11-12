@@ -17,11 +17,12 @@ import org.springframework.stereotype.Component;
 /**
  * ChatClient 工厂：负责按服务商标识 + 端点 url 构建 OpenAI 兼容的 ChatClient。
  *
- * 只承担"客户端构建"这一件事，供 ChatClientRegistry（注册表）在加载 model_provider 表时调用。
+ * 只承担"客户端构建"这一件事，供 {@code LlmClientFactory} / {@code LlmClientRegistry}
+ * 在按 llm_model 部署行构建客户端时调用。
  * api_key 不落库，解析规则（约定优于配置）：
  * 1. yaml 显式映射：app.providers.<provider>.api-key
  * 2. 约定式回退：环境变量 <PROVIDER大写>_API_KEY（如 moonshot → MOONSHOT_API_KEY）
- * 新增第三方供应商因此零代码：环境变量 + model_provider 表加行即可。
+ * 新增第三方供应商因此零代码：环境变量 + llm_provider/llm_model 表加行即可。
  */
 @Component
 public class ChatClientFactory {

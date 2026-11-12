@@ -1,6 +1,7 @@
 package com.dark.javaHarness;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,14 +35,18 @@ class JavaHarnessApplicationTests {
     }
 
     /**
-     * 隐式配置项必须在 yaml 里可见：这三个键此前只有 {@code @Value} 默认值，yaml 里搜不到，
+     * 隐式配置项必须在 yaml 里可见：这两个键此前只有 {@code @Value} 默认值，yaml 里搜不到，
      * 运维改配置时无从发现。断言的是「环境里有这个键」——若有人把 yaml 声明删掉，键仍能靠
      * {@code @Value} 默认值工作，但测试会失败，从而逼着保留声明（体检 2026-11-07 H2-4）。
+     *
+     * <p>{@code app.context.summary-model} 已随 LLM 路由改造废弃（摘要模型由 summary 系统
+     * Agent 的 fast 路由决定），这里反向断言「不得回加」：任何代码再读它都会是死配置。
      */
     @Test
     void implicitConfigKeys_areDeclaredInYaml() {
         assertEquals("600", environment.getProperty("app.context.summary-max-chars"));
-        assertEquals("qwen3.8-27b", environment.getProperty("app.context.summary-model"));
+        assertNull(environment.getProperty("app.context.summary-model"),
+                "summary-model 已废弃：摘要模型由 summary 系统 Agent 的路由决定，不得在 yaml 恢复死键");
         assertEquals("mcp-config.json", environment.getProperty("spring.ai.mcp.client.stdio-config-file"));
     }
 

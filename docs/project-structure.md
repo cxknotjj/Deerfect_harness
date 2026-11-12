@@ -8,13 +8,13 @@
 
 | 模块 | 职责 | 依赖 |
 |---|---|---|
-| `harness-api` | 渠道与 core 共用的契约层：`contract.api`（调用型端口）、`contract.spi`（实现型 SPI）、`contract.model`（端口载荷）、`view`（对外 DTO） | 无同反应堆依赖 |
-| `server` | Spring Boot 主服务、core 实现与 fat jar 宿主 | compile → `harness-api`；runtime → `channel-qq` |
-| `channel-qq` | QQ 渠道（NapCat/OneBot 11）：客户端/事件/回复/持久化；事件准入 `ChannelEventPolicy` + 语义层端口 | compile → `harness-api` |
-| `cli` | 终端客户端，纯 HTTP + SSE | compile → `harness-api` |
+| `deerfect-api` | 渠道与 core 共用的契约层：`contract.api`（调用型端口）、`contract.spi`（实现型 SPI）、`contract.model`（端口载荷）、`view`（对外 DTO） | 无同反应堆依赖 |
+| `deerfect-server` | Spring Boot 主服务、core 实现与 fat jar 宿主 | compile → `deerfect-api`；runtime → `channel-qq` |
+| `channel-qq` | QQ 渠道（NapCat/OneBot 11）：客户端/事件/回复/持久化；事件准入 `ChannelEventPolicy` + 语义层端口 | compile → `deerfect-api` |
+| `deerfect-cli` | 终端客户端，纯 HTTP + SSE | compile → `deerfect-api` |
 | `wms-mcp-adapter` | 领域 MCP 适配范例 | 独立 |
 
-> 规则：core（server）编译期不得引用 `channel.qq`（enforcer 守护 `com.dark:channel-qq:*:*:compile`）；渠道新增输出控制走 `ReplyPostProcessor`，主动外发走 `MessageSender`（harness-api 端口，实现由渠道装配），两者都不改 core。详见 [`docs/design/channel-core-module-split.md`](./design/channel-core-module-split.md)。
+> 规则：core（deerfect-server）编译期不得引用 `channel.qq`（enforcer 守护 `com.dark:channel-qq:*:*:compile`）；渠道新增输出控制走 `ReplyPostProcessor`，主动外发走 `MessageSender`（deerfect-api 端口，实现由渠道装配），两者都不改 core。详见 [`docs/design/channel-core-module-split.md`](./design/channel-core-module-split.md)。
 
 ---
 
@@ -31,7 +31,6 @@ deerfect-server/src/main/java/com/dark/javaHarness/
 │   ├── HarnessController.java    # 管理接口（agents / submit / goals / sessions / 会话绑定 Agent）
 │   ├── ScheduleController.java   # 定时任务管理（/api/schedules 列表 / 创建 / 删除）
 │   ├── MemoryController.java    # 显式记忆管理（/api/memories 列表 / 新增 / 软删）
-│   ├── ProviderAdminController.java  # 模型映射管理（/api/providers 查看与热刷新新增）
 │   ├── KnowledgeAdminController.java # 知识库管理（文档列表/上传/删除/增量同步）
 │   ├── MonitorController.java    # 运行监控（/api/monitor 汇总快照）
 │   ├── SkillController.java      # 技能只读校验（扫描结果/索引）
@@ -40,12 +39,11 @@ deerfect-server/src/main/java/com/dark/javaHarness/
 │   ├── ToolCallController.java   # 工具调用观测查询（/api/tool-calls）
 │   └── KbRetrievalController.java # RAG 检索观测查询（/api/kb-retrievals）
 ├── service/                      # 业务层（接口 + impl/ 实现）
-│   ├── GoalService.java          # 目标台账（AgentService/SessionService/ChatService/SessionBindingCleaner 端口已迁 harness-api）
+│   ├── GoalService.java          # 目标台账（AgentService/SessionService/ChatService/SessionBindingCleaner 端口已迁 deerfect-api）
 │   ├── ScheduleService.java      # 定时任务：定义 + 到点派发（复用 AgentService.submit，不另建执行链）
 │   ├── RouteJudge.java           # 主 Agent 路由判断（Agentic / Graph 路径决策）
-│   ├── AgentConfigProvider.java  # 从 agent 表读取运行配置（路由映射；配置读失败与「未配置」语义分离）
-│   ├── ProviderAdminService.java # model_provider 映射管理（新增即热刷新注册表）
-│   └── impl/                     # AgentServiceImpl / ChatServiceImpl / SessionServiceImpl / GoalServiceImpl / ProviderAdminServiceImpl / SseEncoder 等
+│   ├── AgentConfigProvider.java  # 从 agent 表读取运行配置（模型名取路由首选成员）
+│   └── impl/                     # AgentServiceImpl / ChatServiceImpl / SessionServiceImpl / GoalServiceImpl / SseEncoder 等
 │       ├── ChatServiceImpl.java  # 聊天门面（仅 chat/streamReactive/resume 分发）
 │       ├── ChatTurnExecutor.java / ChatStreamPipeline.java  # 同步执行段 / 流式与 SSE 段
 │       ├── RouteDecider.java / TurnPersistence.java / ReplyDecorator.java  # 路由判定与预取汇合 / 会话建档与写回 / 回复装饰
@@ -85,9 +83,8 @@ deerfect-server/src/main/java/com/dark/javaHarness/
 │   │   └── MybatisPlusConfig.java    # MyBatis-Plus 分页等配置
 │   └── agent/                    # Agent 配置与装配
 │       ├── ChatAgentConfig.java  # 注册各 Agent bean + 编排检查点存储（OrchestrationCheckpointStore）
-│       ├── ChatClientFactory.java    # 按服务商构建 OpenAI 兼容 ChatClient（Registry 模式）
-│       ├── ChatClientRegistry.java   # 模型名 → ChatClient 注册表（支持热刷新）
-│       └── ThinkingSwitchChatModel.java  # 按 model_provider.disable_thinking 注入思考开关
+│       ├── ChatClientFactory.java    # 按服务商 + 端点构建 OpenAI 兼容 ChatClient（llm.client 复用）
+│       └── ThinkingSwitchChatModel.java  # 按 default_params.thinking_mode=off 注入思考开关
 ├── prompt/                       # Prompt 组装管线（两路径统一）
 │   ├── PromptAssembler.java      # 分段式 system prompt 组装（角色/画像/工具索引/纪律/输出约定/信道规范/skill）
 │   ├── SystemAssembly.java       # system 段组装结果（文本 + 各段 token，快照与请求共用）
@@ -112,16 +109,24 @@ deerfect-server/src/main/java/com/dark/javaHarness/
 │                                 #   / LlmCallLogEntity / ToolCallLogEntity / KbRetrievalLogEntity / McpServerLogEntity
 │                                 #   / ScheduleEntity
 │   └── dto/                      # 服务端内部视图 DTO：MonitorSnapshot / RuntimeMetrics / ComponentStatus / ContextComposition
-│                                 #   （对外契约 DTO 在 harness-api 的 view/ 包）
+│                                 #   （对外契约 DTO 在 deerfect-api 的 view/ 包）
 ├── enums/                        # 共享常量：AgentConstants（GoalStatus → contract.model，SseProtocol → view）
 ├── exception/                    # 全局异常处理与领域异常
 │   ├── GlobalExceptionHandler.java   # @RestControllerAdvice，统一 {code, message}
 │   └── ConcurrentRequestException / ResumeConflictException / ModelAuthException / ModelQuotaException
+├── llm/                          # LLM 三层配置（provider → model → route）与解析链
+│   ├── catalog/                  # AgentCatalog / ProviderCatalog / LlmConfigRefresher（重读 + 校验 + 回滚）
+│   ├── routing/                  # ModelResolver / RoutePlan / RouteAttempt / FailurePolicy / RouteExecutor
+│   ├── client/                   # LlmClientFactory / LlmClientRegistry（按 model_id 缓存与失效）
+│   ├── call/                     # LlmCallOptions（模型默认参数 < Agent 覆盖）
+│   ├── model/                    # ModelCapabilities（工具/视觉/思考/JSON/上下文窗口）
+│   ├── validation/               # BindingValidator（启动与热更新校验）
+│   └── admin/                    # LlmAdminService / LlmAdminController（/api/admin/*）
 ├── agent/                        # Agent 抽象、编排与 LLM 调用
 │   ├── Agent.java / AgentRegistry.java    # Agent 接口与注册表
 │   ├── AgentScopeGeneralAgent.java # Agentic 路径：AgentScope ReAct 显式推理-行动循环
 │   ├── agentic/                    # Agentic 路径适配层
-│   │   ├── AgentScopeModelFactory.java  # model_provider 行 → AgentScope OpenAI 兼容 Model
+│   │   ├── AgentScopeModelFactory.java  # Agent 路由首选成员 → AgentScope OpenAI 兼容 Model
 │   │   └── SpringAiToolBridge.java      # Spring AI ToolCallback → AgentScope ToolBase（MCP/沙箱工具复用）
 │   ├── GeneralAssistantAgent.java  # Agentic 路径回退：ChatClient 单模型对话（真·逐 token stream）
 │   ├── AgentChatCaller.java        # LLM 调用生命周期编排门面（call/stream 重试循环、取消拦截、观测记录）

@@ -113,7 +113,7 @@ curl -s -X POST http://localhost:8080/api/chat \
 > - 启动时设置环境变量 `APP_PASSWORD=你的口令` 即开启登录鉴权（不设置则跳过登录）
 > - 不想装环境？Docker 三件套一键起：**[`docs/guides/docker-deploy.md`](./docs/guides/docker-deploy.md)**
 > - 国内网络可追加 `-s .mvn/settings.xml` 走阿里云镜像（会改用项目内 `.mvn-repo/` 仓库，首次全量重新下载）
-> - Windows 本机用 `run-win.bat` 前，需把 `JAVA_HOME` 指向 JDK 25（PATH 上的旧 JDK 会编译失败）；批处理不会加载 `.env.local`，API Key 请用 `setx` 设为用户环境变量，详见 **[`docs/guides/setup.md`](./docs/guides/setup.md)**
+> - Windows 本机用 `scripts/run-win.bat` 前，需把 `JAVA_HOME` 指向 JDK 25（PATH 上的旧 JDK 会编译失败）；批处理不会加载 `.env.local`，API Key 请用 `setx` 设为用户环境变量，详见 **[`docs/guides/setup.md`](./docs/guides/setup.md)**
 
 ## 效果展示
 

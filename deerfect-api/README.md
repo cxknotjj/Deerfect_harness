@@ -1,6 +1,6 @@
-# harness-api
+# deerfect-api
 
-harness 的能力契约包：**server 提供实现，channel-\* / cli / web 消费**。
+harness 的能力契约包：**deerfect-server 提供实现，channel-\* / deerfect-cli / web 消费**。
 本模块不依赖任何实现模块，只回答一个问题——「harness 能做什么」。
 
 > 使用哪些能力、怎么组合、按什么顺序调用，**由消费者自己决定**。
@@ -41,11 +41,11 @@ deerfect-api/
 ## 依赖方向
 
 ```text
-server      --compile--> harness-api        ✅
-channel-*   --compile--> harness-api        ✅
-cli         --compile--> harness-api        ✅
-server      --compile--> channel-*          ❌ enforcer 禁止（core 不得绑死渠道实现）
-harness-api --compile--> server / channel-* ❌ Maven 反应堆禁止成环
+deerfect-server --compile--> deerfect-api         ✅
+channel-*       --compile--> deerfect-api         ✅
+deerfect-cli    --compile--> deerfect-api         ✅
+deerfect-server --compile--> channel-*            ❌ enforcer 禁止（core 不得绑死渠道实现）
+deerfect-api    --compile--> deerfect-server / channel-* ❌ Maven 反应堆禁止成环
 ```
 
 反向依赖会直接构成环，构建起不来；渠道模块只能看见本模块，看不见 core 实现类。

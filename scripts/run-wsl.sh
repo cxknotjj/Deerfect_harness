@@ -18,7 +18,8 @@
 #    ./run-wsl.sh test     全量测试
 # ================================================================
 set -e
-cd "$(dirname "$0")"
+# 脚本位于 scripts/，构建命令必须在仓库根执行（pom.xml / .mvn 只在根目录）
+cd "$(dirname "$0")/.."
 
 # 显式注入 JDK/Maven 路径：与非交互场景（cron/CI）兼容，交互 shell 重复注入无副作用
 export JAVA_HOME="/mnt/d/env/jdk-25"
@@ -77,7 +78,7 @@ wait_ready() {
         sleep 1
     done
     echo ""
-    echo "[WARN] 90s 内未就绪。看服务窗口日志，或 ./run.sh stop 后重试"
+    echo "[WARN] 90s 内未就绪。看服务窗口日志，或 ./scripts/run-wsl.sh stop 后重试"
     return 1
 }
 
@@ -86,7 +87,7 @@ stop_server() {
     fuser -k 8080/tcp 2>/dev/null || true
     # pkill 无匹配时返回 1，set -e 会当场退出脚本——必须 || true
     pkill -f 'spring-boot:ru[n]' 2>/dev/null || true
-    pkill -f 'server-0.0.1-SNAPSHOT[.]jar' 2>/dev/null || true
+    pkill -f 'deerfect-server-0.0.1-SNAPSHOT[.]jar' 2>/dev/null || true
     # SIGKILL 后内核异步释放 socket，短暂重试避免撞上释放窗口
     for i in $(seq 1 5); do
         sleep 1
@@ -103,7 +104,7 @@ stop_server() {
 case "${1:-}" in
   ""|full)
     echo "==== javaHarness 全流程启动 ===="
-    echo "[1/4] 编译（多模块 install：server 运行期依赖本地仓库中的 harness-api / channel-qq）..."
+    echo "[1/4] 编译（多模块 install：deerfect-server 运行期依赖本地仓库中的 deerfect-api / channel-qq）..."
     $MVN -DskipTests install
     echo "[1/4] 编译 OK"
     # 每次全流程执行都先杀掉 8080 上的旧服务再全新启动（保证跑的是最新构建）
@@ -122,7 +123,7 @@ case "${1:-}" in
     fi
     echo "[4/4] 进入 CLI 聊天（/exit 退出）"
     $MVN -pl deerfect-cli -Pcli compile exec:exec
-    echo "--- CLI 已退出。服务窗口仍在运行（停止: 在该窗口 Ctrl+C 或 ./run.sh stop）---"
+    echo "--- CLI 已退出。服务窗口仍在运行（停止: 在该窗口 Ctrl+C 或 ./scripts/run-wsl.sh stop）---"
     ;;
   server)
     # 单模块启动前确保契约/渠道已装入本地仓库（全新 clone 场景）
@@ -133,7 +134,7 @@ case "${1:-}" in
     stop_server || exit 1
     ;;
   cli)
-    # CLI 依赖 harness-api：先安装契约，再启动 CLI（避免全新 clone 解析失败）
+    # CLI 依赖 deerfect-api：先安装契约，再启动 CLI（避免全新 clone 解析失败）
     $MVN -pl deerfect-api -DskipTests install -q
     $MVN -pl deerfect-cli -Pcli compile exec:exec
     ;;
@@ -144,7 +145,7 @@ case "${1:-}" in
     $MVN test
     ;;
   *)
-    echo "用法: ./run.sh [full|server|stop|cli|build|test]（无参数=全流程）"
+    echo "用法: ./scripts/run-wsl.sh [full|server|stop|cli|build|test]（无参数=全流程）"
     exit 1
     ;;
 esac
