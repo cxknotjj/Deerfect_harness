@@ -1,0 +1,515 @@
+package com.dark.javaHarness.agent;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import com.dark.javaHarness.agent.BudgetLedger;
+import com.dark.javaHarness.config.ContextBudgetProperties;
+import com.dark.javaHarness.llm.catalog.AgentCatalog;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RoutePlan;
+import com.dark.javaHarness.prompt.PromptAssembler;
+import com.dark.javaHarness.contract.model.AgentConfig;
+import com.dark.javaHarness.contract.api.AgentService;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.advisor.api.Advisor;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.openai.OpenAiChatOptions;
+import reactor.core.publisher.Flux;
+
+/**
+ * AgentChatCaller 单测：
+ * - 未知工具幻觉容错：模型发起不存在的工具调用（No ToolCallback found）→ 去掉工具列表重试一次
+ * - 其他异常照常抛出（交由上层重试/降级）
+ * - disableTools=true 时不注入任何工具（request 级 toolCallbacks/tools 均不调用）
+ * - 取消令牌（客户端断连防 token 浪费）：call 底层走流式通道——
+ *   执行中置位在 token 边界中止且不重试；置位后调用直接抛取消异常（零 HTTP 请求）
+ */
+@ExtendWith(MockitoExtension.class)
+class AgentChatCallerTest {
+
+    /** 文本 token → ChatResponse 流（生产流式链已切 chatResponse 通道以捕获 streamUsage 末帧） */
+    private static Flux<ChatResponse> fluxOf(String... tokens) {
+        return Flux.fromArray(List.of(tokens).stream()
+                .map(t -> new ChatResponse(List.of(new Generation(new AssistantMessage(t)))))
+                .toArray(ChatResponse[]::new));
+    }
+
+    /**
+     * 文本 token + 末帧 usage（total 为该轮完整 prompt+completion 的累计口径）→ ChatResponse 流。
+     * 末帧只含 usage 无 generations（contentOf=null，与生产 streamUsage 空帧同形态）。
+     */
+    private static Flux<ChatResponse> fluxWithUsage(int total, String... tokens) {
+        List<ChatResponse> frames = new ArrayList<>();
+        for (String t : tokens) {
+            frames.add(new ChatResponse(List.of(new Generation(new AssistantMessage(t)))));
+        }
+        frames.add(new ChatResponse(List.of(), org.springframework.ai.chat.metadata.ChatResponseMetadata.builder()
+                .usage(new org.springframework.ai.chat.metadata.DefaultUsage(total / 2, total - total / 2, total))
+                .build()));
+        return Flux.fromIterable(frames);
+    }
+
+    /**
+     * 预算账本桩：记录每次 recordUsage（[totalTokens, estimated]），overBudget 按
+     * 「已入账累计 ≥ limit」判定（limit=0 恒不熔断）；preSpent 模拟前序调用已消耗。
+     */
+    private static final class LedgerStub implements BudgetLedger {
+        final long limit;
+        final java.util.concurrent.atomic.AtomicLong spent = new java.util.concurrent.atomic.AtomicLong();
+        final List<long[]> records = new ArrayList<>();
+
+        LedgerStub(long limit) {
+            this(limit, 0);
+        }
+
+        LedgerStub(long limit, long preSpent) {
+            this.limit = limit;
+            this.spent.set(preSpent);
+        }
+
+        @Override
+        public boolean overBudget() {
+            return limit > 0 && spent.get() >= limit;
+        }
+
+        @Override
+        public void recordUsage(int totalTokens, boolean estimated) {
+            records.add(new long[]{totalTokens, estimated ? 1 : 0});
+            spent.addAndGet(totalTokens);
+        }
+    }
+
+
+    @Mock
+    private LlmClientRegistry llmClientRegistry;
+    @Mock
+    private AgentCatalog agentCatalog;
+    @Mock
+    private ModelResolver modelResolver;
+    @Mock
+    private AgentService agentService;
+    @Mock
+    private ChatClient client;
+    @Mock
+    private ChatClient.ChatClientRequestSpec spec;
+    @Mock
+    private ChatClient.StreamResponseSpec streamSpec;
+
+    private AgentChatCaller caller;
+
+    @BeforeEach
+    void setUp() {
+        caller = new AgentChatCaller(agentService, null, null, new LlmRetry(), null,
+                new PromptAssembler(agentService, null), null, null, null, null, null, null,
+                modelResolver, agentCatalog, llmClientRegistry, null);
+        // lenient：invokeOnce_disableTools 用例直接调 invokeAndRecord，不查表
+        org.mockito.Mockito.lenient().when(agentService.getAgentConfig("researcher"))
+                .thenReturn(Optional.of(new AgentConfig(1L, "m1", "系统提示词", null)));
+        com.dark.javaHarness.domain.entity.AgentEntity routeAgent = new com.dark.javaHarness.domain.entity.AgentEntity();
+        routeAgent.setAgentName("researcher");
+        routeAgent.setRouteId(1L);
+        org.mockito.Mockito.lenient().when(agentCatalog.require(anyString())).thenReturn(routeAgent);
+        org.mockito.Mockito.lenient().when(modelResolver.resolve(1L)).thenReturn(new RoutePlan(1L, "multi", List.of(
+                new RoutePlan.Member(9L, 1L, "dashscope", "https://example.com", "m1", "m1",
+                        10, "{}", null))));
+        org.mockito.Mockito.lenient().when(llmClientRegistry.get(9L)).thenReturn(client);
+        when(client.prompt()).thenReturn(spec);
+        when(spec.system(anyString())).thenReturn(spec);
+        when(spec.user(anyString())).thenReturn(spec);
+        when(spec.options(any(OpenAiChatOptions.Builder.class))).thenReturn(spec);
+        // call() 底层统一走流式通道收集完整内容（阻塞调用不可中断，流式是唯一可中止通道）
+        when(spec.stream()).thenReturn(streamSpec);
+    }
+
+    @Test
+    void call_unknownToolHallucination_retriesOnceWithoutTools() {
+        when(streamSpec.chatResponse())
+                .thenReturn(Flux.error(new IllegalStateException("No ToolCallback found for tool name: researcher")))
+                .thenReturn(fluxOf("调研完成：4399 公司……"));
+
+        String out = caller.call("s1", "researcher", "兜底提示", "任务内容");
+
+        assertEquals("调研完成：4399 公司……", out, "幻觉工具调用应降级为无工具重试并返回文本结果");
+        // 两次调用（原样 + 去工具）
+        verify(spec, never()).toolCallbacks(any(org.springframework.ai.tool.ToolCallback[].class));
+    }
+
+    @Test
+    void call_otherError_propagates() {
+        when(streamSpec.chatResponse()).thenReturn(Flux.error(new IllegalStateException("无关异常")));
+
+        assertThrows(IllegalStateException.class,
+                () -> caller.call("s1", "researcher", "兜底提示", "任务内容"));
+    }
+
+    @Test
+    void invokeOnce_disableTools_skipsAllToolInjection() {
+        when(streamSpec.chatResponse()).thenReturn(fluxOf("ok"));
+
+        String out = caller.invokeAndRecord(
+                new AgentConfig(1L, "m1", "系统提示词", null), "s1", "researcher",
+                "兜底提示", "任务内容", null, true, "m1", System.currentTimeMillis());
+
+        assertEquals("ok", out);
+        verify(spec, never()).toolCallbacks(any(org.springframework.ai.tool.ToolCallback[].class));
+        verify(spec, never()).tools(any(Object[].class));
+    }
+
+    @Test
+    void call_collectsAllTokensFromStreamChannel() {
+        // call() 改为流式背书：全部 token 收集后拼接返回
+        when(streamSpec.chatResponse()).thenReturn(fluxOf("你好", "，", "世界"));
+
+        String out = caller.call("s1", "researcher", "兜底提示", "任务内容");
+
+        assertEquals("你好，世界", out);
+    }
+
+    /** 回归（streamUsage）：末帧只含 usage（无 generations，contentOf=null）应跳过而非炸流 */
+    @Test
+    void call_usageOnlyFinalFrame_skippedWithoutError() {
+        when(streamSpec.chatResponse()).thenReturn(Flux.concat(
+                fluxOf("部分", "回答"),
+                Flux.just(new ChatResponse(List.of()))));
+
+        String out = caller.call("s1", "researcher", "兜底提示", "任务内容");
+
+        assertEquals("部分回答", out, "usage 空帧应被跳过，内容完整");
+    }
+
+    @Test
+    void call_cancelledMidStream_abortsAtTokenBoundary_noRetry() {
+        AtomicBoolean cancelled = new AtomicBoolean(false);
+        // 第 2 个 token 到达时模拟客户端断连置位：takeUntil 放行的终止前元素在 doOnNext 拦截中止
+        when(streamSpec.chatResponse()).thenReturn(fluxOf("a", "b", "c")
+                .doOnNext(resp -> {
+                    if ("b".equals(AgentChatPipeline.contentOf(resp))) {
+                        cancelled.set(true);
+                    }
+                }));
+
+        assertThrows(CancellationException.class,
+                () -> caller.call("s1", "researcher", "兜底提示", "任务内容", new AgentChatCaller.CallOptions(null, List.of(), cancelled::get, null, null, null, null)),
+                "执行中置位应在 token 边界中止并抛取消异常");
+
+        // 取消不是可重试错误：仅一次流式尝试（prompt 只被组装一次）
+        verify(client, times(1)).prompt();
+    }
+
+    @Test
+    @org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
+    void call_cancelledBeforeInvocation_throwsWithoutHttpCall() {
+        AtomicBoolean cancelled = new AtomicBoolean(true);
+
+        assertThrows(CancellationException.class,
+                () -> caller.call("s1", "researcher", "兜底提示", "任务内容", new AgentChatCaller.CallOptions(null, List.of(), cancelled::get, null, null, null, null)),
+                "置位后调用应直接抛取消异常");
+
+        // 零 HTTP 请求：未触达客户端
+        verify(client, never()).prompt();
+    }
+
+    @Test
+    @org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
+    void stream_cancelledBeforeInvocation_throwsWithoutHttpCall() {
+        AtomicBoolean cancelled = new AtomicBoolean(true);
+
+        assertThrows(CancellationException.class,
+                () -> caller.stream("s1", "researcher", "兜底提示", "任务内容",
+                        token -> { }, new AgentChatCaller.CallOptions(null, List.of(), cancelled::get, null, null, null, null)),
+                "置位后流式调用应直接抛取消异常");
+
+        verify(client, never()).prompt();
+    }
+
+    /* ---------------- 输出封顶（maxTokens 角色档位） ---------------- */
+
+    /**
+     * 档位映射：lead → lead 档；aggregator → final 档（与路径 A 直出同档）；
+     * 子任务专家（researcher）→ expert 档。捕获请求级 ChatOptions.maxTokens 断言。
+     * 配置类零默认（数值唯一来源是 yaml），此处显式设值验证映射机制本身。
+     */
+    @Test
+    @org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
+    void call_maxTokensTierMapping_byRole() {
+        ContextBudgetProperties budgets = new ContextBudgetProperties();
+        budgets.setMaxTokensLead(1000);
+        budgets.setMaxTokensFinal(3000);
+        budgets.setMaxTokensExpert(2000);
+        AgentChatCaller tiered = new AgentChatCaller(agentService, null, null,
+                new LlmRetry(), budgets, new PromptAssembler(agentService, null), null, null, null,
+                null, null, null, modelResolver, agentCatalog, llmClientRegistry, null);
+        when(agentService.getAgentConfig("lead"))
+                .thenReturn(Optional.of(new AgentConfig(1L, "m1", "系统提示词", null)));
+        when(agentService.getAgentConfig("aggregator"))
+                .thenReturn(Optional.of(new AgentConfig(1L, "m1", "系统提示词", null)));
+        when(streamSpec.chatResponse()).thenReturn(fluxOf("ok"));
+
+        tiered.call("s1", "lead", "兜底", "任务");
+        tiered.call("s1", "aggregator", "兜底", "任务");
+        tiered.call("s1", "researcher", "兜底", "任务");
+
+        ArgumentCaptor<OpenAiChatOptions.Builder> captor =
+                ArgumentCaptor.forClass(OpenAiChatOptions.Builder.class);
+        verify(spec, times(3)).options(captor.capture());
+        assertEquals(List.of(1000, 3000, 2000),
+                captor.getAllValues().stream().map(b -> b.build().getMaxTokens()).toList(),
+                "lead/aggregator/专家 应分别落 lead/final/expert 三档");
+    }
+
+    /** 0 = 不限制（统一口径，也是配置类缺省值）：档位 0 时不写入 maxTokens，保持模型默认 */
+    @Test
+    void call_maxTokensZero_notSet() {
+        when(streamSpec.chatResponse()).thenReturn(fluxOf("ok"));
+
+        caller.call("s1", "researcher", "兜底", "任务");
+
+        ArgumentCaptor<OpenAiChatOptions.Builder> captor =
+                ArgumentCaptor.forClass(OpenAiChatOptions.Builder.class);
+        verify(spec, times(1)).options(captor.capture());
+        assertNull(captor.getValue().build().getMaxTokens(), "档位 0 时不得设置 maxTokens");
+    }
+
+    /* ---------------- 预算账本（BudgetLedger 门控 + 按 roundtrip 增量记账） ---------------- */
+
+    /** 无真实 usage 回包：按输出文本估算入账且 estimated=true（口径与 tokens_estimated 一致） */
+    @Test
+    void call_reportsEstimatedUsageToListener() {
+        when(streamSpec.chatResponse()).thenReturn(fluxOf("你好", "世界"));
+        LedgerStub ledger = new LedgerStub(0);
+
+        caller.call("s1", "researcher", "兜底", "任务", new AgentChatCaller.CallOptions(null, List.of(), null, ledger, null, null, null));
+
+        assertEquals(1, ledger.records.size(), "成功调用结束应入账一次");
+        assertTrue(ledger.records.get(0)[0] > 0, "估算 token 应大于 0");
+        assertEquals(1, ledger.records.get(0)[1], "无 usage 回包应标记估算口径");
+    }
+
+    /** 真实 usage 帧：按该轮 total 全额入账（estimated=false），不触发估算兜底 */
+    @Test
+    void call_realUsageFrame_recordsActualTokens() {
+        when(streamSpec.chatResponse()).thenReturn(fluxWithUsage(150, "回答"));
+        LedgerStub ledger = new LedgerStub(0);
+
+        String out = caller.call("s1", "researcher", "兜底", "任务", new AgentChatCaller.CallOptions(null, List.of(), null, ledger, null, null, null));
+
+        assertEquals("回答", out);
+        assertEquals(1, ledger.records.size());
+        assertArrayEquals(new long[]{150, 0}, ledger.records.get(0), "usage 帧按该轮 total 真实入账");
+    }
+
+    /** 发起前已超限：零 HTTP 短路（拒绝发起新调用），不产生任何入账 */
+    @Test
+    @org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
+    void call_ledgerPreCheckOverBudget_zeroHttp() {
+        LedgerStub ledger = new LedgerStub(100, 100); // 前序调用已耗尽预算
+
+        assertThrows(BudgetLedger.BudgetExceededException.class,
+                () -> caller.call("s1", "researcher", "兜底", "任务", new AgentChatCaller.CallOptions(null, List.of(), null, ledger, null, null, null)),
+                "超限后调用应被熔断拒绝");
+
+        verify(client, never()).prompt();
+        assertTrue(ledger.records.isEmpty(), "拒绝发起不产生入账");
+    }
+
+    /**
+     * roundtrip 中的 usage 帧触发熔断：累计入账达到上限即断流抛异常（即使本轮已消耗——
+     * 并行扇出/工具循环下「烧穿剩余预算」由此封顶），熔断前的增量入账保留（账本可读）。
+     */
+    @Test
+    void call_usageFrameTripsBudget_midStreamAbort() {
+        // 累计口径 usage 帧：total 60 → delta 60（账本 60 < 100 放行）；total 120 → delta 60
+        // （账本 120 ≥ 100 熔断断流）
+        when(streamSpec.chatResponse()).thenReturn(Flux.concat(
+                fluxWithUsage(60, "部分"),
+                fluxWithUsage(120, "续")));
+        LedgerStub ledger = new LedgerStub(100);
+
+        assertThrows(BudgetLedger.BudgetExceededException.class,
+                () -> caller.call("s1", "researcher", "兜底", "任务", new AgentChatCaller.CallOptions(null, List.of(), null, ledger, null, null, null)),
+                "usage 帧累计入账达上限应断流");
+
+        assertEquals(2, ledger.records.size(), "熔断前每轮增量应已入账");
+        assertEquals(120L, ledger.spent.get(), "账本累计应为已入账增量之和");
+    }
+
+    /** 账本为 null（无账本场景）：usage 帧捕获照旧（llm_call_log 口径不变），不熔断不记账 */
+    @Test
+    void call_nullLedger_noOp() {
+        when(streamSpec.chatResponse()).thenReturn(fluxWithUsage(150, "ok"));
+
+        assertEquals("ok", caller.call("s1", "researcher", "兜底", "任务",
+                AgentChatCaller.CallOptions.none()));
+    }
+
+    /* ---------------- 流式路径账本上报（I1：stream 与 call 同口径） ---------------- */
+
+    /** stream + 真实 usage 帧：增量入账（estimated=false）——同步/流式口径一致 */
+    @Test
+    void stream_reportsRealUsageToLedger() {
+        when(streamSpec.chatResponse()).thenReturn(fluxWithUsage(150, "聚合", "结果"));
+        LedgerStub ledger = new LedgerStub(0);
+        StringBuilder collected = new StringBuilder();
+
+        caller.stream("s1", "researcher", "兜底", "任务",
+                collected::append, new AgentChatCaller.CallOptions(null, List.of(), null, ledger, null, null, null));
+
+        assertEquals("聚合结果", collected.toString());
+        assertEquals(1, ledger.records.size());
+        assertArrayEquals(new long[]{150, 0}, ledger.records.get(0), "流式路径应与 call 同口径入账真实 usage");
+    }
+
+    /** stream 无 usage 回包：按输出估算兜底入账（estimated=true） */
+    @Test
+    void stream_noUsage_estimatedFallback() {
+        when(streamSpec.chatResponse()).thenReturn(fluxOf("a", "b"));
+        LedgerStub ledger = new LedgerStub(0);
+
+        caller.stream("s1", "researcher", "兜底", "任务",
+                token -> { }, new AgentChatCaller.CallOptions(null, List.of(), null, ledger, null, null, null));
+
+        assertEquals(1, ledger.records.size());
+        assertTrue(ledger.records.get(0)[0] > 0, "估算 token 应大于 0");
+        assertEquals(1, ledger.records.get(0)[1], "无 usage 回包应标记估算口径");
+    }
+
+    /** stream 发起前已超限：零 HTTP 短路 */
+    @Test
+    @org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
+    void stream_ledgerPreCheckOverBudget_zeroHttp() {
+        LedgerStub ledger = new LedgerStub(100, 100);
+
+        assertThrows(BudgetLedger.BudgetExceededException.class,
+                () -> caller.stream("s1", "researcher", "兜底", "任务",
+                        token -> { }, new AgentChatCaller.CallOptions(null, List.of(), null, ledger, null, null, null)),
+                "超限后流式调用应被熔断拒绝");
+
+        verify(client, never()).prompt();
+    }
+
+    /* ---------------- 端点无响应兜底（路径 A 主回答与路径 B 共用） ---------------- */
+
+    /**
+     * 端点在途无响应（流长期不吐 token）时应按流空闲超时中止，并丢弃该模型的连接池。
+     * 回归背景：超时此前只挂在路径 B，浏览器 SSE 主回答（路径 A）端点在途无响应会永久挂起。
+     */
+    @Test
+    @org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
+    void watchdog_timesOutOnSilentEndpointAndDropsPool() {
+        com.dark.javaHarness.config.ChatTimeoutProperties timeouts =
+                new com.dark.javaHarness.config.ChatTimeoutProperties();
+        timeouts.setStreamIdleTimeoutSeconds(1);
+        AgentChatCaller guarded = new AgentChatCaller(agentService, null, null,
+                new LlmRetry(), new ContextBudgetProperties(), new PromptAssembler(agentService, null),
+                null, null, null, null, timeouts, null, modelResolver, agentCatalog, llmClientRegistry, null);
+        when(spec.stream()).thenReturn(streamSpec);
+        when(streamSpec.chatResponse()).thenReturn(Flux.never());
+
+        java.util.List<Throwable> errors = new ArrayList<>();
+        guarded.tokenStreamWithWatchdog(spec, new java.util.concurrent.atomic.AtomicReference<>(),
+                        null, null, null, 9L, null)
+                .doOnError(errors::add)
+                .onErrorResume(e -> Flux.empty())
+                .blockLast();
+
+        assertEquals(1, errors.size(), "端点在途无响应应触发超时中止");
+        assertTrue(errors.get(0) instanceof java.util.concurrent.TimeoutException,
+                "中止原因应为流空闲超时，实际: " + errors.get(0));
+        verify(llmClientRegistry).invalidate(9L);
+    }
+
+    /** 正常吐字不被兜底打断：流式收集内容与 token 顺序不变 */
+    @Test
+    @org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
+    void watchdog_passesThroughNormalStream() {
+        com.dark.javaHarness.config.ChatTimeoutProperties timeouts =
+                new com.dark.javaHarness.config.ChatTimeoutProperties();
+        timeouts.setStreamIdleTimeoutSeconds(30);
+        AgentChatCaller guarded = new AgentChatCaller(agentService, null, null,
+                new LlmRetry(), new ContextBudgetProperties(), new PromptAssembler(agentService, null),
+                null, null, null, null, timeouts, null, modelResolver, agentCatalog, llmClientRegistry, null);
+        when(spec.stream()).thenReturn(streamSpec);
+        when(streamSpec.chatResponse()).thenReturn(fluxOf("a", "b", "c"));
+
+        List<String> tokens = guarded.tokenStreamWithWatchdog(spec, new java.util.concurrent.atomic.AtomicReference<>(),
+                        null, null, null, 9L, null)
+                .collectList()
+                .block();
+
+        assertEquals(List.of("a", "b", "c"), tokens);
+        verify(llmClientRegistry, never()).invalidate(any());
+    }
+
+    /** 带思考增量的 ChatResponse 帧：AssistantMessage 的 metadata 构造器为 protected，经 mock 注入 */
+    private static ChatResponse respWithReasoning(String reasoning, String content) {
+        AssistantMessage msg = org.mockito.Mockito.mock(AssistantMessage.class);
+        org.mockito.Mockito.when(msg.getMetadata()).thenReturn(
+                java.util.Map.of("reasoningContent", reasoning == null ? "" : reasoning));
+        org.mockito.Mockito.when(msg.getText()).thenReturn(content);
+        Generation gen = org.mockito.Mockito.mock(Generation.class);
+        org.mockito.Mockito.when(gen.getOutput()).thenReturn(msg);
+        return new ChatResponse(List.of(gen));
+    }
+
+    /**
+     * 思考透传旁路（管道层）：思考模型的 reasoningContent delta 逐帧回调 tap，
+     * 且返回的完整内容完全不含思考文本（tap 为只读旁路，不触碰内容收集）。
+     */
+    @Test
+    @org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
+    void reasoningTap_receivesDeltas_contentExcludesThem() {
+        // 帧数组在 when() 之外构建：帧内含 mock（respWithReasoning），嵌在 when() 实参里
+        // 会触发 UnfinishedStubbingException（stub 套 stub）
+        ChatResponse[] frames = {
+                respWithReasoning("先想第一步", null),
+                respWithReasoning("再想第二步", null),
+                respWithReasoning(null, "最终"),
+                respWithReasoning(null, "答案")};
+        when(spec.stream()).thenReturn(streamSpec);
+        when(streamSpec.chatResponse()).thenReturn(Flux.fromArray(frames));
+
+        List<String> tapped = new ArrayList<>();
+        String content = caller.call("s1", "researcher", "sys", "u", new AgentChatCaller.CallOptions(null, List.of(), null, null, CallTrace.NONE, null, tapped::add));
+
+        assertEquals(List.of("先想第一步", "再想第二步"), tapped, "思考 delta 应逐帧回调 tap");
+        assertEquals("最终答案", content, "返回内容不得混入思考文本");
+    }
+
+    /** 思考透传旁路：无思考增量（正常文本帧）时 tap 零回调，行为与既有逐字节一致 */
+    @Test
+    @org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
+    void reasoningTap_absentReasoning_zeroCallbacks() {
+        when(spec.stream()).thenReturn(streamSpec);
+        when(streamSpec.chatResponse()).thenReturn(fluxOf("a", "b"));
+
+        List<String> tapped = new ArrayList<>();
+        String content = caller.call("s1", "researcher", "sys", "u", new AgentChatCaller.CallOptions(null, List.of(), null, null, CallTrace.NONE, null, tapped::add));
+
+        assertEquals("ab", content);
+        assertTrue(tapped.isEmpty(), "无 reasoningContent 帧时 tap 不应被回调");
+    }
+}

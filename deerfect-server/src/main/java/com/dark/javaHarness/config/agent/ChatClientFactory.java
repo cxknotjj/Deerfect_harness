@@ -1,0 +1,154 @@
+package com.dark.javaHarness.config.agent;
+
+import com.dark.javaHarness.config.ChatTimeoutProperties;
+import com.dark.javaHarness.config.OpenAiClients;
+import com.dark.javaHarness.tool.builtin.DemoTools;
+import com.openai.client.OpenAIClient;
+import java.time.Duration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.openai.OpenAiChatModel;
+import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.core.env.Environment;
+import org.springframework.stereotype.Component;
+
+/**
+ * ChatClient 工厂：负责按服务商标识 + 端点 url 构建 OpenAI 兼容的 ChatClient。
+ *
+ * 只承担"客户端构建"这一件事，供 {@code LlmClientFactory} / {@code LlmClientRegistry}
+ * 在按 llm_model 部署行构建客户端时调用。
+ * api_key 不落库，解析规则（约定优于配置）：
+ * 1. yaml 显式映射：app.providers.<provider>.api-key
+ * 2. 约定式回退：环境变量 <PROVIDER大写>_API_KEY（如 moonshot → MOONSHOT_API_KEY）
+ * 新增第三方供应商因此零代码：环境变量 + llm_provider/llm_model 表加行即可。
+ */
+@Component
+public class ChatClientFactory {
+
+    private static final Logger log = LoggerFactory.getLogger(ChatClientFactory.class);
+
+    /** HTTP 连接超时兜底默认（秒）：app.chat.timeouts.connect-timeout-seconds 未配置时生效 */
+    private static final int DEFAULT_CONNECT_TIMEOUT_SECONDS = 10;
+
+    /** 轻量内部调用读超时兜底默认（秒）：路由判定等带兜底的短调用，不共用长回答读超时 */
+    private static final int DEFAULT_LIGHT_READ_TIMEOUT_SECONDS = 10;
+
+    /** HTTP 读超时兜底默认（秒）：app.chat.timeouts.read-timeout-seconds 未配置时生效。
+     * OkHttp 读超时按包间等待判定（非整请求上限），端点不响应会挂起
+     * （实测：编排卡死在 CompletableFuture.get()），必须显式设置 */
+    private static final int DEFAULT_READ_TIMEOUT_SECONDS = 300;
+
+    private final Environment env;
+
+    /** LLM 超时配置（app.chat.timeouts.*）：未配置键为 null，经 {@link #resolve} 兜底默认 */
+    private final ChatTimeoutProperties timeouts;
+
+    public ChatClientFactory(Environment env, ChatTimeoutProperties timeouts) {
+        this.env = env;
+        this.timeouts = timeouts;
+    }
+
+    /**
+     * 可空配置秒数 → Duration：null（未配置）回退默认秒数，行为与历史硬编码一致。
+     * public 静态辅助：本类（连接/读超时）与 AgentChatCaller（流式空闲超时）共用同一
+     * 兜底口径，亦便于跨包单测。
+     */
+    public static Duration resolve(Integer configured, int defaultSeconds) {
+        return Duration.ofSeconds(configured != null ? configured : defaultSeconds);
+    }
+
+    /** 默认 DashScope 客户端（基于 spring.ai.openai 自动配置的 Builder，注册表兜底用） */
+    public ChatClient defaultClient(ChatClient.Builder dashScopeBuilder) {
+        warnIfPlaceholderKey();
+        return dashScopeBuilder
+                .defaultTools(new DemoTools())
+                .build();
+    }
+
+    /** 若 api-key 仍为启动占位值，记录警告提示配置真实 key */
+    private void warnIfPlaceholderKey() {
+        String placeholder = "dummy-key-for-startup";
+        if (placeholder.equals(env.getProperty("spring.ai.openai.api-key"))) {
+            log.warn("检测到使用占位 API Key（'{}'）。真实调用大模型前，" +
+                    "请通过环境变量 QWEN_API_KEY 配置真实密钥。", placeholder);
+        }
+    }
+
+    /** 按服务商 + api_url 构建 OpenAI 兼容 ChatClient（模型默认思考行为）；参数无效或未配置 key 返回 null */
+    public ChatClient build(String provider, String apiUrl) {
+        return build(provider, apiUrl, false);
+    }
+
+    /**
+     * 按服务商 + api_url 构建 OpenAI 兼容 ChatClient；参数无效或未配置 key 返回 null。
+     *
+     * @param disableThinking true 时模型层按请求注入 enable_thinking:false（dashscope 思考模型
+     *                        非流式单轮推理数分钟/content 为空，流式 0 token，见 V7 迁移说明）
+     */
+    public ChatClient build(String provider, String apiUrl, boolean disableThinking) {
+        return build(provider, apiUrl, disableThinking, null, true);
+    }
+
+    /**
+     * 轻量调用客户端：短读超时 + 不挂默认工具（{@link DemoTools}）。
+     *
+     * <p>供路由判定这类「只发 system + user、要求一行 JSON」的内部轻量调用使用：
+     * 模型既不需要工具，附带工具 schema 只会撑大请求体，也给模型多一个跑偏调工具的机会。
+     *
+     * @param readTimeoutSeconds 读超时秒数；null 回退 {@link #DEFAULT_LIGHT_READ_TIMEOUT_SECONDS}
+     */
+    public ChatClient buildLightweight(String provider, String apiUrl, Integer readTimeoutSeconds) {
+        int seconds = readTimeoutSeconds != null ? readTimeoutSeconds : DEFAULT_LIGHT_READ_TIMEOUT_SECONDS;
+        return build(provider, apiUrl, false, seconds, false);
+    }
+
+    /** 客户端构建主体：读超时与默认工具由调用方决定（agent 通道长超时带工具，轻量通道反之） */
+    private ChatClient build(String provider, String apiUrl, boolean disableThinking,
+                             Integer readTimeoutSeconds, boolean withDemoTools) {
+        if (provider == null || apiUrl == null || apiUrl.isBlank()) {
+            return null;
+        }
+        String apiKey = resolveApiKey(provider);
+        if (apiKey == null) {
+            log.warn("服务商 {} 未配置 API Key（yaml app.providers.{}.api-key 或环境变量 {}），跳过其模型",
+                    provider, provider.toLowerCase(), provider.toUpperCase() + "_API_KEY");
+            return null;
+        }
+        try {
+            // 传输层：Spring AI 的 OkHttp 客户端（连接/读超时防端点无响应时永久挂起；
+            // 整请求不设上限，流式长回答按 token 间隔判定读超时）
+            OpenAIClient client = OpenAiClients.build(apiUrl, apiKey,
+                    resolve(timeouts.getConnectTimeoutSeconds(), DEFAULT_CONNECT_TIMEOUT_SECONDS),
+                    resolve(readTimeoutSeconds != null ? readTimeoutSeconds : timeouts.getReadTimeoutSeconds(),
+                            DEFAULT_READ_TIMEOUT_SECONDS));
+            OpenAiChatModel model = OpenAiChatModel.builder()
+                    .openAiClient(client)
+                    .openAiClientAsync(client.async())
+                    .options(OpenAiChatOptions.builder().build())
+                    .build();
+            // 思考端点：模型层包装器按请求注入 enable_thinking:false（defaultOptions.extraBody
+            // 在带运行时选项的调用模式下不生效，见 ThinkingSwitchChatModel 类注释）
+            ChatModel effective = disableThinking ? new ThinkingSwitchChatModel(model) : model;
+            ChatClient.Builder clientBuilder = ChatClient.builder(effective);
+            return withDemoTools ? clientBuilder.defaultTools(new DemoTools()).build() : clientBuilder.build();
+        } catch (Exception e) {
+            log.warn("构建服务商客户端失败 provider={}, api_url={}", provider, apiUrl, e);
+            return null;
+        }
+    }
+
+    /** 按服务商解析 api-key：yaml 显式映射优先，约定式环境变量回退（敏感信息不落库）。
+     * public：AgentScope 模型工厂复用同一解析口径，避免两套 Key 规则漂移。 */
+    public String resolveApiKey(String provider) {
+        if (provider == null || provider.isBlank()) {
+            return null;
+        }
+        String key = env.getProperty("app.providers." + provider.toLowerCase() + ".api-key");
+        if (key == null || key.isBlank()) {
+            key = env.getProperty(provider.toUpperCase() + "_API_KEY");
+        }
+        return (key == null || key.isBlank()) ? null : key;
+    }
+}

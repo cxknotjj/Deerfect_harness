@@ -1,0 +1,438 @@
+package com.dark.javaHarness.prompt;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyString;
+
+import com.dark.javaHarness.contract.model.AgentConfig;
+import com.dark.javaHarness.contract.api.AgentService;
+import com.dark.javaHarness.tool.ToolAssignments;
+import com.dark.javaHarness.tool.builtin.SandboxToolProvider;
+import com.dark.javaHarness.tool.builtin.WebTools;
+import com.dark.javaHarness.tool.builtin.tts.EdgeTtsClient;
+import com.dark.javaHarness.tool.builtin.tts.TextToSpeechTools;
+import com.dark.javaHarness.tool.mcp.McpToolProvider;
+import com.dark.javaHarness.tool.mcp.ServerTaggedCallback;
+import com.dark.javaHarness.voice.InMemoryVoiceArtifactStore;
+import com.dark.javaHarness.voice.TtsProperties;
+import java.util.List;
+import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.definition.ToolDefinition;
+
+/**
+ * PromptAssembler 单测：
+ * - 段落固定次序（角色 → 画像 → 工具索引 → 工具纪律 → 输出约定 → skill）、空段跳过无多余空行
+ * - 角色段优先级：agent 表 prompt &gt; 调用方兜底 &gt; 默认 system prompt
+ * - skill 段扩展点：注入 SkillSectionProvider 时其文本出现在 skill 段位，无注入时该段为空
+ * - 画像段扩展点：注入 UserProfileSectionProvider 时 general 角色渲染【用户偏好画像】段（order 150）
+ * - 子任务 persona 组装结果包含专家名与工具纪律文本
+ * - attachmentsOf：prompt 装配名单（技能/工具/MCP 子集三名单，llm_call_log 观测口径）
+ */
+@ExtendWith(MockitoExtension.class)
+class PromptAssemblerTest {
+
+    @Mock
+    private AgentService agentService;
+    @Mock
+    private SandboxToolProvider sandbox;
+    @Mock
+    private McpToolProvider mcp;
+
+    /** 真实分配表 + mock 沙箱/MCP 提供者：工具面分配与用途元数据走真实实现 */
+    private ToolAssignments toolAssignments;
+    private PromptAssembler assembler;
+
+    @BeforeEach
+    void setUp() {
+        toolAssignments = new ToolAssignments(new WebTools(), sandbox, mcp, null, ttsTools(), musicTools(),
+                new com.dark.javaHarness.tool.builtin.history.RecallHistoryTools(
+                        org.mockito.Mockito.mock(com.dark.javaHarness.service.impl.SessionHistoryArchiveService.class)),
+                new com.dark.javaHarness.tool.builtin.memory.MemoryTools(org.mockito.Mockito.mock(com.dark.javaHarness.service.MemoryService.class)),
+                httpTools());
+        assembler = new PromptAssembler(agentService, toolAssignments);
+        stubEmptyToolFaces();
+    }
+
+    /** 真实 TTS 工具对象（禁用状态）：仅用于分配表目录索引 */
+    private static TextToSpeechTools ttsTools() {
+        TtsProperties props = new TtsProperties();
+        props.setEnabled(false);
+        return new TextToSpeechTools(props, new EdgeTtsClient(props), new InMemoryVoiceArtifactStore(props));
+    }
+
+    /** 点歌工具：关闭状态（不影响 annotated 集合断言） */
+    private static com.dark.javaHarness.music.MusicTools musicTools() {
+        com.dark.javaHarness.music.MusicProperties music = new com.dark.javaHarness.music.MusicProperties();
+        music.setEnabled(false);
+        TtsProperties tts = new TtsProperties();
+        return new com.dark.javaHarness.music.MusicTools(music,
+                new com.dark.javaHarness.music.MusicLibrary(music),
+                new InMemoryVoiceArtifactStore(tts));
+    }
+
+    /** 外部 HTTP 工具：关闭状态（不扫目录，工具面为空） */
+    private static com.dark.javaHarness.tool.external.HttpToolLoader httpTools() {
+        return new com.dark.javaHarness.tool.external.HttpToolLoader(
+                false, "tools/http", false, new tools.jackson.databind.ObjectMapper());
+    }
+
+    /** 沙箱/MCP 工具面默认为空（lenient：用不到该工具组的用例免检） */
+    private void stubEmptyToolFaces() {
+        lenient().when(sandbox.baseTools()).thenReturn(List.of());
+        lenient().when(sandbox.readOnlyFileTools()).thenReturn(List.of());
+        lenient().when(sandbox.writeTools()).thenReturn(List.of());
+        lenient().when(sandbox.browserTools()).thenReturn(List.of());
+        lenient().when(mcp.toolCallbacks()).thenReturn(List.of());
+    }
+
+    /** 构造仅名字可读的工具回调（索引渲染只取工具名与用途元数据） */
+    private static ToolCallback callbackNamed(String name) {
+        ToolCallback cb = mock(ToolCallback.class);
+        lenient().when(cb.getToolDefinition()).thenReturn(ToolDefinition.builder()
+                .name(name).description("d").inputSchema("{}").build());
+        return cb;
+    }
+
+    /** 段落固定次序：角色段 → 工具索引段 → 工具纪律段 → 输出约定段（skill 空段跳过） */
+    @Test
+    void assemble_sectionsInFixedOrder() {
+        when(agentService.getAgentConfig("general"))
+                .thenReturn(Optional.of(new AgentConfig(1L, "m", "角色提示词", null)));
+        // 回调 mock 先建好再注入 stub（避免在 when() 求值内嵌套 stubbing）
+        ToolCallback readOnlyCb = callbackNamed("fs_read_file");
+        when(sandbox.readOnlyFileTools()).thenReturn(List.of(readOnlyCb));
+
+        // general = 自研 WebTools（@Tool 注解通道）+ 上述只读回调
+        String system = assembler.assemble("general", "兜底角色");
+        String[] parts = system.split("\n\n", -1);
+
+        assertEquals("角色提示词", parts[0], "角色段在最前");
+        assertTrue(parts[1].startsWith("可用工具索引"), "第二段为工具索引段");
+        assertTrue(parts[1].contains("- fs_read_file：读取容器内单个文件内容"),
+                "索引行复用 ToolAssignments 用途元数据（回调通道）");
+        assertTrue(parts[1].contains("- fetchUrl：抓取网页正文"),
+                "索引行覆盖 @Tool 注解工具（fetchUrl）");
+        assertTrue(parts[2].startsWith("工具使用纪律"), "第三段为工具纪律段");
+        assertEquals("输出约定：直接给出完成结果。", parts[3], "第四段为输出约定段");
+        assertEquals(4, parts.length, "无 skill 提供者时 skill 段为空段被跳过");
+    }
+
+    /** 空段跳过：未分配工具的 agent 不渲染索引/纪律段，且无多余空行 */
+    @Test
+    void assemble_skipsEmptySectionsWithoutExtraBlankLines() {
+        when(agentService.getAgentConfig("writer")).thenReturn(Optional.empty());
+
+        String system = assembler.assemble("writer", "撰写角色");
+        String[] parts = system.split("\n\n", -1);
+
+        assertEquals(2, parts.length, "无工具时仅角色段 + 输出约定段");
+        assertEquals("撰写角色", parts[0]);
+        assertEquals("输出约定：直接给出完成结果。", parts[1]);
+        assertFalse(system.startsWith("\n"));
+        assertFalse(system.endsWith("\n"));
+        assertFalse(system.contains("\n\n\n"), "不应出现连续多空行");
+        assertFalse(system.contains("工具使用纪律"), "未分配工具的 agent 不渲染工具纪律段");
+    }
+
+    /** 显式记忆段：排在画像之前（冲突时以用户明说为准），无记忆时整段跳过 */
+    @Test
+    void assemble_explicitMemoryBeforeProfile() {
+        when(agentService.getAgentConfig("general"))
+                .thenReturn(Optional.of(new AgentConfig(1L, "m", "角色提示词", null)));
+        ExplicitMemorySectionProvider memoryProvider = name -> "【用户明确记住的事】\n- [车牌] 沪A12345";
+        UserProfileSectionProvider profileProvider = name -> "【用户偏好画像】\n- [技术栈] Java";
+
+        PromptAssembler withMemory = new PromptAssembler(agentService, toolAssignments, List.of(),
+                List.of(memoryProvider), List.of(profileProvider), List.of(), false);
+        String system = withMemory.assemble("general", null);
+
+        int memoryIndex = system.indexOf("【用户明确记住的事】");
+        int profileIndex = system.indexOf("【用户偏好画像】");
+        assertTrue(memoryIndex > 0, "显式记忆段应渲染");
+        assertTrue(profileIndex > memoryIndex, "显式记忆必须排在画像之前，冲突时才压得住旧推断");
+    }
+
+    /** 角色段优先级：agent 表 prompt &gt; 调用方兜底 &gt; 默认 system prompt；表 prompt 空白视同无 */
+    @Test
+    void assemble_rolePromptPriority() {
+        // 表 prompt 存在 → 用表
+        when(agentService.getAgentConfig("researcher"))
+                .thenReturn(Optional.of(new AgentConfig(1L, "m", "表配置角色", null)));
+        String withTable = assembler.assemble("researcher", "兜底角色");
+        assertTrue(withTable.startsWith("表配置角色"), "表 prompt 优先");
+        assertFalse(withTable.contains("兜底角色"), "表 prompt 存在时不再使用兜底");
+
+        // 表无记录 → 角色兜底
+        when(agentService.getAgentConfig("coder")).thenReturn(Optional.empty());
+        assertTrue(assembler.assemble("coder", "兜底角色").startsWith("兜底角色"), "无表记录用兜底");
+
+        // 表 prompt 为空白 → 视同无
+        when(agentService.getAgentConfig("analyst"))
+                .thenReturn(Optional.of(new AgentConfig(2L, "m", "  ", null)));
+        assertTrue(assembler.assemble("analyst", "兜底角色").startsWith("兜底角色"), "空白表 prompt 视同无");
+
+        // 表无记录且无兜底 → 默认 system prompt
+        when(agentService.getAgentConfig("writer")).thenReturn(Optional.empty());
+        assertTrue(assembler.assemble("writer", null).startsWith("你是一个执行任务的 AI 助手"),
+                "兜底也缺失时用默认 system prompt");
+    }
+
+    /** config 复载：上游已查好配置时角色段直接采用，不再重复查表（每次 LLM 调用仅查一次） */
+    @Test
+    void assemble_withConfig_usesConfigPromptWithoutTableLookup() {
+        AgentConfig config = new AgentConfig(4L, "qwen3.7-flash", "来自config的角色提示词", null);
+
+        String system = assembler.assemble("aggregator", "兜底角色", config);
+
+        assertTrue(system.startsWith("来自config的角色提示词"), "角色段取 config.prompt(): " + system);
+        assertFalse(system.contains("兜底角色"), "config prompt 存在时不用兜底");
+        verify(agentService, never()).getAgentConfig(anyString());
+
+        // config.prompt 空白 → 视同无，回退兜底（与查表优先级语义一致），同样不查表
+        AgentConfig blank = new AgentConfig(4L, "m", "  ", null);
+        assertTrue(assembler.assemble("aggregator", "兜底角色", blank).startsWith("兜底角色"),
+                "空白 config prompt 视同无");
+        verify(agentService, never()).getAgentConfig(anyString());
+    }
+
+    /** skill 扩展点：注入 SkillSectionProvider 时其文本出现在 skill 段位（末段） */
+    @Test
+    void assemble_skillProviderTextAtSkillSlot() {
+        PromptAssembler withSkill = new PromptAssembler(agentService, toolAssignments,
+                List.of(agentName -> "SKILL：demo-skill 用法说明"));
+
+        String system = withSkill.assemble("general", "兜底角色");
+        String[] parts = system.split("\n\n", -1);
+
+        assertEquals("SKILL：demo-skill 用法说明", parts[parts.length - 1], "skill 段文本应位于末段");
+        assertEquals("输出约定：直接给出完成结果。", parts[parts.length - 2], "skill 段之前是输出约定段");
+    }
+
+    /** skill 段缺省为空：无提供者时该段输出空串、不产生尾随空行 */
+    @Test
+    void assemble_withoutSkillProvider_skillSectionEmpty() {
+        String system = assembler.assemble("writer", "撰写角色");
+
+        assertFalse(system.contains("SKILL"), "无 skill 提供者时不应有 skill 内容");
+        assertFalse(system.endsWith("\n"), "skill 空段被跳过，无尾随空行");
+    }
+
+    /** 画像段扩展点：general 角色渲染【用户偏好画像】段（order 150，位于角色段与工具索引段之间） */
+    @Test
+    void assemble_profileProvider_generalRendersProfileSection() {
+        PromptAssembler withProfile = new PromptAssembler(agentService, toolAssignments,
+                List.of(), List.of(agentName -> "【用户偏好画像】\n- 偏好简洁回复"), List.of(), false);
+        when(agentService.getAgentConfig("general")).thenReturn(Optional.empty());
+        ToolCallback readOnlyCb = callbackNamed("fs_read_file");
+        when(sandbox.readOnlyFileTools()).thenReturn(List.of(readOnlyCb));
+
+        String system = withProfile.assemble("general", "兜底角色");
+        String[] parts = system.split("\n\n", -1);
+
+        assertEquals(5, parts.length, "角色 + 画像 + 工具索引 + 纪律 + 输出约定");
+        assertEquals("兜底角色", parts[0], "角色段仍在最前");
+        assertTrue(parts[1].startsWith("【用户偏好画像】"), "画像段位于角色段之后");
+        assertTrue(parts[1].contains("- 偏好简洁回复"), "画像正文完整保留");
+        assertTrue(parts[2].startsWith("可用工具索引"), "画像段之后是工具索引段");
+    }
+
+    /** 活跃目标段：按会话注入，位置在画像之后、工具索引之前；无 sessionId 时整段跳过 */
+    @Test
+    void assembleSections_sessionId_injectsActiveGoalSection() {
+        PromptAssembler withGoal = new PromptAssembler(agentService, toolAssignments,
+                List.of(), List.of(),
+                List.of(sessionId -> "s1".equals(sessionId) ? "【当前目标】整理库存异常" : null),
+                false);
+        when(agentService.getAgentConfig("general")).thenReturn(Optional.empty());
+        stubEmptyToolFaces();
+
+        List<PromptAssembler.RenderedSection> withSession =
+                withGoal.assembleSections("general", "兜底角色", null, null, "s1");
+        List<String> names = withSession.stream().map(PromptAssembler.RenderedSection::name).toList();
+
+        assertTrue(names.contains("活跃目标"), "有 sessionId 时应渲染目标段: " + names);
+        assertTrue(names.indexOf("活跃目标") < names.indexOf("工具索引"), "目标段应在工具索引之前: " + names);
+        assertTrue(withSession.stream().anyMatch(s -> s.text().contains("整理库存异常")));
+
+        List<String> withoutSession = withGoal.assembleSections("general", "兜底角色", null, null, null)
+                .stream().map(PromptAssembler.RenderedSection::name).toList();
+        assertTrue(!withoutSession.contains("活跃目标"), "无会话场景（route-judge 等）不应出现目标段");
+    }
+
+    /** 画像段角色过滤：provider 对子任务角色返回 null（实现侧 MemoryPolicy 口径）→ 该段跳过 */
+    @Test
+    void assemble_profileProvider_subtaskRoleSkipped() {
+        PromptAssembler withProfile = new PromptAssembler(agentService, toolAssignments,
+                List.of(), List.of(agentName -> "general".equals(agentName) ? "【用户偏好画像】" : null), List.of(), false);
+        when(agentService.getAgentConfig("researcher")).thenReturn(Optional.empty());
+
+        String system = withProfile.assemble("researcher", "兜底角色");
+
+        assertFalse(system.contains("【用户偏好画像】"), "子任务角色不注入画像");
+        assertFalse(system.contains("\n\n\n"), "画像空段跳过无多余空行");
+    }
+
+    /** 画像段缺省为空：无提供者时该段输出空串、不影响既有段落次序 */
+    @Test
+    void assemble_withoutProfileProvider_profileSectionEmpty() {
+        String system = assembler.assemble("general", "兜底角色");
+
+        assertFalse(system.contains("【用户偏好画像】"), "无画像提供者时不应有画像内容");
+        assertFalse(system.endsWith("\n"), "画像空段被跳过，无尾随空行");
+    }
+
+    /** 子任务 persona 组装结果包含专家名与工具纪律文本 */
+    @Test
+    void subtaskPersona_assembledSystemContainsExpertNameAndToolDiscipline() {
+        when(agentService.getAgentConfig("researcher")).thenReturn(Optional.empty());
+
+        // predictSubtask 以 persona 作角色兜底传入，组装后的 system 应含专家名与工具纪律段
+        String system = assembler.assemble("researcher", assembler.subtaskPersona("researcher"));
+
+        assertTrue(system.contains("「researcher」"), "应包含专家身份 persona");
+        assertTrue(system.contains("只是你的身份标识，绝不是可调用的工具"), "应包含专家名非工具的约束");
+        assertTrue(system.contains("工具使用纪律"), "应包含工具纪律段");
+        assertTrue(system.contains("合计调用不超过 8 次"), "应包含网络工具调用频次纪律");
+    }
+
+    /**
+     * 延迟加载开关（spec 子项 6）：开启时工具索引段追加 expand_tool 使用引导（与轻量态
+     * 工具面对齐——索引只给用途不给参数，模型知道何时 expand）；关闭时维持现状渲染。
+     */
+    @Test
+    void assemble_lazyToolsEnabled_indexSectionCarriesExpandHint() {
+        PromptAssembler lazy = new PromptAssembler(agentService, toolAssignments, List.of(), List.of(), List.of(), true);
+        when(agentService.getAgentConfig("general")).thenReturn(Optional.empty());
+        ToolCallback readOnlyCb = callbackNamed("fs_read_file");
+        when(sandbox.readOnlyFileTools()).thenReturn(List.of(readOnlyCb));
+
+        String lazySystem = lazy.assemble("general", "兜底角色");
+        String[] parts = lazySystem.split("\n\n", -1);
+
+        assertTrue(parts[1].startsWith("可用工具索引"), "第二段仍为工具索引段");
+        assertTrue(parts[1].contains("expand_tool"), "延迟模式索引段含 expand_tool 引导，实际: " + parts[1]);
+        assertTrue(parts[1].contains("- fs_read_file：读取容器内单个文件内容"), "用途行保留");
+
+        assertFalse(assembler.assemble("general", "兜底角色").contains("expand_tool"),
+                "关闭延迟加载时维持现状渲染（无 expand 引导）");
+    }
+
+    /** 工具用途元数据：登记工具返回用途，未登记/空名返回空串 */
+    @Test
+    void purposeOf_registeredAndUnregisteredTools() {
+        assertEquals("抓取网页正文（jsoup 解析为 Markdown 并提取主内容，可按 query 过滤段落，仅 http/https）",
+                toolAssignments.purposeOf("fetchUrl"));
+        assertEquals("在沙箱容器内执行 Python 代码并返回输出", toolAssignments.purposeOf("run_ipython_cell"));
+        assertEquals("", toolAssignments.purposeOf("no_such_tool"), "未登记返回空串");
+        assertEquals("", toolAssignments.purposeOf(null), "空名返回空串");
+    }
+
+    /** 装配名单：tools 复用 toolNamesOf 口径（回调在前、注解在后），mcpTools 仅含 ServerTaggedCallback 子集 */
+    @Test
+    void attachmentsOf_splitsMcpToolsFromLocalTools() {
+        ToolCallback mcpCb = mock(ToolCallback.class);
+        when(mcpCb.getToolDefinition()).thenReturn(ToolDefinition.builder()
+                .name("browser_click").description("s").inputSchema("{}").build());
+        when(mcp.toolCallbacks()).thenReturn(List.of(new ServerTaggedCallback("tavily", mcpCb)));
+
+        PromptAssembler.PromptAttachments att = assembler.attachmentsOf("general");
+
+        assertEquals(5, att.tools().size(), "tools = MCP 回调(1) + 网页抓取(1) + 显式记忆(3)");
+        assertEquals(List.of("browser_click", "fetchUrl"), att.tools().subList(0, 2),
+                "回调在前、@Tool 注解工具在后");
+        assertTrue(att.tools().containsAll(List.of("remember", "forget", "list_memories")),
+                "显式记忆工具应进入 general 的工具名单");
+        assertEquals(List.of("browser_click"), att.mcpTools(),
+                "mcpTools 仅含 ServerTaggedCallback 标注的工具");
+        assertTrue(att.skills().isEmpty(), "无 skill 提供者时技能名单为空");
+    }
+
+    /** 装配名单：技能名单从各 SkillSectionProvider.skillNames 聚合（与 provide 同源不同口径） */
+    @Test
+    void attachmentsOf_aggregatesSkillNamesFromProviders() {
+        PromptAssembler withSkill = new PromptAssembler(agentService, toolAssignments,
+                List.of(new SkillSectionProvider() {
+                    @Override
+                    public String provide(String agentName) {
+                        return "SKILL：demo";
+                    }
+
+                    @Override
+                    public List<String> skillNames(String agentName) {
+                        return List.of("demo");
+                    }
+                }));
+
+        PromptAssembler.PromptAttachments att = withSkill.attachmentsOf("general");
+
+        assertEquals(List.of("demo"), att.skills());
+    }
+
+    /** blankTools 变体：工具/MCP 两列置空、技能名单保留（disableTools 与去工具重试场景） */
+    @Test
+    void promptAttachments_blankTools_keepsSkillsOnly() {
+        PromptAssembler.PromptAttachments att = new PromptAssembler.PromptAttachments(
+                List.of("s"), List.of("t1"), List.of("t1"));
+
+        PromptAssembler.PromptAttachments blanked = att.blankTools();
+
+        assertEquals(List.of("s"), blanked.skills());
+        assertTrue(blanked.tools().isEmpty());
+        assertTrue(blanked.mcpTools().isEmpty());
+    }
+
+    /** 分段计量：段名/次序与 assemble 拼接文本一致，tokens 与 TokenEstimator 同口径 */
+    @Test
+    void assembleSections_namesOrderAndTokensMatchAssembleOutput() {
+        when(agentService.getAgentConfig("general")).thenReturn(Optional.empty());
+        ToolCallback readOnlyCb = callbackNamed("fs_read_file");
+        when(sandbox.readOnlyFileTools()).thenReturn(List.of(readOnlyCb));
+        PromptAssembler withExtras = new PromptAssembler(agentService, toolAssignments,
+                List.of(agentName -> "SKILL：demo"), List.of(agentName -> "【用户偏好画像】"), List.of(), false);
+
+        List<PromptAssembler.RenderedSection> sections =
+                withExtras.assembleSections("general", "兜底角色", null);
+
+        assertEquals(List.of("角色", "用户偏好画像", "工具索引", "工具纪律", "输出约定", "skill"),
+                sections.stream().map(PromptAssembler.RenderedSection::name).toList(),
+                "段名按固定次序渲染");
+        for (PromptAssembler.RenderedSection section : sections) {
+            assertEquals(com.dark.javaHarness.tool.TokenEstimator.estimateTokens(section.text()),
+                    section.tokens(), "tokens 与 TokenEstimator 同口径：" + section.name());
+        }
+        String joined = sections.stream().map(PromptAssembler.RenderedSection::text)
+                .collect(java.util.stream.Collectors.joining("\n\n"));
+        assertEquals(joined, withExtras.assemble("general", "兜底角色", null),
+                "assemble 复用分段结果，输出保持一致");
+    }
+
+    /** 信道规范段：仅已知渠道注入，IM 限制长度、CLI/API 允许结构化交付 */
+    @Test
+    void assemble_channelSectionOnlyForKnownChannel() {
+        String im = assembler.assemble("general", null, null, "qq");
+        assertTrue(im.contains("信道规范"), "IM 渠道应注入信道规范段");
+        assertTrue(im.contains("100 词"), "IM 段应限制回复长度");
+
+        String feishu = assembler.assemble("general", null, null, "feishu");
+        assertTrue(feishu.contains("信道规范"), "飞书也应注入信道规范段");
+        assertTrue(feishu.contains("[emoji:"), "飞书段要说明表情标记约定——模型不知道标记，表情永远不会发");
+
+        String api = assembler.assemble("general", null, null, "cli");
+        assertTrue(api.contains("结构化"), "CLI 渠道应允许结构化完整交付");
+
+        assertFalse(assembler.assemble("general", null, null, null).contains("信道规范"),
+                "空渠道不应注入信道段");
+    }
+}

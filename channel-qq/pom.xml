@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>com.dark</groupId>
-        <artifactId>java-harness</artifactId>
+        <artifactId>deerfect-harness</artifactId>
         <version>0.0.1-SNAPSHOT</version>
     </parent>
     <artifactId>channel-qq</artifactId>
@@ -21,7 +21,7 @@
     <dependencies>
         <dependency>
             <groupId>com.dark</groupId>
-            <artifactId>harness-api</artifactId>
+            <artifactId>deerfect-harness-api</artifactId>
             <version>${project.version}</version>
         </dependency>
         <!-- harness-api 的框架类型依赖为 optional（不向下游传递）：渠道通过 SessionService

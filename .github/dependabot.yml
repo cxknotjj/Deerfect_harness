@@ -11,7 +11,7 @@ version: 2
 updates:
   # ---------- Maven：根 pom 管着全部模块的版本 ----------
   # 只需配根目录：Dependabot 会顺着根 pom 的 <modules> 递归去读子模块 pom，
-  # 所以 server/pom.xml 里的 archunit、cli 里的 exec 插件版本同样能升级。
+  # 所以 deerfect-server/pom.xml 里的 archunit、deerfect-cli 里的 exec 插件版本同样能升级。
   # 实际能升级的是「有显式版本」的那些：spring-boot-starter-parent、spring-ai-bom、
   # mybatis-plus、jline、okhttp、agentscope、archunit；其余依赖由 BOM 管理，
   # 只能随 BOM 一起动。
@@ -80,3 +80,7 @@ updates:
     labels:
       - dependencies
       - docker
+
+# 刻意不监控 npm（deerfect-web/）：前端依赖按锁文件固定版本发布，例行小版本升级没有收益、
+# 只有噪音（那棵树 600+ 个包）。漏洞不需要本文件介入——Dependabot security updates
+# 按 alerts 走，与这里的配置无关，照样会给前端提修复 PR。

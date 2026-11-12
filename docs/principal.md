@@ -31,7 +31,7 @@
   - `graph` → `agent` / `state`
   - `agent` 不得 import `graph`（共用常量下沉到 `agent` 包，如 `SubtaskResults`）
   - `validation` 不依赖任何运行时包；观测表只允许经 `observability` 查询服务访问
-- core（`server`）编译期不得依赖 `channel-qq`（由 [server/pom.xml](../server/pom.xml) 的 `maven-enforcer-plugin` 守护）；渠道新增输出控制走 `harness-api` 的 `ReplyPostProcessor`，不改 core。
+- core（`deerfect-server`）编译期不得依赖 `channel-qq`（由 [deerfect-server/pom.xml](../deerfect-server/pom.xml) 的 `maven-enforcer-plugin` 守护）；渠道新增输出控制走 `deerfect-api` 的 `ReplyPostProcessor`，不改 core。
 
 ## 4. 重构期不留兼容层
 

@@ -344,6 +344,12 @@ public class FeishuProperties {
             /** opus 码率：语音够用即可，32k 单声道一分钟约 240KB */
             private String bitrate = "32k";
 
+            /** 声道数：语音 1 就够；音乐要 2 */
+            private int channels = 1;
+
+            /** 音乐参数：同一个工件库里的 format=music 走这套（码率与声道都不同） */
+            private Music music = new Music();
+
             public boolean isEnabled() {
                 return enabled;
             }
@@ -368,12 +374,57 @@ public class FeishuProperties {
                 this.timeoutSeconds = timeoutSeconds;
             }
 
+            public int getChannels() {
+                return channels;
+            }
+
+            public void setChannels(int channels) {
+                this.channels = channels;
+            }
+
+            public Music getMusic() {
+                return music;
+            }
+
+            public void setMusic(Music music) {
+                this.music = music;
+            }
+
             public String getBitrate() {
                 return bitrate;
             }
 
             public void setBitrate(String bitrate) {
                 this.bitrate = bitrate;
+            }
+        }
+
+        /**
+         * 音乐参数：音乐走二次有损编码，码率太低会明显发闷，所以单列一套。
+         * 96k 立体声约 44 分钟能塞满飞书 30MB 上限，够放整张专辑。
+         */
+        public static class Music {
+
+            /** opus 码率（音乐） */
+            private String bitrate = "96k";
+
+            /** 声道数（音乐固定立体声；飞书对立体声 opus 的播放表现需实机确认） */
+            private int channels = 2;
+
+            public String getBitrate() {
+                return bitrate;
+            }
+
+            public void setBitrate(String bitrate) {
+                this.bitrate = bitrate;
+            }
+
+            public int getChannels() {
+                return channels;
+            }
+
+            public void setChannels(int channels) {
+                this.channels = channels;
             }
         }
 

@@ -1,0 +1,524 @@
+package com.dark.javaHarness.cli.api;
+
+import com.dark.javaHarness.view.Schedule;
+import com.dark.javaHarness.view.ActiveGoalRequest;
+import com.dark.javaHarness.view.ChatRequest;
+import com.dark.javaHarness.view.ChatResponse;
+import com.dark.javaHarness.view.GoalView;
+import com.dark.javaHarness.view.GoalsView;
+import com.dark.javaHarness.view.MemoriesView;
+import com.dark.javaHarness.view.MemoryCreateRequest;
+import com.dark.javaHarness.view.MemoryView;
+import com.dark.javaHarness.view.ScheduleCreateRequest;
+import com.dark.javaHarness.view.SchedulesView;
+import com.dark.javaHarness.view.SessionPageView;
+import com.dark.javaHarness.view.SseProtocol;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Consumer;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+
+/**
+ * 聊天 REST API 客户端：封装对主服务 /api/chat 的 HTTP 调用（OkHttp）。
+ * 交互循环、打印等展示逻辑由调用方（ChatCli）负责。
+ */
+public class ChatApiClient {
+
+    private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
+
+    /** 非 2xx 响应异常：携带 HTTP 状态码与响应体（CLI 据此区分 409 的「执行中」与「已完成」） */
+    public static class ApiException extends IOException {
+        public final int code;
+        public final String body;
+
+        public ApiException(int code, String body) {
+            super("HTTP " + code + ": " + body);
+            this.code = code;
+            this.body = body;
+        }
+    }
+
+    /** 判断异常是否为「goal 已完成，无需续跑」的 409（CLI 收到后应清除本地续跑记录） */
+    public static boolean isGoalCompleted(IOException e) {
+        return e instanceof ApiException api && api.code == 409 && api.body.contains("无需续跑");
+    }
+
+    private final OkHttpClient http;
+    // 服务端可能先于 CLI 迭代（DTO 新增字段）：未知字段宽容，保证前后版本错开也能解析
+    private final ObjectMapper mapper = tools.jackson.databind.json.JsonMapper.builder()
+            .disable(tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+            .build();
+    private final String baseUrl;
+
+    public ChatApiClient(String baseUrl) {
+        this.baseUrl = baseUrl;
+        this.http = new OkHttpClient.Builder()
+                .connectTimeout(Duration.ofSeconds(5))
+                // 多 Agent 编排 = lead + N 子任务 + 聚合共 4+ 次 LLM 调用，全程可达分钟级：
+                // readTimeout 约束"相邻两行数据间隔"，callTimeout 约束整个调用预算。
+                // （曾回退为 1min 导致长任务中途被掐断、CLI 收到残缺结果）
+                .readTimeout(Duration.ofMinutes(15))
+                .callTimeout(Duration.ofMinutes(30))
+                .build();
+    }
+
+    /**
+     * 调用 /api/chat 同步聊天。
+     *
+     * @return 服务端返回的响应 DTO
+     * @throws IOException 网络错误，或非 2xx 响应（消息含 HTTP 状态码与响应体）
+     */
+    public ChatResponse chat(String message, String sessionId) throws IOException {
+        String json = mapper.writeValueAsString(new ChatRequest(message, sessionId, null, null, "cli"));
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/chat")
+                .post(RequestBody.create(json, JSON))
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            String body = resp.body().string();
+            if (!resp.isSuccessful()) {
+                throw new IOException("HTTP " + resp.code() + ": " + body);
+            }
+            return mapper.readValue(body, ChatResponse.class);
+        }
+    }
+
+    /**
+     * 调用 /api/chat/stream 流式聊天（SSE）：逐 token 回调 onToken，
+     * 多 Agent 编排的阶段反馈（event:progress）回调 onProgress，
+     * 流结束后解析末尾 meta 事件返回响应 DTO。
+     * agentId 可空：为空时服务端走默认 Agent。
+     *
+     * @throws IOException 网络错误、非 2xx 响应，或服务端 error 事件
+     */
+    public ChatResponse chatStream(String message, String sessionId, Long agentId,
+                                   Consumer<String> onToken, Consumer<String> onProgress) throws IOException {
+        return chatStream(message, sessionId, agentId, null, onToken, onProgress);
+    }
+
+    /**
+     * 流式聊天（显式路径）：routing 可空（null=auto），可选 agentic / graph。
+     */
+    public ChatResponse chatStream(String message, String sessionId, Long agentId, String routing,
+                                   Consumer<String> onToken, Consumer<String> onProgress) throws IOException {
+        String json = mapper.writeValueAsString(new ChatRequest(message, sessionId, agentId, routing, "cli"));
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/chat/stream")
+                .post(RequestBody.create(json, JSON))
+                .build();
+        return readSse(request, onToken, onProgress);
+    }
+
+    /**
+     * 调用 POST /api/chat/resume?goalId=... 断点续跑（SSE）：从上次编排检查点继续，
+     * SSE 解析与 {@link #chatStream} 完全一致（token/progress/meta）。
+     *
+     * @throws IOException 网络错误、非 2xx 响应（含 409 执行中/400 不存在），或服务端 error 事件
+     */
+    public ChatResponse resumeStream(String goalId, Consumer<String> onToken, Consumer<String> onProgress)
+            throws IOException {
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/chat/resume?goalId=" + goalId)
+                .post(RequestBody.create(new byte[0], null))
+                .build();
+        return readSse(request, onToken, onProgress);
+    }
+
+    /** SSE 流式响应读取公共体（chatStream/resumeStream 共用）：逐行解析 event/data，流末返回 meta。 */
+    private ChatResponse readSse(Request request, Consumer<String> onToken, Consumer<String> onProgress)
+            throws IOException {
+        try (Response resp = http.newCall(request).execute()) {
+            if (!resp.isSuccessful()) {
+                throw new ApiException(resp.code(), resp.body().string());
+            }
+            ChatResponse meta = null;
+            String event = null;
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(resp.body().byteStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.isBlank()) {
+                        continue;
+                    }
+                    if (line.startsWith("event:")) {
+                        event = line.substring("event:".length()).trim();
+                    } else if (line.startsWith("data:")) {
+                        String data = line.substring("data:".length()).trim();
+                        if (SseProtocol.EVENT_META.equals(event)) {
+                            meta = mapper.readValue(data, ChatResponse.class);
+                        } else if (SseProtocol.EVENT_ERROR.equals(event)) {
+                            throw new IOException(data);
+                        } else if (SseProtocol.EVENT_PROGRESS.equals(event)) {
+                            if (onProgress != null) {
+                                onProgress.accept(data);
+                            }
+                        } else if (SseProtocol.EVENT_TOKEN.equals(event)) {
+                            // [DONE] 行与 token 共用 event: token 块结构，读到 DONE 不再发回调
+                            if (!SseProtocol.DONE_MARKER.equals(data) && onToken != null) {
+                                onToken.accept(SseProtocol.unescapeLineBreaks(data));
+                            }
+                        }
+                        // 未知事件忽略：SSE 的 event 字段粘滞，未声明事件的 data 必须归属已声明
+                        // 的事件——历史上「token 块不带 event:」曾导致 progress 后的 token 被
+                        // 误归入 progress 而全部丢失（CLI 显示 0 字），故不再做无 event 兜底。
+                    }
+                }
+            }
+            if (meta == null) {
+                throw new IOException("流结束但未收到 meta 事件");
+            }
+            return meta;
+        }
+    }
+
+    /**
+     * 调用 POST /api/harness/goals/active 登记跨轮长期目标（不进入执行链，只参与每轮 system 注入）。
+     *
+     * @throws IOException 网络错误，或非 2xx 响应（sessionId / objective 为空为 400）
+     */
+    public GoalView createActiveGoal(String sessionId, String objective) throws IOException {
+        String json = mapper.writeValueAsString(new ActiveGoalRequest(sessionId, objective));
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/harness/goals/active")
+                .post(RequestBody.create(json, JSON))
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            String body = resp.body().string();
+            if (!resp.isSuccessful()) {
+                throw new IOException("HTTP " + resp.code() + ": " + body);
+            }
+            return mapper.readValue(body, GoalView.class);
+        }
+    }
+
+    /**
+     * 调用 GET /api/harness/goals/active 查询会话当前活跃目标。
+     *
+     * @return 无活跃目标时返回 null
+     * @throws IOException 网络错误或非 2xx 响应
+     */
+    public GoalView activeGoal(String sessionId) throws IOException {
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/harness/goals/active?sessionId=" + sessionId)
+                .get()
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            String body = resp.body().string();
+            if (!resp.isSuccessful()) {
+                throw new IOException("HTTP " + resp.code() + ": " + body);
+            }
+            List<GoalView> goals = mapper.readValue(body, GoalsView.class).goals();
+            return goals == null || goals.isEmpty() ? null : goals.get(0);
+        }
+    }
+
+    /**
+     * 调用 POST /api/harness/goals/{id}/complete 标记长期目标完成。
+     *
+     * @throws IOException 网络错误，或非 2xx 响应（目标不存在/不是 ACTIVE 为 400）
+     */
+    public void completeActiveGoal(String id) throws IOException {
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/harness/goals/" + id + "/complete")
+                .post(RequestBody.create(new byte[0], null))
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            if (!resp.isSuccessful()) {
+                throw new ApiException(resp.code(), resp.body().string());
+            }
+        }
+    }
+
+    /**
+     * 调用 GET /api/schedules 获取全部定时任务。
+     *
+     * @throws IOException 网络错误或非 2xx 响应
+     */
+    public List<Schedule> listSchedules() throws IOException {
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/schedules")
+                .get()
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            String body = resp.body().string();
+            if (!resp.isSuccessful()) {
+                throw new IOException("HTTP " + resp.code() + ": " + body);
+            }
+            return mapper.readValue(body, SchedulesView.class).items();
+        }
+    }
+
+    /**
+     * 调用 POST /api/schedules 创建定时任务（cron 为 6 段：秒 分 时 日 月 周）。
+     *
+     * @throws IOException 网络错误，或非 2xx 响应（cron 非法 / agent 不存在为 400）
+     */
+    public Schedule createSchedule(String objective, String agentName, String cron, String notifyChannel)
+            throws IOException {
+        String json = mapper.writeValueAsString(
+                new ScheduleCreateRequest(objective, agentName, cron, notifyChannel));
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/schedules")
+                .post(RequestBody.create(json, JSON))
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            String body = resp.body().string();
+            if (!resp.isSuccessful()) {
+                throw new IOException("HTTP " + resp.code() + ": " + body);
+            }
+            return mapper.readValue(body, Schedule.class);
+        }
+    }
+
+    /**
+     * 调用 DELETE /api/schedules/{id} 删除定时任务（已触发的 goal 不受影响）。
+     *
+     * @throws IOException 网络错误，或非 2xx 响应（任务不存在为 400）
+     */
+    public void deleteSchedule(String id) throws IOException {
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/schedules/" + id)
+                .delete()
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            if (!resp.isSuccessful()) {
+                throw new ApiException(resp.code(), resp.body().string());
+            }
+        }
+    }
+
+    /**
+     * 调用 GET /api/memories 获取指定状态的记忆。
+     *
+     * @param status active / expired / deleted
+     * @throws IOException 网络错误或非 2xx 响应
+     */
+    public List<MemoryView> listMemories(String status) throws IOException {
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/memories?status=" + status)
+                .get()
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            String body = resp.body().string();
+            if (!resp.isSuccessful()) {
+                throw new IOException("HTTP " + resp.code() + ": " + body);
+            }
+            return mapper.readValue(body, MemoriesView.class).items();
+        }
+    }
+
+    /**
+     * 调用 POST /api/memories 记住一件事（source=manual）。
+     *
+     * @throws IOException 网络错误，或非 2xx 响应（内容为空 / 超长为 400）
+     */
+    public MemoryView rememberMemory(String content) throws IOException {
+        String json = mapper.writeValueAsString(new MemoryCreateRequest(content, null, null));
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/memories")
+                .post(RequestBody.create(json, JSON))
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            String body = resp.body().string();
+            if (!resp.isSuccessful()) {
+                throw new IOException("HTTP " + resp.code() + ": " + body);
+            }
+            return mapper.readValue(body, MemoryView.class);
+        }
+    }
+
+    /**
+     * 调用 DELETE /api/memories/{id} 忘掉一条记忆（软删）。
+     *
+     * @throws IOException 网络错误，或非 2xx 响应（不存在 / 已删为 400）
+     */
+    public void forgetMemory(long id) throws IOException {
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/memories/" + id)
+                .delete()
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            if (!resp.isSuccessful()) {
+                throw new ApiException(resp.code(), resp.body().string());
+            }
+        }
+    }
+
+    /**
+     * 调用 GET /api/admin/providers 获取供应商列表（含禁用行）。
+     *
+     * @throws IOException 网络错误，或非 2xx 响应（消息含 HTTP 状态码与响应体）
+     */
+    public List<AdminProvider> listProviders() throws IOException {
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/admin/providers")
+                .get()
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            String body = resp.body().string();
+            if (!resp.isSuccessful()) {
+                throw new IOException("HTTP " + resp.code() + ": " + body);
+            }
+            return mapper.readValue(body, new TypeReference<List<AdminProvider>>() {
+            });
+        }
+    }
+
+    /**
+     * 调用 POST /api/admin/providers + POST /api/admin/models 新增供应商与其模型。
+     * 服务端每个写操作都会先校验再热更新，免重启生效。
+     *
+     * @throws IOException 网络错误，或非 2xx 响应（校验失败为 400，消息含服务端原因）
+     */
+    public AddProviderResult addProvider(String provider, String apiUrl, List<String> models)
+            throws IOException {
+        Map<String, Object> providerBody = new LinkedHashMap<>();
+        providerBody.put("code", provider);
+        providerBody.put("baseUrl", apiUrl);
+        providerBody.put("credentialRef", provider.toUpperCase() + "_API_KEY");
+        providerBody.put("protocol", "openai");
+        providerBody.put("enabled", 1);
+        String providerJson = mapper.writeValueAsString(providerBody);
+        Request createProvider = new Request.Builder()
+                .url(baseUrl + "/api/admin/providers")
+                .post(RequestBody.create(providerJson, JSON))
+                .build();
+        long providerId;
+        try (Response resp = http.newCall(createProvider).execute()) {
+            String body = resp.body().string();
+            if (!resp.isSuccessful()) {
+                throw new IOException("HTTP " + resp.code() + ": " + body);
+            }
+            providerId = mapper.readValue(body, AdminProvider.class).id();
+        }
+        int created = 0;
+        for (String model : models) {
+            Map<String, Object> modelBody = new LinkedHashMap<>();
+            modelBody.put("providerId", providerId);
+            modelBody.put("upstreamName", model);
+            modelBody.put("displayName", model);
+            modelBody.put("capabilities",
+                    "{\"tool_calling\":true,\"vision\":false,\"thinking\":true,"
+                            + "\"json_mode\":true,\"context_window\":65536}");
+            modelBody.put("enabled", 1);
+            String modelJson = mapper.writeValueAsString(modelBody);
+            Request createModel = new Request.Builder()
+                    .url(baseUrl + "/api/admin/models")
+                    .post(RequestBody.create(modelJson, JSON))
+                    .build();
+            try (Response resp = http.newCall(createModel).execute()) {
+                String body = resp.body().string();
+                if (!resp.isSuccessful()) {
+                    throw new IOException("HTTP " + resp.code() + ": " + body);
+                }
+                created++;
+            }
+        }
+        return new AddProviderResult(providerId, created);
+    }
+
+    /** 管理面供应商行（GET /api/admin/providers） */
+    public record AdminProvider(Long id, String code, String baseUrl, String credentialRef,
+                                String protocol, Integer enabled) {
+    }
+
+    /** 新增供应商结果：providerId 与新登记的模型数 */
+    public record AddProviderResult(Long providerId, int models) {
+    }
+
+    /**
+     * 调用 POST /api/harness/sessions/{sessionId}/agent?agentId=... 会话内切换 Agent。
+     * 服务端更新 session 表 agent_id（会话档案与路由一致）。
+     *
+     * @throws IOException 网络错误，或非 2xx 响应（agentId 不存在/会话不存在为 400，消息含服务端原因）
+     */
+    public void switchSessionAgent(String sessionId, long agentId) throws IOException {
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/harness/sessions/" + sessionId + "/agent?agentId=" + agentId)
+                .post(RequestBody.create(new byte[0], null))
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            if (!resp.isSuccessful()) {
+                throw new ApiException(resp.code(), resp.body().string());
+            }
+        }
+    }
+
+    /**
+     * 调用 GET /api/chat/goal-status?goalId=... 查询 goal 生命周期状态。
+     *
+     * @return 状态名（PENDING/RUNNING/SUCCEEDED/FAILED）；goal 不存在返回 null（404）
+     * @throws IOException 网络错误，或其他非 2xx 响应
+     */
+    public String goalStatus(String goalId) throws IOException {
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/chat/goal-status?goalId=" + goalId)
+                .get()
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            if (resp.code() == 404) {
+                return null;
+            }
+            if (!resp.isSuccessful()) {
+                throw new IOException("HTTP " + resp.code() + ": " + resp.body().string());
+            }
+            return mapper.readTree(resp.body().string()).path("status").asText(null);
+        }
+    }
+
+    /**
+     * 调用 GET /api/harness/sessions 获取会话列表，返回第一个会话的 ID。
+     * 无任何会话时返回 null（调用方可决定新建会话）。
+     *
+     * @throws IOException 网络错误，或非 2xx 响应（消息含 HTTP 状态码与响应体）
+     */
+    public String firstSessionId() throws IOException {
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/harness/sessions")
+                .get()
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            String body = resp.body().string();
+            if (!resp.isSuccessful()) {
+                throw new IOException("HTTP " + resp.code() + ": " + body);
+            }
+            SessionPageView view = mapper.readValue(body, SessionPageView.class);
+            if (view.sessions() == null || view.sessions().isEmpty()) {
+                return null;
+            }
+            return view.sessions().get(0).id();
+        }
+    }
+
+    /**
+     * 调用 POST /api/harness/sessions 新建空会话。
+     *
+     * @return 新会话的 sessionId
+     * @throws IOException 网络错误，或非 2xx 响应（消息含 HTTP 状态码与响应体）
+     */
+    public String createSession() throws IOException {
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/harness/sessions")
+                .post(RequestBody.create(new byte[0], null))
+                .build();
+        try (Response resp = http.newCall(request).execute()) {
+            String body = resp.body().string();
+            if (!resp.isSuccessful()) {
+                throw new IOException("HTTP " + resp.code() + ": " + body);
+            }
+            return mapper.readTree(body).path("sessionId").asText();
+        }
+    }
+}

@@ -34,8 +34,8 @@ Deerfect Harness 是一个基于 Spring AI 的双路径 Agent 平台：**Agentic
 
 ## 四、Agent 与模型体系
 
-- **全表驱动**：`agent` 表一行即一个 Agent（prompt / model / tools / knowledge / thinking），`model_provider` 表一行即一个模型或供应商。
-- **零代码扩展**：新增 Agent、接入第三方 OpenAI 兼容供应商均只需加数据行，重启或改库即生效（[models.md](./guides/models.md)）。
+- **全表驱动**：`agent` 表一行即一个 Agent（prompt / route_id / tools / knowledge / thinking）；`llm_provider` → `llm_model` → `llm_route` 三层描述端点、部署与失败链。
+- **零代码扩展**：新增 Agent 只加数据行；接入第三方 OpenAI 兼容供应商通过 `/api/admin/*` 登记，服务端校验后热更新（[models.md](./guides/models.md)）。
 - **内置角色**：`general`、`deepseek` 聊天 Agent，`multi-agent` / `lead` / `aggregator` 内部编排角色，`researcher` / `coder` / `analyst` / `writer` 四类专家，另可按表扩展领域专员（如 `java-tutor`、`wms`）。
 - **按 Agent 配置**：模型、系统提示词、工具集、知识库绑定、思考内容显示均按行生效。
 
@@ -91,10 +91,10 @@ Deerfect Harness 是一个基于 Spring AI 的双路径 Agent 平台：**Agentic
 - **双通道鉴权**：机器通道 `X-API-Token`（常量时间比较）、登录通道口令换 HttpOnly Cookie（168 小时滑动续期，连续失败 5 次锁定 60 秒）；两通道均未配置则本地直通。
 - **密钥管理**：API Key 不落库，`.env.local` 与 `mcp-config.json` 均不入 git。
 - **数据库演进**：Flyway 版本化迁移，启动自动建表 / 升级。
-- **模块化**：`harness-api` / `channel-qq` / `server` / `cli` / `wms-mcp-adapter` 五模块 + 独立 `web`。
+- **模块化**：`deerfect-api` / `channel-qq` / `channel-email` / `channel-feishu` / `deerfect-server` / `deerfect-cli` / `wms-mcp-adapter` 模块 + 独立 `deerfect-web`。
 - **容器化**：Dockerfile + docker-compose（app + MySQL + pgvector），见 [docker-deploy.md](./guides/docker-deploy.md)。
-- **持续集成与质量门禁**：`.github/workflows/ci.yml`（backend / web / e2e 三 job）与 `docker-image.yml`（镜像发布）已落地。backend 跑 `mvn verify`，含 jacoco 行覆盖率门禁（按模块设阈：server 0.79 / channel-qq 0.75 / wms 0.73 / harness-api 0.61 / cli 0.21）与真实 MySQL 仓储集成测试；web 跑 ESLint 再类型检查与单测。CD 自动部署与分支保护强制校验仍需人工配置，见 [dev.md](./dev.md#8-ci-与镜像发布github-actions)。
-- **测试**：129 个测试类 / 1162 个用例（harness-api 5/40、server 109/968、channel-qq 8/83、cli 3/28、wms-mcp-adapter 4/43），详见 [functional-testing.md](./guides/functional-testing.md)。
+- **持续集成与质量门禁**：`.github/workflows/ci.yml`（backend / web / e2e 三 job）与 `docker-image.yml`（镜像发布）已落地。backend 跑 `mvn verify`，含 jacoco 行覆盖率门禁（按模块设阈，数值以各模块 `pom.xml` 的 `jacoco.line.minimum` 为准）与真实 MySQL 仓储集成测试；web 跑 ESLint 再类型检查与单测。CD 自动部署与分支保护强制校验仍需人工配置，见 [dev.md](./dev.md) 的「流水线」一节。
+- **测试**：后端 JUnit 5 + Mockito，前端 vitest / Playwright；用例数以各模块 `target/surefire-reports` 与 CI 报告为准，详见 [functional-testing.md](./guides/functional-testing.md)。
 
 ## 十、尚未实现（路线图未勾选项）
 

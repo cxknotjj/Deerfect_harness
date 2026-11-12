@@ -24,7 +24,7 @@
             // 后端启动：java -jar 直跑 fat jar（.env.local 提供密钥，非交互 shell 不会自动加载）
             "label": "后端:启动",
             "type": "shell",
-            "command": "[ -f .env.local ] && . ./.env.local; java -jar server/target/server-0.0.1-SNAPSHOT.jar",
+            "command": "[ -f .env.local ] && . ./.env.local; java -jar deerfect-server/target/deerfect-server-0.0.1-SNAPSHOT.jar",
             "isBackground": true,
             "presentation": {
                 "panel": "newTerminal",

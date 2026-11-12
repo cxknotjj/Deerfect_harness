@@ -74,14 +74,14 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: web
+        working-directory: deerfect-web
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: deerfect-web/package-lock.json
       - name: Install
         run: npm ci
       # lint 放在 build 前：先拦未使用变量、错用响应式等「类型检查抓不到」的问题，
@@ -99,14 +99,14 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: web
+        working-directory: deerfect-web
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: deerfect-web/package-lock.json
       - name: Install
         run: npm ci
       - name: Install Chromium
@@ -120,6 +120,6 @@ jobs:
         with:
           name: playwright-report
           path: |
-            web/playwright-report
-            web/test-results
+            deerfect-web/playwright-report
+            deerfect-web/test-results
           retention-days: 7

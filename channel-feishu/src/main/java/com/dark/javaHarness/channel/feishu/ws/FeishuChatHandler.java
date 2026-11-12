@@ -603,7 +603,10 @@ public class FeishuChatHandler implements FeishuMessageHandler, DisposableBean {
             log.warn("[feishu] 语音工件缺失，回退文字（id={}）", voiceId);
             return false;
         }
-        Optional<FeishuAudioTranscoder.Encoded> encoded = audioTranscoder.toOpus(artifact.get().audio());
+        // format=music 是 server 的点歌工具写的：音乐要立体声高码率，语音要单声道省体积
+        boolean music = "music".equalsIgnoreCase(artifact.get().format());
+        Optional<FeishuAudioTranscoder.Encoded> encoded =
+                audioTranscoder.toOpus(artifact.get().audio(), music);
         if (encoded.isEmpty()) {
             return false;
         }

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -643,7 +644,7 @@ class FeishuChatHandlerTest {
         when(chatService.chat(any(ChatRequest.class)))
                 .thenReturn(replyWithFlags("这段用语音说", Set.of("voice:v1")));
         when(voiceArtifacts.take("v1")).thenReturn(Optional.of(voiceArtifact("v1", "这段用语音说")));
-        when(audioTranscoder.toOpus(any())).thenReturn(Optional.of(
+        when(audioTranscoder.toOpus(any(), anyBoolean())).thenReturn(Optional.of(
                 new FeishuAudioTranscoder.Encoded(new byte[]{4, 5}, 3480)));
         when(api.uploadFile(eq("opus"), eq("voice.opus"), any(byte[].class), eq(3480)))
                 .thenReturn(new FeishuApiClient.Upload(true, "file_v1", null));
@@ -663,7 +664,7 @@ class FeishuChatHandlerTest {
         when(chatService.chat(any(ChatRequest.class)))
                 .thenReturn(replyWithFlags("这段用语音说", Set.of("voice:v1")));
         when(voiceArtifacts.take("v1")).thenReturn(Optional.of(voiceArtifact("v1", "这段用语音说")));
-        when(audioTranscoder.toOpus(any())).thenReturn(Optional.empty());
+        when(audioTranscoder.toOpus(any(), anyBoolean())).thenReturn(Optional.empty());
         when(api.sendText(any(), any())).thenReturn(new FeishuApiClient.Result(true, "om_t", null));
 
         handler.handleAsync(new FeishuInboundMessage("ou_user", "oc_chat", "om_in", "evt-v2", "念一下", false))
@@ -679,7 +680,7 @@ class FeishuChatHandlerTest {
         when(chatService.chat(any(ChatRequest.class)))
                 .thenReturn(replyWithFlags("这段用语音说", Set.of("voice:v1")));
         when(voiceArtifacts.take("v1")).thenReturn(Optional.of(voiceArtifact("v1", "这段用语音说")));
-        when(audioTranscoder.toOpus(any())).thenReturn(Optional.of(
+        when(audioTranscoder.toOpus(any(), anyBoolean())).thenReturn(Optional.of(
                 new FeishuAudioTranscoder.Encoded(new byte[]{4, 5}, 3480)));
         when(api.uploadFile(any(), any(), any(), any()))
                 .thenReturn(new FeishuApiClient.Upload(false, null, "HTTP 403 code=234001：no permission"));
@@ -728,6 +729,27 @@ class FeishuChatHandlerTest {
 
         verify(api).sendText("ou_user", "报告见附件");
         verify(api, never()).sendFile(any(), any());
+    }
+
+    @Test
+    void musicArtifact_isTranscodedWithMusicProfile() throws Exception {
+        when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(binding(7L));
+        when(chatService.chat(any(ChatRequest.class)))
+                .thenReturn(replyWithFlags("来啦", Set.of("voice:v2")));
+        when(voiceArtifacts.take("v2")).thenReturn(Optional.of(new VoiceArtifactStore.VoiceArtifact(
+                "v2", "turn-1", "陶喆 - 讨厌红楼梦", new byte[]{1, 2, 3}, "music", 0L)));
+        when(audioTranscoder.toOpus(any(), eq(true))).thenReturn(Optional.of(
+                new FeishuAudioTranscoder.Encoded(new byte[]{4, 5}, 245000)));
+        when(api.uploadFile(eq("opus"), eq("voice.opus"), any(byte[].class), eq(245000)))
+                .thenReturn(new FeishuApiClient.Upload(true, "file_music", null));
+        when(api.sendAudio("ou_user", "file_music"))
+                .thenReturn(new FeishuApiClient.Result(true, "om_music", null));
+
+        handler.handleAsync(new FeishuInboundMessage("ou_user", "oc_chat", "om_in", "evt-m1", "放首歌", false))
+                .get(5, TimeUnit.SECONDS);
+
+        verify(audioTranscoder).toOpus(any(), eq(true));
+        verify(api).sendAudio("ou_user", "file_music");
     }
 
     /** 语音工件：TTS 产出的形态（mp3 字节 + 原文） */

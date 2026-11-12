@@ -37,7 +37,7 @@ channel-email/
 - 不处理入站：收信需要 IMAP 与轮询，属于另一个量级的工作，当前没有需求。
 - 不支持 STARTTLS（587）：只实现 465/SSL。要加需要设置 `mail.smtp.starttls.enable`，
   并补一个「明文连接必须被拒绝」的测试。
-- 不是 runtime 必需：`server/pom.xml` 里是 `runtime` 依赖，`enabled=false` 时依赖树里
+- 不是 runtime 必需：`deerfect-server/pom.xml` 里是 `runtime` 依赖，`enabled=false` 时依赖树里
   没有 mail starter，注册表里也不会出现 `email`。
 
 ## 测试方式

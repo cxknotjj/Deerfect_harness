@@ -6,7 +6,7 @@
 
 <div align="center">
 
-<img src="web/public/deer_logo.png" width="88" alt="Deerfect Harness" />
+<img src="deerfect-web/public/deer_logo.png" width="88" alt="Deerfect Harness" />
 
 # Deerfect Harness
 
@@ -47,7 +47,7 @@
 - **思考内容透传**：模型的思考 delta 实时折叠展示，lead / 子任务 / 聚合按身份归组——"谁在想什么"一目了然
 - **工具行归属**：每次工具调用的参数摘要与耗时挂在发起它的子 agent 名下，多子任务交错流式也不乱
 - **四张观测表**：LLM 调用（耗时 / token / 重试轮次）、工具调用、RAG 检索、MCP 连接事件全部落库，Web 轨迹页可查
-- **运行指标与结构化日志**：`/actuator/prometheus` 暴露 SSE 活跃连接、首 token / route-judge P95、LLM 错误率、Graph 降级率与 token 用量；日志为 JSON，`traceId` 经 MDC 贯穿请求（见 [docs/dev.md](docs/dev.md#9-运行观测actuator--指标--日志)）
+- **运行指标与结构化日志**：`/actuator/prometheus` 暴露 SSE 活跃连接、首 token / route-judge P95、LLM 错误率、Graph 降级率与 token 用量；日志为 JSON，`traceId` 经 MDC 贯穿请求（见 [docs/ops.md](docs/ops.md)）
 
 ### 🛡 预算护栏与自愈
 
@@ -85,19 +85,19 @@ CREATE DATABASE IF NOT EXISTS harness DEFAULT CHARACTER SET utf8mb4;
 
 ```bash
 mvn -DskipTests install
-java -jar server/target/server-0.0.1-SNAPSHOT.jar
+java -jar deerfect-server/target/deerfect-server-0.0.1-SNAPSHOT.jar
 ```
 
 **3️⃣ 开始对话**——三选一：
 
 ```bash
 # Web 控制台（推荐：会话管理 / 思考折叠 / 轨迹观测全都有）
-cd web && npm install && npm run dev   # 打开 http://localhost:5173
+cd deerfect-web && npm install && npm run dev   # 打开 http://localhost:5173
 ```
 
 ```bash
 # 终端 CLI
-mvn -pl cli -Pcli compile exec:exec
+mvn -pl deerfect-cli -Pcli compile exec:exec
 ```
 
 ```bash
@@ -113,7 +113,7 @@ curl -s -X POST http://localhost:8080/api/chat \
 > - 启动时设置环境变量 `APP_PASSWORD=你的口令` 即开启登录鉴权（不设置则跳过登录）
 > - 不想装环境？Docker 三件套一键起：**[`docs/guides/docker-deploy.md`](./docs/guides/docker-deploy.md)**
 > - 国内网络可追加 `-s .mvn/settings.xml` 走阿里云镜像（会改用项目内 `.mvn-repo/` 仓库，首次全量重新下载）
-> - Windows 本机用 `run-win.bat` 前，需把 `JAVA_HOME` 指向 JDK 25（PATH 上的旧 JDK 会编译失败）；批处理不会加载 `.env.local`，API Key 请用 `setx` 设为用户环境变量，详见 **[`docs/guides/setup.md`](./docs/guides/setup.md)**
+> - Windows 本机用 `scripts/run-win.bat` 前，需把 `JAVA_HOME` 指向 JDK 25（PATH 上的旧 JDK 会编译失败）；批处理不会加载 `.env.local`，API Key 请用 `setx` 设为用户环境变量，详见 **[`docs/guides/setup.md`](./docs/guides/setup.md)**
 
 ## 效果展示
 
@@ -172,22 +172,22 @@ Maven 多模块 + 独立前端，每个模块的职责与目录结构见各自 R
 
 | 模块 | 定位 | 依赖方向 |
 | --- | --- | --- |
-| [`harness-api`](./harness-api/README.md) | 契约层：调用型端口、实现型 SPI、端口载荷、对外 DTO | 不依赖任何实现模块 |
-| [`server`](./server/README.md) | Spring Boot 主服务、core 实现、fat jar 宿主 | compile → `harness-api`；runtime → `channel-*` |
-| [`channel-qq`](./channel-qq/README.md) | QQ 渠道（NapCat / OneBot 11），双向 | compile → `harness-api` |
-| [`channel-email`](./channel-email/README.md) | 邮件渠道，只出不进 | compile → `harness-api` |
-| [`channel-feishu`](./channel-feishu/README.md) | 飞书：群 webhook（出）+ 应用长连接（双向） | compile → `harness-api` |
-| [`cli`](./cli/README.md) | 终端客户端，纯 HTTP + SSE | compile → `harness-api` |
-| [`web`](./web/README.md) | Vue 3 前端控制台，独立构建部署（不在 Maven 反应堆内） | 只通过 HTTP 访问 `server` |
+| [`deerfect-api`](./deerfect-api/README.md) | 契约层：调用型端口、实现型 SPI、端口载荷、对外 DTO | 不依赖任何实现模块 |
+| [`deerfect-server`](./deerfect-server/README.md) | Spring Boot 主服务、core 实现、fat jar 宿主 | compile → `deerfect-api`；runtime → `channel-*` |
+| [`channel-qq`](./channel-qq/README.md) | QQ 渠道（NapCat / OneBot 11），双向 | compile → `deerfect-api` |
+| [`channel-email`](./channel-email/README.md) | 邮件渠道，只出不进 | compile → `deerfect-api` |
+| [`channel-feishu`](./channel-feishu/README.md) | 飞书：群 webhook（出）+ 应用长连接（双向） | compile → `deerfect-api` |
+| [`deerfect-cli`](./deerfect-cli/README.md) | 终端客户端，纯 HTTP + SSE | compile → `deerfect-api` |
+| [`deerfect-web`](./deerfect-web/README.md) | Vue 3 前端控制台，独立构建部署（不在 Maven 反应堆内） | 只通过 HTTP 访问 `deerfect-server` |
 | [`wms-mcp-adapter`](./wms-mcp-adapter/README.md) | WMS 只读 MCP 适配范例，独立进程 | 独立 |
 
-`server` 以 **runtime** scope 装配 `channel-*`，core 编译期看不到任何渠道代码（`maven-enforcer-plugin` 守护）；渠道输出控制走通用 `ReplyPostProcessor` SPI。核心链路：`ChatController` 入口 → `RouteJudge` 在两条执行路径间分流 → **Agentic 路径**（AgentScope ReAct，单 Agent 自主推理-行动，工具经 Spring AI 桥接）或 **Graph 编排路径**（自研并行引擎：Lead → 专家并行 → Aggregator）→ 统一出口。
+`deerfect-server` 以 **runtime** scope 装配 `channel-*`，core 编译期看不到任何渠道代码（`maven-enforcer-plugin` 守护）；渠道输出控制走通用 `ReplyPostProcessor` SPI。核心链路：`ChatController` 入口 → `RouteJudge` 在两条执行路径间分流 → **Agentic 路径**（AgentScope ReAct，单 Agent 自主推理-行动，工具经 Spring AI 桥接）或 **Graph 编排路径**（自研并行引擎：Lead → 专家并行 → Aggregator）→ 统一出口。
 
 架构图与数据流细节见 **[`docs/architecture.md`](./docs/architecture.md)** 与 **[`docs/data-flow.md`](./docs/data-flow.md)**。
 
 ## 🧪 运行测试
 
-单元测试基于 JUnit 5 + Mockito，**除** **`JavaHarnessApplicationTests`** **的 contextLoads 需本机 MySQL 外，不依赖真实数据库 / 网络 / API Key**（当前 1302 个用例：harness-api 52 / server 1020 / channel-qq 83 / channel-email 15 / channel-feishu 61 / cli 28 / wms-mcp-adapter 43）：
+单元测试基于 JUnit 5 + Mockito，**除** **`JavaHarnessApplicationTests`** **的 contextLoads 需本机 MySQL 外，不依赖真实数据库 / 网络 / API Key**；用例数以各模块 `target/surefire-reports` 与 [functional-testing.md](./docs/guides/functional-testing.md) 为准：
 
 ```bash
 mvn test

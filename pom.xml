@@ -9,10 +9,10 @@
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
     <groupId>com.dark</groupId>
-    <artifactId>java-harness</artifactId>
+    <artifactId>deerfect-harness</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <packaging>pom</packaging>
-    <name>java-harness</name>
+    <name>deerfect-harness</name>
     <description>基于 Spring AI 的 Agent 编排框架 Demo（parent：harness-api + channel-qq + server + cli + wms-mcp-adapter）</description>
     <url/>
     <licenses>
@@ -29,12 +29,12 @@
     </scm>
 
     <modules>
-        <module>harness-api</module>
+        <module>deerfect-api</module>
         <module>channel-qq</module>
         <module>channel-email</module>
         <module>channel-feishu</module>
-        <module>server</module>
-        <module>cli</module>
+        <module>deerfect-server</module>
+        <module>deerfect-cli</module>
         <module>wms-mcp-adapter</module>
     </modules>
 
@@ -188,6 +188,29 @@
                                         </limit>
                                     </limits>
                                 </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- JDK 版本守卫：Maven 本身跑在低版本 JDK 时，编译产物与 surefire 只会报
+                 「class file version xx」这类难定位的错误，这里在 validate 阶段直接失败并提示 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>require-java-25</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[25,)</version>
+                                    <message>This project requires JDK 25+ (pom.xml release 25). Point JAVA_HOME at JDK 25 and retry (Windows example: set JAVA_HOME=D:\env\jdk-25).</message>
+                                </requireJavaVersion>
                             </rules>
                         </configuration>
                     </execution>
