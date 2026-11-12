@@ -58,6 +58,10 @@ jobs:
           SPRING_DATASOURCE_URL: jdbc:mysql://127.0.0.1:3306/harness?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
           SPRING_DATASOURCE_USERNAME: root
           SPRING_DATASOURCE_PASSWORD: harness
+          # 启动绑定校验要求被引用供应商的凭证非空（设计 §8.1）；CI 不调真实 API，
+          # 用占位值满足校验，避免「CI 无 key -> 启动失败」与「fail-fast 设计」互斥
+          DASHSCOPE_API_KEY: ci-placeholder
+          DEEPSEEK_API_KEY: ci-placeholder
       # 覆盖率报告：verify 的 jacoco:report 产物。if: always() 保证覆盖率门禁失败时也能
       # 拿到报告——用来判断是「覆盖率下降」还是「测试失败」，两者的修法完全不同。
       - name: Upload coverage reports
