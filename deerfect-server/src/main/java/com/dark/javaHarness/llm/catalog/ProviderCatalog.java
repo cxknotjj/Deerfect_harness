@@ -57,10 +57,19 @@ public class ProviderCatalog {
         return model;
     }
 
-    /** 解析供应商凭证；缺失或空白直接抛配置错误，异常文本不包含密钥。 */
+    /**
+     * 解析供应商凭证；依次尝试：credential_ref 本身、app.providers.&lt;code&gt;.api-key、
+     * &lt;CODE&gt;_API_KEY。全部缺失时抛配置错误，异常文本不包含密钥。
+     */
     public String requireCredential(LlmProviderEntity provider) {
         String ref = provider.getCredentialRef();
         String value = ref == null || ref.isBlank() ? null : environment.getProperty(ref);
+        if (value == null || value.isBlank()) {
+            value = environment.getProperty("app.providers." + provider.getCode() + ".api-key");
+        }
+        if (value == null || value.isBlank()) {
+            value = environment.getProperty(provider.getCode().toUpperCase() + "_API_KEY");
+        }
         if (value == null || value.isBlank()) {
             throw new IllegalStateException(
                     "供应商 " + provider.getCode() + " 的凭证未配置: " + ref);

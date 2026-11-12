@@ -42,6 +42,12 @@ public class AgentCatalog {
         return agent;
     }
 
+    /** 当前所有启用中的 Agent（校验与展示用）。 */
+    public java.util.Collection<AgentEntity> all() {
+        ensureLoaded();
+        return byName.values();
+    }
+
     /** 重新读取 agent 表并整体替换映射。 */
     public synchronized void reload() {
         List<AgentEntity> rows = agentMapper.selectList(
