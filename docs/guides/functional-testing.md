@@ -8,7 +8,7 @@
 
 ## 一、总览
 
-> 129 个测试类 / 1162 个用例（harness-api 5 类 / 40 例、server 109 类 / 968 例、channel-qq 8 类 / 83 例、cli 3 类 / 28 例、wms-mcp-adapter 4 类 / 43 例；按 surefire 报告统计，含参数化展开，2026-11-07 核对）。
+> 2026-11-12 全量实跑 1474 例（1 skip）：deerfect-api 52、deerfect-server 1082、channel-qq 85、channel-email 15、channel-feishu 152、deerfect-cli 30、wms-mcp-adapter 58。类数与逐类明细以各模块 `target/surefire-reports` 为准，下方表格为历史整理版本。
 
 **入口与异常**
 
@@ -42,7 +42,7 @@
 | `ThinkingSwitchChatModelTest` | 思考开关模型层注入（enable_thinking 显式声明优先） | 5 |
 | `ArchitectureTest` | 分层依赖与模块边界守卫 | 5 |
 
-**契约层（harness-api）**
+**契约层（deerfect-api）**
 
 | 测试类 | 覆盖功能域 | 用例数 |
 | --- | --- | --- |
@@ -189,7 +189,7 @@
 | `WmsToolListGuardTest` | WMS 工具白名单守卫 | 4 |
 | `WmsToolsTest` | WMS 语义工具集 | 20 |
 
-**合计：129 个测试类 / 1162 个用例（harness-api 5/40、server 109/968、channel-qq 8/83、cli 3/28、wms-mcp-adapter 4/43；按 surefire 报告统计，2026-11-07 核对）。表格按类名列 128 行——`RagPrefetcherTest` 在 Agentic / Graph 两个包各有一组，合并计 12 例。除 `JavaHarnessApplicationTests` 需本机 MySQL 外，其余不依赖真实 DB/外网。**
+**合计：1474 个用例（2026-11-12 全量实跑，1 skip；分模块见「总览」）。下方明细表为历史整理版本，类数/用例数以 surefire 报告为准。除 `JavaHarnessApplicationTests` 需本机 MySQL 外，其余不依赖真实 DB/外网。**
 
 ***
 

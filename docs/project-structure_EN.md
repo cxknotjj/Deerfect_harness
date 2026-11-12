@@ -8,13 +8,13 @@
 
 | Module | Responsibility | Depends on |
 |---|---|---|
-| `harness-api` | Shared contracts for channels and core: `contract.api` (callable ports), `contract.spi` (implementation SPIs), `contract.model` (port payloads), `view` (outward DTOs) | no reactor-internal deps |
-| `server` | Spring Boot main service, core implementation, fat-jar host | compile → `harness-api`; runtime → `channel-qq` |
-| `channel-qq` | QQ channel (NapCat/OneBot 11): client / events / replies / persistence | compile → `harness-api` |
-| `cli` | Terminal client, pure HTTP + SSE | compile → `harness-api` |
+| `deerfect-api` | Shared contracts for channels and core: `contract.api` (callable ports), `contract.spi` (implementation SPIs), `contract.model` (port payloads), `view` (outward DTOs) | no reactor-internal deps |
+| `deerfect-server` | Spring Boot main service, core implementation, fat-jar host | compile → `deerfect-api`; runtime → `channel-qq` |
+| `channel-qq` | QQ channel (NapCat/OneBot 11): client / events / replies / persistence | compile → `deerfect-api` |
+| `deerfect-cli` | Terminal client, pure HTTP + SSE | compile → `deerfect-api` |
 | `wms-mcp-adapter` | Domain MCP adapter example | independent |
 
-> Rule: core (`server`) must not reference `channel.qq` at compile time (enforced by `com.dark:channel-qq:*:*:compile`); new channel output controls go through `ReplyPostProcessor` without touching core.
+> Rule: core (`deerfect-server`) must not reference `channel.qq` at compile time (enforced by `com.dark:channel-qq:*:*:compile`); new channel output controls go through `ReplyPostProcessor` without touching core.
 
 ---
 
@@ -35,7 +35,7 @@ deerfect-server/src/main/java/com/dark/javaHarness/
 │   ├── ToolCallController.java   # Tool-call observability queries (/api/tool-calls)
 │   └── KbRetrievalController.java # RAG retrieval observability queries (/api/kb-retrievals)
 ├── service/                      # Business layer (interfaces + impl/)
-│   ├── GoalService.java          # Goal ledger (AgentService/SessionService/ChatService/SessionBindingCleaner ports live in harness-api)
+│   ├── GoalService.java          # Goal ledger (AgentService/SessionService/ChatService/SessionBindingCleaner ports live in deerfect-api)
 │   ├── RouteJudge.java           # Main-agent routing decision (SIMPLE / COMPLEX)
 │   ├── AgentConfigProvider.java  # Runtime config from the agent table (routing map)
 │   ├── ProviderAdminService.java # model_provider mapping management (hot refresh on add)

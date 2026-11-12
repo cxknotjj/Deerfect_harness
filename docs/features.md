@@ -91,7 +91,7 @@ Deerfect Harness 是一个基于 Spring AI 的双路径 Agent 平台：**Agentic
 - **双通道鉴权**：机器通道 `X-API-Token`（常量时间比较）、登录通道口令换 HttpOnly Cookie（168 小时滑动续期，连续失败 5 次锁定 60 秒）；两通道均未配置则本地直通。
 - **密钥管理**：API Key 不落库，`.env.local` 与 `mcp-config.json` 均不入 git。
 - **数据库演进**：Flyway 版本化迁移，启动自动建表 / 升级。
-- **模块化**：`harness-api` / `channel-qq` / `server` / `cli` / `wms-mcp-adapter` 五模块 + 独立 `web`。
+- **模块化**：`deerfect-api` / `channel-qq` / `channel-email` / `channel-feishu` / `deerfect-server` / `deerfect-cli` / `wms-mcp-adapter` 模块 + 独立 `deerfect-web`。
 - **容器化**：Dockerfile + docker-compose（app + MySQL + pgvector），见 [docker-deploy.md](./guides/docker-deploy.md)。
 - **持续集成与质量门禁**：`.github/workflows/ci.yml`（backend / web / e2e 三 job）与 `docker-image.yml`（镜像发布）已落地。backend 跑 `mvn verify`，含 jacoco 行覆盖率门禁（按模块设阈，数值以各模块 `pom.xml` 的 `jacoco.line.minimum` 为准）与真实 MySQL 仓储集成测试；web 跑 ESLint 再类型检查与单测。CD 自动部署与分支保护强制校验仍需人工配置，见 [dev.md](./dev.md) 的「流水线」一节。
 - **测试**：后端 JUnit 5 + Mockito，前端 vitest / Playwright；用例数以各模块 `target/surefire-reports` 与 CI 报告为准，详见 [functional-testing.md](./guides/functional-testing.md)。

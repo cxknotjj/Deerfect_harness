@@ -127,12 +127,12 @@ mvn -s .mvn/settings.xml -pl deerfect-server spring-boot:run   # 只起服务
 mvn -s .mvn/settings.xml -pl <module> -am verify -Djacoco.line.minimum=0.99   # 临时验证会被拦
 ```
 
-- `-am` 不能省：省略会用本地仓库里旧的 `harness-api`，改接口后容易出「明明改了却没生效」。
+- `-am` 不能省：省略会用本地仓库里旧的 `deerfect-api`，改接口后容易出「明明改了却没生效」。
 - 没有 `.mvn/settings.xml` 时直接 `mvn`，其余参数不变。
 
 ### 启动服务
 
-历史脚本 `run-win.bat` / `run-wsl.sh` 已移除，现在是两步：
+启动脚本在 `scripts/` 下（`scripts/run-win.bat` / `scripts/run-wsl.sh`），也可以两步手动启动：
 
 ```bash
 mvn -s .mvn/settings.xml -DskipTests install       # 首次，或改了模块依赖

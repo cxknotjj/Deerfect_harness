@@ -8,13 +8,13 @@
 
 | 模块 | 职责 | 依赖 |
 |---|---|---|
-| `harness-api` | 渠道与 core 共用的契约层：`contract.api`（调用型端口）、`contract.spi`（实现型 SPI）、`contract.model`（端口载荷）、`view`（对外 DTO） | 无同反应堆依赖 |
-| `server` | Spring Boot 主服务、core 实现与 fat jar 宿主 | compile → `harness-api`；runtime → `channel-qq` |
-| `channel-qq` | QQ 渠道（NapCat/OneBot 11）：客户端/事件/回复/持久化；事件准入 `ChannelEventPolicy` + 语义层端口 | compile → `harness-api` |
-| `cli` | 终端客户端，纯 HTTP + SSE | compile → `harness-api` |
+| `deerfect-api` | 渠道与 core 共用的契约层：`contract.api`（调用型端口）、`contract.spi`（实现型 SPI）、`contract.model`（端口载荷）、`view`（对外 DTO） | 无同反应堆依赖 |
+| `deerfect-server` | Spring Boot 主服务、core 实现与 fat jar 宿主 | compile → `deerfect-api`；runtime → `channel-qq` |
+| `channel-qq` | QQ 渠道（NapCat/OneBot 11）：客户端/事件/回复/持久化；事件准入 `ChannelEventPolicy` + 语义层端口 | compile → `deerfect-api` |
+| `deerfect-cli` | 终端客户端，纯 HTTP + SSE | compile → `deerfect-api` |
 | `wms-mcp-adapter` | 领域 MCP 适配范例 | 独立 |
 
-> 规则：core（server）编译期不得引用 `channel.qq`（enforcer 守护 `com.dark:channel-qq:*:*:compile`）；渠道新增输出控制走 `ReplyPostProcessor`，主动外发走 `MessageSender`（harness-api 端口，实现由渠道装配），两者都不改 core。详见 [`docs/design/channel-core-module-split.md`](./design/channel-core-module-split.md)。
+> 规则：core（deerfect-server）编译期不得引用 `channel.qq`（enforcer 守护 `com.dark:channel-qq:*:*:compile`）；渠道新增输出控制走 `ReplyPostProcessor`，主动外发走 `MessageSender`（deerfect-api 端口，实现由渠道装配），两者都不改 core。详见 [`docs/design/channel-core-module-split.md`](./design/channel-core-module-split.md)。
 
 ---
 
@@ -40,7 +40,7 @@ deerfect-server/src/main/java/com/dark/javaHarness/
 │   ├── ToolCallController.java   # 工具调用观测查询（/api/tool-calls）
 │   └── KbRetrievalController.java # RAG 检索观测查询（/api/kb-retrievals）
 ├── service/                      # 业务层（接口 + impl/ 实现）
-│   ├── GoalService.java          # 目标台账（AgentService/SessionService/ChatService/SessionBindingCleaner 端口已迁 harness-api）
+│   ├── GoalService.java          # 目标台账（AgentService/SessionService/ChatService/SessionBindingCleaner 端口已迁 deerfect-api）
 │   ├── ScheduleService.java      # 定时任务：定义 + 到点派发（复用 AgentService.submit，不另建执行链）
 │   ├── RouteJudge.java           # 主 Agent 路由判断（Agentic / Graph 路径决策）
 │   ├── AgentConfigProvider.java  # 从 agent 表读取运行配置（路由映射；配置读失败与「未配置」语义分离）
@@ -112,7 +112,7 @@ deerfect-server/src/main/java/com/dark/javaHarness/
 │                                 #   / LlmCallLogEntity / ToolCallLogEntity / KbRetrievalLogEntity / McpServerLogEntity
 │                                 #   / ScheduleEntity
 │   └── dto/                      # 服务端内部视图 DTO：MonitorSnapshot / RuntimeMetrics / ComponentStatus / ContextComposition
-│                                 #   （对外契约 DTO 在 harness-api 的 view/ 包）
+│                                 #   （对外契约 DTO 在 deerfect-api 的 view/ 包）
 ├── enums/                        # 共享常量：AgentConstants（GoalStatus → contract.model，SseProtocol → view）
 ├── exception/                    # 全局异常处理与领域异常
 │   ├── GlobalExceptionHandler.java   # @RestControllerAdvice，统一 {code, message}

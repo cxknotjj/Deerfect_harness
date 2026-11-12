@@ -19,7 +19,7 @@
 
 | 分类       | 技术                         | 版本     | 用途 / 说明                                                                        |
 | -------- | -------------------------- | ------ | ------------------------------------------------------------------------------ |
-| 语言       | Java                       | 25     | JDK 版本（`pom.xml` release 25；启动前把 `JAVA_HOME` 指向 JDK 25，`run-wsl.sh` / `run-win.bat` 均按此校验）                 |
+| 语言       | Java                       | 25     | JDK 版本（`pom.xml` release 25；Maven Enforcer 在 validate 阶段强制 JDK 25+，低版本直接构建失败并提示）                 |
 | 构建       | Maven                      | -      | 依赖与构建管理，本地仓库重定向 `.mvn-repo`                                                    |
 | 核心框架     | Spring Boot                | 4.1.2  | Web 应用框架（与 Spring AI 2.0.2 对齐）                                               |
 | AI 框架    | Spring AI                  | 2.0.2  | `spring-ai-starter-model-openai`，以 OpenAI 兼容协议统一对接多供应商（DashScope qwen3.7-flash / DeepSeek deepseek-v4-flash），按 `model_provider` 表路由 |
@@ -36,7 +36,7 @@
 | HTTP 客户端 | OkHttp                     | 5.5.0  | CLI 端调用主服务 REST/SSE（`cli/api/ChatApiClient`）；模型调用经 Spring AI 内置 OkHttp 传输 |
 | 序列化      | Jackson                    | 3.x（随 Boot） | DTO 序列化 / SSE meta 解析 / 工具入参（`tools.jackson` 包）                          |
 | 代码生成     | Lombok                     | -      | 实体类简化                                                                          |
-| 测试       | JUnit 5 / Mockito          | 随 Boot | harness-api 5 类 / 40 例、服务端 109 类 / 968 例（另有 channel-qq 8/83、cli 3/28、wms-mcp-adapter 4/43，合计 129 类 / 1162 例）；除 `JavaHarnessApplicationTests` 需本机 MySQL 外不依赖真实 DB/网络，见 docs/guides/functional-testing.md（2026-11-07 核对） |
+| 测试       | JUnit 5 / Mockito          | 随 Boot | 2026-11-12 实跑 1474 例（1 skip）：deerfect-api 52、deerfect-server 1082、channel-qq 85、channel-email 15、channel-feishu 152、deerfect-cli 30、wms-mcp-adapter 58；除 `JavaHarnessApplicationTests` 需本机 MySQL 外不依赖真实 DB/网络，见 docs/guides/functional-testing.md |
 | 日志       | SLF4J + Logback            | 随 Boot | Agent 执行状态日志                                                                   |
 | 初始化 SQL  | ~~schema.sql~~ 已移除         | -      | 由 Flyway 迁移脚本接管（见上）                                                            |
 
@@ -59,7 +59,7 @@ controller（REST + SSE 流式 + 全局异常处理 + 观测查询三接口，�
         ├─ channel-qq（独立模块：NapCat/OneBot 接入；会话绑定持久化在同模块 persistence）
         ├─ domain（server 自身领域模型：RouteDecision 分流决策 / LlmCallLog 等观测记录；契约 DTO 在 deerfect-api 的 view/，实体在 deerfect-api domain/）
         ├─ mapper（Agent / Goal / Session / SessionMessage / ModelProvider / 各观测日志 Mapper；OneBot 绑定 Mapper 在 channel-qq）
-        ├─ enums（server 侧 AgentConstants；GoalStatus/SseProtocol 在 harness-api）
+        ├─ enums（deerfect-server 侧 AgentConstants；GoalStatus/SseProtocol 在 deerfect-api）
         └─ 配置（application.yaml 入口 + application-*.yaml 分域 + config/agent：ChatAgentConfig、ChatClientFactory、ChatClientRegistry）
 ```
 
