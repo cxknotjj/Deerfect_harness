@@ -1,9 +1,0 @@
-# 音乐点播（app.music.*）：本地曲库 + play_music 工具，发成语音消息。
-#
-# 曲库不进仓库也不进镜像（音乐有版权）：音频文件放 dir 目录即可，丢进去下次调用就能点。
-# 容器部署时把宿主目录挂到 /workspace/voice（或改 dir 指向挂载点），镜像里不含音频。
-app:
-  music:
-    enabled: true
-    dir: ${MUSIC_DIR:voice}      # 曲库目录（相对启动工作目录）
-    max-bytes: 26214400          # 单曲上限 25MB：飞书语音条上限 30MB，提前留余量
