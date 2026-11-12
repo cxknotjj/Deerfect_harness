@@ -413,7 +413,7 @@ class AgentChatCallerTest {
 
         java.util.List<Throwable> errors = new ArrayList<>();
         guarded.tokenStreamWithWatchdog(spec, new java.util.concurrent.atomic.AtomicReference<>(),
-                        null, null, null, "m1", null)
+                        null, null, null, 9L, null)
                 .doOnError(errors::add)
                 .onErrorResume(e -> Flux.empty())
                 .blockLast();
@@ -421,7 +421,7 @@ class AgentChatCallerTest {
         assertEquals(1, errors.size(), "端点在途无响应应触发超时中止");
         assertTrue(errors.get(0) instanceof java.util.concurrent.TimeoutException,
                 "中止原因应为流空闲超时，实际: " + errors.get(0));
-        verify(clientRegistry).invalidateByModel("m1");
+        verify(clientRegistry).invalidate(9L);
     }
 
     /** 正常吐字不被兜底打断：流式收集内容与 token 顺序不变 */
@@ -438,12 +438,12 @@ class AgentChatCallerTest {
         when(streamSpec.chatResponse()).thenReturn(fluxOf("a", "b", "c"));
 
         List<String> tokens = guarded.tokenStreamWithWatchdog(spec, new java.util.concurrent.atomic.AtomicReference<>(),
-                        null, null, null, "m1", null)
+                        null, null, null, 9L, null)
                 .collectList()
                 .block();
 
         assertEquals(List.of("a", "b", "c"), tokens);
-        verify(clientRegistry, never()).invalidateByModel(anyString());
+        verify(clientRegistry, never()).invalidate(any());
     }
 
     /** 带思考增量的 ChatResponse 帧：AssistantMessage 的 metadata 构造器为 protected，经 mock 注入 */

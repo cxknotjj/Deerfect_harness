@@ -239,7 +239,7 @@ public class GeneralAssistantAgent implements Agent {
                                             chatCaller.buildSpec(config, goal.sessionId(), agentName,
                                                     DEFAULT_SYSTEM_PROMPT, goal.objective(), assembly,
                                                     CallTrace.fromGoal(goal).withSpan(spanId)),
-                                            usageRef, null, null, firstTokenAt, config.model(), reasoningTap)
+                                            usageRef, null, null, firstTokenAt, config.modelProviderId(), reasoningTap)
                                     .doOnNext(collected::append)
                                     .doOnError(streamError::set);
                         },

@@ -106,14 +106,14 @@ final class AgentChatPipeline {
      * 重建连接池，不再复用同一根死连接。例外：4xx 客户端错误（除 408，见
      * {@link LlmErrorClassifier#isClientRequestError}）请求被拒但连接健康，跳过丢池。
      *
-     * @param model 失败时用于重建客户端的模型名（null/未命中注册表则跳过丢池）
+     * @param modelProviderId 失败时用于重建客户端的部署模型 id（null 则跳过丢池）
      */
     Flux<String> tokenStreamWithWatchdog(ChatClient.ChatClientRequestSpec spec,
                                          java.util.concurrent.atomic.AtomicReference<Usage> usageRef,
                                          BudgetLedger ledger,
                                          java.util.concurrent.atomic.AtomicLong prevTotal,
                                          java.util.concurrent.atomic.AtomicLong firstTokenAt,
-                                         String model,
+                                         Long modelProviderId,
                                          Consumer<String> reasoningTap) {
         return tokenStream(spec, usageRef, ledger, prevTotal, firstTokenAt, reasoningTap,
                         streamIdleTimeout, firstFrameTimeout)
@@ -122,7 +122,7 @@ final class AgentChatPipeline {
                     // 波及同池在途请求，跳过重建；其余（网络黑洞/看门狗超时/5xx）保持丢池，
                     // 重试即拿全新连接
                     if (!LlmErrorClassifier.isClientRequestError(e)) {
-                        clientRegistry.invalidateByModel(model);
+                        clientRegistry.invalidate(modelProviderId);
                     }
                 });
     }
@@ -145,7 +145,7 @@ final class AgentChatPipeline {
         tokenStreamWithWatchdog(
                         specFactory.build(config, sessionId, forAgent, fallbackSystem, user, assembly, trace,
                                 extraAdvisors),
-                        usageRef, ledger, prevTotal, firstTokenAt, config != null ? config.model() : null,
+                        usageRef, ledger, prevTotal, firstTokenAt, config != null ? config.modelProviderId() : null,
                         reasoningTap)
                 .takeUntil(__ -> cancelled != null && cancelled.getAsBoolean())
                 .doOnNext(token -> {

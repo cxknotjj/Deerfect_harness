@@ -134,31 +134,27 @@ public class ChatClientRegistry {
     }
 
     /**
-     * 按模型名重建客户端（丢弃其连接池）：agent 链路共用的长超时客户端，失败后调用。
+     * 按部署模型 id 重建客户端（丢弃其连接池）：agent 链路共用的长超时客户端，失败后调用。
      *
      * <p>与 {@link #invalidateLightweight} 同因不同物：后者作用于路由判定的轻量客户端，
-     * 本方法作用于 {@link #getByModel}/{@link #get} 返回的共用客户端。重建会产生一个
-     * 新的 HttpClient（旧实例由 GC 回收），故仅在调用失败（疑似连接黑洞）时触发。
+     * 本方法作用于 {@link #get(Long)} 返回的共用客户端。按 id 而非模型名——不同供应商可存在
+     * 同名模型，按名反查会重建错对象（见 {@link #idsByName} 的歧义告警）。
      *
-     * @param model 模型名；null/未命中注册表时不做处理
+     * @param modelProviderId 部署模型 id（model_provider.id）；null 或行不存在时跳过
      */
-    public void invalidateByModel(String model) {
-        if (model == null || model.isBlank()) {
+    public void invalidate(Long modelProviderId) {
+        if (modelProviderId == null) {
             return;
         }
-        Long id = idsByName.get(model.toLowerCase());
-        if (id == null) {
-            return;
-        }
-        ModelProviderEntity row = modelProviderMapper.selectById(id);
+        ModelProviderEntity row = modelProviderMapper.selectById(modelProviderId);
         if (row == null) {
             return;
         }
         ChatClient rebuilt = clientFactory.build(row.getProvider(), row.getApiUrl(),
                 row.getDisableThinking() != null && row.getDisableThinking() == 1);
         if (rebuilt != null) {
-            clients.put(id, rebuilt);
-            log.info("[registry] 重建客户端并丢弃旧连接池: model={} id={}", model, id);
+            clients.put(modelProviderId, rebuilt);
+            log.info("[registry] 重建客户端并丢弃旧连接池: modelProviderId={}", modelProviderId);
         }
     }
 

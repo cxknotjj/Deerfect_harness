@@ -327,16 +327,16 @@ public final class AgentChatCaller {
      * <p>失败即丢池：连接可能已成网络黑洞（对端静默失活、不发 RST），丢池使下次调用
      * 重建连接池，不再复用同一根死连接。
      *
-     * @param model 失败时用于重建客户端的模型名（null/未命中注册表则跳过丢池）
+     * @param modelProviderId 失败时用于重建客户端的部署模型 id（null 则跳过丢池）
      */
     Flux<String> tokenStreamWithWatchdog(ChatClient.ChatClientRequestSpec spec,
                                          AtomicReference<Usage> usageRef,
                                          BudgetLedger ledger,
                                          AtomicLong prevTotal,
                                          AtomicLong firstTokenAt,
-                                         String model,
+                                         Long modelProviderId,
                                          Consumer<String> reasoningTap) {
-        return pipeline.tokenStreamWithWatchdog(spec, usageRef, ledger, prevTotal, firstTokenAt, model,
+        return pipeline.tokenStreamWithWatchdog(spec, usageRef, ledger, prevTotal, firstTokenAt, modelProviderId,
                 reasoningTap);
     }
 
