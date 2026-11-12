@@ -3,7 +3,6 @@ package com.dark.javaHarness.agent;
 import com.dark.javaHarness.agent.BranchProgressListener;
 import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.contract.model.AgentConfig;
 import com.dark.javaHarness.contract.model.Goal;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
@@ -65,70 +64,13 @@ public class GeneralAssistantAgent implements Agent {
     /** 流式重试策略：响应式直答路径与调用器内部阻塞路径共享同一 LlmRetry 实例（口径/上限单一来源） */
     private final LlmRetry streamRetry;
 
-    public GeneralAssistantAgent(String agentName,
-                                 ChatClientRegistry clientRegistry,
-                                 SessionService memoryStore,
-                                 AgentService agentService,
-                                 ToolAssignments toolAssignments,
-                                 LlmCallRecorder recorder) {
-        this(agentName, clientRegistry, memoryStore, agentService, toolAssignments, recorder, null);
-    }
-
-    /** budgets：上下文预算配置（路径 A 会话历史裁剪预算；null 时用内置默认值，单测场景） */
-    public GeneralAssistantAgent(String agentName,
-                                 ChatClientRegistry clientRegistry,
-                                 SessionService memoryStore,
-                                 AgentService agentService,
-                                 ToolAssignments toolAssignments,
-                                 LlmCallRecorder recorder,
-                                 ContextBudgetProperties budgets) {
-        this(agentName, clientRegistry, memoryStore, agentService, toolAssignments, recorder, budgets, null);
-    }
-
-    /**
-     * 全参构造：lazyTools 为 null 时构造禁用态实例（旧构造链/单测场景，工具面全量注入现状）。
-     * 正式装配由 ChatAgentConfig 注入共享实例（app.prompt.lazy-tools.enabled 开关）。
-     */
-    public GeneralAssistantAgent(String agentName,
-                                 ChatClientRegistry clientRegistry,
-                                 SessionService memoryStore,
-                                 AgentService agentService,
-                                 ToolAssignments toolAssignments,
-                                 LlmCallRecorder recorder,
-                                 ContextBudgetProperties budgets,
-                                 ToolLazyManager lazyTools) {
-        this(agentName, clientRegistry, memoryStore, agentService, toolAssignments,
-                recorder, budgets, lazyTools, null, null);
-    }
-
-    /**
-     * 全参构造（含 skill 装配）：promptAssembler/skillManager 为 null 时内部裸构建
-     * （旧构造链/单测场景，无 skill 段、不注册 load_skill）；正式装配由 ChatAgentConfig/
-     * AgentRegistry 注入共享实例（skill 段提供者与 toolLazyManager 开关对齐）。
-     */
-    public GeneralAssistantAgent(String agentName,
-                                 ChatClientRegistry clientRegistry,
-                                 SessionService memoryStore,
-                                 AgentService agentService,
-                                 ToolAssignments toolAssignments,
-                                 LlmCallRecorder recorder,
-                                 ContextBudgetProperties budgets,
-                                 ToolLazyManager lazyTools,
-                                 PromptAssembler promptAssembler,
-                                 SkillManager skillManager) {
-        this(agentName, clientRegistry, memoryStore, agentService, toolAssignments,
-                recorder, budgets, lazyTools, promptAssembler, skillManager, null, null, null,
-                null, null, null);
-    }
-
     /**
      * 全参构造（含 skill 装配与 RAG 知识检索）：knowledgeRetriever 仅知识库启用时非 null
-     * （AgentRegistry 经 ObjectProvider 注入），null 时无知识段注入、行为退化现状。
+     * （AgentRegistry 经 ObjectProvider 注入），null 时无知识段注入。
      * 内部构建 {@link AgentChatCaller} 共享执行引擎（组装链/重试/观测同源）。timeouts 透传
-     * 给调用器作流式空闲超时（null 时走调用器默认）。
+     * 给调用器作流式空闲超时（null 时走调用器默认）。路由解析三件套必填。
      */
     public GeneralAssistantAgent(String agentName,
-                                 ChatClientRegistry clientRegistry,
                                  SessionService memoryStore,
                                  AgentService agentService,
                                  ToolAssignments toolAssignments,
@@ -155,7 +97,7 @@ public class GeneralAssistantAgent implements Agent {
                 budgets != null ? budgets : new ContextBudgetProperties();
         this.maxTokensFinal = effectiveBudgets.getMaxTokensFinal();
         this.streamRetry = new LlmRetry();
-        this.chatCaller = new AgentChatCaller(clientRegistry, agentService, toolAssignments, recorder,
+        this.chatCaller = new AgentChatCaller(agentService, toolAssignments, recorder,
                 streamRetry, effectiveBudgets, effectiveAssembler, memoryStore, effectiveLazy,
                 skillManager, knowledgeRetriever, timeouts, compositionRecorder,
                 modelResolver, llmAgentCatalog, llmClientRegistry);

@@ -8,7 +8,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.config.ChatTimeoutProperties;
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.contract.model.AgentConfig;
 import com.dark.javaHarness.domain.RoutePlan;
 import com.dark.javaHarness.service.AgentConfigProvider;
@@ -40,8 +39,6 @@ class LlmRouteJudgeTest {
     /** 判定固定使用的模型名（与 LlmRouteJudge.ROUTE_MODEL 一致） */
     private static final String ROUTE_MODEL = "qwen3.8-27b";
 
-    @Mock
-    private ChatClientRegistry clientRegistry;
     @Mock
     private com.dark.javaHarness.llm.catalog.AgentCatalog agentCatalog;
     @Mock

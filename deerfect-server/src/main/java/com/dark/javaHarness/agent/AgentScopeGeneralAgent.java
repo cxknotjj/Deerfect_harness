@@ -6,7 +6,6 @@ import com.dark.javaHarness.agent.agentic.SpringAiToolBridge;
 import com.dark.javaHarness.config.AgenticProperties;
 import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.contract.model.AgentConfig;
 import com.dark.javaHarness.contract.model.ChatAttachment;
 import com.dark.javaHarness.contract.model.Goal;
@@ -108,7 +107,6 @@ public class AgentScopeGeneralAgent implements Agent {
     private final ContextCompositionRecorder compositionRecorder;
 
     public AgentScopeGeneralAgent(String agentName,
-                                  ChatClientRegistry clientRegistry,
                                   AgentService agentService,
                                   SessionService memoryStore,
                                   ToolAssignments toolAssignments,
@@ -136,34 +134,12 @@ public class AgentScopeGeneralAgent implements Agent {
         this.modelFactory = modelFactory;
         this.fallback = fallback;
         this.compositionRecorder = compositionRecorder;
-        this.specFactory = new AgentRequestSpecFactory(clientRegistry, promptAssembler, toolAssignments,
+        this.specFactory = new AgentRequestSpecFactory(promptAssembler, toolAssignments,
                 lazyTools, skillManager, memoryStore, budgets, knowledgeRetriever, recorder,
                 com.dark.javaHarness.tool.DefaultToolDecorators.defaults(lazyTools, skillManager,
                         budgets, recorder), null,
                 modelResolver, llmAgentCatalog, llmClientRegistry);
         this.observer = new LlmCallObserver(recorder);
-    }
-
-    /** 旧全参重载（单测）：未注入新解析链。 */
-    public AgentScopeGeneralAgent(String agentName,
-                                  ChatClientRegistry clientRegistry,
-                                  AgentService agentService,
-                                  SessionService memoryStore,
-                                  ToolAssignments toolAssignments,
-                                  LlmCallRecorder recorder,
-                                  ContextBudgetProperties budgets,
-                                  ToolLazyManager lazyTools,
-                                  PromptAssembler promptAssembler,
-                                  SkillManager skillManager,
-                                  KnowledgeRetriever knowledgeRetriever,
-                                  ChatTimeoutProperties timeouts,
-                                  AgentScopeModelFactory modelFactory,
-                                  AgenticProperties agentic,
-                                  Agent fallback,
-                                  ContextCompositionRecorder compositionRecorder) {
-        this(agentName, clientRegistry, agentService, memoryStore, toolAssignments, recorder, budgets,
-                lazyTools, promptAssembler, skillManager, knowledgeRetriever, timeouts, modelFactory,
-                agentic, fallback, compositionRecorder, null, null, null);
     }
 
     @Override

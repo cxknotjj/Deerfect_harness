@@ -24,9 +24,6 @@ public class AgentEntity {
     /** Agent 描述 */
     private String description;
 
-    /** 绑定的部署模型（旧路径：model_provider.id）；新路径改用 routeId */
-    private Long modelProviderId;
-
     /** 绑定的模型路由（llm_route.id）：Agent 只认路由，不直接认模型 */
     private Long routeId;
 

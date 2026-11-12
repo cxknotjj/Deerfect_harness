@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -25,7 +26,10 @@ import com.dark.javaHarness.agent.RagPrefetcher;
 import com.dark.javaHarness.state.OrchestrationCheckpoint;
 import com.dark.javaHarness.state.OrchestrationStage;
 import com.dark.javaHarness.state.persistence.OrchestrationCheckpointStore;
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
+import com.dark.javaHarness.llm.catalog.AgentCatalog;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RoutePlan;
 import com.dark.javaHarness.contract.model.Goal;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.service.AgentConfigProvider;
@@ -66,7 +70,11 @@ class MultiAgentGraphAgentTest {
     }
 
     @Mock
-    private ChatClientRegistry clientRegistry;
+    private LlmClientRegistry clientRegistry;
+    @Mock
+    private AgentCatalog agentCatalog;
+    @Mock
+    private ModelResolver modelResolver;
     @Mock
     private ChatClient chatClient;
     @Mock
@@ -92,6 +100,24 @@ class MultiAgentGraphAgentTest {
     private void stubChat(String content) {
         when(clientRegistry.get(any())).thenReturn(chatClient);
         when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        org.mockito.Mockito.lenient().when(agentCatalog.require(anyString())).thenAnswer(inv -> {
+            com.dark.javaHarness.domain.entity.AgentEntity a =
+                    new com.dark.javaHarness.domain.entity.AgentEntity();
+            String name = inv.getArgument(0);
+            a.setAgentName(name);
+            // 单测约定：Agent 绑定路由 id = 其配置模型 id（无配置时用 1）；路由成员模型 id 与路由 id 相同
+            Long routeId = agentService.getAgentConfig(name)
+                    .map(com.dark.javaHarness.contract.model.AgentConfig::modelId)
+                    .orElse(1L);
+            a.setRouteId(routeId == null ? 1L : routeId);
+            return a;
+        });
+        org.mockito.Mockito.lenient().when(modelResolver.resolve(anyLong())).thenAnswer(inv -> {
+            Long routeId = inv.getArgument(0);
+            return new RoutePlan(routeId, "multi", java.util.List.of(
+                    new RoutePlan.Member(routeId, 1L, "dashscope", "https://example.com", "m", "m",
+                            10, "{}", null)));
+        });
         lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
@@ -130,10 +156,41 @@ class MultiAgentGraphAgentTest {
         return c;
     }
 
+    private MultiAgentGraphAgent newAgent() {
+        return newAgent(null, null, null, null, null, null, null, null, null, null, null, null);
+    }
+
+    private MultiAgentGraphAgent newAgent(
+            com.dark.javaHarness.observability.LlmCallRecorder recorder,
+            com.dark.javaHarness.state.persistence.OrchestrationCheckpointStore checkpointStore,
+            com.dark.javaHarness.config.ContextBudgetProperties budgets,
+            com.dark.javaHarness.contract.api.SessionService memoryStore,
+            com.dark.javaHarness.prompt.ToolLazyManager lazyTools,
+            com.dark.javaHarness.prompt.PromptAssembler promptAssembler,
+            com.dark.javaHarness.prompt.SkillManager skillManager,
+            com.dark.javaHarness.knowledge.KnowledgeRetriever knowledgeRetriever,
+            com.dark.javaHarness.config.ChatTimeoutProperties timeouts,
+            com.dark.javaHarness.agent.RagPrefetcher ragPrefetcher,
+            com.dark.javaHarness.service.AgentConfigProvider agentConfigProvider,
+            com.dark.javaHarness.prompt.ContextCompositionRecorder compositionRecorder) {
+        return new MultiAgentGraphAgent("multi-agent", agentService, toolAssignments, recorder,
+                checkpointStore, budgets, memoryStore, lazyTools, promptAssembler, skillManager,
+                knowledgeRetriever, timeouts, ragPrefetcher, agentConfigProvider, compositionRecorder,
+                modelResolver, agentCatalog, clientRegistry);
+    }
+
+    private static com.dark.javaHarness.domain.entity.AgentEntity routeAgent(String name, Long routeId) {
+        com.dark.javaHarness.domain.entity.AgentEntity agent =
+                new com.dark.javaHarness.domain.entity.AgentEntity();
+        agent.setAgentName(name);
+        agent.setRouteId(routeId);
+        return agent;
+    }
+
     @Test
     void execute_shouldBuildGraphAndReturnFinalAnswer() {
         stubChat(fixedContent());
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+        agent = newAgent();
 
         Goal goal = new Goal("g1", "调研竞品并输出报告");
         String reply = agent.execute(goal);
@@ -151,7 +208,7 @@ class MultiAgentGraphAgentTest {
     void execute_returnsNonEmptyForAggregate() {
         // 所有节点统一返回固定 content；lead 解析出 subtasks，聚合把该 content 作为最终回答
         stubChat(fixedContent());
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+        agent = newAgent();
 
         String reply = agent.execute(new Goal("g2", "hello"));
 
@@ -163,7 +220,7 @@ class MultiAgentGraphAgentTest {
     @Test
     void executeStreamReactive_emitsProgressRowsAndContent() {
         stubChat(fixedContent());
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+        agent = newAgent();
 
         Goal goal = new Goal("g3", "调研竞品并输出报告");
         java.util.List<String> rows = agent.executeStreamReactive(goal).collectList().block();
@@ -184,7 +241,7 @@ class MultiAgentGraphAgentTest {
     @Test
     void executeStreamReactive_streamsStageEventsInOrder() {
         stubChat(fixedContent());
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+        agent = newAgent();
 
         java.util.List<String> rows = agent
                 .executeStreamReactive(new Goal("g4", "调研竞品并输出报告"))
@@ -239,7 +296,7 @@ class MultiAgentGraphAgentTest {
         // 覆盖聚合节点的 stream 内容：三段 token（含一个空片段，模拟真实流的空 token）
         when(streamSpec.chatResponse())
                 .thenReturn(fluxOf("最终回答", "", "第二段", "。"));
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+        agent = newAgent();
 
         java.util.List<String> rows = agent
                 .executeStreamReactive(new Goal("g8", "调研竞品并输出报告"))
@@ -291,12 +348,14 @@ class MultiAgentGraphAgentTest {
                 .thenReturn(java.util.Optional.of(new com.dark.javaHarness.contract.model.AgentConfig(101L, "qwen-plus", "调研提示词", null)));
         when(agentService.getAgentConfig(eq("analyst")))
                 .thenReturn(java.util.Optional.of(new com.dark.javaHarness.contract.model.AgentConfig(102L, "deepseek-chat", "分析提示词", null)));
+        when(agentCatalog.require("researcher")).thenReturn(routeAgent("researcher", 101L));
+        when(agentCatalog.require("analyst")).thenReturn(routeAgent("analyst", 102L));
         // 先建好独立 stub 的专家客户端，再注册（避免在 when() 求值内嵌套 stubbing）
         ChatClient researcherClient = newStubbedClient("调研结果");
         ChatClient analystClient = newStubbedClient("分析结果");
         when(clientRegistry.get(eq(101L))).thenReturn(researcherClient);
         when(clientRegistry.get(eq(102L))).thenReturn(analystClient);
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+        agent = newAgent();
 
         String reply = agent.execute(new Goal("g5", "调研竞品并统计销量"));
 
@@ -314,30 +373,28 @@ class MultiAgentGraphAgentTest {
     void execute_rejectsUnknownAgentAndFallsBackToDefault() {
         String leadJson = "{\"subtasks\":[{\"desc\":\"任务X\",\"agent\":\"hacker\"}]}";
         stubChat(leadJson);
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+        agent = newAgent();
 
         String reply = agent.execute(new Goal("g6", "任务X"));
 
         assertNotNull(reply);
         // 白名单拒绝：绝不以非法名查配置；客户端只允许走默认兜底（get(null)），不得按 id 取
         verify(agentService, never()).getAgentConfig("hacker");
-        verify(clientRegistry, never()).get(any(Long.class));
     }
 
     /** agent 表无任何配置（含 null model）→ 走默认客户端，不下发请求级 options（不覆盖模型） */
     @Test
     void execute_withoutConfig_usesDefaultClientWithoutModelOption() {
         stubChat(fixedContent());
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+        agent = newAgent();
 
         String reply = agent.execute(new Goal("g7", "hello"));
 
         assertEquals(fixedContent(), reply);
-        // lead + 2 个并行子任务 + 聚合共 4 次调用，全部走默认客户端（model=null）
-        verify(clientRegistry, org.mockito.Mockito.times(4)).get(isNull());
-        // Spring AI 2.0 的 OpenAiChatOptions 恒带默认模型：无配置时不得下发请求级 options，
-        // 否则会用默认模型覆盖客户端配置（流式 usage 在 2.0 已默认开启）
-        verify(requestSpec, org.mockito.Mockito.never()).options(any());
+        // lead + 2 个并行子任务 + 聚合共 4 次调用，全部取路由首选成员的客户端
+        verify(clientRegistry, org.mockito.Mockito.times(4)).get(1L);
+        // 路由成员必有 upstream_name：请求级必须显式下发 model（否则厂商端 400）
+        verify(requestSpec, org.mockito.Mockito.atLeastOnce()).options(any());
     }
 
     /* ---------------- 动态子 Agent：模板 × 任务书（brief 注入 / 截断 / wms 白名单） ---------------- */
@@ -357,7 +414,7 @@ class MultiAgentGraphAgentTest {
         java.util.List<String> researcherUsers = new java.util.ArrayList<>();
         ChatClient researcherClient = newCapturingClient("调研结果", researcherUsers);
         when(clientRegistry.get(eq(201L))).thenReturn(researcherClient);
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+        agent = newAgent();
 
         String reply = agent.execute(new Goal("gbr1", "调研竞品定价策略"));
 
@@ -371,7 +428,7 @@ class MultiAgentGraphAgentTest {
     void execute_legacyFormatWithoutBrief_subtaskUserTextIsDesc() {
         String leadJson = "{\"subtasks\":[{\"desc\":\"调研竞品\",\"agent\":\"researcher\"},{\"desc\":\"撰写摘要\"}]}";
         stubChat(leadJson);
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+        agent = newAgent();
 
         String reply = agent.execute(new Goal("gbr2", "调研竞品并撰写摘要"));
 
@@ -401,8 +458,7 @@ class MultiAgentGraphAgentTest {
         com.dark.javaHarness.config.ContextBudgetProperties budgets =
                 new com.dark.javaHarness.config.ContextBudgetProperties();
         budgets.setSubtaskBriefMaxChars(10);
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
-                null, null, budgets);
+        agent = newAgent(null, null, budgets, null, null, null, null, null, null, null, null, null);
 
         String reply = agent.execute(new Goal("gbr3", "调研竞品定价策略"));
 
@@ -426,8 +482,7 @@ class MultiAgentGraphAgentTest {
         com.dark.javaHarness.config.ContextBudgetProperties budgets =
                 new com.dark.javaHarness.config.ContextBudgetProperties();
         budgets.setSubtaskBriefMaxChars(0);
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
-                null, null, budgets);
+        agent = newAgent(null, null, budgets, null, null, null, null, null, null, null, null, null);
 
         String reply = agent.execute(new Goal("gbr5", "调研竞品定价策略"));
 
@@ -448,7 +503,7 @@ class MultiAgentGraphAgentTest {
         java.util.List<String> wmsUsers = new java.util.ArrayList<>();
         ChatClient wmsClient = newCapturingClient("库存结果", wmsUsers);
         when(clientRegistry.get(eq(203L))).thenReturn(wmsClient);
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+        agent = newAgent();
 
         String reply = agent.execute(new Goal("gbr4", "查库存并核对差异"));
 
@@ -465,8 +520,7 @@ class MultiAgentGraphAgentTest {
      * 全参构造便捷入口：单测只关注工具包通道（agentConfigProvider），其余依赖沿用既有用例的最小桩（均可 null）
      */
     private MultiAgentGraphAgent agentWithPackProvider(AgentConfigProvider provider) {
-        return new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
-                null, null, null, null, null, null, null, null, null, null, provider, null);
+        return newAgent(null, null, null, null, null, null, null, null, null, null, provider, null);
     }
 
     /** 无 toolPacks（现状唯一形态：lead 无工具可分配，产物不含包）→ 包解析零触发（回归） */
@@ -517,8 +571,7 @@ class MultiAgentGraphAgentTest {
     @Test
     void execute_leadAndAggregateCallsCarryPromptBudgetAdvisor() {
         stubChat(fixedContent());
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null,
-                null, new com.dark.javaHarness.config.ContextBudgetProperties());
+        agent = newAgent(null, null, new com.dark.javaHarness.config.ContextBudgetProperties(), null, null, null, null, null, null, null, null, null);
 
         agent.execute(new Goal("gb1", "调研竞品并输出报告"));
 
@@ -541,8 +594,7 @@ class MultiAgentGraphAgentTest {
         stubChat(leadJson);
         when(memoryStore.get("sess-1")).thenReturn(List.of(new UserMessage("上一轮用户提问"), new AssistantMessage("上一轮回答")));
         when(requestSpec.messages(anyList())).thenReturn(requestSpec);
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null,
-                null, null, memoryStore);
+        agent = newAgent(null, null, null, memoryStore, null, null, null, null, null, null, null, null);
 
         agent.execute(new Goal("gm1", "调研竞品并撰写摘要", "sess-1"));
 
@@ -556,8 +608,7 @@ class MultiAgentGraphAgentTest {
     @Test
     void execute_withoutSessionId_skipsMemoryAdvisor() {
         stubChat(fixedContent());
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null,
-                null, null, memoryStore);
+        agent = newAgent(null, null, null, memoryStore, null, null, null, null, null, null, null, null);
 
         agent.execute(new Goal("gm2", "调研竞品并输出报告"));
 
@@ -592,7 +643,7 @@ class MultiAgentGraphAgentTest {
     /** 未启用检查点存储（构造传 null）→ resume 快速失败，抛出明确异常（无需 LLM 桩） */
     @Test
     void resume_withoutCheckpointer_throwsFast() {
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+        agent = newAgent();
 
         assertThrows(IllegalStateException.class,
                 () -> agent.resumeStreamReactive(new Goal("gr1", "调研竞品")),
@@ -602,8 +653,7 @@ class MultiAgentGraphAgentTest {
     /** 启用了检查点但该 goal 从未跑过编排（无检查点记录）→ resume 快速失败（无需 LLM 桩） */
     @Test
     void resume_withoutCheckpoint_throwsFast() {
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null,
-                inMemoryCheckpointStore());
+        agent = newAgent(null, inMemoryCheckpointStore(), null, null, null, null, null, null, null, null, null, null);
 
         assertThrows(IllegalStateException.class,
                 () -> agent.resumeStreamReactive(new Goal("gr2", "调研竞品")),
@@ -617,8 +667,7 @@ class MultiAgentGraphAgentTest {
     @Test
     void resume_afterCompletedRun_skipsAllLlmCalls() {
         stubChat(fixedContent());
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null,
-                inMemoryCheckpointStore());
+        agent = newAgent(null, inMemoryCheckpointStore(), null, null, null, null, null, null, null, null, null, null);
 
         // 首跑：lead + 2 子任务 + 聚合 = 4 次流式调用（call 已统一流式背书），检查点按阶段落库
         java.util.List<String> first = agent
@@ -655,6 +704,24 @@ class MultiAgentGraphAgentTest {
         java.util.concurrent.atomic.AtomicInteger contentCalls = new java.util.concurrent.atomic.AtomicInteger();
         when(clientRegistry.get(any())).thenReturn(chatClient);
         when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        org.mockito.Mockito.lenient().when(agentCatalog.require(anyString())).thenAnswer(inv -> {
+            com.dark.javaHarness.domain.entity.AgentEntity a =
+                    new com.dark.javaHarness.domain.entity.AgentEntity();
+            String name = inv.getArgument(0);
+            a.setAgentName(name);
+            // 单测约定：Agent 绑定路由 id = 其配置模型 id（无配置时用 1）；路由成员模型 id 与路由 id 相同
+            Long routeId = agentService.getAgentConfig(name)
+                    .map(com.dark.javaHarness.contract.model.AgentConfig::modelId)
+                    .orElse(1L);
+            a.setRouteId(routeId == null ? 1L : routeId);
+            return a;
+        });
+        org.mockito.Mockito.lenient().when(modelResolver.resolve(anyLong())).thenAnswer(inv -> {
+            Long routeId = inv.getArgument(0);
+            return new RoutePlan(routeId, "multi", java.util.List.of(
+                    new RoutePlan.Member(routeId, 1L, "dashscope", "https://example.com", "m", "m",
+                            10, "{}", null)));
+        });
         lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
@@ -668,8 +735,7 @@ class MultiAgentGraphAgentTest {
             releaseSubtasks.await(10, java.util.concurrent.TimeUnit.SECONDS);
             return fluxOf(fixedContent());
         });
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null,
-                inMemoryCheckpointStore());
+        agent = newAgent(null, inMemoryCheckpointStore(), null, null, null, null, null, null, null, null, null, null);
 
         // lead 完成（检查点已落库）→ 子任务批在途阻塞中 → 模拟客户端断开
         reactor.core.Disposable disposable = agent
@@ -708,6 +774,24 @@ class MultiAgentGraphAgentTest {
         java.util.concurrent.CountDownLatch leadStarted = new java.util.concurrent.CountDownLatch(1);
         when(clientRegistry.get(any())).thenReturn(chatClient);
         when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        org.mockito.Mockito.lenient().when(agentCatalog.require(anyString())).thenAnswer(inv -> {
+            com.dark.javaHarness.domain.entity.AgentEntity a =
+                    new com.dark.javaHarness.domain.entity.AgentEntity();
+            String name = inv.getArgument(0);
+            a.setAgentName(name);
+            // 单测约定：Agent 绑定路由 id = 其配置模型 id（无配置时用 1）；路由成员模型 id 与路由 id 相同
+            Long routeId = agentService.getAgentConfig(name)
+                    .map(com.dark.javaHarness.contract.model.AgentConfig::modelId)
+                    .orElse(1L);
+            a.setRouteId(routeId == null ? 1L : routeId);
+            return a;
+        });
+        org.mockito.Mockito.lenient().when(modelResolver.resolve(anyLong())).thenAnswer(inv -> {
+            Long routeId = inv.getArgument(0);
+            return new RoutePlan(routeId, "multi", java.util.List.of(
+                    new RoutePlan.Member(routeId, 1L, "dashscope", "https://example.com", "m", "m",
+                            10, "{}", null)));
+        });
         lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
@@ -719,7 +803,7 @@ class MultiAgentGraphAgentTest {
             releaseLead.await(10, java.util.concurrent.TimeUnit.SECONDS);
             return fluxOf(fixedContent());
         });
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+        agent = newAgent();
 
         // subscribeOn 让图执行离开测试线程（否则同步图驱动会把 subscribe() 卡在 lead 阻塞上）
         reactor.core.Disposable disposable = agent
@@ -754,6 +838,24 @@ class MultiAgentGraphAgentTest {
         java.util.concurrent.atomic.AtomicInteger contentCalls = new java.util.concurrent.atomic.AtomicInteger();
         when(clientRegistry.get(any())).thenReturn(chatClient);
         when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        org.mockito.Mockito.lenient().when(agentCatalog.require(anyString())).thenAnswer(inv -> {
+            com.dark.javaHarness.domain.entity.AgentEntity a =
+                    new com.dark.javaHarness.domain.entity.AgentEntity();
+            String name = inv.getArgument(0);
+            a.setAgentName(name);
+            // 单测约定：Agent 绑定路由 id = 其配置模型 id（无配置时用 1）；路由成员模型 id 与路由 id 相同
+            Long routeId = agentService.getAgentConfig(name)
+                    .map(com.dark.javaHarness.contract.model.AgentConfig::modelId)
+                    .orElse(1L);
+            a.setRouteId(routeId == null ? 1L : routeId);
+            return a;
+        });
+        org.mockito.Mockito.lenient().when(modelResolver.resolve(anyLong())).thenAnswer(inv -> {
+            Long routeId = inv.getArgument(0);
+            return new RoutePlan(routeId, "multi", java.util.List.of(
+                    new RoutePlan.Member(routeId, 1L, "dashscope", "https://example.com", "m", "m",
+                            10, "{}", null)));
+        });
         lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
@@ -776,7 +878,7 @@ class MultiAgentGraphAgentTest {
                         return fluxOf("尾token");
                     }));
         });
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+        agent = newAgent();
 
         java.util.List<String> rows = new java.util.concurrent.CopyOnWriteArrayList<>();
         reactor.core.Disposable disposable = agent
@@ -807,6 +909,24 @@ class MultiAgentGraphAgentTest {
         java.util.concurrent.atomic.AtomicInteger contentCalls = new java.util.concurrent.atomic.AtomicInteger();
         when(clientRegistry.get(any())).thenReturn(chatClient);
         when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        org.mockito.Mockito.lenient().when(agentCatalog.require(anyString())).thenAnswer(inv -> {
+            com.dark.javaHarness.domain.entity.AgentEntity a =
+                    new com.dark.javaHarness.domain.entity.AgentEntity();
+            String name = inv.getArgument(0);
+            a.setAgentName(name);
+            // 单测约定：Agent 绑定路由 id = 其配置模型 id（无配置时用 1）；路由成员模型 id 与路由 id 相同
+            Long routeId = agentService.getAgentConfig(name)
+                    .map(com.dark.javaHarness.contract.model.AgentConfig::modelId)
+                    .orElse(1L);
+            a.setRouteId(routeId == null ? 1L : routeId);
+            return a;
+        });
+        org.mockito.Mockito.lenient().when(modelResolver.resolve(anyLong())).thenAnswer(inv -> {
+            Long routeId = inv.getArgument(0);
+            return new RoutePlan(routeId, "multi", java.util.List.of(
+                    new RoutePlan.Member(routeId, 1L, "dashscope", "https://example.com", "m", "m",
+                            10, "{}", null)));
+        });
         lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
@@ -822,7 +942,7 @@ class MultiAgentGraphAgentTest {
             }
             return fluxOf(fixedContent()); // 聚合重试成功
         });
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+        agent = newAgent();
 
         java.util.List<String> rows = agent
                 .executeStreamReactive(new Goal("g11", "调研竞品并输出报告"))
@@ -843,6 +963,24 @@ class MultiAgentGraphAgentTest {
         java.util.concurrent.atomic.AtomicInteger contentCalls = new java.util.concurrent.atomic.AtomicInteger();
         when(clientRegistry.get(any())).thenReturn(chatClient);
         when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        org.mockito.Mockito.lenient().when(agentCatalog.require(anyString())).thenAnswer(inv -> {
+            com.dark.javaHarness.domain.entity.AgentEntity a =
+                    new com.dark.javaHarness.domain.entity.AgentEntity();
+            String name = inv.getArgument(0);
+            a.setAgentName(name);
+            // 单测约定：Agent 绑定路由 id = 其配置模型 id（无配置时用 1）；路由成员模型 id 与路由 id 相同
+            Long routeId = agentService.getAgentConfig(name)
+                    .map(com.dark.javaHarness.contract.model.AgentConfig::modelId)
+                    .orElse(1L);
+            a.setRouteId(routeId == null ? 1L : routeId);
+            return a;
+        });
+        org.mockito.Mockito.lenient().when(modelResolver.resolve(anyLong())).thenAnswer(inv -> {
+            Long routeId = inv.getArgument(0);
+            return new RoutePlan(routeId, "multi", java.util.List.of(
+                    new RoutePlan.Member(routeId, 1L, "dashscope", "https://example.com", "m", "m",
+                            10, "{}", null)));
+        });
         lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
@@ -856,7 +994,7 @@ class MultiAgentGraphAgentTest {
             // 聚合：先推一个 token 再失败（部分输出）
             return Flux.concat(fluxOf("部分"), Flux.error(new RuntimeException("中途失败")));
         });
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments, null);
+        agent = newAgent();
 
         java.util.List<String> rows = new java.util.concurrent.CopyOnWriteArrayList<>();
         java.util.concurrent.CountDownLatch finished = new java.util.concurrent.CountDownLatch(1);
@@ -886,8 +1024,7 @@ class MultiAgentGraphAgentTest {
         com.dark.javaHarness.config.ContextBudgetProperties budgets =
                 new com.dark.javaHarness.config.ContextBudgetProperties();
         budgets.setOrchestrationBudget(1);
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
-                null, null, budgets);
+        agent = newAgent(null, null, budgets, null, null, null, null, null, null, null, null, null);
 
         String reply = agent.execute(new Goal("gover1", "调研竞品并输出报告"));
 
@@ -915,8 +1052,7 @@ class MultiAgentGraphAgentTest {
         com.dark.javaHarness.config.ContextBudgetProperties budgets =
                 new com.dark.javaHarness.config.ContextBudgetProperties();
         budgets.setOrchestrationBudget(60000);
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
-                null, null, budgets);
+        agent = newAgent(null, null, budgets, null, null, null, null, null, null, null, null, null);
 
         String reply = agent.execute(new Goal("gover2", "调研竞品并输出报告"));
 
@@ -941,8 +1077,7 @@ class MultiAgentGraphAgentTest {
         com.dark.javaHarness.config.ContextBudgetProperties budgets =
                 new com.dark.javaHarness.config.ContextBudgetProperties();
         budgets.setSubtaskMaxCount(2);
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
-                null, null, budgets);
+        agent = newAgent(null, null, budgets, null, null, null, null, null, null, null, null, null);
 
         String reply = agent.execute(new Goal("gmc1", "调研竞品并输出报告"));
 
@@ -963,8 +1098,7 @@ class MultiAgentGraphAgentTest {
     void execute_subtaskMaxCountZero_fallsBackToFour() {
         String leadJson = "{\"subtasks\":[\"任务一\",\"任务二\",\"任务三\",\"任务四\"]}";
         stubChat(leadJson);
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
-                null, null, new com.dark.javaHarness.config.ContextBudgetProperties());
+        agent = newAgent(null, null, new com.dark.javaHarness.config.ContextBudgetProperties(), null, null, null, null, null, null, null, null, null);
 
         String reply = agent.execute(new Goal("gmc2", "调研竞品并输出报告"));
 
@@ -981,8 +1115,7 @@ class MultiAgentGraphAgentTest {
         com.dark.javaHarness.config.ContextBudgetProperties budgets =
                 new com.dark.javaHarness.config.ContextBudgetProperties();
         budgets.setSubtaskMaxCount(8);
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
-                null, null, budgets);
+        agent = newAgent(null, null, budgets, null, null, null, null, null, null, null, null, null);
 
         String reply = agent.execute(new Goal("gmc3", "调研竞品并输出报告"));
 
@@ -1015,6 +1148,24 @@ class MultiAgentGraphAgentTest {
         String leadJson = "{\"subtasks\":[\"任务一\",\"任务二\"]}";
         when(clientRegistry.get(any())).thenReturn(chatClient);
         when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        org.mockito.Mockito.lenient().when(agentCatalog.require(anyString())).thenAnswer(inv -> {
+            com.dark.javaHarness.domain.entity.AgentEntity a =
+                    new com.dark.javaHarness.domain.entity.AgentEntity();
+            String name = inv.getArgument(0);
+            a.setAgentName(name);
+            // 单测约定：Agent 绑定路由 id = 其配置模型 id（无配置时用 1）；路由成员模型 id 与路由 id 相同
+            Long routeId = agentService.getAgentConfig(name)
+                    .map(com.dark.javaHarness.contract.model.AgentConfig::modelId)
+                    .orElse(1L);
+            a.setRouteId(routeId == null ? 1L : routeId);
+            return a;
+        });
+        org.mockito.Mockito.lenient().when(modelResolver.resolve(anyLong())).thenAnswer(inv -> {
+            Long routeId = inv.getArgument(0);
+            return new RoutePlan(routeId, "multi", java.util.List.of(
+                    new RoutePlan.Member(routeId, 1L, "dashscope", "https://example.com", "m", "m",
+                            10, "{}", null)));
+        });
         lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
@@ -1030,8 +1181,7 @@ class MultiAgentGraphAgentTest {
                 new com.dark.javaHarness.config.ContextBudgetProperties();
         budgets.setSubtaskWallClockSeconds(1);
         budgets.setSubtaskConcurrency(1);
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
-                null, null, budgets);
+        agent = newAgent(null, null, budgets, null, null, null, null, null, null, null, null, null);
 
         String reply = agent.execute(new Goal("gtw1", "调研竞品并输出报告"));
 
@@ -1058,6 +1208,24 @@ class MultiAgentGraphAgentTest {
         String leadJson = "{\"subtasks\":[\"任务一\",\"任务二\"]}";
         when(clientRegistry.get(any())).thenReturn(chatClient);
         when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        org.mockito.Mockito.lenient().when(agentCatalog.require(anyString())).thenAnswer(inv -> {
+            com.dark.javaHarness.domain.entity.AgentEntity a =
+                    new com.dark.javaHarness.domain.entity.AgentEntity();
+            String name = inv.getArgument(0);
+            a.setAgentName(name);
+            // 单测约定：Agent 绑定路由 id = 其配置模型 id（无配置时用 1）；路由成员模型 id 与路由 id 相同
+            Long routeId = agentService.getAgentConfig(name)
+                    .map(com.dark.javaHarness.contract.model.AgentConfig::modelId)
+                    .orElse(1L);
+            a.setRouteId(routeId == null ? 1L : routeId);
+            return a;
+        });
+        org.mockito.Mockito.lenient().when(modelResolver.resolve(anyLong())).thenAnswer(inv -> {
+            Long routeId = inv.getArgument(0);
+            return new RoutePlan(routeId, "multi", java.util.List.of(
+                    new RoutePlan.Member(routeId, 1L, "dashscope", "https://example.com", "m", "m",
+                            10, "{}", null)));
+        });
         lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
@@ -1072,8 +1240,7 @@ class MultiAgentGraphAgentTest {
         com.dark.javaHarness.config.ContextBudgetProperties budgets =
                 new com.dark.javaHarness.config.ContextBudgetProperties();
         budgets.setSubtaskConcurrency(1);
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
-                null, null, budgets);
+        agent = newAgent(null, null, budgets, null, null, null, null, null, null, null, null, null);
 
         String reply = agent.execute(new Goal("gfail1", "调研竞品并输出报告"));
 
@@ -1101,6 +1268,24 @@ class MultiAgentGraphAgentTest {
         String leadJson = "{\"subtasks\":[\"任务一\",\"任务二\"]}";
         when(clientRegistry.get(any())).thenReturn(chatClient);
         when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        org.mockito.Mockito.lenient().when(agentCatalog.require(anyString())).thenAnswer(inv -> {
+            com.dark.javaHarness.domain.entity.AgentEntity a =
+                    new com.dark.javaHarness.domain.entity.AgentEntity();
+            String name = inv.getArgument(0);
+            a.setAgentName(name);
+            // 单测约定：Agent 绑定路由 id = 其配置模型 id（无配置时用 1）；路由成员模型 id 与路由 id 相同
+            Long routeId = agentService.getAgentConfig(name)
+                    .map(com.dark.javaHarness.contract.model.AgentConfig::modelId)
+                    .orElse(1L);
+            a.setRouteId(routeId == null ? 1L : routeId);
+            return a;
+        });
+        org.mockito.Mockito.lenient().when(modelResolver.resolve(anyLong())).thenAnswer(inv -> {
+            Long routeId = inv.getArgument(0);
+            return new RoutePlan(routeId, "multi", java.util.List.of(
+                    new RoutePlan.Member(routeId, 1L, "dashscope", "https://example.com", "m", "m",
+                            10, "{}", null)));
+        });
         lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
@@ -1115,8 +1300,7 @@ class MultiAgentGraphAgentTest {
         com.dark.javaHarness.config.ContextBudgetProperties budgets =
                 new com.dark.javaHarness.config.ContextBudgetProperties();
         budgets.setSubtaskConcurrency(1);
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
-                null, null, budgets);
+        agent = newAgent(null, null, budgets, null, null, null, null, null, null, null, null, null);
 
         String reply = agent.execute(new Goal("gfail2", "调研竞品并输出报告"));
 
@@ -1161,8 +1345,7 @@ class MultiAgentGraphAgentTest {
     @Test
     void execute_wallClockZero_unlimited_normalCompletion() {
         stubChat(fixedContent());
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
-                null, null, new com.dark.javaHarness.config.ContextBudgetProperties());
+        agent = newAgent(null, null, new com.dark.javaHarness.config.ContextBudgetProperties(), null, null, null, null, null, null, null, null, null);
 
         String reply = agent.execute(new Goal("gtw2", "调研竞品并输出报告"));
 
@@ -1178,8 +1361,7 @@ class MultiAgentGraphAgentTest {
         com.dark.javaHarness.config.ContextBudgetProperties budgets =
                 new com.dark.javaHarness.config.ContextBudgetProperties();
         budgets.setOrchestrationBudget(1);
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
-                null, null, budgets);
+        agent = newAgent(null, null, budgets, null, null, null, null, null, null, null, null, null);
 
         java.util.List<String> rows = agent
                 .executeStreamReactive(new Goal("gover3", "调研竞品并输出报告"))
@@ -1216,6 +1398,24 @@ class MultiAgentGraphAgentTest {
         budgets.setSubtaskConcurrency(1);
         when(clientRegistry.get(any())).thenReturn(chatClient);
         when(agentService.getAgentConfig(any())).thenReturn(java.util.Optional.empty());
+        org.mockito.Mockito.lenient().when(agentCatalog.require(anyString())).thenAnswer(inv -> {
+            com.dark.javaHarness.domain.entity.AgentEntity a =
+                    new com.dark.javaHarness.domain.entity.AgentEntity();
+            String name = inv.getArgument(0);
+            a.setAgentName(name);
+            // 单测约定：Agent 绑定路由 id = 其配置模型 id（无配置时用 1）；路由成员模型 id 与路由 id 相同
+            Long routeId = agentService.getAgentConfig(name)
+                    .map(com.dark.javaHarness.contract.model.AgentConfig::modelId)
+                    .orElse(1L);
+            a.setRouteId(routeId == null ? 1L : routeId);
+            return a;
+        });
+        org.mockito.Mockito.lenient().when(modelResolver.resolve(anyLong())).thenAnswer(inv -> {
+            Long routeId = inv.getArgument(0);
+            return new RoutePlan(routeId, "multi", java.util.List.of(
+                    new RoutePlan.Member(routeId, 1L, "dashscope", "https://example.com", "m", "m",
+                            10, "{}", null)));
+        });
         lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
@@ -1228,8 +1428,7 @@ class MultiAgentGraphAgentTest {
                 fluxWithUsage(100, "子任务结果"),
                 fluxWithUsage(100, "子任务结果"),
                 fluxOf("最终回答"));
-        agent = new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
-                null, null, budgets);
+        agent = newAgent(null, null, budgets, null, null, null, null, null, null, null, null, null);
 
         String reply = agent.execute(new Goal("gpart1", "调研竞品并输出报告"));
 
@@ -1266,8 +1465,7 @@ class MultiAgentGraphAgentTest {
 
     /** 全参构造便捷入口：单测只关注 ragPrefetcher，其余依赖沿用既有用例的最小桩（均可 null） */
     private MultiAgentGraphAgent agentWithPrefetcher(RagPrefetcher ragPrefetcher) {
-        return new MultiAgentGraphAgent("multi-agent", clientRegistry, agentService, toolAssignments,
-                null, null, null, null, null, null, null, null, null, ragPrefetcher);
+        return newAgent(null, null, null, null, null, null, null, null, null, ragPrefetcher, null, null);
     }
 
     /** 已布置槽位触发预取提交：参数与执行完全同源（agentName=指派专家、query=子任务文本、sessionId=编排会话）；lead 出口主提交 + subtask 入口补提交各一次 */

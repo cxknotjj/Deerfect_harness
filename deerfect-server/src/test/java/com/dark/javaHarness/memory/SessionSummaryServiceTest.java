@@ -13,7 +13,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.domain.ChatMessageMetadata;
 import com.dark.javaHarness.domain.entity.SessionSummaryEntity;
 import com.dark.javaHarness.mapper.SessionSummaryMapper;

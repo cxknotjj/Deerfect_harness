@@ -6,7 +6,6 @@ import com.dark.javaHarness.agent.LlmRetry;
 import com.dark.javaHarness.agent.RagPrefetcher;
 import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.contract.model.Goal;
 import com.dark.javaHarness.graph.engine.OrchestrationEngine;
 import com.dark.javaHarness.graph.engine.ParallelOrchestrationEngine;
@@ -78,30 +77,27 @@ public class MultiAgentGraphAgent implements Agent {
     private final OrchestrationEngine engine;
 
     public MultiAgentGraphAgent(String agentName,
-                                ChatClientRegistry clientRegistry,
                                 AgentService agentService,
                                 ToolAssignments toolAssignments,
                                 LlmCallRecorder recorder) {
-        this(agentName, clientRegistry, agentService, toolAssignments, recorder, null, null);
+        this(agentName, agentService, toolAssignments, recorder, null, null);
     }
 
     public MultiAgentGraphAgent(String agentName,
-                                ChatClientRegistry clientRegistry,
                                 AgentService agentService,
                                 ToolAssignments toolAssignments,
                                 LlmCallRecorder recorder,
                                 OrchestrationCheckpointStore checkpointStore) {
-        this(agentName, clientRegistry, agentService, toolAssignments, recorder, checkpointStore, null);
+        this(agentName, agentService, toolAssignments, recorder, checkpointStore, null);
     }
 
     public MultiAgentGraphAgent(String agentName,
-                                ChatClientRegistry clientRegistry,
                                 AgentService agentService,
                                 ToolAssignments toolAssignments,
                                 LlmCallRecorder recorder,
                                 OrchestrationCheckpointStore checkpointStore,
                                 ContextBudgetProperties budgets) {
-        this(agentName, clientRegistry, agentService, toolAssignments, recorder, checkpointStore, budgets, null);
+        this(agentName, agentService, toolAssignments, recorder, checkpointStore, budgets, null);
     }
 
     /**
@@ -109,14 +105,13 @@ public class MultiAgentGraphAgent implements Agent {
      *                    lead 拆解节点据此注入会话记忆，null 时不注入（单测场景）
      */
     public MultiAgentGraphAgent(String agentName,
-                                ChatClientRegistry clientRegistry,
                                 AgentService agentService,
                                 ToolAssignments toolAssignments,
                                 LlmCallRecorder recorder,
                                 OrchestrationCheckpointStore checkpointStore,
                                 ContextBudgetProperties budgets,
                                 SessionService memoryStore) {
-        this(agentName, clientRegistry, agentService, toolAssignments, recorder,
+        this(agentName, agentService, toolAssignments, recorder,
                 checkpointStore, budgets, memoryStore, null, null, null, null, null, null);
     }
 
@@ -125,7 +120,6 @@ public class MultiAgentGraphAgent implements Agent {
      * 与知识库禁用（ragPrefetcher bean 缺位）同语义；工具包解析同取零行为（provider=null）。
      */
     public MultiAgentGraphAgent(String agentName,
-                                ChatClientRegistry clientRegistry,
                                 AgentService agentService,
                                 ToolAssignments toolAssignments,
                                 LlmCallRecorder recorder,
@@ -137,7 +131,7 @@ public class MultiAgentGraphAgent implements Agent {
                                 SkillManager skillManager,
                                 KnowledgeRetriever knowledgeRetriever,
                                 ChatTimeoutProperties timeouts) {
-        this(agentName, clientRegistry, agentService, toolAssignments, recorder,
+        this(agentName, agentService, toolAssignments, recorder,
                 checkpointStore, budgets, memoryStore, lazyTools, promptAssembler,
                 skillManager, knowledgeRetriever, timeouts, null, null, null,
                 null, null, null);
@@ -148,7 +142,6 @@ public class MultiAgentGraphAgent implements Agent {
      * （子任务 toolPacks 声明被忽略、只按模板自身工具面执行），对齐 ragPrefetcher 先例。
      */
     public MultiAgentGraphAgent(String agentName,
-                                ChatClientRegistry clientRegistry,
                                 AgentService agentService,
                                 ToolAssignments toolAssignments,
                                 LlmCallRecorder recorder,
@@ -161,7 +154,7 @@ public class MultiAgentGraphAgent implements Agent {
                                 KnowledgeRetriever knowledgeRetriever,
                                 ChatTimeoutProperties timeouts,
                                 RagPrefetcher ragPrefetcher) {
-        this(agentName, clientRegistry, agentService, toolAssignments, recorder,
+        this(agentName, agentService, toolAssignments, recorder,
                 checkpointStore, budgets, memoryStore, lazyTools, promptAssembler,
                 skillManager, knowledgeRetriever, timeouts, ragPrefetcher, null, null,
                 null, null, null);
@@ -181,7 +174,6 @@ public class MultiAgentGraphAgent implements Agent {
      * checkpointStore 为引擎检查点存储（可 null = 不落库且拒绝续跑，单测场景）。
      */
     public MultiAgentGraphAgent(String agentName,
-                                ChatClientRegistry clientRegistry,
                                 AgentService agentService,
                                 ToolAssignments toolAssignments,
                                 LlmCallRecorder recorder,
@@ -204,7 +196,7 @@ public class MultiAgentGraphAgent implements Agent {
         // 工具索引段与延迟加载同源：开启时索引段追加 expand_tool 使用引导（与轻量态工具面对齐）
         PromptAssembler assembler = promptAssembler != null ? promptAssembler
                 : new PromptAssembler(agentService, toolAssignments, List.of(), List.of(), List.of(), lazy.isEnabled());
-        AgentChatCaller chatCaller = new AgentChatCaller(clientRegistry, agentService, toolAssignments, recorder,
+        AgentChatCaller chatCaller = new AgentChatCaller(agentService, toolAssignments, recorder,
                 new LlmRetry(), budgets, assembler, memoryStore, lazy, skillManager,
                 knowledgeRetriever, timeouts, compositionRecorder, modelResolver, llmAgentCatalog,
                 llmClientRegistry);
@@ -219,7 +211,6 @@ public class MultiAgentGraphAgent implements Agent {
 
     /** 旧全参重载（单测）：未注入新解析链。 */
     public MultiAgentGraphAgent(String agentName,
-                                ChatClientRegistry clientRegistry,
                                 AgentService agentService,
                                 ToolAssignments toolAssignments,
                                 LlmCallRecorder recorder,
@@ -234,7 +225,7 @@ public class MultiAgentGraphAgent implements Agent {
                                 RagPrefetcher ragPrefetcher,
                                 AgentConfigProvider agentConfigProvider,
                                 ContextCompositionRecorder compositionRecorder) {
-        this(agentName, clientRegistry, agentService, toolAssignments, recorder, checkpointStore,
+        this(agentName, agentService, toolAssignments, recorder, checkpointStore,
                 budgets, memoryStore, lazyTools, promptAssembler, skillManager, knowledgeRetriever,
                 timeouts, ragPrefetcher, agentConfigProvider, compositionRecorder, null, null, null);
     }

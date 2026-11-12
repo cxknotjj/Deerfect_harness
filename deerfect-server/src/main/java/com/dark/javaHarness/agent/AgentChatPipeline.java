@@ -1,7 +1,6 @@
 package com.dark.javaHarness.agent;
 
 import com.dark.javaHarness.agent.BudgetLedger;
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.contract.model.AgentConfig;
 import com.dark.javaHarness.llm.client.LlmClientRegistry;
 import com.dark.javaHarness.llm.routing.FailurePolicy;
@@ -112,14 +111,14 @@ final class AgentChatPipeline {
      * 重建连接池，不再复用同一根死连接。例外：4xx 客户端错误（除 408，见
      * {@link LlmErrorClassifier#isClientRequestError}）请求被拒但连接健康，跳过丢池。
      *
-     * @param modelProviderId 失败时用于重建客户端的部署模型 id（null 则跳过丢池）
+     * @param modelId 失败时用于重建客户端的部署模型 id（null 则跳过丢池）
      */
     Flux<String> tokenStreamWithWatchdog(ChatClient.ChatClientRequestSpec spec,
                                          java.util.concurrent.atomic.AtomicReference<Usage> usageRef,
                                          BudgetLedger ledger,
                                          java.util.concurrent.atomic.AtomicLong prevTotal,
                                          java.util.concurrent.atomic.AtomicLong firstTokenAt,
-                                         Long modelProviderId,
+                                         Long modelId,
                                          Consumer<String> reasoningTap) {
         return tokenStream(spec, usageRef, ledger, prevTotal, firstTokenAt, reasoningTap,
                         streamIdleTimeout, firstFrameTimeout)
@@ -128,7 +127,7 @@ final class AgentChatPipeline {
                     // 波及同池在途请求，跳过重建；其余（网络黑洞/看门狗超时/5xx）保持丢池，
                     // 重试即拿全新连接
                     if (!LlmErrorClassifier.isClientRequestError(e) && clientRegistry != null) {
-                        clientRegistry.invalidate(modelProviderId);
+                        clientRegistry.invalidate(modelId);
                     }
                 });
     }
@@ -150,11 +149,6 @@ final class AgentChatPipeline {
                       Consumer<String> reasoningTap,
                       java.util.concurrent.atomic.AtomicReference<RouteAttempt> routeRef) {
         RoutePlan plan = specFactory.routePlan(config, forAgent);
-        if (plan == null) {
-            return streamSingle(config, sessionId, forAgent, fallbackSystem, user, assembly,
-                    extraAdvisors, trace, collected, onToken, cancelled, usageRef, prevTotal,
-                    firstTokenAt, ledger, reasoningTap, null);
-        }
         RuntimeException last = null;
         for (int i = 0; i < plan.members().size(); i++) {
             RoutePlan.Member member = plan.members().get(i);

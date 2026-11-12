@@ -3,7 +3,6 @@ package com.dark.javaHarness.agent;
 import com.dark.javaHarness.advisor.ContextAssemblingAdvisor;
 import com.dark.javaHarness.advisor.ContextCompositionAdvisor;
 import com.dark.javaHarness.config.ContextBudgetProperties;
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.contract.model.AgentConfig;
 import com.dark.javaHarness.domain.entity.AgentEntity;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
@@ -95,8 +94,7 @@ final class AgentRequestSpecFactory {
         }
     }
 
-    private final ChatClientRegistry clientRegistry;
-    /** 新解析链（route → model）：三者非空时优先于旧 registry；单测旧构造链可为 null */
+    /** 新解析链（route → model）：生产链路唯一来源；单测直接构造 mock 三者。 */
     private final ModelResolver modelResolver;
     private final AgentCatalog llmAgentCatalog;
     private final LlmClientRegistry llmClientRegistry;
@@ -111,56 +109,12 @@ final class AgentRequestSpecFactory {
     /** 上下文构成快照写入器（null = 不记录，单测/旧构造链场景） */
     private final ContextCompositionRecorder compositionRecorder;
 
-    AgentRequestSpecFactory(ChatClientRegistry clientRegistry,
-                            PromptAssembler promptAssembler,
-                            ToolAssignments toolAssignments,
-                            ToolLazyManager lazyTools,
-                            SkillManager skillManager,
-                            SessionService memoryStore,
-                            ContextBudgetProperties budgets) {
-        this(clientRegistry, promptAssembler, toolAssignments, lazyTools, skillManager,
-                memoryStore, budgets, null, null,
-                DefaultToolDecorators.defaults(lazyTools, skillManager, budgets, null), null,
-                null, null, null);
-    }
-
-    AgentRequestSpecFactory(ChatClientRegistry clientRegistry,
-                            PromptAssembler promptAssembler,
-                            ToolAssignments toolAssignments,
-                            ToolLazyManager lazyTools,
-                            SkillManager skillManager,
-                            SessionService memoryStore,
-                            ContextBudgetProperties budgets,
-                            KnowledgeRetriever knowledgeRetriever) {
-        this(clientRegistry, promptAssembler, toolAssignments, lazyTools, skillManager,
-                memoryStore, budgets, knowledgeRetriever, null,
-                DefaultToolDecorators.defaults(lazyTools, skillManager, budgets, null), null,
-                null, null, null);
-    }
-
-    /** recorder 为工具调用观测记录器（tool_call_log 落库面），null 时不落库（单测场景） */
-    AgentRequestSpecFactory(ChatClientRegistry clientRegistry,
-                            PromptAssembler promptAssembler,
-                            ToolAssignments toolAssignments,
-                            ToolLazyManager lazyTools,
-                            SkillManager skillManager,
-                            SessionService memoryStore,
-                            ContextBudgetProperties budgets,
-                            KnowledgeRetriever knowledgeRetriever,
-                            LlmCallRecorder recorder) {
-        this(clientRegistry, promptAssembler, toolAssignments, lazyTools, skillManager,
-                memoryStore, budgets, knowledgeRetriever, recorder,
-                DefaultToolDecorators.defaults(lazyTools, skillManager, budgets, recorder), null,
-                null, null, null);
-    }
-
     /**
      * 全参构造：decorators 为可插拔工具装饰链（按 Order 升序应用，
      * 默认链见 {@link DefaultToolDecorators#defaults}）；
      * compositionRecorder 为上下文构成快照写入器（null = 不记录，单测场景）。
      */
-    AgentRequestSpecFactory(ChatClientRegistry clientRegistry,
-                            PromptAssembler promptAssembler,
+    AgentRequestSpecFactory(PromptAssembler promptAssembler,
                             ToolAssignments toolAssignments,
                             ToolLazyManager lazyTools,
                             SkillManager skillManager,
@@ -173,7 +127,6 @@ final class AgentRequestSpecFactory {
                             ModelResolver modelResolver,
                             AgentCatalog llmAgentCatalog,
                             LlmClientRegistry llmClientRegistry) {
-        this.clientRegistry = clientRegistry;
         this.modelResolver = modelResolver;
         this.llmAgentCatalog = llmAgentCatalog;
         this.llmClientRegistry = llmClientRegistry;
@@ -186,41 +139,16 @@ final class AgentRequestSpecFactory {
         this.compositionRecorder = compositionRecorder;
     }
 
-    /** 旧全参重载（单测）：未注入新解析链，build 走旧 registry。 */
-    AgentRequestSpecFactory(ChatClientRegistry clientRegistry,
-                            PromptAssembler promptAssembler,
-                            ToolAssignments toolAssignments,
-                            ToolLazyManager lazyTools,
-                            SkillManager skillManager,
-                            SessionService memoryStore,
-                            ContextBudgetProperties budgets,
-                            KnowledgeRetriever knowledgeRetriever,
-                            LlmCallRecorder recorder,
-                            List<ToolCallbackDecorator> decorators,
-                            ContextCompositionRecorder compositionRecorder) {
-        this(clientRegistry, promptAssembler, toolAssignments, lazyTools, skillManager, memoryStore,
-                budgets, knowledgeRetriever, recorder, decorators, compositionRecorder, null, null, null);
-    }
-
     /**
-     * 解析 Agent 绑定的路由；旧构造链（单测未注入新依赖）返回 null，走旧 registry。
-     * 生产链路必须命中 Agent 与路由，未命中直接抛错。
+     * 解析 Agent 绑定的路由；必须命中 Agent 与路由，未命中直接抛错。
      */
     RoutePlan routePlan(AgentConfig config, String forAgent) {
-        if (modelResolver == null || llmAgentCatalog == null || llmClientRegistry == null
-                || forAgent == null || forAgent.isBlank()) {
-            return null;
-        }
         AgentEntity agent = llmAgentCatalog.require(forAgent);
         return modelResolver.resolve(agent.getRouteId());
     }
 
     private String agentParams(String forAgent) {
-        try {
-            return llmAgentCatalog.require(forAgent).getParams();
-        } catch (RuntimeException e) {
-            return null;
-        }
+        return llmAgentCatalog.require(forAgent).getParams();
     }
 
     /** 组装请求（取客户端 → system 按段组装 → 记忆只读注入 → 请求级 advisor → 选项 → 工具注入）。
@@ -232,7 +160,7 @@ final class AgentRequestSpecFactory {
                                            Assembly assembly, CallTrace trace, Advisor... extraAdvisors) {
         RoutePlan plan = routePlan(config, forAgent);
         return build(config, sessionId, forAgent, fallbackSystem, user, assembly, trace,
-                plan == null ? null : plan.members().get(0), extraAdvisors);
+                plan.members().get(0), extraAdvisors);
     }
 
     /** 指定路由成员组装请求（失败切换时逐成员重建 spec）。 */
@@ -240,19 +168,10 @@ final class AgentRequestSpecFactory {
                                            String fallbackSystem, String user,
                                            Assembly assembly, CallTrace trace,
                                            RoutePlan.Member member, Advisor... extraAdvisors) {
-        Long modelProviderId = config != null ? config.modelProviderId() : null;
-        String model = config != null ? config.model() : null;
-        LlmCallOptions llmOptions = null;
-        ChatClient client;
-        if (member != null) {
-            client = llmClientRegistry.get(member.modelId());
-            llmOptions = LlmCallOptions.merge(member.upstreamName(), member.defaultParams(),
-                    agentParams(forAgent));
-            model = llmOptions.model();
-        } else {
-            // 旧解析链（单测构造，未注入新依赖时）
-            client = clientRegistry.get(modelProviderId);
-        }
+        ChatClient client = llmClientRegistry.get(member.modelId());
+        LlmCallOptions llmOptions = LlmCallOptions.merge(member.upstreamName(), member.defaultParams(),
+                agentParams(forAgent));
+        String model = llmOptions.model();
         // system 经 PromptAssembler 按段组装，RAG 命中时追加知识段（与 AgentScope 路径共用）
         SystemAssembly system = assembleSystem(config, sessionId, forAgent, fallbackSystem, user, trace);
         ChatClient.ChatClientRequestSpec spec = client.prompt()

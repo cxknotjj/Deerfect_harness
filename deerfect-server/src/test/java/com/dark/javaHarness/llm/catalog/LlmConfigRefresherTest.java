@@ -40,10 +40,12 @@ class LlmConfigRefresherTest {
     private LlmClientRegistry clientRegistry;
     @Mock
     private BindingValidator validator;
+    @Mock
+    private com.dark.javaHarness.service.AgentConfigProvider agentConfigProvider;
 
     private LlmConfigRefresher refresher() {
         return new LlmConfigRefresher(agentCatalog, providerCatalog, modelResolver,
-                clientRegistry, validator);
+                clientRegistry, validator, agentConfigProvider);
     }
 
     @Test
@@ -60,6 +62,7 @@ class LlmConfigRefresherTest {
         order.verify(modelResolver).invalidate();
         order.verify(validator).validateAll();
         order.verify(clientRegistry).clear();
+        verify(agentConfigProvider).invalidateCache();
         verify(agentCatalog, never()).replace(any());
     }
 
@@ -86,6 +89,7 @@ class LlmConfigRefresherTest {
         // （校验失败时 try 内的 clientRegistry.clear 未执行，回滚分支清一次）
         verify(modelResolver, org.mockito.Mockito.times(2)).invalidate();
         verify(clientRegistry, org.mockito.Mockito.times(1)).clear();
+        verify(agentConfigProvider, org.mockito.Mockito.times(1)).invalidateCache();
     }
 
     @Test

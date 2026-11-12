@@ -5,7 +5,6 @@ import com.dark.javaHarness.agent.BudgetLedger;
 import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.config.agent.ChatClientFactory;
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.contract.model.AgentConfig;
 import com.dark.javaHarness.llm.catalog.AgentCatalog;
 import com.dark.javaHarness.llm.client.LlmClientRegistry;
@@ -85,42 +84,16 @@ public final class AgentChatCaller {
     /** 新解析链的客户端注册表（按 model_id）：失败切换时按成员 id 丢池 */
     private final LlmClientRegistry llmClientRegistry;
 
-    AgentChatCaller(ChatClientRegistry clientRegistry,
-                    AgentService agentService,
-                    ToolAssignments toolAssignments,
-                    LlmCallRecorder recorder) {
-        this(clientRegistry, agentService, toolAssignments, recorder, new LlmRetry());
-    }
-
-    AgentChatCaller(ChatClientRegistry clientRegistry,
-                    AgentService agentService,
-                    ToolAssignments toolAssignments,
-                    LlmCallRecorder recorder,
-                    LlmRetry retry) {
-        this(clientRegistry, agentService, toolAssignments, recorder, retry, null);
-    }
-
-    AgentChatCaller(ChatClientRegistry clientRegistry,
-                    AgentService agentService,
-                    ToolAssignments toolAssignments,
-                    LlmCallRecorder recorder,
-                    LlmRetry retry,
-                    ContextBudgetProperties budgets) {
-        this(clientRegistry, agentService, toolAssignments, recorder, retry, budgets,
-                new PromptAssembler(agentService, toolAssignments), null, null, null, null, null,
-                null, null, null, null);
-    }
-
     /**
      * 全参构造（含 skill 装配与 RAG 知识检索，正式装配由 MultiAgentGraphAgent/GeneralAssistantAgent
      * 统一构建传入）：knowledgeRetriever 仅知识库启用时非 null（MultiAgentGraphAgent 经
-     * ObjectProvider 传入），null 时无知识段注入、行为退化现状。
-     * timeouts 为 null（单测/旧构造链场景）时流式空闲超时走默认
+     * ObjectProvider 传入），null 时无知识段注入。
+     * timeouts 为 null（单测场景）时流式空闲超时走默认
      * {@link #DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS}。
-     * 其余仅保留 4/5/6 参单测便捷重载（尾部组件取禁用态/null），中间历史重载已收敛删除。
+     * 路由解析三件套（modelResolver / llmAgentCatalog / llmClientRegistry）必填：
+     * 调用链只按 Agent → 路由 → 模型 id 取客户端。
      */
-    public AgentChatCaller(ChatClientRegistry clientRegistry,
-                    AgentService agentService,
+    public AgentChatCaller(AgentService agentService,
                     ToolAssignments toolAssignments,
                     LlmCallRecorder recorder,
                     LlmRetry retry,
@@ -141,7 +114,7 @@ public final class AgentChatCaller {
         this.retry = retry;
         this.budgets = budgets != null ? budgets : new ContextBudgetProperties();
         ToolLazyManager lazy = lazyTools != null ? lazyTools : new ToolLazyManager(toolAssignments, false);
-        this.specFactory = new AgentRequestSpecFactory(clientRegistry, promptAssembler,
+        this.specFactory = new AgentRequestSpecFactory(promptAssembler,
                 toolAssignments, lazy, skillManager, memoryStore, this.budgets,
                 knowledgeRetriever, recorder,
                 DefaultToolDecorators.defaults(lazy, skillManager,
@@ -156,25 +129,6 @@ public final class AgentChatCaller {
         this.pipeline = new AgentChatPipeline(llmClientRegistry, this.specFactory, streamIdleTimeout,
                 firstFrameTimeout);
         this.assembler = new CallSpecAssembler(promptAssembler, memoryStore, this.budgets);
-    }
-
-    /** 旧全参重载（单测）：未注入新解析链。 */
-    public AgentChatCaller(ChatClientRegistry clientRegistry,
-                    AgentService agentService,
-                    ToolAssignments toolAssignments,
-                    LlmCallRecorder recorder,
-                    LlmRetry retry,
-                    ContextBudgetProperties budgets,
-                    PromptAssembler promptAssembler,
-                    SessionService memoryStore,
-                    ToolLazyManager lazyTools,
-                    SkillManager skillManager,
-                    KnowledgeRetriever knowledgeRetriever,
-                    ChatTimeoutProperties timeouts,
-                    ContextCompositionRecorder compositionRecorder) {
-        this(clientRegistry, agentService, toolAssignments, recorder, retry, budgets, promptAssembler,
-                memoryStore, lazyTools, skillManager, knowledgeRetriever, timeouts, compositionRecorder,
-                null, null, null);
     }
 
     /**
@@ -369,16 +323,16 @@ public final class AgentChatCaller {
      * <p>失败即丢池：连接可能已成网络黑洞（对端静默失活、不发 RST），丢池使下次调用
      * 重建连接池，不再复用同一根死连接。
      *
-     * @param modelProviderId 失败时用于重建客户端的部署模型 id（null 则跳过丢池）
+     * @param modelId 失败时用于重建客户端的部署模型 id（null 则跳过丢池）
      */
     Flux<String> tokenStreamWithWatchdog(ChatClient.ChatClientRequestSpec spec,
                                          AtomicReference<Usage> usageRef,
                                          BudgetLedger ledger,
                                          AtomicLong prevTotal,
                                          AtomicLong firstTokenAt,
-                                         Long modelProviderId,
+                                         Long modelId,
                                          Consumer<String> reasoningTap) {
-        return pipeline.tokenStreamWithWatchdog(spec, usageRef, ledger, prevTotal, firstTokenAt, modelProviderId,
+        return pipeline.tokenStreamWithWatchdog(spec, usageRef, ledger, prevTotal, firstTokenAt, modelId,
                 reasoningTap);
     }
 
@@ -395,11 +349,6 @@ public final class AgentChatCaller {
                                  Consumer<String> reasoningTap,
                                  AtomicReference<RouteAttempt> routeRef) {
         RoutePlan plan = specFactory.routePlan(config, forAgent);
-        if (plan == null) {
-            return tokenStreamWithWatchdog(specFactory.build(config, sessionId, forAgent, fallbackSystem,
-                            user, assembly, trace),
-                    usageRef, null, null, firstTokenAt, null, reasoningTap);
-        }
         return streamRouteMember(plan, 0, config, sessionId, forAgent, fallbackSystem, user, assembly,
                 trace, cancelled, usageRef, firstTokenAt, reasoningTap, routeRef);
     }
@@ -441,10 +390,13 @@ public final class AgentChatCaller {
                     if (action == FailurePolicy.Action.FAIL) {
                         return Flux.error(e);
                     }
-                    if (index + 1 < plan.members().size()) {
-                        HarnessMetrics.routeFallback(plan.routeCode(), member.modelId(),
-                                plan.members().get(index + 1).modelId());
+                    if (index + 1 >= plan.members().size()) {
+                        // 已是最后一个成员：原样上抛本次错误，交给外层重试策略分类
+                        // （此前会换成「路由无可用成员」，把可重试的超时/5xx 误判为不可重试）
+                        return Flux.error(e);
                     }
+                    HarnessMetrics.routeFallback(plan.routeCode(), member.modelId(),
+                            plan.members().get(index + 1).modelId());
                     log.warn("[llm] 路由 {} 成员 {} 失败，切换下一成员: {}",
                             plan.routeCode(), member.modelId(), e.getMessage());
                     return streamRouteMember(plan, index + 1, config, sessionId, forAgent, fallbackSystem,
@@ -643,8 +595,8 @@ public final class AgentChatCaller {
         if (config != null) {
             // 每条 LLM 调用都会走到这里（含每个子任务），命中明细只在排错时需要，压到 debug；
             // 「未命中/回退」由 AgentConfigProvider 的 warn 覆盖，不会丢信号
-            log.debug("[agent配置] agentName='{}' -> modelProviderId={}, model={}, prompt={}, knowledge={}, thinking={}",
-                    forAgent, config.modelProviderId(), config.model(), config.prompt(),
+            log.debug("[agent配置] agentName='{}' -> modelId={}, model={}, prompt={}, knowledge={}, thinking={}",
+                    forAgent, config.modelId(), config.model(), config.prompt(),
                     config.knowledge(), config.thinking());
         }
         return config;

@@ -11,7 +11,10 @@ import com.dark.javaHarness.agent.agentic.AgentScopeModelFactory;
 import com.dark.javaHarness.config.AgenticProperties;
 import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
+import com.dark.javaHarness.llm.catalog.AgentCatalog;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RoutePlan;
 import com.dark.javaHarness.contract.model.AgentConfig;
 import com.dark.javaHarness.contract.model.Goal;
 import com.dark.javaHarness.prompt.PromptAssembler;
@@ -169,9 +172,20 @@ class AgentScopeGeneralAgentTest {
                 List.of(), List.of(), List.of(), false);
         ToolLazyManager lazyTools = new ToolLazyManager(effectiveAssignments, false);
 
-        return new AgentScopeGeneralAgent(AGENT, mock(ChatClientRegistry.class), agentService,
+        ModelResolver modelResolver = mock(ModelResolver.class);
+        AgentCatalog agentCatalog = mock(AgentCatalog.class);
+        com.dark.javaHarness.domain.entity.AgentEntity agent = new com.dark.javaHarness.domain.entity.AgentEntity();
+        agent.setAgentName(AGENT);
+        agent.setRouteId(1L);
+        when(agentCatalog.require(AGENT)).thenReturn(agent);
+        when(modelResolver.resolve(1L)).thenReturn(new RoutePlan(1L, "main", List.of(
+                new RoutePlan.Member(9L, 1L, "deepseek", "https://api.deepseek.com", "deepseek-chat",
+                        "deepseek-chat", 10, "{}", null))));
+
+        return new AgentScopeGeneralAgent(AGENT, agentService,
                 memoryStore, effectiveAssignments, recorder, budgets, lazyTools, assembler, null, null,
-                timeouts, factory, agentic, fallback, null);
+                timeouts, factory, agentic, fallback, null, modelResolver, agentCatalog,
+                mock(LlmClientRegistry.class));
     }
 
     private static OpenAIChatModel realDeepSeekModel() {

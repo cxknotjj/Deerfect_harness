@@ -4,7 +4,6 @@ import com.dark.javaHarness.agent.agentic.AgentScopeModelFactory;
 import com.dark.javaHarness.config.AgenticProperties;
 import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.enums.AgentConstants;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.llm.catalog.AgentCatalog;
@@ -48,7 +47,6 @@ public class AgentRegistry {
 
     private final AgentConfigProvider provider;
     private final ObjectProvider<AgentService> agentServiceProvider;
-    private final ChatClientRegistry clientRegistry;
     private final SessionService memoryStore;
     private final ToolAssignments toolAssignments;
     private final LlmCallRecorder recorder;
@@ -79,13 +77,12 @@ public class AgentRegistry {
     /** 兼容构造（旧测试/调用链）：promptAssembler/skillManager 为 null，GA 内部裸构建、不注册 load_skill */
     public AgentRegistry(AgentConfigProvider provider,
                          ObjectProvider<AgentService> agentServiceProvider,
-                         ChatClientRegistry clientRegistry,
                          SessionService memoryStore,
                          ToolAssignments toolAssignments,
                          LlmCallRecorder recorder,
                          ContextBudgetProperties budgets,
                          ToolLazyManager lazyTools) {
-        this(provider, agentServiceProvider, clientRegistry, memoryStore, toolAssignments,
+        this(provider, agentServiceProvider, memoryStore, toolAssignments,
                 recorder, budgets, lazyTools, null, null, null, null,
                 null, null, null, null, null, null);
     }
@@ -93,7 +90,6 @@ public class AgentRegistry {
     /** 全参构造：promptAssembler 为共享 bean（含 skill 段提供者），skillManager 供 GA 注册 load_skill 元工具 */
     public AgentRegistry(AgentConfigProvider provider,
                          ObjectProvider<AgentService> agentServiceProvider,
-                         ChatClientRegistry clientRegistry,
                          SessionService memoryStore,
                          ToolAssignments toolAssignments,
                          LlmCallRecorder recorder,
@@ -101,7 +97,7 @@ public class AgentRegistry {
                          ToolLazyManager lazyTools,
                          PromptAssembler promptAssembler,
                          SkillManager skillManager) {
-        this(provider, agentServiceProvider, clientRegistry, memoryStore, toolAssignments,
+        this(provider, agentServiceProvider, memoryStore, toolAssignments,
                 recorder, budgets, lazyTools, promptAssembler, skillManager, null, null,
                 null, null, null, null, null, null);
     }
@@ -109,7 +105,6 @@ public class AgentRegistry {
     /** 全参构造（含 RAG 知识检索）：knowledgeRetriever 仅知识库启用时非 null（ChatAgentConfig 经 ObjectProvider 注入） */
     public AgentRegistry(AgentConfigProvider provider,
                          ObjectProvider<AgentService> agentServiceProvider,
-                         ChatClientRegistry clientRegistry,
                          SessionService memoryStore,
                          ToolAssignments toolAssignments,
                          LlmCallRecorder recorder,
@@ -119,7 +114,7 @@ public class AgentRegistry {
                          SkillManager skillManager,
                          KnowledgeRetriever knowledgeRetriever,
                          ChatTimeoutProperties timeouts) {
-        this(provider, agentServiceProvider, clientRegistry, memoryStore, toolAssignments, recorder,
+        this(provider, agentServiceProvider, memoryStore, toolAssignments, recorder,
                 budgets, lazyTools, promptAssembler, skillManager, knowledgeRetriever, timeouts,
                 null, null, null, null, null, null);
     }
@@ -132,7 +127,6 @@ public class AgentRegistry {
      */
     public AgentRegistry(AgentConfigProvider provider,
                          ObjectProvider<AgentService> agentServiceProvider,
-                         ChatClientRegistry clientRegistry,
                          SessionService memoryStore,
                          ToolAssignments toolAssignments,
                          LlmCallRecorder recorder,
@@ -150,7 +144,6 @@ public class AgentRegistry {
                          LlmClientRegistry llmClientRegistry) {
         this.provider = provider;
         this.agentServiceProvider = agentServiceProvider;
-        this.clientRegistry = clientRegistry;
         this.memoryStore = memoryStore;
         this.toolAssignments = toolAssignments;
         this.recorder = recorder;
@@ -171,7 +164,6 @@ public class AgentRegistry {
     /** 旧全参重载（单测）：未注入新解析链。 */
     public AgentRegistry(AgentConfigProvider provider,
                          ObjectProvider<AgentService> agentServiceProvider,
-                         ChatClientRegistry clientRegistry,
                          SessionService memoryStore,
                          ToolAssignments toolAssignments,
                          LlmCallRecorder recorder,
@@ -184,7 +176,7 @@ public class AgentRegistry {
                          AgenticProperties agenticProperties,
                          AgentScopeModelFactory agentScopeModelFactory,
                          ContextCompositionRecorder compositionRecorder) {
-        this(provider, agentServiceProvider, clientRegistry, memoryStore, toolAssignments, recorder,
+        this(provider, agentServiceProvider, memoryStore, toolAssignments, recorder,
                 budgets, lazyTools, promptAssembler, skillManager, knowledgeRetriever, timeouts,
                 agenticProperties, agentScopeModelFactory, compositionRecorder, null, null, null);
     }
@@ -259,14 +251,14 @@ public class AgentRegistry {
     /** 构造对话 Agent 实例：依赖全部来自本类构造注入字段，AgentService 经 ObjectProvider 现取透传。
      *  ReAct 装配到全部可路由对话 Agent（单 Agent 直答形态），Graph 编排 bean 走预注入不受影响。 */
     private Agent createGeneralAssistant(String agentName) {
-        Agent chatClientAgent = new GeneralAssistantAgent(agentName, clientRegistry, memoryStore,
+        Agent chatClientAgent = new GeneralAssistantAgent(agentName, memoryStore,
                 agentServiceProvider.getObject(), toolAssignments, recorder, budgets, lazyTools,
                 promptAssembler, skillManager, knowledgeRetriever, timeouts, compositionRecorder,
                 llmModelResolver, llmAgentCatalog, llmClientRegistry);
         if (agenticProperties == null || !agenticProperties.isEnabled() || agentScopeModelFactory == null) {
             return chatClientAgent;
         }
-        return new AgentScopeGeneralAgent(agentName, clientRegistry, agentServiceProvider.getObject(),
+        return new AgentScopeGeneralAgent(agentName, agentServiceProvider.getObject(),
                 memoryStore, toolAssignments, recorder, budgets, lazyTools, promptAssembler,
                 skillManager, knowledgeRetriever, timeouts, agentScopeModelFactory, agenticProperties,
                 chatClientAgent, compositionRecorder, llmModelResolver, llmAgentCatalog, llmClientRegistry);

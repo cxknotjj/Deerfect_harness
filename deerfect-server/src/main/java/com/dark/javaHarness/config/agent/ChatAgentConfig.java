@@ -38,9 +38,8 @@ import org.springframework.context.annotation.Lazy;
  * 多 Agent 装配：对话 Agent 由 agent 表驱动自动注册（AgentRegistry 承载），
  * 新增 Agent = agent 表一行（is_internal=0 即对话 Agent，内部角色行置 1，免改代码）。
  *
- * ChatClient 不在此处手工构建，统一由 ChatClientRegistry 管理（Registry 模式）：
- * Agent 运行时按 agent 表 model 字段从注册表取对应厂商的 ChatClient，
- * 模型接入与 Agent 行为彻底解耦。
+ * 模型客户端统一由 {@code LlmClientRegistry} 按部署模型 id 管理：
+ * Agent 运行时经 Agent → 路由 → 首选成员取对应客户端，模型接入与 Agent 行为彻底解耦。
  *
  * 对话 Agent 统一采用 GeneralAssistantAgent（直接单次调用大模型的简单路径），
  * 实例由 AgentRegistry 按表行构造，不再逐个注册 bean。多 Agent 任务编排链路
@@ -90,7 +89,6 @@ public class ChatAgentConfig {
     @Bean
     public AgentRegistry agentRegistry(AgentConfigProvider agentConfigProvider,
                                        ObjectProvider<AgentService> agentService,
-                                       ChatClientRegistry registry,
                                        SessionService memoryStore,
                                        ToolAssignments toolAssignments,
                                        LlmCallRecorder recorder,
@@ -107,7 +105,7 @@ public class ChatAgentConfig {
                                        ModelResolver modelResolver,
                                        AgentCatalog llmAgentCatalog,
                                        LlmClientRegistry llmClientRegistry) {
-        AgentRegistry agentRegistry = new AgentRegistry(agentConfigProvider, agentService, registry,
+        AgentRegistry agentRegistry = new AgentRegistry(agentConfigProvider, agentService,
                 memoryStore, toolAssignments, recorder, budgets, toolLazyManager,
                 promptAssembler, skillManager, knowledgeRetriever.getIfAvailable(), timeouts,
                 agenticProperties, agentScopeModelFactory, compositionRecorder,
@@ -128,8 +126,7 @@ public class ChatAgentConfig {
      * 包工具并入工具面 + 包纪律段拼入 user）。
      */
     @Bean
-    public MultiAgentGraphAgent multiAgent(ChatClientRegistry registry,
-                                           @Lazy AgentService agentService,
+    public MultiAgentGraphAgent multiAgent(@Lazy AgentService agentService,
                                            SessionService memoryStore,
                                            ToolAssignments toolAssignments,
                                            LlmCallRecorder recorder,
@@ -146,7 +143,7 @@ public class ChatAgentConfig {
                                            ModelResolver modelResolver,
                                            AgentCatalog llmAgentCatalog,
                                            LlmClientRegistry llmClientRegistry) {
-        return new MultiAgentGraphAgent(AgentConstants.MULTI_AGENT, registry, agentService,
+        return new MultiAgentGraphAgent(AgentConstants.MULTI_AGENT, agentService,
                 toolAssignments, recorder, checkpointStore, budgets, memoryStore,
                 toolLazyManager, promptAssembler, skillManager, knowledgeRetriever.getIfAvailable(),
                 timeouts, ragPrefetcher.getIfAvailable(), agentConfigProvider, compositionRecorder,

@@ -13,7 +13,10 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
+import com.dark.javaHarness.llm.catalog.AgentCatalog;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RoutePlan;
 import com.dark.javaHarness.contract.model.Goal;
 import com.dark.javaHarness.domain.entity.LlmCallLogEntity;
 import com.dark.javaHarness.mapper.LlmCallLogMapper;
@@ -56,7 +59,11 @@ class GeneralAssistantAgentTest {
 
 
     @Mock
-    private ChatClientRegistry clientRegistry;
+    private LlmClientRegistry llmClientRegistry;
+    @Mock
+    private AgentCatalog agentCatalog;
+    @Mock
+    private ModelResolver modelResolver;
     @Mock
     private SessionService memoryStore;
     @Mock
@@ -74,10 +81,18 @@ class GeneralAssistantAgentTest {
 
     @BeforeEach
     void setUp() {
-        agent = new GeneralAssistantAgent("general", clientRegistry, memoryStore, agentService, toolAssignments, null);
+        agent = new GeneralAssistantAgent("general", memoryStore, agentService, toolAssignments, null,
+                null, null, null, null, null, null, null, modelResolver, agentCatalog, llmClientRegistry);
         when(agentService.getAgentConfig("general")).thenReturn(java.util.Optional.empty());
         lenient().when(toolAssignments.forAgent(any())).thenReturn(com.dark.javaHarness.tool.ToolAssignments.ToolSet.EMPTY);
-        when(clientRegistry.get(isNull())).thenReturn(chatClient);
+        com.dark.javaHarness.domain.entity.AgentEntity routeAgent = new com.dark.javaHarness.domain.entity.AgentEntity();
+        routeAgent.setAgentName("general");
+        routeAgent.setRouteId(1L);
+        org.mockito.Mockito.lenient().when(agentCatalog.require(anyString())).thenReturn(routeAgent);
+        org.mockito.Mockito.lenient().when(modelResolver.resolve(1L)).thenReturn(new RoutePlan(1L, "main", List.of(
+                new RoutePlan.Member(9L, 1L, "dashscope", "https://example.com", "m", "m",
+                        10, "{}", null))));
+        when(llmClientRegistry.get(9L)).thenReturn(chatClient);
         when(chatClient.prompt()).thenReturn(requestSpec);
     }
 
@@ -138,9 +153,10 @@ class GeneralAssistantAgentTest {
         when(streamSpec.chatResponse()).thenReturn(fluxOf("你好"));
 
         LlmCallLogMapper mapper = mock(LlmCallLogMapper.class);
-        GeneralAssistantAgent observed = new GeneralAssistantAgent("general", clientRegistry, memoryStore,
+        GeneralAssistantAgent observed = new GeneralAssistantAgent("general", memoryStore,
                 agentService, toolAssignments,
-                new LlmCallRecorder(mapper, mock(com.dark.javaHarness.mapper.ToolCallLogMapper.class)));
+                new LlmCallRecorder(mapper, mock(com.dark.javaHarness.mapper.ToolCallLogMapper.class)),
+                null, null, null, null, null, null, null, modelResolver, agentCatalog, llmClientRegistry);
         observed.executeStreamReactive(new Goal("g3", "自我介绍")).collectList().block();
 
         verify(mapper, timeout(2000)).insert(argThat((LlmCallLogEntity e) ->
@@ -190,9 +206,10 @@ class GeneralAssistantAgentTest {
                 .thenReturn(fluxOf("好"));
 
         LlmCallLogMapper mapper = mock(LlmCallLogMapper.class);
-        GeneralAssistantAgent observed = new GeneralAssistantAgent("general", clientRegistry, memoryStore,
+        GeneralAssistantAgent observed = new GeneralAssistantAgent("general", memoryStore,
                 agentService, toolAssignments,
-                new LlmCallRecorder(mapper, mock(com.dark.javaHarness.mapper.ToolCallLogMapper.class)));
+                new LlmCallRecorder(mapper, mock(com.dark.javaHarness.mapper.ToolCallLogMapper.class)),
+                null, null, null, null, null, null, null, modelResolver, agentCatalog, llmClientRegistry);
         observed.executeStreamReactive(new Goal("g5", "自我介绍")).collectList().block(Duration.ofSeconds(5));
 
         ArgumentCaptor<LlmCallLogEntity> captor = ArgumentCaptor.forClass(LlmCallLogEntity.class);

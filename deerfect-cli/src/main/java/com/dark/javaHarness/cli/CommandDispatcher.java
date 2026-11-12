@@ -4,8 +4,6 @@ import com.dark.javaHarness.cli.api.ChatApiClient;
 import com.dark.javaHarness.view.Schedule;
 import com.dark.javaHarness.view.GoalView;
 import com.dark.javaHarness.view.MemoryView;
-import com.dark.javaHarness.view.ProviderAddResult;
-import com.dark.javaHarness.view.ProviderRowView;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.util.Arrays;
@@ -374,21 +372,21 @@ final class CommandDispatcher {
         String arg = line.substring("/provider".length()).trim();
         if (arg.isEmpty() || "list".equalsIgnoreCase(arg)) {
             try {
-                List<ProviderRowView> rows = api.listProviders();
+                List<ChatApiClient.AdminProvider> rows = api.listProviders();
                 if (rows.isEmpty()) {
-                    ui.get().println("暂无模型映射（model_provider 表为空）");
+                    ui.get().println("暂无供应商（llm_provider 表为空）");
                     return;
                 }
-                ui.get().println("部署模型映射（id | 模型 → 供应商 | 端点，共 " + rows.size() + " 行）：");
-                for (ProviderRowView r : rows) {
-                    String flag = r.status() != null && r.status() == 1
+                ui.get().println("LLM 供应商（id | code → 端点，共 " + rows.size() + " 行）：");
+                for (ChatApiClient.AdminProvider r : rows) {
+                    String flag = r.enabled() != null && r.enabled() == 1
                             ? "\033[32m✓\033[0m" : "\033[31m✗\033[0m";
-                    ui.get().println("  " + flag + " [" + r.id() + "] " + r.model() + "  →  " + r.provider()
-                            + "  \033[90m" + r.apiUrl() + "\033[0m");
+                    ui.get().println("  " + flag + " [" + r.id() + "] " + r.code()
+                            + "  \033[90m" + r.baseUrl() + "\033[0m");
                 }
-                ui.get().println("\033[90m提示：不同供应商可有同名模型（各自成行）；agent 按 id 绑定端点\033[0m");
+                ui.get().println("\033[90m提示：模型/路由请使用 /api/admin/models 与 /api/admin/routes 管理\033[0m");
             } catch (IOException e) {
-                ui.get().println("获取映射失败: " + e.getMessage());
+                ui.get().println("获取供应商失败: " + e.getMessage());
             }
             return;
         }
@@ -408,10 +406,11 @@ final class CommandDispatcher {
                 return;
             }
             try {
-                ProviderAddResult result = api.addProvider(provider, parts[2], models);
-                ui.get().println("\033[32m✓ " + result.summary() + "，注册表已热刷新（免重启生效）\033[0m");
+                ChatApiClient.AddProviderResult result = api.addProvider(provider, parts[2], models);
+                ui.get().println("\033[32m✓ 已登记供应商 id=" + result.providerId()
+                        + "，模型 " + result.models() + " 个（配置校验通过并已热更新）\033[0m");
                 ui.get().println("\033[90m提示：请确保已设置环境变量 " + provider.toUpperCase()
-                        + "_API_KEY，否则该供应商模型将回退默认客户端\033[0m");
+                        + "_API_KEY；模型默认能力为工具/思考/JSON 均支持，可用管理接口按需调整\033[0m");
             } catch (IOException e) {
                 ui.get().println("新增供应商失败: " + e.getMessage());
             }
