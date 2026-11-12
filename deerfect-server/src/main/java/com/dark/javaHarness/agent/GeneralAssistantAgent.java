@@ -218,6 +218,8 @@ public class GeneralAssistantAgent implements Agent {
         // 当前尝试序号与起始时刻（观测行 attempt 口径：重试轮由尝试工厂回写，doFinally 终局行取实时值）
         AtomicInteger attemptRef = new AtomicInteger();
         AtomicLong attemptStartRef = new AtomicLong();
+        // 观测口径：本次尝试实际命中的路由成员（失败切换时由 streamRouteMember 回写）
+        AtomicReference<com.dark.javaHarness.llm.routing.RouteAttempt> routeRef = new AtomicReference<>();
         AgentConfig config = agentService.getAgentConfig(agentName)
                 .orElse(new AgentConfig(null, null, null, null));
         // 思考透传旁路（agent 表 thinking 列显示口径：仅控制是否显示思考内容，并不是控制模型是否思考）：
@@ -247,7 +249,7 @@ public class GeneralAssistantAgent implements Agent {
                                             config, goal.sessionId(), agentName,
                                             DEFAULT_SYSTEM_PROMPT, goal.objective(), assembly,
                                             CallTrace.fromGoal(goal).withSpan(spanId),
-                                            null, usageRef, firstTokenAt, reasoningTap)
+                                            null, usageRef, firstTokenAt, reasoningTap, routeRef)
                                     .doOnNext(collected::append)
                                     .doOnError(streamError::set);
                         },
@@ -258,8 +260,8 @@ public class GeneralAssistantAgent implements Agent {
                                     "重试", "模型调用失败，正在重试（第 " + (attempt + 1) + "/"
                                             + streamRetry.maxAttempts() + " 次）"));
                             // 被重试丢弃的失败尝试：按尝试粒度落观测行（ctx.error 与阻塞路径同构）
-                            ctx.error(attemptStartRef.get(), asException(e), attempt,
-                                    streamRetry.maxAttempts());
+                            ctx.withRoute(routeRef.get()).error(attemptStartRef.get(), asException(e),
+                                    attempt, streamRetry.maxAttempts());
                             if (attempt == 1) {
                                 // 首次失败带全量堆栈记一次（根因链是排错现场）；后续重试保持紧凑
                                 log.warn("[agent-{}] 流式调用失败，将重试（attempt {}/{}）：{}", agentName,
@@ -292,11 +294,12 @@ public class GeneralAssistantAgent implements Agent {
                         err = null;
                     }
                     if (err == null) {
-                        ctx.ok(null, attemptStartRef.get(), collected.toString(), usageRef.get(),
-                                firstTokenAt.get(), attemptRef.get(), streamRetry.maxAttempts());
-                    } else {
-                        ctx.error(attemptStartRef.get(), asException(err), attemptRef.get(),
+                        ctx.withRoute(routeRef.get()).ok(null, attemptStartRef.get(), collected.toString(),
+                                usageRef.get(), firstTokenAt.get(), attemptRef.get(),
                                 streamRetry.maxAttempts());
+                    } else {
+                        ctx.withRoute(routeRef.get()).error(attemptStartRef.get(), asException(err),
+                                attemptRef.get(), streamRetry.maxAttempts());
                     }
                     BranchProgressListener.tryCompleteSerialized(toolEvents);
                 });

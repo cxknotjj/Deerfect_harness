@@ -1,6 +1,8 @@
 package com.dark.javaHarness.observability;
 
 import com.dark.javaHarness.domain.LlmCallLog;
+import com.dark.javaHarness.llm.routing.FailurePolicy;
+import com.dark.javaHarness.llm.routing.RouteAttempt;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import org.springframework.ai.chat.metadata.Usage;
 
@@ -25,7 +27,8 @@ public final class LlmCallObserver {
     public void okStream(String sessionId, String agentName, String model, long start,
                   String content, Usage usage, PromptAssembler.PromptAttachments attachments,
                   long firstTokenAt, int attempt, int maxAttempts,
-                  String turnId, String traceId, String spanId, String parentSpan) {
+                  String turnId, String traceId, String spanId, String parentSpan,
+                  RouteAttempt route) {
         Integer prompt = usage == null ? null : usage.getPromptTokens();
         Integer completion = usage == null ? null : usage.getCompletionTokens();
         Integer total = usage == null ? null : usage.getTotalTokens();
@@ -39,7 +42,7 @@ public final class LlmCallObserver {
         }
         record(sessionId, agentName, model, true, true, prompt, completion, total, start, null,
                 content, firstTokenAt, usage, attachments, tokensEstimated, attempt, maxAttempts,
-                turnId, traceId, spanId, parentSpan);
+                turnId, traceId, spanId, parentSpan, route, null);
     }
 
     /**
@@ -49,10 +52,12 @@ public final class LlmCallObserver {
     public void error(String sessionId, String agentName, String model, boolean stream,
                long start, Exception e, PromptAssembler.PromptAttachments attachments,
                int attempt, int maxAttempts,
-               String turnId, String traceId, String spanId, String parentSpan) {
+               String turnId, String traceId, String spanId, String parentSpan,
+               RouteAttempt route) {
         record(sessionId, agentName, model, stream, false, null, null, null, start,
                 LlmCallRecorder.describeError(e), null, 0L, null, attachments, stream,
-                attempt, maxAttempts, turnId, traceId, spanId, parentSpan);
+                attempt, maxAttempts, turnId, traceId, spanId, parentSpan, route,
+                FailurePolicy.errorClass(e));
     }
 
     private void record(String sessionId, String agentName, String model, boolean stream, boolean ok,
@@ -60,7 +65,8 @@ public final class LlmCallObserver {
                         long start, String errorMsg, String content, long firstTokenAt, Usage usage,
                         PromptAssembler.PromptAttachments attachments, boolean tokensEstimated,
                         int attempt, int maxAttempts,
-                        String turnId, String traceId, String spanId, String parentSpan) {
+                        String turnId, String traceId, String spanId, String parentSpan,
+                        RouteAttempt route, String errorClass) {
         if (recorder == null) {
             return;
         }
@@ -75,6 +81,13 @@ public final class LlmCallObserver {
                 firstTokenAt > 0 ? firstTokenAt - start : null,
                 LlmCallRecorder.extractCachedTokens(usage),
                 attempt, maxAttempts, turnId, traceId, spanId, parentSpan,
-                LlmCallRecorder.startedAt(start)));
+                LlmCallRecorder.startedAt(start),
+                route == null ? null : route.routeId(),
+                route == null ? null : route.routeCode(),
+                route == null ? null : route.modelId(),
+                route == null ? null : route.providerCode(),
+                route == null ? null : route.upstreamName(),
+                route == null ? null : route.fallbackFromModelId(),
+                errorClass));
     }
 }

@@ -109,8 +109,9 @@ public class LlmRouteJudge implements RouteJudge {
         this.retry = new com.dark.javaHarness.agent.LlmRetry(1, 500);
     }
 
-    /** 本次判定的生效配置：模型 id/名 + 判定提示词（模型来自路由，提示词来自 agent 行） */
-    private record JudgeSettings(Long modelId, String model, String prompt) {
+    /** 本次判定的生效配置：路由/模型 + 判定提示词（模型来自路由，提示词来自 agent 行） */
+    private record JudgeSettings(Long routeId, String routeCode, Long modelId, String providerCode,
+                                 String model, String prompt) {
     }
 
     /**
@@ -124,7 +125,8 @@ public class LlmRouteJudge implements RouteJudge {
         String prompt = agentConfigProvider.getAgentConfig(ROUTE_AGENT)
                 .map(cfg -> cfg.prompt() == null || cfg.prompt().isBlank() ? SYSTEM_PROMPT : cfg.prompt())
                 .orElse(SYSTEM_PROMPT);
-        return new JudgeSettings(primary.modelId(), primary.upstreamName(), prompt);
+        return new JudgeSettings(plan.routeId(), plan.routeCode(), primary.modelId(),
+                primary.providerCode(), primary.upstreamName(), prompt);
     }
 
     /**
@@ -230,7 +232,10 @@ public class LlmRouteJudge implements RouteJudge {
                 promptTokens, null, null, true,
                 durationMs, LlmCallRecorder.describeError(e),
                 null, null, null, null, null, null, null, null,
-                turnId, null, null, null, LlmCallRecorder.startedAt(start)));
+                turnId, null, null, null, LlmCallRecorder.startedAt(start),
+                settings.routeId(), settings.routeCode(), settings.modelId(), settings.providerCode(),
+                settings.model(), null,
+                ok ? null : com.dark.javaHarness.llm.routing.FailurePolicy.errorClass(e)));
     }
 
     /** 解析 LLM 返回内容中的 route/confidence/workstreams；非法/缺失一律兜底 Agentic。 */

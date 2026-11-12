@@ -11,8 +11,10 @@ import com.dark.javaHarness.llm.catalog.AgentCatalog;
 import com.dark.javaHarness.llm.client.LlmClientRegistry;
 import com.dark.javaHarness.llm.routing.FailurePolicy;
 import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RouteAttempt;
 import com.dark.javaHarness.llm.routing.RoutePlan;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
+import com.dark.javaHarness.observability.HarnessMetrics;
 import com.dark.javaHarness.observability.LlmCallObserver;
 import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.prompt.ContextCompositionRecorder;
@@ -261,7 +263,7 @@ public final class AgentChatCaller {
         CallTrace eff = t.withSpan(spanId);
         CallContext ctx = new CallContext(observer, sessionId, forAgent, model,
                 attachmentsFor(forAgent, assembly), eff.turnId(), eff.traceId(), spanId,
-                eff.parentSpan());
+                eff.parentSpan(), null);
         // 重试可见性：计数器必须在重试循环外创建（放进 lambda 每次尝试都会重置,
         // 重试成功的行会错报 attempt=1）；每次尝试执行 lambda 时自增即第几次尝试
         AtomicInteger attemptCounter =
@@ -270,6 +272,8 @@ public final class AgentChatCaller {
         return retry.executeWithRetry(() -> {
             long start = System.currentTimeMillis();
             int maxAttempts = retry.maxAttempts();
+            // 观测口径：本次尝试实际命中的路由成员（重试/切换时由 pipeline 回写）
+            AtomicReference<RouteAttempt> routeRef = new AtomicReference<>();
             try {
                 AtomicReference<Usage> usageRef =
                         new AtomicReference<>();
@@ -278,27 +282,29 @@ public final class AgentChatCaller {
                 int attempt = attemptCounter.incrementAndGet();
                 String content = pipeline.streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
                         assembly, extraAdvisors, eff, null, cancelled, usageRef, firstTokenAt, ledger,
-                        reasoningTap);
-                ctx.ok(ledger, start, content, usageRef.get(), firstTokenAt.get(), attempt, maxAttempts);
+                        reasoningTap, routeRef);
+                ctx.withRoute(routeRef.get()).ok(ledger, start, content, usageRef.get(),
+                        firstTokenAt.get(), attempt, maxAttempts);
                 return content;
             } catch (RuntimeException e) {
                 int attempt = Math.max(attemptCounter.get(), 1);
+                CallContext attemptCtx = ctx.withRoute(routeRef.get());
                 // 客户端断连中止：记录后立即上抛（CancellationException 不可重试，直接放行）
                 if (e instanceof CancellationException) {
-                    ctx.error(start, e, attempt, maxAttempts);
+                    attemptCtx.error(start, e, attempt, maxAttempts);
                     throw e;
                 }
                 // 编排预算熔断：政策性中止（非模型错误），记录后立即上抛（不可重试，
                 // 编排节点捕获后写「预算超限跳过」占位）
                 if (e instanceof BudgetExceededException) {
-                    ctx.error(start, e, attempt, maxAttempts);
+                    attemptCtx.error(start, e, attempt, maxAttempts);
                     throw e;
                 }
                 // 账户级硬错误（余额不足/配额耗尽 402/403、鉴权失败 401）：重试无意义，
                 // 立即转人话异常向上传播（分类口径收敛于 LlmErrorClassifier）
                 RuntimeException translated = LlmErrorClassifier.translate(e, model);
                 if (translated != null) {
-                    ctx.error(start, e, attempt, maxAttempts);
+                    attemptCtx.error(start, e, attempt, maxAttempts);
                     throw translated;
                 }
                 // 模型可能把提示词里的专家名（researcher 等）误当工具发起调用——
@@ -308,6 +314,7 @@ public final class AgentChatCaller {
                     log.warn("[caller] {} 发起未知名工具调用，去工具重试一次：{}", forAgent, LlmCallRecorder.describeError(e));
                     CallContext noToolsCtx = ctx.blankTools();
                     long start2 = System.currentTimeMillis();
+                    AtomicReference<RouteAttempt> routeRef2 = new AtomicReference<>();
                     try {
                         AtomicReference<Usage> usageRef2 =
                                 new AtomicReference<>();
@@ -316,15 +323,17 @@ public final class AgentChatCaller {
                         int attempt2 = attemptCounter.incrementAndGet();
                         String content = pipeline.streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
                                 assembly.withoutTools(), extraAdvisors, eff, null, cancelled, usageRef2,
-                                firstTokenAt2, ledger, reasoningTap);
-                        noToolsCtx.ok(ledger, start2, content, usageRef2.get(), firstTokenAt2.get(), attempt2, maxAttempts);
+                                firstTokenAt2, ledger, reasoningTap, routeRef2);
+                        noToolsCtx.withRoute(routeRef2.get()).ok(ledger, start2, content, usageRef2.get(),
+                                firstTokenAt2.get(), attempt2, maxAttempts);
                         return content;
                     } catch (RuntimeException e2) {
-                        noToolsCtx.error(start2, e2, attemptCounter.get(), maxAttempts);
+                        noToolsCtx.withRoute(routeRef2.get())
+                                .error(start2, e2, attemptCounter.get(), maxAttempts);
                         throw e2;
                     }
                 }
-                ctx.error(start, e, attempt, maxAttempts);
+                attemptCtx.error(start, e, attempt, maxAttempts);
                 throw e;
             }
         });
@@ -339,13 +348,14 @@ public final class AgentChatCaller {
         String spanId = CallTrace.newSpanId();
         CallTrace eff = new CallTrace(null, null, null, spanId, null);
         CallContext ctx = new CallContext(observer, sessionId, forAgent, model,
-                attachmentsFor(forAgent, assembly), null, null, spanId, null);
+                attachmentsFor(forAgent, assembly), null, null, spanId, null, null);
         AtomicReference<Usage> usageRef =
                 new AtomicReference<>();
         AtomicLong firstTokenAt = new AtomicLong();
+        AtomicReference<RouteAttempt> routeRef = new AtomicReference<>();
         String content = pipeline.streamAttempt(config, sessionId, forAgent, fallbackSystem, user,
-                assembly, extraAdvisors, eff, null, null, usageRef, firstTokenAt, null, null);
-        ctx.ok(null, start, content, usageRef.get(), firstTokenAt.get(), 1, 1);
+                assembly, extraAdvisors, eff, null, null, usageRef, firstTokenAt, null, null, routeRef);
+        ctx.withRoute(routeRef.get()).ok(null, start, content, usageRef.get(), firstTokenAt.get(), 1, 1);
         return content;
     }
 
@@ -382,7 +392,8 @@ public final class AgentChatCaller {
                                  BooleanSupplier cancelled,
                                  AtomicReference<Usage> usageRef,
                                  AtomicLong firstTokenAt,
-                                 Consumer<String> reasoningTap) {
+                                 Consumer<String> reasoningTap,
+                                 AtomicReference<RouteAttempt> routeRef) {
         RoutePlan plan = specFactory.routePlan(config, forAgent);
         if (plan == null) {
             return tokenStreamWithWatchdog(specFactory.build(config, sessionId, forAgent, fallbackSystem,
@@ -390,7 +401,7 @@ public final class AgentChatCaller {
                     usageRef, null, null, firstTokenAt, null, reasoningTap);
         }
         return streamRouteMember(plan, 0, config, sessionId, forAgent, fallbackSystem, user, assembly,
-                trace, cancelled, usageRef, firstTokenAt, reasoningTap);
+                trace, cancelled, usageRef, firstTokenAt, reasoningTap, routeRef);
     }
 
     private Flux<String> streamRouteMember(RoutePlan plan, int index,
@@ -400,16 +411,23 @@ public final class AgentChatCaller {
                                            BooleanSupplier cancelled,
                                            AtomicReference<Usage> usageRef,
                                            AtomicLong firstTokenAt,
-                                           Consumer<String> reasoningTap) {
+                                           Consumer<String> reasoningTap,
+                                           AtomicReference<RouteAttempt> routeRef) {
         if (index >= plan.members().size()) {
             return Flux.error(new IllegalStateException("路由无可用成员: " + plan.routeCode()));
         }
         RoutePlan.Member member = plan.members().get(index);
         AtomicBoolean emitted = new AtomicBoolean();
-        return Flux.defer(() -> tokenStreamWithWatchdog(
-                        specFactory.build(config, sessionId, forAgent, fallbackSystem, user, assembly,
-                                trace, member),
-                        usageRef, null, null, firstTokenAt, member.modelId(), reasoningTap))
+        return Flux.defer(() -> {
+                    // 观测口径：真正发起请求前记录本次命中的成员
+                    if (routeRef != null) {
+                        routeRef.set(RouteAttempt.at(plan, index));
+                    }
+                    return tokenStreamWithWatchdog(
+                            specFactory.build(config, sessionId, forAgent, fallbackSystem, user, assembly,
+                                    trace, member),
+                            usageRef, null, null, firstTokenAt, member.modelId(), reasoningTap);
+                })
                 .doOnNext(__ -> emitted.set(true))
                 .onErrorResume(e -> {
                     if ((cancelled != null && cancelled.getAsBoolean()) || emitted.get()
@@ -423,10 +441,14 @@ public final class AgentChatCaller {
                     if (action == FailurePolicy.Action.FAIL) {
                         return Flux.error(e);
                     }
+                    if (index + 1 < plan.members().size()) {
+                        HarnessMetrics.routeFallback(plan.routeCode(), member.modelId(),
+                                plan.members().get(index + 1).modelId());
+                    }
                     log.warn("[llm] 路由 {} 成员 {} 失败，切换下一成员: {}",
                             plan.routeCode(), member.modelId(), e.getMessage());
                     return streamRouteMember(plan, index + 1, config, sessionId, forAgent, fallbackSystem,
-                            user, assembly, trace, cancelled, usageRef, firstTokenAt, reasoningTap);
+                            user, assembly, trace, cancelled, usageRef, firstTokenAt, reasoningTap, routeRef);
                 });
     }
 
@@ -437,7 +459,7 @@ public final class AgentChatCaller {
     CallContext ctxFor(String sessionId, String forAgent, String model,
                        PromptAssembler.PromptAttachments attachments, CallTrace trace) {
         return new CallContext(observer, sessionId, forAgent, model, attachments,
-                trace.turnId(), trace.traceId(), trace.spanId(), trace.parentSpan());
+                trace.turnId(), trace.traceId(), trace.spanId(), trace.parentSpan(), null);
     }
 
     /**
@@ -529,7 +551,7 @@ public final class AgentChatCaller {
         CallTrace eff = t.withSpan(spanId);
         CallContext ctx = new CallContext(observer, sessionId, forAgent,
                 null, attachmentsFor(forAgent, assembly), eff.turnId(), eff.traceId(),
-                spanId, eff.parentSpan());
+                spanId, eff.parentSpan(), null);
         if (cancelled != null && cancelled.getAsBoolean()) {
             throw cancelAndRecord(ctx, System.currentTimeMillis(), 1, retry.maxAttempts());
         }
@@ -552,21 +574,25 @@ public final class AgentChatCaller {
             AtomicLong firstTokenAt = new AtomicLong();
             // roundtrip 增量记账游标（口径同 streamAttempt，见其注释）
             AtomicLong prevTotal = new AtomicLong();
+            // 观测口径：本次尝试实际命中的路由成员（失败切换时由 pipeline 回写）
+            AtomicReference<RouteAttempt> routeRef = new AtomicReference<>();
             try {
                 String out = pipeline.streamCore(config, sessionId, forAgent, fallbackSystem, user, assembly,
                         extraAdvisors, eff, collected, onToken, cancelled, usageRef, prevTotal,
-                        firstTokenAt, ledger, reasoningTap);
+                        firstTokenAt, ledger, reasoningTap, routeRef);
                 // streamUsage 回传真实 usage 时记真实值，无则按已收输出文本近似估算（原口径兜底）；
                 // 账本兜底入账：无真实 usage 帧时按输出估算补记（有则增量已在流帧上记账，不重复）
-                ctx.ok(ledger, start, out, usageRef.get(), firstTokenAt.get(), attempt, retry.maxAttempts());
+                ctx.withRoute(routeRef.get()).ok(ledger, start, out, usageRef.get(),
+                        firstTokenAt.get(), attempt, retry.maxAttempts());
                 return out;
             } catch (RuntimeException e) {
                 boolean isCancel = e instanceof CancellationException
                         || (cancelled != null && cancelled.getAsBoolean());
+                CallContext attemptCtx = ctx.withRoute(routeRef.get());
                 if (isCancel) {
-                    throw cancelAndRecord(ctx, start, attempt, retry.maxAttempts());
+                    throw cancelAndRecord(attemptCtx, start, attempt, retry.maxAttempts());
                 }
-                ctx.error(start, e, attempt, retry.maxAttempts());
+                attemptCtx.error(start, e, attempt, retry.maxAttempts());
                 // 账户级硬错误：与阻塞（call）路径同口径转换，不重试直接抛人话异常
                 RuntimeException translated = LlmErrorClassifier.translate(e, model);
                 if (translated != null) {

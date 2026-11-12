@@ -55,6 +55,31 @@ public final class FailurePolicy {
         if (t instanceof WebClientResponseException ex) {
             return ex.getStatusCode().value();
         }
+        if (t instanceof org.springframework.web.client.HttpStatusCodeException ex) {
+            return ex.getStatusCode().value();
+        }
         return null;
+    }
+
+    /**
+     * 失败分类（观测用，与切换动作解耦）：timeout / connection / 4xx / 5xx / cancel / other。
+     * 成功调用不应调用本方法（error_class 落 NULL）。
+     */
+    public static String errorClass(Throwable throwable) {
+        Throwable t = Exceptions.unwrap(throwable);
+        if (t instanceof CancellationException) {
+            return "cancel";
+        }
+        Integer status = httpStatus(t);
+        if (status != null) {
+            return status >= 500 ? "5xx" : status >= 400 ? "4xx" : "other";
+        }
+        if (t instanceof TimeoutException || t instanceof java.net.SocketTimeoutException) {
+            return "timeout";
+        }
+        if (t instanceof IOException) {
+            return "connection";
+        }
+        return "other";
     }
 }

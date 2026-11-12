@@ -59,6 +59,37 @@ class FailurePolicyTest {
                 FailurePolicy.classify(new IllegalStateException("boom")));
     }
 
+    /* ---------------- error_class 观测口径 ---------------- */
+
+    @Test
+    void errorClass_classifiesKnownFailures() {
+        assertEquals("timeout", FailurePolicy.errorClass(new TimeoutException("timeout")));
+        assertEquals("timeout", FailurePolicy.errorClass(new java.net.SocketTimeoutException("read")));
+        assertEquals("connection", FailurePolicy.errorClass(new IOException("reset")));
+        assertEquals("4xx", FailurePolicy.errorClass(http(401)));
+        assertEquals("5xx", FailurePolicy.errorClass(http(503)));
+        assertEquals("cancel", FailurePolicy.errorClass(new java.util.concurrent.CancellationException("x")));
+        assertEquals("other", FailurePolicy.errorClass(new IllegalStateException("boom")));
+    }
+
+    @Test
+    void routeAttempt_primaryAndFallback() {
+        RoutePlan plan = new RoutePlan(1L, "main", java.util.List.of(
+                new RoutePlan.Member(10L, 1L, "dashscope", "https://a", "m-a", "A", 10, "{}", null),
+                new RoutePlan.Member(11L, 2L, "deepseek", "https://b", "m-b", "B", 20, "{}", null)));
+
+        RouteAttempt first = RouteAttempt.at(plan, 0);
+        assertEquals(10L, first.modelId());
+        assertEquals(null, first.fallbackFromModelId());
+
+        RouteAttempt second = RouteAttempt.at(plan, 1);
+        assertEquals(11L, second.modelId());
+        assertEquals(10L, second.fallbackFromModelId(), "切换后应记录上一成员为来源");
+        assertEquals("main", second.routeCode());
+        assertEquals("deepseek", second.providerCode());
+        assertEquals("m-b", second.upstreamName());
+    }
+
     private static WebClientResponseException http(int status) {
         return WebClientResponseException.create(status, "error", HttpHeaders.EMPTY,
                 (byte[]) null, null);

@@ -283,7 +283,7 @@ public class AgentScopeGeneralAgent implements Agent {
         AtomicBoolean completed = new AtomicBoolean();
         CallContext ctx = new CallContext(observer, sessionId, agentName, modelFactory.modelName(agentName, config),
                 promptAssembler.attachmentsOf(agentName), trace.turnId(), trace.traceId(), spanId,
-                trace.parentSpan());
+                trace.parentSpan(), modelFactory.routeAttempt(agentName, config));
 
         Flux<AgentEvent> events = agent.streamEvents(messages, runtime)
                 .doOnNext(event -> onEvent(event, content, progress, collected, usageTotals, firstTokenAt, config))

@@ -5,7 +5,9 @@ import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.contract.model.AgentConfig;
 import com.dark.javaHarness.llm.client.LlmClientRegistry;
 import com.dark.javaHarness.llm.routing.FailurePolicy;
+import com.dark.javaHarness.llm.routing.RouteAttempt;
 import com.dark.javaHarness.llm.routing.RoutePlan;
+import com.dark.javaHarness.observability.HarnessMetrics;
 import java.time.Duration;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BooleanSupplier;
@@ -74,7 +76,8 @@ final class AgentChatPipeline {
                          BooleanSupplier cancelled,
                          java.util.concurrent.atomic.AtomicReference<Usage> usageRef,
                          java.util.concurrent.atomic.AtomicLong firstTokenAt, BudgetLedger ledger,
-                         Consumer<String> reasoningTap) {
+                         Consumer<String> reasoningTap,
+                         java.util.concurrent.atomic.AtomicReference<RouteAttempt> routeRef) {
         if (cancelled != null && cancelled.getAsBoolean()) {
             throw CallCancellation.cancelException();
         }
@@ -88,7 +91,7 @@ final class AgentChatPipeline {
         try {
             return streamCore(config, sessionId, forAgent, fallbackSystem, user, assembly,
                     extraAdvisors, trace, collected, onToken, cancelled, usageRef, prevTotal, firstTokenAt, ledger,
-                    reasoningTap);
+                    reasoningTap, routeRef);
         } catch (RuntimeException e) {
             // 取消置位时一律按取消归因（流取消竞态下 blockLast 可能抛出其他形态异常）
             if (cancelled != null && cancelled.getAsBoolean()) {
@@ -144,7 +147,8 @@ final class AgentChatPipeline {
                       java.util.concurrent.atomic.AtomicReference<Usage> usageRef,
                       java.util.concurrent.atomic.AtomicLong prevTotal,
                       java.util.concurrent.atomic.AtomicLong firstTokenAt, BudgetLedger ledger,
-                      Consumer<String> reasoningTap) {
+                      Consumer<String> reasoningTap,
+                      java.util.concurrent.atomic.AtomicReference<RouteAttempt> routeRef) {
         RoutePlan plan = specFactory.routePlan(config, forAgent);
         if (plan == null) {
             return streamSingle(config, sessionId, forAgent, fallbackSystem, user, assembly,
@@ -152,7 +156,12 @@ final class AgentChatPipeline {
                     firstTokenAt, ledger, reasoningTap, null);
         }
         RuntimeException last = null;
-        for (RoutePlan.Member member : plan.members()) {
+        for (int i = 0; i < plan.members().size(); i++) {
+            RoutePlan.Member member = plan.members().get(i);
+            // 观测口径：本轮真正尝试的成员（失败切换时 fallback_from 指向上一个成员）
+            if (routeRef != null) {
+                routeRef.set(RouteAttempt.at(plan, i));
+            }
             int before = collected.length();
             try {
                 return streamSingle(config, sessionId, forAgent, fallbackSystem, user, assembly,
@@ -175,6 +184,10 @@ final class AgentChatPipeline {
                     throw e;
                 }
                 last = e;
+                if (i + 1 < plan.members().size()) {
+                    HarnessMetrics.routeFallback(plan.routeCode(), member.modelId(),
+                            plan.members().get(i + 1).modelId());
+                }
                 log.warn("[llm] 路由 {} 成员 {} 失败，切换下一成员: {}",
                         plan.routeCode(), member.modelId(), e.getMessage());
             }

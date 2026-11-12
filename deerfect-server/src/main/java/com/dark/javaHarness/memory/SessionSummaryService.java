@@ -194,20 +194,25 @@ public class SessionSummaryService implements SessionSummaryPort {
     private String merge(String existing, String dialog) {
         String userPrompt = "【已有摘要】\n" + (existing.isBlank() ? "（空，首次生成）" : existing)
                 + "\n\n【新增对话】\n" + dialog;
-        return retry.executeWithRetry(() -> doCall(userPrompt),
-                (attempt, durationMs, err) -> record(durationMs, err == null, err, userPrompt));
+        com.dark.javaHarness.llm.routing.RouteAttempt route = routeAttempt();
+        return retry.executeWithRetry(() -> doCall(route, userPrompt),
+                (attempt, durationMs, err) -> record(durationMs, err == null, err, userPrompt, route));
     }
 
-    private String doCall(String userPrompt) {
+    /** summary 系统 Agent → 路由首选成员（观测与调用使用同一成员） */
+    private com.dark.javaHarness.llm.routing.RouteAttempt routeAttempt() {
         com.dark.javaHarness.llm.routing.RoutePlan plan = llmModelResolver.resolve(
                 llmAgentCatalog.require("summary").getRouteId());
-        com.dark.javaHarness.llm.routing.RoutePlan.Member member = plan.members().get(0);
-        ChatClient client = llmClientRegistry.get(member.modelId());
+        return com.dark.javaHarness.llm.routing.RouteAttempt.primary(plan, plan.members().get(0));
+    }
+
+    private String doCall(com.dark.javaHarness.llm.routing.RouteAttempt route, String userPrompt) {
+        ChatClient client = llmClientRegistry.get(route.modelId());
         // 请求级显式携带 model：与 AgentChatCaller / RouteJudge / memory-profile 同款约定
         return client.prompt()
                 .system(systemPrompt())
                 .user(userPrompt)
-                .options(OpenAiChatOptions.builder().model(member.upstreamName()))
+                .options(OpenAiChatOptions.builder().model(route.upstreamName()))
                 .call()
                 .chatResponse()
                 .getResult()
@@ -271,32 +276,25 @@ public class SessionSummaryService implements SessionSummaryPort {
     }
 
     /** 摘要调用观测落库（无会话上下文口径：sessionId 空；不属于任何轮次与执行树） */
-    private void record(long durationMs, boolean ok, Throwable e, String userPrompt) {
+    private void record(long durationMs, boolean ok, Throwable e, String userPrompt,
+                        com.dark.javaHarness.llm.routing.RouteAttempt route) {
         if (recorder == null) {
             return;
         }
         int promptTokens = LlmCallRecorder.estimateTokens(systemPrompt())
                 + LlmCallRecorder.estimateTokens(userPrompt);
         long start = System.currentTimeMillis() - durationMs;
-        recorder.record(new LlmCallLog(null, "memory-summary", modelName(), false, ok,
+        recorder.record(new LlmCallLog(null, "memory-summary", route.upstreamName(), false, ok,
                 promptTokens, null, null, true,
                 durationMs, LlmCallRecorder.describeError(e),
                 null, null, null, null, null, null, null, null,
-                null, null, null, null, LlmCallRecorder.startedAt(start)));
+                null, null, null, null, LlmCallRecorder.startedAt(start),
+                route.routeId(), route.routeCode(), route.modelId(), route.providerCode(),
+                route.upstreamName(), route.fallbackFromModelId(),
+                ok ? null : com.dark.javaHarness.llm.routing.FailurePolicy.errorClass(e)));
     }
 
     private static String describe(Throwable e) {
         return LlmCallRecorder.describeError(e);
-    }
-
-    /** 观测用模型名：路由首选成员；解析失败返回 null（观测不阻塞主链路）。 */
-    private String modelName() {
-        try {
-            com.dark.javaHarness.llm.routing.RoutePlan plan = llmModelResolver.resolve(
-                    llmAgentCatalog.require("summary").getRouteId());
-            return plan.members().get(0).upstreamName();
-        } catch (RuntimeException e) {
-            return null;
-        }
     }
 }

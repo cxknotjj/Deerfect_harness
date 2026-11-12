@@ -6,6 +6,7 @@ import com.dark.javaHarness.domain.entity.AgentEntity;
 import com.dark.javaHarness.domain.entity.ModelProviderEntity;
 import com.dark.javaHarness.llm.catalog.AgentCatalog;
 import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RouteAttempt;
 import com.dark.javaHarness.llm.routing.RoutePlan;
 import com.dark.javaHarness.mapper.ModelProviderMapper;
 import io.agentscope.core.model.GenerateOptions;
@@ -105,5 +106,20 @@ public class AgentScopeModelFactory {
         }
         return config != null && config.model() != null && !config.model().isBlank()
                 ? config.model() : row.getModel();
+    }
+
+    /**
+     * 观测用路由成员（Agent → 路由 → 首选成员）；解析失败返回 null。
+     * 观测是纯旁路：失败不阻断调用，真正的配置错误由 {@link #build} 抛出。
+     */
+    public RouteAttempt routeAttempt(String agentName, AgentConfig config) {
+        try {
+            AgentEntity agent = agentCatalog.require(agentName);
+            RoutePlan plan = modelResolver.resolve(agent.getRouteId());
+            return RouteAttempt.primary(plan, plan.members().get(0));
+        } catch (RuntimeException e) {
+            log.debug("[agentic] 路由观测解析失败（忽略）：{}", e.getMessage());
+            return null;
+        }
     }
 }

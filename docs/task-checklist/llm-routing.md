@@ -2,7 +2,7 @@
 
 - 范围：`deerfect-server` 的 LLM 配置模型、解析链路、Agent 绑定、失败切换、观测与管理面
 - 创建：2026-11-12
-- 状态：共 29 项，已完成 22 项，待办 7 项
+- 状态：共 29 项，已完成 24 项，待办 5 项
 - 规划书：[docs/design/2026-11-12-llm-provider-model-routing.md](../design/2026-11-12-llm-provider-model-routing.md)
 - 前提：按全新设计落地，不保留旧 `model_provider` 表与按名查找接口的兼容层
 
@@ -16,9 +16,9 @@
 | 内部调用收口 | 3 | 0 | 3 |
 | 接入改造 | 4 | 0 | 4 |
 | 管理面 | 3 | 0 | 3 |
-| 观测 | 0 | 2 | 2 |
+| 观测 | 2 | 0 | 2 |
 | 清理与验收 | 0 | 4 | 4 |
-| 合计 | 22 | 7 | 29 |
+| 合计 | 24 | 5 | 29 |
 
 ## 背景
 
@@ -233,19 +233,21 @@
 
 ### G. 观测
 
-- [ ] G1 `llm_call_log` 扩展
+- [x] G1 `llm_call_log` 扩展
   - 作用：明确"这次到底是谁答的、第几个成员答的"
   - 位置：新迁移 + `observability/LlmCallRecorder.java`
   - 做法：增加 `route_id`、`route_code`、`model_id`、`provider_code`、`upstream_name`、`fallback_from_model_id`、`attempt`、`error_class`；保留现有字段
   - 验收：一次切换产生两条记录，字段可完整还原切换路径；旧查询接口兼容返回
   - 依赖：B6
+  - 结果（2026-11-12）：V22 增加 7 列（attempt 已存在）；`LlmCallLog`/实体/落库链路透传；新增 `RouteAttempt` 在阻塞、响应式、AgentScope、judge/画像/摘要调用中回写；error_class 由 `FailurePolicy.errorClass` 统一分类
 
-- [ ] G2 路由与模型指标
+- [x] G2 路由与模型指标
   - 作用：能看降级频率与各模型健康度
   - 位置：`observability/HarnessMetrics.java`
   - 做法：新增 `llm_route_fallback_total`、`llm_model_error_total`、`llm_model_latency`；标签维度控制基数
   - 验收：触发一次切换后指标 +1；Prometheus 端点可见；标签不超过规划书范围
   - 依赖：G1
+  - 结果（2026-11-12）：新增 `harness.llm.route.fallbacks{route,from_model,to_model}`、`harness.llm.model.errors{model_id,error_class}`、`harness.llm.model.latency{model_id,kind}`；阻塞与响应式切换路径均埋点；单测断言计数与 timer
 
 ### H. 清理与验收
 

@@ -290,25 +290,27 @@ public class UserProfileService {
     private String extractPatch(String current, String dialog) {
         String userPrompt = "【当前画像】\n" + (current.isBlank() ? "（空，首次生成）" : current)
                 + "\n\n【新增对话】\n" + dialog;
-        com.dark.javaHarness.llm.routing.RoutePlan.Member member = primaryMember();
-        return retry.executeWithRetry(() -> doCall(member, userPrompt),
-                (attempt, durationMs, err) -> record(durationMs, err == null, err, userPrompt, member));
+        com.dark.javaHarness.llm.routing.RouteAttempt route = primaryRoute();
+        return retry.executeWithRetry(() -> doCall(route, userPrompt),
+                (attempt, durationMs, err) -> record(durationMs, err == null, err, userPrompt, route));
     }
 
     /** profile 系统 Agent → 路由首选成员（观测与调用使用同一成员，避免日志与实际模型不一致） */
-    private com.dark.javaHarness.llm.routing.RoutePlan.Member primaryMember() {
-        return llmModelResolver.resolve(llmAgentCatalog.require("profile").getRouteId()).members().get(0);
+    private com.dark.javaHarness.llm.routing.RouteAttempt primaryRoute() {
+        com.dark.javaHarness.llm.routing.RoutePlan plan = llmModelResolver.resolve(
+                llmAgentCatalog.require("profile").getRouteId());
+        return com.dark.javaHarness.llm.routing.RouteAttempt.primary(plan, plan.members().get(0));
     }
 
     /** 单次 LLM 调用（不含重试语义，可被重试）；返回模型原始输出 */
-    private String doCall(com.dark.javaHarness.llm.routing.RoutePlan.Member member, String userPrompt) {
-        ChatClient client = llmClientRegistry.get(member.modelId());
+    private String doCall(com.dark.javaHarness.llm.routing.RouteAttempt route, String userPrompt) {
+        ChatClient client = llmClientRegistry.get(route.modelId());
         // 请求级显式携带 model：与 AgentChatCaller/RouteJudge 同款约定（缺 model DashScope 返回 400）
         return client.prompt()
                 .system(SYSTEM_PROMPT)
                 .user(userPrompt)
                 .options(org.springframework.ai.openai.OpenAiChatOptions.builder()
-                        .model(member.upstreamName()))
+                        .model(route.upstreamName()))
                 .call()
                 .chatResponse()
                 .getResult()
@@ -429,7 +431,7 @@ public class UserProfileService {
 
     /** 提炼调用观测落库（无会话上下文口径：sessionId 空；轨迹标识全 NULL——不属于任何轮次与执行树） */
     private void record(long durationMs, boolean ok, Throwable e, String userPrompt,
-                        com.dark.javaHarness.llm.routing.RoutePlan.Member member) {
+                        com.dark.javaHarness.llm.routing.RouteAttempt route) {
         if (recorder == null) {
             return;
         }
@@ -437,10 +439,13 @@ public class UserProfileService {
                 + LlmCallRecorder.estimateTokens(userPrompt);
         // 发起时刻由耗时反推（重试回调只给耗时；回调与耗时计算同一时钟读数，差值即发起瞬间）
         long start = System.currentTimeMillis() - durationMs;
-        recorder.record(new LlmCallLog(null, "memory-profile", member.upstreamName(), false, ok,
+        recorder.record(new LlmCallLog(null, "memory-profile", route.upstreamName(), false, ok,
                 promptTokens, null, null, true,
                 durationMs, LlmCallRecorder.describeError(e),
                 null, null, null, null, null, null, null, null,
-                null, null, null, null, LlmCallRecorder.startedAt(start)));
+                null, null, null, null, LlmCallRecorder.startedAt(start),
+                route.routeId(), route.routeCode(), route.modelId(), route.providerCode(),
+                route.upstreamName(), route.fallbackFromModelId(),
+                ok ? null : com.dark.javaHarness.llm.routing.FailurePolicy.errorClass(e)));
     }
 }
