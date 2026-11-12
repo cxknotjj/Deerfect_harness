@@ -5,7 +5,13 @@ import com.dark.javaHarness.advisor.ContextCompositionAdvisor;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.contract.model.AgentConfig;
+import com.dark.javaHarness.domain.entity.AgentEntity;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
+import com.dark.javaHarness.llm.call.LlmCallOptions;
+import com.dark.javaHarness.llm.catalog.AgentCatalog;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RoutePlan;
 import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.observability.LlmRequestLogAdvisor;
 import com.dark.javaHarness.prompt.ContextCompositionRecorder;
@@ -90,6 +96,10 @@ final class AgentRequestSpecFactory {
     }
 
     private final ChatClientRegistry clientRegistry;
+    /** 新解析链（route → model）：三者非空时优先于旧 registry；单测旧构造链可为 null */
+    private final ModelResolver modelResolver;
+    private final AgentCatalog llmAgentCatalog;
+    private final LlmClientRegistry llmClientRegistry;
     private final ToolAssignments toolAssignments;
     private final PromptAssembler promptAssembler;
     private final SessionService memoryStore;
@@ -110,7 +120,8 @@ final class AgentRequestSpecFactory {
                             ContextBudgetProperties budgets) {
         this(clientRegistry, promptAssembler, toolAssignments, lazyTools, skillManager,
                 memoryStore, budgets, null, null,
-                DefaultToolDecorators.defaults(lazyTools, skillManager, budgets, null), null);
+                DefaultToolDecorators.defaults(lazyTools, skillManager, budgets, null), null,
+                null, null, null);
     }
 
     AgentRequestSpecFactory(ChatClientRegistry clientRegistry,
@@ -123,7 +134,8 @@ final class AgentRequestSpecFactory {
                             KnowledgeRetriever knowledgeRetriever) {
         this(clientRegistry, promptAssembler, toolAssignments, lazyTools, skillManager,
                 memoryStore, budgets, knowledgeRetriever, null,
-                DefaultToolDecorators.defaults(lazyTools, skillManager, budgets, null), null);
+                DefaultToolDecorators.defaults(lazyTools, skillManager, budgets, null), null,
+                null, null, null);
     }
 
     /** recorder 为工具调用观测记录器（tool_call_log 落库面），null 时不落库（单测场景） */
@@ -138,7 +150,8 @@ final class AgentRequestSpecFactory {
                             LlmCallRecorder recorder) {
         this(clientRegistry, promptAssembler, toolAssignments, lazyTools, skillManager,
                 memoryStore, budgets, knowledgeRetriever, recorder,
-                DefaultToolDecorators.defaults(lazyTools, skillManager, budgets, recorder), null);
+                DefaultToolDecorators.defaults(lazyTools, skillManager, budgets, recorder), null,
+                null, null, null);
     }
 
     /**
@@ -156,8 +169,14 @@ final class AgentRequestSpecFactory {
                             KnowledgeRetriever knowledgeRetriever,
                             LlmCallRecorder recorder,
                             List<ToolCallbackDecorator> decorators,
-                            ContextCompositionRecorder compositionRecorder) {
+                            ContextCompositionRecorder compositionRecorder,
+                            ModelResolver modelResolver,
+                            AgentCatalog llmAgentCatalog,
+                            LlmClientRegistry llmClientRegistry) {
         this.clientRegistry = clientRegistry;
+        this.modelResolver = modelResolver;
+        this.llmAgentCatalog = llmAgentCatalog;
+        this.llmClientRegistry = llmClientRegistry;
         this.promptAssembler = promptAssembler;
         this.toolAssignments = toolAssignments;
         this.memoryStore = memoryStore;
@@ -167,6 +186,43 @@ final class AgentRequestSpecFactory {
         this.compositionRecorder = compositionRecorder;
     }
 
+    /** 旧全参重载（单测）：未注入新解析链，build 走旧 registry。 */
+    AgentRequestSpecFactory(ChatClientRegistry clientRegistry,
+                            PromptAssembler promptAssembler,
+                            ToolAssignments toolAssignments,
+                            ToolLazyManager lazyTools,
+                            SkillManager skillManager,
+                            SessionService memoryStore,
+                            ContextBudgetProperties budgets,
+                            KnowledgeRetriever knowledgeRetriever,
+                            LlmCallRecorder recorder,
+                            List<ToolCallbackDecorator> decorators,
+                            ContextCompositionRecorder compositionRecorder) {
+        this(clientRegistry, promptAssembler, toolAssignments, lazyTools, skillManager, memoryStore,
+                budgets, knowledgeRetriever, recorder, decorators, compositionRecorder, null, null, null);
+    }
+
+    /**
+     * 解析 Agent 绑定的路由；旧构造链（单测未注入新依赖）返回 null，走旧 registry。
+     * 生产链路必须命中 Agent 与路由，未命中直接抛错。
+     */
+    RoutePlan routePlan(AgentConfig config, String forAgent) {
+        if (modelResolver == null || llmAgentCatalog == null || llmClientRegistry == null
+                || forAgent == null || forAgent.isBlank()) {
+            return null;
+        }
+        AgentEntity agent = llmAgentCatalog.require(forAgent);
+        return modelResolver.resolve(agent.getRouteId());
+    }
+
+    private String agentParams(String forAgent) {
+        try {
+            return llmAgentCatalog.require(forAgent).getParams();
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
     /** 组装请求（取客户端 → system 按段组装 → 记忆只读注入 → 请求级 advisor → 选项 → 工具注入）。
      *  trace 为轨迹标识（Task 4 工具侧关联，可 null）：非空值经 {@code .toolContext} 下传，
      *  触发的工具调用由 ToolCallTracer 从 ToolContext 读出落 tool_call_log 三标识；
@@ -174,10 +230,29 @@ final class AgentRequestSpecFactory {
     ChatClient.ChatClientRequestSpec build(AgentConfig config, String sessionId, String forAgent,
                                            String fallbackSystem, String user,
                                            Assembly assembly, CallTrace trace, Advisor... extraAdvisors) {
-        // Registry 模式：凭部署模型 id 取对应厂商的 ChatClient（未绑定/未命中回退默认 DashScope）
+        RoutePlan plan = routePlan(config, forAgent);
+        return build(config, sessionId, forAgent, fallbackSystem, user, assembly, trace,
+                plan == null ? null : plan.members().get(0), extraAdvisors);
+    }
+
+    /** 指定路由成员组装请求（失败切换时逐成员重建 spec）。 */
+    ChatClient.ChatClientRequestSpec build(AgentConfig config, String sessionId, String forAgent,
+                                           String fallbackSystem, String user,
+                                           Assembly assembly, CallTrace trace,
+                                           RoutePlan.Member member, Advisor... extraAdvisors) {
         Long modelProviderId = config != null ? config.modelProviderId() : null;
         String model = config != null ? config.model() : null;
-        ChatClient client = clientRegistry.get(modelProviderId);
+        LlmCallOptions llmOptions = null;
+        ChatClient client;
+        if (member != null) {
+            client = llmClientRegistry.get(member.modelId());
+            llmOptions = LlmCallOptions.merge(member.upstreamName(), member.defaultParams(),
+                    agentParams(forAgent));
+            model = llmOptions.model();
+        } else {
+            // 旧解析链（单测构造，未注入新依赖时）
+            client = clientRegistry.get(modelProviderId);
+        }
         // system 经 PromptAssembler 按段组装，RAG 命中时追加知识段（与 AgentScope 路径共用）
         SystemAssembly system = assembleSystem(config, sessionId, forAgent, fallbackSystem, user, trace);
         ChatClient.ChatClientRequestSpec spec = client.prompt()
@@ -211,10 +286,21 @@ final class AgentRequestSpecFactory {
         // （gpt-5-mini），下发会覆盖客户端默认（streamUsage 在 2.0 已默认 include_usage=true）
         if (model != null && !model.isBlank()) {
             OpenAiChatOptions.Builder options = OpenAiChatOptions.builder().model(model);
+            if (llmOptions != null) {
+                if (llmOptions.temperature() != null) {
+                    options.temperature(llmOptions.temperature());
+                }
+                if (llmOptions.maxTokens() != null && llmOptions.maxTokens() > 0) {
+                    options.maxTokens(llmOptions.maxTokens());
+                }
+                if (llmOptions.thinkingMode() == LlmCallOptions.ThinkingMode.OFF) {
+                    options.extraBody(Map.of("enable_thinking", false));
+                }
+            }
             if (assembly.frequencyPenalty()) {
                 options.frequencyPenalty(0.5);
             }
-            if (assembly.maxTokens() > 0) {
+            if (assembly.maxTokens() > 0 && (llmOptions == null || llmOptions.maxTokens() == null)) {
                 options.maxTokens(assembly.maxTokens());
             }
             spec.options(options);

@@ -9,6 +9,9 @@ import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.enums.AgentConstants;
 import com.dark.javaHarness.graph.MultiAgentGraphAgent;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
+import com.dark.javaHarness.llm.catalog.AgentCatalog;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.ModelResolver;
 import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.ActiveGoalSectionProvider;
@@ -100,11 +103,15 @@ public class ChatAgentConfig {
                                        ChatTimeoutProperties timeouts,
                                        AgenticProperties agenticProperties,
                                        AgentScopeModelFactory agentScopeModelFactory,
-                                       ContextCompositionRecorder compositionRecorder) {
+                                       ContextCompositionRecorder compositionRecorder,
+                                       ModelResolver modelResolver,
+                                       AgentCatalog llmAgentCatalog,
+                                       LlmClientRegistry llmClientRegistry) {
         AgentRegistry agentRegistry = new AgentRegistry(agentConfigProvider, agentService, registry,
                 memoryStore, toolAssignments, recorder, budgets, toolLazyManager,
                 promptAssembler, skillManager, knowledgeRetriever.getIfAvailable(), timeouts,
-                agenticProperties, agentScopeModelFactory, compositionRecorder);
+                agenticProperties, agentScopeModelFactory, compositionRecorder,
+                modelResolver, llmAgentCatalog, llmClientRegistry);
         agentRegistry.register(multiAgent);
         agentRegistry.init();
         return agentRegistry;
@@ -135,10 +142,14 @@ public class ChatAgentConfig {
                                            ObjectProvider<RagPrefetcher> ragPrefetcher,
                                            ChatTimeoutProperties timeouts,
                                            AgentConfigProvider agentConfigProvider,
-                                           ContextCompositionRecorder compositionRecorder) {
+                                           ContextCompositionRecorder compositionRecorder,
+                                           ModelResolver modelResolver,
+                                           AgentCatalog llmAgentCatalog,
+                                           LlmClientRegistry llmClientRegistry) {
         return new MultiAgentGraphAgent(AgentConstants.MULTI_AGENT, registry, agentService,
                 toolAssignments, recorder, checkpointStore, budgets, memoryStore,
                 toolLazyManager, promptAssembler, skillManager, knowledgeRetriever.getIfAvailable(),
-                timeouts, ragPrefetcher.getIfAvailable(), agentConfigProvider, compositionRecorder);
+                timeouts, ragPrefetcher.getIfAvailable(), agentConfigProvider, compositionRecorder,
+                modelResolver, llmAgentCatalog, llmClientRegistry);
     }
 }

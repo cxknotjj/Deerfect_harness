@@ -2,7 +2,7 @@
 
 - 范围：`deerfect-server` 的 LLM 配置模型、解析链路、Agent 绑定、失败切换、观测与管理面
 - 创建：2026-11-12
-- 状态：共 29 项，已完成 12 项，待办 17 项
+- 状态：共 29 项，已完成 16 项，待办 13 项
 - 规划书：[docs/design/2026-11-12-llm-provider-model-routing.md](../design/2026-11-12-llm-provider-model-routing.md)
 - 前提：按全新设计落地，不保留旧 `model_provider` 表与按名查找接口的兼容层
 
@@ -14,11 +14,11 @@
 | 解析与客户端 | 6 | 0 | 6 |
 | 参数与能力 | 3 | 1 | 4 |
 | 内部调用收口 | 0 | 3 | 3 |
-| 接入改造 | 0 | 4 | 4 |
+| 接入改造 | 4 | 0 | 4 |
 | 管理面 | 0 | 3 | 3 |
 | 观测 | 0 | 2 | 2 |
 | 清理与验收 | 0 | 4 | 4 |
-| 合计 | 12 | 17 | 29 |
+| 合计 | 16 | 13 | 29 |
 
 ## 背景
 
@@ -170,33 +170,37 @@
 
 ### E. 接入改造
 
-- [ ] E1 GeneralAssistantAgent 接入 LlmCaller
+- [x] E1 GeneralAssistantAgent 接入 LlmCaller
   - 作用：Agentic 直答路径成为新门面的第一个消费者
   - 位置：`agent/GeneralAssistantAgent.java`
   - 做法：改为 `LlmCaller.stream(agentName, ...)`；删除本地客户端获取与丢池逻辑（由 RouteExecutor 承接）；观测字段改由门面写入
   - 验收：流式 token、取消、重试语义与现网一致；`llm_call_log` 出现 route/model 字段；单测覆盖
   - 依赖：B6、C2
+  - 结果（2026-11-12）：改为 `chatCaller.streamWithRoute`，按路由成员重建 spec 并在首 token 前切换
 
-- [ ] E2 AgentChatPipeline / AgentChatCaller 接入
+- [x] E2 AgentChatPipeline / AgentChatCaller 接入
   - 作用：阻塞收集路径与流式路径共用同一失败策略
   - 位置：`agent/AgentChatPipeline.java`、`agent/AgentChatCaller.java`
   - 做法：客户端获取与失败丢池移入 RouteExecutor；保留现有看门狗与观测钩子；删除按 modelName 传参
   - 验收：看门狗超时触发成员切换（首帧前）；首 token 后超时不切换；现有测试改按 route/model 断言
   - 依赖：B6、E1
+  - 结果（2026-11-12）：`streamCore` 按成员循环，首 token 后错误不再切换；丢池按 `model_id`；全量测试通过
 
-- [ ] E3 Graph 编排路径接入
+- [x] E3 Graph 编排路径接入
   - 作用：lead / 子任务 / aggregator 与直答使用同一解析链
   - 位置：`graph/OrchestrationNodes.java`、`graph/engine/*`
   - 做法：每个角色通过 Agent 名调用 LlmCaller；子任务失败占位语义不变；预算账本不变
   - 验收：编排全链路可跑通；单子任务模型失败可按路由切换；观测能区分 lead 与各专家
   - 依赖：E2
+  - 结果（2026-11-12）：Graph 经共享 AgentChatCaller 自动走新链路；真实请求验证通过
 
-- [ ] E4 AgentScope 构建改为路由解析
+- [x] E4 AgentScope 构建改为路由解析
   - 作用：Agentic ReAct 路径不再按名兜底
   - 位置：`agent/agentic/AgentScopeModelFactory.java`
   - 做法：删除 `modelProviderId == null` 时按名查库的兜底；统一从 `ModelResolver` 取 model 行；构建参数与 ClientFactory 同源
   - 验收：无绑定 Agent 启动失败；AgentScope 路径模型与 ChatClient 路径一致；单测覆盖
   - 依赖：B3、C4
+  - 结果（2026-11-12）：`resolveRow(agentName)` 经 Agent → 路由 → 首选成员；按名兜底已删除；真实请求走 AgentScope 路径成功
 
 ### F. 管理面
 

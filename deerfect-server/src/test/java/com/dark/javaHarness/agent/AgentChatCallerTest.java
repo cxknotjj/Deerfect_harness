@@ -103,6 +103,8 @@ class AgentChatCallerTest {
     @Mock
     private ChatClientRegistry clientRegistry;
     @Mock
+    private com.dark.javaHarness.llm.client.LlmClientRegistry llmClientRegistry;
+    @Mock
     private AgentService agentService;
     @Mock
     private ChatClient client;
@@ -407,7 +409,7 @@ class AgentChatCallerTest {
         timeouts.setStreamIdleTimeoutSeconds(1);
         AgentChatCaller guarded = new AgentChatCaller(clientRegistry, agentService, null, null,
                 new LlmRetry(), new ContextBudgetProperties(), null, null, null, null, null, timeouts,
-                null);
+                null, null, null, llmClientRegistry);
         when(spec.stream()).thenReturn(streamSpec);
         when(streamSpec.chatResponse()).thenReturn(Flux.never());
 
@@ -421,7 +423,7 @@ class AgentChatCallerTest {
         assertEquals(1, errors.size(), "端点在途无响应应触发超时中止");
         assertTrue(errors.get(0) instanceof java.util.concurrent.TimeoutException,
                 "中止原因应为流空闲超时，实际: " + errors.get(0));
-        verify(clientRegistry).invalidate(9L);
+        verify(llmClientRegistry).invalidate(9L);
     }
 
     /** 正常吐字不被兜底打断：流式收集内容与 token 顺序不变 */
@@ -433,7 +435,7 @@ class AgentChatCallerTest {
         timeouts.setStreamIdleTimeoutSeconds(30);
         AgentChatCaller guarded = new AgentChatCaller(clientRegistry, agentService, null, null,
                 new LlmRetry(), new ContextBudgetProperties(), null, null, null, null, null, timeouts,
-                null);
+                null, null, null, llmClientRegistry);
         when(spec.stream()).thenReturn(streamSpec);
         when(streamSpec.chatResponse()).thenReturn(fluxOf("a", "b", "c"));
 
@@ -443,7 +445,7 @@ class AgentChatCallerTest {
                 .block();
 
         assertEquals(List.of("a", "b", "c"), tokens);
-        verify(clientRegistry, never()).invalidate(any());
+        verify(llmClientRegistry, never()).invalidate(any());
     }
 
     /** 带思考增量的 ChatResponse 帧：AssistantMessage 的 metadata 构造器为 protected，经 mock 注入 */

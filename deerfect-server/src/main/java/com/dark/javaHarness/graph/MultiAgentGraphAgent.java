@@ -12,6 +12,9 @@ import com.dark.javaHarness.graph.engine.OrchestrationEngine;
 import com.dark.javaHarness.graph.engine.ParallelOrchestrationEngine;
 import com.dark.javaHarness.state.OrchestrationStateKeys;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
+import com.dark.javaHarness.llm.catalog.AgentCatalog;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.ModelResolver;
 import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.PromptAssembler;
@@ -136,7 +139,8 @@ public class MultiAgentGraphAgent implements Agent {
                                 ChatTimeoutProperties timeouts) {
         this(agentName, clientRegistry, agentService, toolAssignments, recorder,
                 checkpointStore, budgets, memoryStore, lazyTools, promptAssembler,
-                skillManager, knowledgeRetriever, timeouts, null, null, null);
+                skillManager, knowledgeRetriever, timeouts, null, null, null,
+                null, null, null);
     }
 
     /**
@@ -159,7 +163,8 @@ public class MultiAgentGraphAgent implements Agent {
                                 RagPrefetcher ragPrefetcher) {
         this(agentName, clientRegistry, agentService, toolAssignments, recorder,
                 checkpointStore, budgets, memoryStore, lazyTools, promptAssembler,
-                skillManager, knowledgeRetriever, timeouts, ragPrefetcher, null, null);
+                skillManager, knowledgeRetriever, timeouts, ragPrefetcher, null, null,
+                null, null, null);
     }
 
     /**
@@ -190,7 +195,10 @@ public class MultiAgentGraphAgent implements Agent {
                                 ChatTimeoutProperties timeouts,
                                 RagPrefetcher ragPrefetcher,
                                 AgentConfigProvider agentConfigProvider,
-                                ContextCompositionRecorder compositionRecorder) {
+                                ContextCompositionRecorder compositionRecorder,
+                                ModelResolver modelResolver,
+                                AgentCatalog llmAgentCatalog,
+                                LlmClientRegistry llmClientRegistry) {
         ToolLazyManager lazy = lazyTools != null ? lazyTools : new ToolLazyManager(toolAssignments, false);
         this.agentName = agentName;
         // 工具索引段与延迟加载同源：开启时索引段追加 expand_tool 使用引导（与轻量态工具面对齐）
@@ -198,7 +206,8 @@ public class MultiAgentGraphAgent implements Agent {
                 : new PromptAssembler(agentService, toolAssignments, List.of(), List.of(), List.of(), lazy.isEnabled());
         AgentChatCaller chatCaller = new AgentChatCaller(clientRegistry, agentService, toolAssignments, recorder,
                 new LlmRetry(), budgets, assembler, memoryStore, lazy, skillManager,
-                knowledgeRetriever, timeouts, compositionRecorder);
+                knowledgeRetriever, timeouts, compositionRecorder, modelResolver, llmAgentCatalog,
+                llmClientRegistry);
         this.budgets = budgets != null ? budgets : new ContextBudgetProperties();
         this.orchestrationBudget = new OrchestrationBudget(this.budgets);
         this.nodes = new OrchestrationNodes(chatCaller, assembler, this.budgets, this.orchestrationBudget,
@@ -206,6 +215,28 @@ public class MultiAgentGraphAgent implements Agent {
         this.engine = new ParallelOrchestrationEngine(this.nodes, this.orchestrationBudget,
                 checkpointStore, this.budgets.getSubtaskConcurrency());
         this.streamPipeline = new MultiAgentStreamPipeline();
+    }
+
+    /** 旧全参重载（单测）：未注入新解析链。 */
+    public MultiAgentGraphAgent(String agentName,
+                                ChatClientRegistry clientRegistry,
+                                AgentService agentService,
+                                ToolAssignments toolAssignments,
+                                LlmCallRecorder recorder,
+                                OrchestrationCheckpointStore checkpointStore,
+                                ContextBudgetProperties budgets,
+                                SessionService memoryStore,
+                                ToolLazyManager lazyTools,
+                                PromptAssembler promptAssembler,
+                                SkillManager skillManager,
+                                KnowledgeRetriever knowledgeRetriever,
+                                ChatTimeoutProperties timeouts,
+                                RagPrefetcher ragPrefetcher,
+                                AgentConfigProvider agentConfigProvider,
+                                ContextCompositionRecorder compositionRecorder) {
+        this(agentName, clientRegistry, agentService, toolAssignments, recorder, checkpointStore,
+                budgets, memoryStore, lazyTools, promptAssembler, skillManager, knowledgeRetriever,
+                timeouts, ragPrefetcher, agentConfigProvider, compositionRecorder, null, null, null);
     }
 
     @Override

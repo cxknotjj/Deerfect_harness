@@ -50,7 +50,7 @@ class AgentScopeGeneralAgentTest {
         when(fallback.executeStreamReactive(any())).thenReturn(Flux.just("fallback-reply"));
 
         AgentScopeModelFactory factory = mock(AgentScopeModelFactory.class);
-        when(factory.build(any())).thenThrow(new IllegalStateException("模型不可用"));
+        when(factory.build(any(), any())).thenThrow(new IllegalStateException("模型不可用"));
 
         AgentScopeGeneralAgent agent = newAgent(factory, fallback);
         Goal goal = new Goal("goal-fallback", "你好", SESSION, "turn-1", "trace-1");
@@ -68,8 +68,8 @@ class AgentScopeGeneralAgentTest {
     @EnabledIfEnvironmentVariable(named = "DEEPSEEK_API_KEY", matches = ".+")
     void streamsReActContentAndRecordsObservation() {
         AgentScopeModelFactory factory = mock(AgentScopeModelFactory.class);
-        when(factory.build(any())).thenReturn(realDeepSeekModel());
-        when(factory.modelName(any())).thenReturn("deepseek-chat");
+        when(factory.build(any(), any())).thenReturn(realDeepSeekModel());
+        when(factory.modelName(any(), any())).thenReturn("deepseek-chat");
 
         LlmCallRecorder recorder = mock(LlmCallRecorder.class);
         AgentScopeGeneralAgent agent = newAgent(factory, null, recorder);
@@ -89,8 +89,8 @@ class AgentScopeGeneralAgentTest {
     @EnabledIfEnvironmentVariable(named = "DEEPSEEK_API_KEY", matches = ".+")
     void historyInjectionAndSpringAiToolBridgeWorkTogether() {
         AgentScopeModelFactory factory = mock(AgentScopeModelFactory.class);
-        when(factory.build(any())).thenReturn(realDeepSeekModel());
-        when(factory.modelName(any())).thenReturn("deepseek-chat");
+        when(factory.build(any(), any())).thenReturn(realDeepSeekModel());
+        when(factory.modelName(any(), any())).thenReturn("deepseek-chat");
 
         LlmCallRecorder recorder = mock(LlmCallRecorder.class);
         ToolAssignments assignments = mock(ToolAssignments.class);

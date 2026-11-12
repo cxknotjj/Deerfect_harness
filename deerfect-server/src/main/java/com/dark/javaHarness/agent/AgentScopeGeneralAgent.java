@@ -11,6 +11,9 @@ import com.dark.javaHarness.contract.model.AgentConfig;
 import com.dark.javaHarness.contract.model.ChatAttachment;
 import com.dark.javaHarness.contract.model.Goal;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
+import com.dark.javaHarness.llm.catalog.AgentCatalog;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.ModelResolver;
 import com.dark.javaHarness.observability.LlmCallObserver;
 import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.prompt.ContextCompositionRecorder;
@@ -119,7 +122,10 @@ public class AgentScopeGeneralAgent implements Agent {
                                   AgentScopeModelFactory modelFactory,
                                   AgenticProperties agentic,
                                   Agent fallback,
-                                  ContextCompositionRecorder compositionRecorder) {
+                                  ContextCompositionRecorder compositionRecorder,
+                                  ModelResolver modelResolver,
+                                  AgentCatalog llmAgentCatalog,
+                                  LlmClientRegistry llmClientRegistry) {
         this.agentName = agentName;
         this.agentService = agentService;
         this.memoryStore = memoryStore;
@@ -131,8 +137,33 @@ public class AgentScopeGeneralAgent implements Agent {
         this.fallback = fallback;
         this.compositionRecorder = compositionRecorder;
         this.specFactory = new AgentRequestSpecFactory(clientRegistry, promptAssembler, toolAssignments,
-                lazyTools, skillManager, memoryStore, budgets, knowledgeRetriever, recorder);
+                lazyTools, skillManager, memoryStore, budgets, knowledgeRetriever, recorder,
+                com.dark.javaHarness.tool.DefaultToolDecorators.defaults(lazyTools, skillManager,
+                        budgets, recorder), null,
+                modelResolver, llmAgentCatalog, llmClientRegistry);
         this.observer = new LlmCallObserver(recorder);
+    }
+
+    /** 旧全参重载（单测）：未注入新解析链。 */
+    public AgentScopeGeneralAgent(String agentName,
+                                  ChatClientRegistry clientRegistry,
+                                  AgentService agentService,
+                                  SessionService memoryStore,
+                                  ToolAssignments toolAssignments,
+                                  LlmCallRecorder recorder,
+                                  ContextBudgetProperties budgets,
+                                  ToolLazyManager lazyTools,
+                                  PromptAssembler promptAssembler,
+                                  SkillManager skillManager,
+                                  KnowledgeRetriever knowledgeRetriever,
+                                  ChatTimeoutProperties timeouts,
+                                  AgentScopeModelFactory modelFactory,
+                                  AgenticProperties agentic,
+                                  Agent fallback,
+                                  ContextCompositionRecorder compositionRecorder) {
+        this(agentName, clientRegistry, agentService, memoryStore, toolAssignments, recorder, budgets,
+                lazyTools, promptAssembler, skillManager, knowledgeRetriever, timeouts, modelFactory,
+                agentic, fallback, compositionRecorder, null, null, null);
     }
 
     @Override
@@ -230,7 +261,7 @@ public class AgentScopeGeneralAgent implements Agent {
         }
 
         // 3) 模型与 ReAct 执行体
-        Model model = modelFactory.build(config);
+        Model model = modelFactory.build(agentName, config);
         ReActAgent agent = buildAgent(model, system.text(), toolkit, config);
         List<Msg> messages = toAgentScopeMessages(trimmed);
         messages.add(userMessage(goal.objective(), attachments));
@@ -238,7 +269,7 @@ public class AgentScopeGeneralAgent implements Agent {
         if (compositionRecorder != null && sessionId != null && !sessionId.isBlank()) {
             List<Message> finalMessages = new ArrayList<>(trimmed);
             finalMessages.add(new org.springframework.ai.chat.messages.UserMessage(goal.objective()));
-            compositionRecorder.record(sessionId, agentName, modelFactory.modelName(config),
+            compositionRecorder.record(sessionId, agentName, modelFactory.modelName(agentName, config),
                     trace.turnId(), system, AgentRequestSpecFactory.toolSchemaTokens(tools),
                     finalMessages);
         }
@@ -250,7 +281,7 @@ public class AgentScopeGeneralAgent implements Agent {
         AtomicLong firstTokenAt = new AtomicLong();
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
         AtomicBoolean completed = new AtomicBoolean();
-        CallContext ctx = new CallContext(observer, sessionId, agentName, modelFactory.modelName(config),
+        CallContext ctx = new CallContext(observer, sessionId, agentName, modelFactory.modelName(agentName, config),
                 promptAssembler.attachmentsOf(agentName), trace.turnId(), trace.traceId(), spanId,
                 trace.parentSpan());
 

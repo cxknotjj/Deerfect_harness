@@ -9,7 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.dark.javaHarness.config.agent.ChatClientRegistry;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeoutException;
@@ -38,7 +38,7 @@ import reactor.core.publisher.Flux;
 class AgentChatPipelineTest {
 
     @Mock
-    private ChatClientRegistry clientRegistry;
+    private LlmClientRegistry clientRegistry;
     @Mock
     private ChatClient.ChatClientRequestSpec spec;
     @Mock

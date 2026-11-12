@@ -1,9 +1,12 @@
 package com.dark.javaHarness.agent.agentic;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dark.javaHarness.config.agent.ChatClientFactory;
 import com.dark.javaHarness.contract.model.AgentConfig;
+import com.dark.javaHarness.domain.entity.AgentEntity;
 import com.dark.javaHarness.domain.entity.ModelProviderEntity;
+import com.dark.javaHarness.llm.catalog.AgentCatalog;
+import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RoutePlan;
 import com.dark.javaHarness.mapper.ModelProviderMapper;
 import io.agentscope.core.model.GenerateOptions;
 import io.agentscope.core.model.Model;
@@ -28,39 +31,41 @@ public class AgentScopeModelFactory {
 
     private final ModelProviderMapper modelProviderMapper;
     private final ChatClientFactory chatClientFactory;
+    private final ModelResolver modelResolver;
+    private final AgentCatalog agentCatalog;
 
     public AgentScopeModelFactory(ModelProviderMapper modelProviderMapper,
-                                  ChatClientFactory chatClientFactory) {
+                                  ChatClientFactory chatClientFactory,
+                                  ModelResolver modelResolver,
+                                  AgentCatalog agentCatalog) {
         this.modelProviderMapper = modelProviderMapper;
         this.chatClientFactory = chatClientFactory;
+        this.modelResolver = modelResolver;
+        this.agentCatalog = agentCatalog;
     }
 
-    /** 解析模型行：优先按 agent 绑定的 model_provider_id，未绑定回退按模型名查启用行。 */
-    public ModelProviderEntity resolveRow(AgentConfig config) {
-        if (config == null) {
-            return null;
+    /** 解析模型行：Agent → 路由 → 首选成员；不按模型名兜底。 */
+    public ModelProviderEntity resolveRow(String agentName, AgentConfig config) {
+        if (agentName == null || agentName.isBlank()) {
+            throw new IllegalStateException("agentName 不能为空");
         }
-        if (config.modelProviderId() != null) {
-            ModelProviderEntity row = modelProviderMapper.selectById(config.modelProviderId());
-            if (row != null && row.getStatus() != null && row.getStatus() == 1) {
-                return row;
-            }
+        AgentEntity agent = agentCatalog.require(agentName);
+        RoutePlan plan = modelResolver.resolve(agent.getRouteId());
+        RoutePlan.Member primary = plan.members().get(0);
+        ModelProviderEntity row = modelProviderMapper.selectById(primary.modelId());
+        if (row == null) {
+            throw new IllegalStateException("路由 " + plan.routeCode() + " 的模型不存在: modelId="
+                    + primary.modelId());
         }
-        if (config.model() == null || config.model().isBlank()) {
-            return null;
-        }
-        return modelProviderMapper.selectOne(new LambdaQueryWrapper<ModelProviderEntity>()
-                .eq(ModelProviderEntity::getModel, config.model())
-                .eq(ModelProviderEntity::getStatus, 1)
-                .last("LIMIT 1"));
+        return row;
     }
 
     /**
      * 构建 OpenAI 兼容的 AgentScope Model；行缺失或 Key 未配置时抛 IllegalStateException
      * （调用方据此回退 ChatClient 路径）。
      */
-    public Model build(AgentConfig config) {
-        ModelProviderEntity row = resolveRow(config);
+    public Model build(String agentName, AgentConfig config) {
+        ModelProviderEntity row = resolveRow(agentName, config);
         if (row == null) {
             throw new IllegalStateException("未找到可用的 model_provider 行（model="
                     + (config == null ? null : config.model()) + "）");
@@ -93,10 +98,10 @@ public class AgentScopeModelFactory {
     }
 
     /** 观测用模型名（与构建口径一致）。 */
-    public String modelName(AgentConfig config) {
-        ModelProviderEntity row = resolveRow(config);
+    public String modelName(String agentName, AgentConfig config) {
+        ModelProviderEntity row = resolveRow(agentName, config);
         if (row == null) {
-            return config == null ? null : config.model();
+            return null;
         }
         return config != null && config.model() != null && !config.model().isBlank()
                 ? config.model() : row.getModel();

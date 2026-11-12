@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
 
 /** 客户端注册表：按 id 缓存、失效重建、缺失报错。 */
-class ClientRegistryTest {
+class LlmClientRegistryTest {
 
     @Test
     void get_cachesByModelId() {
@@ -56,7 +56,7 @@ class ClientRegistryTest {
     private static final class Fixture {
         final LlmClientFactory factory = mock(LlmClientFactory.class);
         final ProviderCatalog catalog = mock(ProviderCatalog.class);
-        final ClientRegistry registry;
+        final LlmClientRegistry registry;
 
         Fixture() {
             LlmModelEntity model = new LlmModelEntity();
@@ -72,7 +72,7 @@ class ClientRegistryTest {
             when(catalog.requireModel(10L)).thenReturn(model);
             when(catalog.requireProvider(1L)).thenReturn(provider);
             when(factory.build(any())).thenReturn(mock(ChatClient.class));
-            registry = new ClientRegistry(factory, catalog);
+            registry = new LlmClientRegistry(factory, catalog);
         }
     }
 }

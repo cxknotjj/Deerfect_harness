@@ -7,6 +7,11 @@ import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.config.agent.ChatClientFactory;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.contract.model.AgentConfig;
+import com.dark.javaHarness.llm.catalog.AgentCatalog;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.FailurePolicy;
+import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RoutePlan;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.observability.LlmCallObserver;
 import com.dark.javaHarness.observability.LlmCallRecorder;
@@ -22,6 +27,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
@@ -74,6 +80,8 @@ public final class AgentChatCaller {
     private final AgentChatPipeline pipeline;
     /** 角色装配策略（超长类拆分 2026-09-25 拆出） */
     private final CallSpecAssembler assembler;
+    /** 新解析链的客户端注册表（按 model_id）：失败切换时按成员 id 丢池 */
+    private final LlmClientRegistry llmClientRegistry;
 
     AgentChatCaller(ChatClientRegistry clientRegistry,
                     AgentService agentService,
@@ -98,7 +106,7 @@ public final class AgentChatCaller {
                     ContextBudgetProperties budgets) {
         this(clientRegistry, agentService, toolAssignments, recorder, retry, budgets,
                 new PromptAssembler(agentService, toolAssignments), null, null, null, null, null,
-                null);
+                null, null, null, null);
     }
 
     /**
@@ -121,8 +129,12 @@ public final class AgentChatCaller {
                     SkillManager skillManager,
                     KnowledgeRetriever knowledgeRetriever,
                     ChatTimeoutProperties timeouts,
-                    ContextCompositionRecorder compositionRecorder) {
+                    ContextCompositionRecorder compositionRecorder,
+                    ModelResolver modelResolver,
+                    AgentCatalog llmAgentCatalog,
+                    LlmClientRegistry llmClientRegistry) {
         this.agentService = agentService;
+        this.llmClientRegistry = llmClientRegistry;
         this.observer = new LlmCallObserver(recorder);
         this.retry = retry;
         this.budgets = budgets != null ? budgets : new ContextBudgetProperties();
@@ -131,16 +143,36 @@ public final class AgentChatCaller {
                 toolAssignments, lazy, skillManager, memoryStore, this.budgets,
                 knowledgeRetriever, recorder,
                 DefaultToolDecorators.defaults(lazy, skillManager,
-                        this.budgets, recorder), compositionRecorder);
+                        this.budgets, recorder), compositionRecorder,
+                modelResolver, llmAgentCatalog, llmClientRegistry);
         Duration streamIdleTimeout = ChatClientFactory.resolve(
                 timeouts != null ? timeouts.getStreamIdleTimeoutSeconds() : null,
                 DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS);
         Duration firstFrameTimeout = ChatClientFactory.resolve(
                 timeouts != null ? timeouts.getFirstFrameTimeoutSeconds() : null,
                 DEFAULT_FIRST_FRAME_TIMEOUT_SECONDS);
-        this.pipeline = new AgentChatPipeline(clientRegistry, this.specFactory, streamIdleTimeout,
+        this.pipeline = new AgentChatPipeline(llmClientRegistry, this.specFactory, streamIdleTimeout,
                 firstFrameTimeout);
         this.assembler = new CallSpecAssembler(promptAssembler, memoryStore, this.budgets);
+    }
+
+    /** 旧全参重载（单测）：未注入新解析链。 */
+    public AgentChatCaller(ChatClientRegistry clientRegistry,
+                    AgentService agentService,
+                    ToolAssignments toolAssignments,
+                    LlmCallRecorder recorder,
+                    LlmRetry retry,
+                    ContextBudgetProperties budgets,
+                    PromptAssembler promptAssembler,
+                    SessionService memoryStore,
+                    ToolLazyManager lazyTools,
+                    SkillManager skillManager,
+                    KnowledgeRetriever knowledgeRetriever,
+                    ChatTimeoutProperties timeouts,
+                    ContextCompositionRecorder compositionRecorder) {
+        this(clientRegistry, agentService, toolAssignments, recorder, retry, budgets, promptAssembler,
+                memoryStore, lazyTools, skillManager, knowledgeRetriever, timeouts, compositionRecorder,
+                null, null, null);
     }
 
     /**
@@ -338,6 +370,64 @@ public final class AgentChatCaller {
                                          Consumer<String> reasoningTap) {
         return pipeline.tokenStreamWithWatchdog(spec, usageRef, ledger, prevTotal, firstTokenAt, modelProviderId,
                 reasoningTap);
+    }
+
+    /**
+     * 路由感知的响应式流：按成员优先级尝试，只有"尚未输出任何 token"时才切换下一个成员；
+     * 同成员重试仍由调用方外层的 {@link #streamWithRetry} 负责。
+     */
+    Flux<String> streamWithRoute(AgentConfig config, String sessionId, String forAgent,
+                                 String fallbackSystem, String user,
+                                 AgentRequestSpecFactory.Assembly assembly, CallTrace trace,
+                                 BooleanSupplier cancelled,
+                                 AtomicReference<Usage> usageRef,
+                                 AtomicLong firstTokenAt,
+                                 Consumer<String> reasoningTap) {
+        RoutePlan plan = specFactory.routePlan(config, forAgent);
+        if (plan == null) {
+            return tokenStreamWithWatchdog(specFactory.build(config, sessionId, forAgent, fallbackSystem,
+                            user, assembly, trace),
+                    usageRef, null, null, firstTokenAt, null, reasoningTap);
+        }
+        return streamRouteMember(plan, 0, config, sessionId, forAgent, fallbackSystem, user, assembly,
+                trace, cancelled, usageRef, firstTokenAt, reasoningTap);
+    }
+
+    private Flux<String> streamRouteMember(RoutePlan plan, int index,
+                                           AgentConfig config, String sessionId, String forAgent,
+                                           String fallbackSystem, String user,
+                                           AgentRequestSpecFactory.Assembly assembly, CallTrace trace,
+                                           BooleanSupplier cancelled,
+                                           AtomicReference<Usage> usageRef,
+                                           AtomicLong firstTokenAt,
+                                           Consumer<String> reasoningTap) {
+        if (index >= plan.members().size()) {
+            return Flux.error(new IllegalStateException("路由无可用成员: " + plan.routeCode()));
+        }
+        RoutePlan.Member member = plan.members().get(index);
+        AtomicBoolean emitted = new AtomicBoolean();
+        return Flux.defer(() -> tokenStreamWithWatchdog(
+                        specFactory.build(config, sessionId, forAgent, fallbackSystem, user, assembly,
+                                trace, member),
+                        usageRef, null, null, firstTokenAt, member.modelId(), reasoningTap))
+                .doOnNext(__ -> emitted.set(true))
+                .onErrorResume(e -> {
+                    if ((cancelled != null && cancelled.getAsBoolean()) || emitted.get()
+                            || e instanceof CancellationException) {
+                        return Flux.error(e);
+                    }
+                    FailurePolicy.Action action = FailurePolicy.classify(e);
+                    if (llmClientRegistry != null) {
+                        llmClientRegistry.invalidate(member.modelId());
+                    }
+                    if (action == FailurePolicy.Action.FAIL) {
+                        return Flux.error(e);
+                    }
+                    log.warn("[llm] 路由 {} 成员 {} 失败，切换下一成员: {}",
+                            plan.routeCode(), member.modelId(), e.getMessage());
+                    return streamRouteMember(plan, index + 1, config, sessionId, forAgent, fallbackSystem,
+                            user, assembly, trace, cancelled, usageRef, firstTokenAt, reasoningTap);
+                });
     }
 
     /**

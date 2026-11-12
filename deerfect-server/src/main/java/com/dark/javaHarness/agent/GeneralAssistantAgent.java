@@ -7,6 +7,9 @@ import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.contract.model.AgentConfig;
 import com.dark.javaHarness.contract.model.Goal;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
+import com.dark.javaHarness.llm.catalog.AgentCatalog;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.ModelResolver;
 import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.PromptAssembler;
@@ -114,7 +117,8 @@ public class GeneralAssistantAgent implements Agent {
                                  PromptAssembler promptAssembler,
                                  SkillManager skillManager) {
         this(agentName, clientRegistry, memoryStore, agentService, toolAssignments,
-                recorder, budgets, lazyTools, promptAssembler, skillManager, null, null, null);
+                recorder, budgets, lazyTools, promptAssembler, skillManager, null, null, null,
+                null, null, null);
     }
 
     /**
@@ -135,7 +139,10 @@ public class GeneralAssistantAgent implements Agent {
                                  SkillManager skillManager,
                                  KnowledgeRetriever knowledgeRetriever,
                                  ChatTimeoutProperties timeouts,
-                                 ContextCompositionRecorder compositionRecorder) {
+                                 ContextCompositionRecorder compositionRecorder,
+                                 ModelResolver modelResolver,
+                                 AgentCatalog llmAgentCatalog,
+                                 LlmClientRegistry llmClientRegistry) {
         this.agentName = agentName;
         this.agentService = agentService;
         ToolLazyManager effectiveLazy = lazyTools != null ? lazyTools : new ToolLazyManager(toolAssignments, false);
@@ -150,7 +157,8 @@ public class GeneralAssistantAgent implements Agent {
         this.streamRetry = new LlmRetry();
         this.chatCaller = new AgentChatCaller(clientRegistry, agentService, toolAssignments, recorder,
                 streamRetry, effectiveBudgets, effectiveAssembler, memoryStore, effectiveLazy,
-                skillManager, knowledgeRetriever, timeouts, compositionRecorder);
+                skillManager, knowledgeRetriever, timeouts, compositionRecorder,
+                modelResolver, llmAgentCatalog, llmClientRegistry);
     }
 
     /** 返回 Agent 名称（用于注册与路由） */
@@ -235,11 +243,11 @@ public class GeneralAssistantAgent implements Agent {
                         attempt -> {
                             attemptRef.set(attempt);
                             attemptStartRef.set(System.currentTimeMillis());
-                            return chatCaller.tokenStreamWithWatchdog(
-                                            chatCaller.buildSpec(config, goal.sessionId(), agentName,
-                                                    DEFAULT_SYSTEM_PROMPT, goal.objective(), assembly,
-                                                    CallTrace.fromGoal(goal).withSpan(spanId)),
-                                            usageRef, null, null, firstTokenAt, config.modelProviderId(), reasoningTap)
+                            return chatCaller.streamWithRoute(
+                                            config, goal.sessionId(), agentName,
+                                            DEFAULT_SYSTEM_PROMPT, goal.objective(), assembly,
+                                            CallTrace.fromGoal(goal).withSpan(spanId),
+                                            null, usageRef, firstTokenAt, reasoningTap)
                                     .doOnNext(collected::append)
                                     .doOnError(streamError::set);
                         },

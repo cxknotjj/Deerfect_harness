@@ -7,6 +7,9 @@ import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.enums.AgentConstants;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
+import com.dark.javaHarness.llm.catalog.AgentCatalog;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.ModelResolver;
 import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.PromptAssembler;
@@ -65,6 +68,10 @@ public class AgentRegistry {
     private final AgentScopeModelFactory agentScopeModelFactory;
     /** 上下文构成快照写入器（Path A advisor / Path B 直写；null = 不记录，测试场景） */
     private final ContextCompositionRecorder compositionRecorder;
+    /** 新解析链：Agent → 路由 → 模型，供 General/AgentScope 实例使用 */
+    private final ModelResolver llmModelResolver;
+    private final AgentCatalog llmAgentCatalog;
+    private final LlmClientRegistry llmClientRegistry;
 
     /** 已注册路由表（agentName → 实例）；computeIfAbsent 保证并发惰性注册单次构造 */
     private final ConcurrentHashMap<String, Agent> agents = new ConcurrentHashMap<>();
@@ -79,7 +86,8 @@ public class AgentRegistry {
                          ContextBudgetProperties budgets,
                          ToolLazyManager lazyTools) {
         this(provider, agentServiceProvider, clientRegistry, memoryStore, toolAssignments,
-                recorder, budgets, lazyTools, null, null);
+                recorder, budgets, lazyTools, null, null, null, null,
+                null, null, null, null, null, null);
     }
 
     /** 全参构造：promptAssembler 为共享 bean（含 skill 段提供者），skillManager 供 GA 注册 load_skill 元工具 */
@@ -95,7 +103,7 @@ public class AgentRegistry {
                          SkillManager skillManager) {
         this(provider, agentServiceProvider, clientRegistry, memoryStore, toolAssignments,
                 recorder, budgets, lazyTools, promptAssembler, skillManager, null, null,
-                null, null, null);
+                null, null, null, null, null, null);
     }
 
     /** 全参构造（含 RAG 知识检索）：knowledgeRetriever 仅知识库启用时非 null（ChatAgentConfig 经 ObjectProvider 注入） */
@@ -113,7 +121,7 @@ public class AgentRegistry {
                          ChatTimeoutProperties timeouts) {
         this(provider, agentServiceProvider, clientRegistry, memoryStore, toolAssignments, recorder,
                 budgets, lazyTools, promptAssembler, skillManager, knowledgeRetriever, timeouts,
-                null, null, null);
+                null, null, null, null, null, null);
     }
 
     /**
@@ -136,7 +144,10 @@ public class AgentRegistry {
                          ChatTimeoutProperties timeouts,
                          AgenticProperties agenticProperties,
                          AgentScopeModelFactory agentScopeModelFactory,
-                         ContextCompositionRecorder compositionRecorder) {
+                         ContextCompositionRecorder compositionRecorder,
+                         ModelResolver llmModelResolver,
+                         AgentCatalog llmAgentCatalog,
+                         LlmClientRegistry llmClientRegistry) {
         this.provider = provider;
         this.agentServiceProvider = agentServiceProvider;
         this.clientRegistry = clientRegistry;
@@ -152,6 +163,30 @@ public class AgentRegistry {
         this.agenticProperties = agenticProperties;
         this.agentScopeModelFactory = agentScopeModelFactory;
         this.compositionRecorder = compositionRecorder;
+        this.llmModelResolver = llmModelResolver;
+        this.llmAgentCatalog = llmAgentCatalog;
+        this.llmClientRegistry = llmClientRegistry;
+    }
+
+    /** 旧全参重载（单测）：未注入新解析链。 */
+    public AgentRegistry(AgentConfigProvider provider,
+                         ObjectProvider<AgentService> agentServiceProvider,
+                         ChatClientRegistry clientRegistry,
+                         SessionService memoryStore,
+                         ToolAssignments toolAssignments,
+                         LlmCallRecorder recorder,
+                         ContextBudgetProperties budgets,
+                         ToolLazyManager lazyTools,
+                         PromptAssembler promptAssembler,
+                         SkillManager skillManager,
+                         KnowledgeRetriever knowledgeRetriever,
+                         ChatTimeoutProperties timeouts,
+                         AgenticProperties agenticProperties,
+                         AgentScopeModelFactory agentScopeModelFactory,
+                         ContextCompositionRecorder compositionRecorder) {
+        this(provider, agentServiceProvider, clientRegistry, memoryStore, toolAssignments, recorder,
+                budgets, lazyTools, promptAssembler, skillManager, knowledgeRetriever, timeouts,
+                agenticProperties, agentScopeModelFactory, compositionRecorder, null, null, null);
     }
 
     /** 启动注册：注册 agent 表全部对话 Agent 行（is_internal=0），逐行容错；general 行缺失时代码兜底注册。
@@ -226,14 +261,15 @@ public class AgentRegistry {
     private Agent createGeneralAssistant(String agentName) {
         Agent chatClientAgent = new GeneralAssistantAgent(agentName, clientRegistry, memoryStore,
                 agentServiceProvider.getObject(), toolAssignments, recorder, budgets, lazyTools,
-                promptAssembler, skillManager, knowledgeRetriever, timeouts, compositionRecorder);
+                promptAssembler, skillManager, knowledgeRetriever, timeouts, compositionRecorder,
+                llmModelResolver, llmAgentCatalog, llmClientRegistry);
         if (agenticProperties == null || !agenticProperties.isEnabled() || agentScopeModelFactory == null) {
             return chatClientAgent;
         }
         return new AgentScopeGeneralAgent(agentName, clientRegistry, agentServiceProvider.getObject(),
                 memoryStore, toolAssignments, recorder, budgets, lazyTools, promptAssembler,
                 skillManager, knowledgeRetriever, timeouts, agentScopeModelFactory, agenticProperties,
-                chatClientAgent, compositionRecorder);
+                chatClientAgent, compositionRecorder, llmModelResolver, llmAgentCatalog, llmClientRegistry);
     }
 
     /** 统一「未知 Agent」文案：含可用列表，不泄漏底层异常。 */

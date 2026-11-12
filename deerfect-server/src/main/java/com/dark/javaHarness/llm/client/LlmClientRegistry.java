@@ -12,21 +12,22 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Component;
 
 /**
- * 客户端注册表：按 model_id 缓存与失效。
+ * LLM 客户端注册表：按 model_id 缓存与失效。
  *
  * <p>缓存键与失效键一律是部署模型 id，不存在按模型名或供应商标识的入口。
+ * 与旧 {@code ChatClientRegistry}（model_provider + 按名索引）隔离，后者将在 H2 删除。
  */
 @Component
-public class ClientRegistry {
+public class LlmClientRegistry {
 
-    private static final Logger log = LoggerFactory.getLogger(ClientRegistry.class);
+    private static final Logger log = LoggerFactory.getLogger(LlmClientRegistry.class);
 
     private final LlmClientFactory clientFactory;
     private final ProviderCatalog providerCatalog;
 
     private final Map<Long, ChatClient> clients = new ConcurrentHashMap<>();
 
-    public ClientRegistry(LlmClientFactory clientFactory, ProviderCatalog providerCatalog) {
+    public LlmClientRegistry(LlmClientFactory clientFactory, ProviderCatalog providerCatalog) {
         this.clientFactory = clientFactory;
         this.providerCatalog = providerCatalog;
     }

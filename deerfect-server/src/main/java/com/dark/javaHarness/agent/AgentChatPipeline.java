@@ -3,6 +3,9 @@ package com.dark.javaHarness.agent;
 import com.dark.javaHarness.agent.BudgetLedger;
 import com.dark.javaHarness.config.agent.ChatClientRegistry;
 import com.dark.javaHarness.contract.model.AgentConfig;
+import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.FailurePolicy;
+import com.dark.javaHarness.llm.routing.RoutePlan;
 import java.time.Duration;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BooleanSupplier;
@@ -22,7 +25,7 @@ final class AgentChatPipeline {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AgentChatPipeline.class);
 
-    private final ChatClientRegistry clientRegistry;
+    private final LlmClientRegistry clientRegistry;
     private final AgentRequestSpecFactory specFactory;
     /**
      * 流式调用空闲超时：相邻信号间隔超过该时长即判定端点挂起，超时失败（不可重试——
@@ -36,7 +39,7 @@ final class AgentChatPipeline {
      */
     private final Duration firstFrameTimeout;
 
-    AgentChatPipeline(ChatClientRegistry clientRegistry,
+    AgentChatPipeline(LlmClientRegistry clientRegistry,
                       AgentRequestSpecFactory specFactory,
                       Duration streamIdleTimeout,
                       Duration firstFrameTimeout) {
@@ -121,7 +124,7 @@ final class AgentChatPipeline {
                     // 4xx（除 408）= 请求内容/鉴权被供应商拒绝，连接本身健康：丢池无助益且
                     // 波及同池在途请求，跳过重建；其余（网络黑洞/看门狗超时/5xx）保持丢池，
                     // 重试即拿全新连接
-                    if (!LlmErrorClassifier.isClientRequestError(e)) {
+                    if (!LlmErrorClassifier.isClientRequestError(e) && clientRegistry != null) {
                         clientRegistry.invalidate(modelProviderId);
                     }
                 });
@@ -142,11 +145,57 @@ final class AgentChatPipeline {
                       java.util.concurrent.atomic.AtomicLong prevTotal,
                       java.util.concurrent.atomic.AtomicLong firstTokenAt, BudgetLedger ledger,
                       Consumer<String> reasoningTap) {
+        RoutePlan plan = specFactory.routePlan(config, forAgent);
+        if (plan == null) {
+            return streamSingle(config, sessionId, forAgent, fallbackSystem, user, assembly,
+                    extraAdvisors, trace, collected, onToken, cancelled, usageRef, prevTotal,
+                    firstTokenAt, ledger, reasoningTap, null);
+        }
+        RuntimeException last = null;
+        for (RoutePlan.Member member : plan.members()) {
+            int before = collected.length();
+            try {
+                return streamSingle(config, sessionId, forAgent, fallbackSystem, user, assembly,
+                        extraAdvisors, trace, collected, onToken, cancelled, usageRef, prevTotal,
+                        firstTokenAt, ledger, reasoningTap, member);
+            } catch (RuntimeException e) {
+                if (cancelled != null && cancelled.getAsBoolean()) {
+                    throw CallCancellation.cancelException();
+                }
+                if (e instanceof BudgetLedger.BudgetExceededException
+                        || e instanceof java.util.concurrent.CancellationException
+                        || collected.length() > before) {
+                    throw e;
+                }
+                FailurePolicy.Action action = FailurePolicy.classify(e);
+                if (clientRegistry != null) {
+                    clientRegistry.invalidate(member.modelId());
+                }
+                if (action == FailurePolicy.Action.FAIL) {
+                    throw e;
+                }
+                last = e;
+                log.warn("[llm] 路由 {} 成员 {} 失败，切换下一成员: {}",
+                        plan.routeCode(), member.modelId(), e.getMessage());
+            }
+        }
+        throw last != null ? last : new IllegalStateException("路由无可用成员: " + plan.routeCode());
+    }
+
+    private String streamSingle(AgentConfig config, String sessionId, String forAgent, String fallbackSystem,
+                                String user, AgentRequestSpecFactory.Assembly assembly,
+                                org.springframework.ai.chat.client.advisor.api.Advisor[] extraAdvisors,
+                                CallTrace trace, StringBuilder collected, Consumer<String> onToken,
+                                BooleanSupplier cancelled,
+                                java.util.concurrent.atomic.AtomicReference<Usage> usageRef,
+                                java.util.concurrent.atomic.AtomicLong prevTotal,
+                                java.util.concurrent.atomic.AtomicLong firstTokenAt, BudgetLedger ledger,
+                                Consumer<String> reasoningTap, RoutePlan.Member member) {
         tokenStreamWithWatchdog(
-                        specFactory.build(config, sessionId, forAgent, fallbackSystem, user, assembly, trace,
-                                extraAdvisors),
-                        usageRef, ledger, prevTotal, firstTokenAt, config != null ? config.modelProviderId() : null,
-                        reasoningTap)
+                        specFactory.build(config, sessionId, forAgent, fallbackSystem, user, assembly,
+                                trace, member, extraAdvisors),
+                        usageRef, ledger, prevTotal, firstTokenAt,
+                        member == null ? null : member.modelId(), reasoningTap)
                 .takeUntil(__ -> cancelled != null && cancelled.getAsBoolean())
                 .doOnNext(token -> {
                     if (cancelled != null && cancelled.getAsBoolean()) {
