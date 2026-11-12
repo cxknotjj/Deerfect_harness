@@ -9,6 +9,7 @@ import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.llm.catalog.AgentCatalog;
 import com.dark.javaHarness.llm.client.LlmClientRegistry;
 import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RouteExecutor;
 import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.PromptAssembler;
@@ -84,7 +85,8 @@ public class GeneralAssistantAgent implements Agent {
                                  ContextCompositionRecorder compositionRecorder,
                                  ModelResolver modelResolver,
                                  AgentCatalog llmAgentCatalog,
-                                 LlmClientRegistry llmClientRegistry) {
+                                 LlmClientRegistry llmClientRegistry,
+                                 RouteExecutor routeExecutor) {
         this.agentName = agentName;
         this.agentService = agentService;
         ToolLazyManager effectiveLazy = lazyTools != null ? lazyTools : new ToolLazyManager(toolAssignments, false);
@@ -100,7 +102,7 @@ public class GeneralAssistantAgent implements Agent {
         this.chatCaller = new AgentChatCaller(agentService, toolAssignments, recorder,
                 streamRetry, effectiveBudgets, effectiveAssembler, memoryStore, effectiveLazy,
                 skillManager, knowledgeRetriever, timeouts, compositionRecorder,
-                modelResolver, llmAgentCatalog, llmClientRegistry);
+                modelResolver, llmAgentCatalog, llmClientRegistry, routeExecutor);
     }
 
     /** 返回 Agent 名称（用于注册与路由） */

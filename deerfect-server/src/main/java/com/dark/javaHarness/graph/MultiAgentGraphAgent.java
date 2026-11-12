@@ -14,6 +14,7 @@ import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.llm.catalog.AgentCatalog;
 import com.dark.javaHarness.llm.client.LlmClientRegistry;
 import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RouteExecutor;
 import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.PromptAssembler;
@@ -32,9 +33,9 @@ import reactor.core.publisher.Flux;
 /**
  * 多 Agent 编排器：路径 B（复杂请求）的执行体。
  *
- * <p>编排「Lead 拆解 → 并行子任务 → 聚合」三阶段，每个阶段都是一次独立的 ChatClient
- * 单次调用（复用 {@link ChatClientRegistry} 的客户端），配置（模型 + 提示词）均取自
- * agent 表对应角色行：
+ * <p>编排「Lead 拆解 → 并行子任务 → 聚合」三阶段，每个阶段都是一次独立的 LLM 调用，
+ * 经 {@code AgentChatCaller} → 成员路由（{@code RouteExecutor} 失败切换）取客户端，
+ * 配置（模型 + 提示词）均取自 agent 表对应角色行：
  * - lead 阶段：查 {@code lead} 行（无则内置兜底），把复杂目标拆成至多 {@link #MAX_SUBTASKS} 条子任务
  *   （{@link LeadOutputParser} 解析），并为每条子任务指派专家（researcher/coder/analyst/writer/wms/general，
  *   白名单校验，非法回退）
@@ -134,7 +135,7 @@ public class MultiAgentGraphAgent implements Agent {
         this(agentName, agentService, toolAssignments, recorder,
                 checkpointStore, budgets, memoryStore, lazyTools, promptAssembler,
                 skillManager, knowledgeRetriever, timeouts, null, null, null,
-                null, null, null);
+                null, null, null, null);
     }
 
     /**
@@ -157,7 +158,7 @@ public class MultiAgentGraphAgent implements Agent {
         this(agentName, agentService, toolAssignments, recorder,
                 checkpointStore, budgets, memoryStore, lazyTools, promptAssembler,
                 skillManager, knowledgeRetriever, timeouts, ragPrefetcher, null, null,
-                null, null, null);
+                null, null, null, null);
     }
 
     /**
@@ -190,7 +191,8 @@ public class MultiAgentGraphAgent implements Agent {
                                 ContextCompositionRecorder compositionRecorder,
                                 ModelResolver modelResolver,
                                 AgentCatalog llmAgentCatalog,
-                                LlmClientRegistry llmClientRegistry) {
+                                LlmClientRegistry llmClientRegistry,
+                                RouteExecutor routeExecutor) {
         ToolLazyManager lazy = lazyTools != null ? lazyTools : new ToolLazyManager(toolAssignments, false);
         this.agentName = agentName;
         // 工具索引段与延迟加载同源：开启时索引段追加 expand_tool 使用引导（与轻量态工具面对齐）
@@ -199,7 +201,7 @@ public class MultiAgentGraphAgent implements Agent {
         AgentChatCaller chatCaller = new AgentChatCaller(agentService, toolAssignments, recorder,
                 new LlmRetry(), budgets, assembler, memoryStore, lazy, skillManager,
                 knowledgeRetriever, timeouts, compositionRecorder, modelResolver, llmAgentCatalog,
-                llmClientRegistry);
+                llmClientRegistry, routeExecutor);
         this.budgets = budgets != null ? budgets : new ContextBudgetProperties();
         this.orchestrationBudget = new OrchestrationBudget(this.budgets);
         this.nodes = new OrchestrationNodes(chatCaller, assembler, this.budgets, this.orchestrationBudget,
@@ -227,7 +229,7 @@ public class MultiAgentGraphAgent implements Agent {
                                 ContextCompositionRecorder compositionRecorder) {
         this(agentName, agentService, toolAssignments, recorder, checkpointStore,
                 budgets, memoryStore, lazyTools, promptAssembler, skillManager, knowledgeRetriever,
-                timeouts, ragPrefetcher, agentConfigProvider, compositionRecorder, null, null, null);
+                timeouts, ragPrefetcher, agentConfigProvider, compositionRecorder, null, null, null, null);
     }
 
     @Override

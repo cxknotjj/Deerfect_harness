@@ -77,7 +77,7 @@ import reactor.core.publisher.Sinks;
  *       AgentScope Toolkit，不使用 AgentScope 自带 MCP client；预算/观测/懒加载装饰链照常生效；</li>
  *   <li>记忆：不启用 AgentScope AgentStateStore，每次请求把裁剪后的 MySQL 历史转成 Msg 列表注入，
  *       避免与 SessionService 双写；</li>
- *   <li>模型：AgentScope OpenAI 兼容扩展按 model_provider 行构建，Key 解析与 ChatClient 同源；</li>
+ *   <li>模型：AgentScope OpenAI 兼容扩展按 llm_model 部署行（经路由成员解析）构建，Key 解析与 ChatClient 同源；</li>
  *   <li>观测：{@link LlmCallObserver} 记一轮 llm_call_log（usage 优先取模型末帧真实值）；</li>
  *   <li>取消：外层 Flux cancel → {@code agent.interrupt(RuntimeContext)}；</li>
  *   <li>回退：AgentScope 初始化失败（模型/Key/工具装配）时按开关回退 {@link GeneralAssistantAgent}，

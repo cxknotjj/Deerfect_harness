@@ -106,7 +106,7 @@ class GeneralAssistantAgentScaffoldTest {
     void setUp() {
         agent = new GeneralAssistantAgent("general", memoryStore, agentService,
                 toolAssignments, recorder, null, null, null, null, null, null, null,
-                modelResolver, agentCatalog, llmClientRegistry);
+                modelResolver, agentCatalog, llmClientRegistry, null);
         when(agentService.getAgentConfig("general"))
                 .thenReturn(Optional.of(new AgentConfig(1L, "m1", "系统提示词", null)));
         lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);

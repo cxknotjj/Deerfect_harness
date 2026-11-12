@@ -11,6 +11,7 @@ import com.dark.javaHarness.llm.client.LlmClientRegistry;
 import com.dark.javaHarness.llm.routing.FailurePolicy;
 import com.dark.javaHarness.llm.routing.ModelResolver;
 import com.dark.javaHarness.llm.routing.RouteAttempt;
+import com.dark.javaHarness.llm.routing.RouteExecutor;
 import com.dark.javaHarness.llm.routing.RoutePlan;
 import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.observability.HarnessMetrics;
@@ -28,7 +29,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
@@ -83,6 +83,8 @@ public final class AgentChatCaller {
     private final CallSpecAssembler assembler;
     /** 新解析链的客户端注册表（按 model_id）：失败切换时按成员 id 丢池 */
     private final LlmClientRegistry llmClientRegistry;
+    /** 路由推进策略：阻塞/流式两条链路的失败切换与重试唯一实现（null 时按默认上限自建） */
+    private final RouteExecutor routeExecutor;
 
     /**
      * 全参构造（含 skill 装配与 RAG 知识检索，正式装配由 MultiAgentGraphAgent/GeneralAssistantAgent
@@ -107,9 +109,12 @@ public final class AgentChatCaller {
                     ContextCompositionRecorder compositionRecorder,
                     ModelResolver modelResolver,
                     AgentCatalog llmAgentCatalog,
-                    LlmClientRegistry llmClientRegistry) {
+                    LlmClientRegistry llmClientRegistry,
+                    RouteExecutor routeExecutor) {
         this.agentService = agentService;
         this.llmClientRegistry = llmClientRegistry;
+        this.routeExecutor = routeExecutor != null ? routeExecutor
+                : new RouteExecutor(RouteExecutor.DEFAULT_MAX_SAME_MEMBER_RETRIES);
         this.observer = new LlmCallObserver(recorder);
         this.retry = retry;
         this.budgets = budgets != null ? budgets : new ContextBudgetProperties();
@@ -127,7 +132,7 @@ public final class AgentChatCaller {
                 timeouts != null ? timeouts.getFirstFrameTimeoutSeconds() : null,
                 DEFAULT_FIRST_FRAME_TIMEOUT_SECONDS);
         this.pipeline = new AgentChatPipeline(llmClientRegistry, this.specFactory, streamIdleTimeout,
-                firstFrameTimeout);
+                firstFrameTimeout, this.routeExecutor);
         this.assembler = new CallSpecAssembler(promptAssembler, memoryStore, this.budgets);
     }
 
@@ -349,58 +354,31 @@ public final class AgentChatCaller {
                                  Consumer<String> reasoningTap,
                                  AtomicReference<RouteAttempt> routeRef) {
         RoutePlan plan = specFactory.routePlan(config, forAgent);
-        return streamRouteMember(plan, 0, config, sessionId, forAgent, fallbackSystem, user, assembly,
-                trace, cancelled, usageRef, firstTokenAt, reasoningTap, routeRef);
-    }
-
-    private Flux<String> streamRouteMember(RoutePlan plan, int index,
-                                           AgentConfig config, String sessionId, String forAgent,
-                                           String fallbackSystem, String user,
-                                           AgentRequestSpecFactory.Assembly assembly, CallTrace trace,
-                                           BooleanSupplier cancelled,
-                                           AtomicReference<Usage> usageRef,
-                                           AtomicLong firstTokenAt,
-                                           Consumer<String> reasoningTap,
-                                           AtomicReference<RouteAttempt> routeRef) {
-        if (index >= plan.members().size()) {
-            return Flux.error(new IllegalStateException("路由无可用成员: " + plan.routeCode()));
-        }
-        RoutePlan.Member member = plan.members().get(index);
-        AtomicBoolean emitted = new AtomicBoolean();
-        return Flux.defer(() -> {
+        return routeExecutor.stream(plan, cancelled,
+                member -> {
                     // 观测口径：真正发起请求前记录本次命中的成员
                     if (routeRef != null) {
-                        routeRef.set(RouteAttempt.at(plan, index));
+                        routeRef.set(RouteAttempt.at(plan, plan.members().indexOf(member)));
                     }
                     return tokenStreamWithWatchdog(
                             specFactory.build(config, sessionId, forAgent, fallbackSystem, user, assembly,
                                     trace, member),
                             usageRef, null, null, firstTokenAt, member.modelId(), reasoningTap);
-                })
-                .doOnNext(__ -> emitted.set(true))
-                .onErrorResume(e -> {
-                    if ((cancelled != null && cancelled.getAsBoolean()) || emitted.get()
-                            || e instanceof CancellationException) {
-                        return Flux.error(e);
+                },
+                new RouteExecutor.AttemptObserver() {
+                    @Override
+                    public void onFailure(RoutePlan.Member member, int attempt, Long fallbackFrom,
+                                          RuntimeException error, FailurePolicy.Action action) {
+                        // 与阻塞路径同口径：失败按成员 id 丢池（4xx 由判定矩阵放行前已在此丢池）
+                        if (llmClientRegistry != null) {
+                            llmClientRegistry.invalidate(member.modelId());
+                        }
                     }
-                    FailurePolicy.Action action = FailurePolicy.classify(e);
-                    if (llmClientRegistry != null) {
-                        llmClientRegistry.invalidate(member.modelId());
+
+                    @Override
+                    public void onSwitch(RoutePlan.Member from, RoutePlan.Member to) {
+                        HarnessMetrics.routeFallback(plan.routeCode(), from.modelId(), to.modelId());
                     }
-                    if (action == FailurePolicy.Action.FAIL) {
-                        return Flux.error(e);
-                    }
-                    if (index + 1 >= plan.members().size()) {
-                        // 已是最后一个成员：原样上抛本次错误，交给外层重试策略分类
-                        // （此前会换成「路由无可用成员」，把可重试的超时/5xx 误判为不可重试）
-                        return Flux.error(e);
-                    }
-                    HarnessMetrics.routeFallback(plan.routeCode(), member.modelId(),
-                            plan.members().get(index + 1).modelId());
-                    log.warn("[llm] 路由 {} 成员 {} 失败，切换下一成员: {}",
-                            plan.routeCode(), member.modelId(), e.getMessage());
-                    return streamRouteMember(plan, index + 1, config, sessionId, forAgent, fallbackSystem,
-                            user, assembly, trace, cancelled, usageRef, firstTokenAt, reasoningTap, routeRef);
                 });
     }
 

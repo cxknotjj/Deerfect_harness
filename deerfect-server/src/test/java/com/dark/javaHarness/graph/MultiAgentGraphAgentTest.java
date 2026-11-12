@@ -176,7 +176,7 @@ class MultiAgentGraphAgentTest {
         return new MultiAgentGraphAgent("multi-agent", agentService, toolAssignments, recorder,
                 checkpointStore, budgets, memoryStore, lazyTools, promptAssembler, skillManager,
                 knowledgeRetriever, timeouts, ragPrefetcher, agentConfigProvider, compositionRecorder,
-                modelResolver, agentCatalog, clientRegistry);
+                modelResolver, agentCatalog, clientRegistry, null);
     }
 
     private static com.dark.javaHarness.domain.entity.AgentEntity routeAgent(String name, Long routeId) {

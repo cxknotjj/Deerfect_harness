@@ -12,6 +12,7 @@ import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.llm.catalog.AgentCatalog;
 import com.dark.javaHarness.llm.client.LlmClientRegistry;
 import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RouteExecutor;
 import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.ActiveGoalSectionProvider;
@@ -104,12 +105,13 @@ public class ChatAgentConfig {
                                        ContextCompositionRecorder compositionRecorder,
                                        ModelResolver modelResolver,
                                        AgentCatalog llmAgentCatalog,
-                                       LlmClientRegistry llmClientRegistry) {
+                                       LlmClientRegistry llmClientRegistry,
+                                       RouteExecutor routeExecutor) {
         AgentRegistry agentRegistry = new AgentRegistry(agentConfigProvider, agentService,
                 memoryStore, toolAssignments, recorder, budgets, toolLazyManager,
                 promptAssembler, skillManager, knowledgeRetriever.getIfAvailable(), timeouts,
                 agenticProperties, agentScopeModelFactory, compositionRecorder,
-                modelResolver, llmAgentCatalog, llmClientRegistry);
+                modelResolver, llmAgentCatalog, llmClientRegistry, routeExecutor);
         agentRegistry.register(multiAgent);
         agentRegistry.init();
         return agentRegistry;
@@ -142,11 +144,12 @@ public class ChatAgentConfig {
                                            ContextCompositionRecorder compositionRecorder,
                                            ModelResolver modelResolver,
                                            AgentCatalog llmAgentCatalog,
-                                           LlmClientRegistry llmClientRegistry) {
+                                           LlmClientRegistry llmClientRegistry,
+                                           RouteExecutor routeExecutor) {
         return new MultiAgentGraphAgent(AgentConstants.MULTI_AGENT, agentService,
                 toolAssignments, recorder, checkpointStore, budgets, memoryStore,
                 toolLazyManager, promptAssembler, skillManager, knowledgeRetriever.getIfAvailable(),
                 timeouts, ragPrefetcher.getIfAvailable(), agentConfigProvider, compositionRecorder,
-                modelResolver, llmAgentCatalog, llmClientRegistry);
+                modelResolver, llmAgentCatalog, llmClientRegistry, routeExecutor);
     }
 }

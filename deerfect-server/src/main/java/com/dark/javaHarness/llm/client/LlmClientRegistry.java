@@ -15,7 +15,7 @@ import org.springframework.stereotype.Component;
  * LLM 客户端注册表：按 model_id 缓存与失效。
  *
  * <p>缓存键与失效键一律是部署模型 id，不存在按模型名或供应商标识的入口。
- * 与旧 {@code ChatClientRegistry}（model_provider + 按名索引）隔离，后者将在 H2 删除。
+ * 旧 ChatClientRegistry（model_provider + 按名索引）已随 H2 删除，本类是其唯一替代。
  */
 @Component
 public class LlmClientRegistry {

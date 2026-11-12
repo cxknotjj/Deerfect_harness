@@ -110,6 +110,7 @@
   - 验收：超时/5xx/429/4xx/取消/首 token 后失败六类用例；成员耗尽错误可读；切换次数与观测字段一致
   - 依赖：B3、B5
   - 结果（2026-11-12）：`FailurePolicy` + `RouteExecutor`；12 条单测覆盖矩阵；流式首 token 锁定在 M2 接入时补
+  - 收尾（2026-11-12）：此前 `RouteExecutor` 未被生产链路使用（失败链内联在 `AgentChatCaller`/`AgentChatPipeline`）——已接入：新增流式入口 `stream()`，阻塞路径（`AgentChatPipeline.streamCore`）与流式路径（`AgentChatCaller.streamWithRoute`）统一由其推进成员；副作用经 `AttemptObserver`（丢池/指标/终端条件）外置；另补 3 条流式单测（首成员成功/首帧前切换/首帧后锁定）
 
 ### C. 参数与能力
 

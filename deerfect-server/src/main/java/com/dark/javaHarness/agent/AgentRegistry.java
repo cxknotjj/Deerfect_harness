@@ -9,6 +9,7 @@ import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.llm.catalog.AgentCatalog;
 import com.dark.javaHarness.llm.client.LlmClientRegistry;
 import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RouteExecutor;
 import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.PromptAssembler;
@@ -70,6 +71,7 @@ public class AgentRegistry {
     private final ModelResolver llmModelResolver;
     private final AgentCatalog llmAgentCatalog;
     private final LlmClientRegistry llmClientRegistry;
+    private final RouteExecutor routeExecutor;
 
     /** 已注册路由表（agentName → 实例）；computeIfAbsent 保证并发惰性注册单次构造 */
     private final ConcurrentHashMap<String, Agent> agents = new ConcurrentHashMap<>();
@@ -84,7 +86,7 @@ public class AgentRegistry {
                          ToolLazyManager lazyTools) {
         this(provider, agentServiceProvider, memoryStore, toolAssignments,
                 recorder, budgets, lazyTools, null, null, null, null,
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, null);
     }
 
     /** 全参构造：promptAssembler 为共享 bean（含 skill 段提供者），skillManager 供 GA 注册 load_skill 元工具 */
@@ -99,7 +101,7 @@ public class AgentRegistry {
                          SkillManager skillManager) {
         this(provider, agentServiceProvider, memoryStore, toolAssignments,
                 recorder, budgets, lazyTools, promptAssembler, skillManager, null, null,
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, null);
     }
 
     /** 全参构造（含 RAG 知识检索）：knowledgeRetriever 仅知识库启用时非 null（ChatAgentConfig 经 ObjectProvider 注入） */
@@ -116,7 +118,7 @@ public class AgentRegistry {
                          ChatTimeoutProperties timeouts) {
         this(provider, agentServiceProvider, memoryStore, toolAssignments, recorder,
                 budgets, lazyTools, promptAssembler, skillManager, knowledgeRetriever, timeouts,
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, null);
     }
 
     /**
@@ -141,7 +143,8 @@ public class AgentRegistry {
                          ContextCompositionRecorder compositionRecorder,
                          ModelResolver llmModelResolver,
                          AgentCatalog llmAgentCatalog,
-                         LlmClientRegistry llmClientRegistry) {
+                         LlmClientRegistry llmClientRegistry,
+                         RouteExecutor routeExecutor) {
         this.provider = provider;
         this.agentServiceProvider = agentServiceProvider;
         this.memoryStore = memoryStore;
@@ -159,6 +162,7 @@ public class AgentRegistry {
         this.llmModelResolver = llmModelResolver;
         this.llmAgentCatalog = llmAgentCatalog;
         this.llmClientRegistry = llmClientRegistry;
+        this.routeExecutor = routeExecutor;
     }
 
     /** 旧全参重载（单测）：未注入新解析链。 */
@@ -178,7 +182,7 @@ public class AgentRegistry {
                          ContextCompositionRecorder compositionRecorder) {
         this(provider, agentServiceProvider, memoryStore, toolAssignments, recorder,
                 budgets, lazyTools, promptAssembler, skillManager, knowledgeRetriever, timeouts,
-                agenticProperties, agentScopeModelFactory, compositionRecorder, null, null, null);
+                agenticProperties, agentScopeModelFactory, compositionRecorder, null, null, null, null);
     }
 
     /** 启动注册：注册 agent 表全部对话 Agent 行（is_internal=0），逐行容错；general 行缺失时代码兜底注册。
@@ -254,7 +258,7 @@ public class AgentRegistry {
         Agent chatClientAgent = new GeneralAssistantAgent(agentName, memoryStore,
                 agentServiceProvider.getObject(), toolAssignments, recorder, budgets, lazyTools,
                 promptAssembler, skillManager, knowledgeRetriever, timeouts, compositionRecorder,
-                llmModelResolver, llmAgentCatalog, llmClientRegistry);
+                llmModelResolver, llmAgentCatalog, llmClientRegistry, routeExecutor);
         if (agenticProperties == null || !agenticProperties.isEnabled() || agentScopeModelFactory == null) {
             return chatClientAgent;
         }

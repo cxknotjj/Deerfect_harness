@@ -125,7 +125,7 @@ class AgentChatCallerTest {
     void setUp() {
         caller = new AgentChatCaller(agentService, null, null, new LlmRetry(), null,
                 new PromptAssembler(agentService, null), null, null, null, null, null, null,
-                modelResolver, agentCatalog, llmClientRegistry);
+                modelResolver, agentCatalog, llmClientRegistry, null);
         // lenient：invokeOnce_disableTools 用例直接调 invokeAndRecord，不查表
         org.mockito.Mockito.lenient().when(agentService.getAgentConfig("researcher"))
                 .thenReturn(Optional.of(new AgentConfig(1L, "m1", "系统提示词", null)));
@@ -262,7 +262,7 @@ class AgentChatCallerTest {
         budgets.setMaxTokensExpert(2000);
         AgentChatCaller tiered = new AgentChatCaller(agentService, null, null,
                 new LlmRetry(), budgets, new PromptAssembler(agentService, null), null, null, null,
-                null, null, null, modelResolver, agentCatalog, llmClientRegistry);
+                null, null, null, modelResolver, agentCatalog, llmClientRegistry, null);
         when(agentService.getAgentConfig("lead"))
                 .thenReturn(Optional.of(new AgentConfig(1L, "m1", "系统提示词", null)));
         when(agentService.getAgentConfig("aggregator"))
@@ -425,7 +425,7 @@ class AgentChatCallerTest {
         timeouts.setStreamIdleTimeoutSeconds(1);
         AgentChatCaller guarded = new AgentChatCaller(agentService, null, null,
                 new LlmRetry(), new ContextBudgetProperties(), new PromptAssembler(agentService, null),
-                null, null, null, null, timeouts, null, modelResolver, agentCatalog, llmClientRegistry);
+                null, null, null, null, timeouts, null, modelResolver, agentCatalog, llmClientRegistry, null);
         when(spec.stream()).thenReturn(streamSpec);
         when(streamSpec.chatResponse()).thenReturn(Flux.never());
 
@@ -451,7 +451,7 @@ class AgentChatCallerTest {
         timeouts.setStreamIdleTimeoutSeconds(30);
         AgentChatCaller guarded = new AgentChatCaller(agentService, null, null,
                 new LlmRetry(), new ContextBudgetProperties(), new PromptAssembler(agentService, null),
-                null, null, null, null, timeouts, null, modelResolver, agentCatalog, llmClientRegistry);
+                null, null, null, null, timeouts, null, modelResolver, agentCatalog, llmClientRegistry, null);
         when(spec.stream()).thenReturn(streamSpec);
         when(streamSpec.chatResponse()).thenReturn(fluxOf("a", "b", "c"));
 

@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.routing.RouteExecutor;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeoutException;
@@ -50,7 +51,7 @@ class AgentChatPipelineTest {
     void setUp() {
         // 首帧 200ms / 帧间 200ms：测试内快速触发；生产默认 20s / 120s
         pipeline = new AgentChatPipeline(clientRegistry, mock(AgentRequestSpecFactory.class),
-                Duration.ofMillis(200), Duration.ofMillis(200));
+                Duration.ofMillis(200), Duration.ofMillis(200), new RouteExecutor(2));
     }
 
     private void stubStream(Flux<ChatResponse> frames) {

@@ -82,7 +82,7 @@ class GeneralAssistantAgentTest {
     @BeforeEach
     void setUp() {
         agent = new GeneralAssistantAgent("general", memoryStore, agentService, toolAssignments, null,
-                null, null, null, null, null, null, null, modelResolver, agentCatalog, llmClientRegistry);
+                null, null, null, null, null, null, null, modelResolver, agentCatalog, llmClientRegistry, null);
         when(agentService.getAgentConfig("general")).thenReturn(java.util.Optional.empty());
         lenient().when(toolAssignments.forAgent(any())).thenReturn(com.dark.javaHarness.tool.ToolAssignments.ToolSet.EMPTY);
         com.dark.javaHarness.domain.entity.AgentEntity routeAgent = new com.dark.javaHarness.domain.entity.AgentEntity();
@@ -156,7 +156,7 @@ class GeneralAssistantAgentTest {
         GeneralAssistantAgent observed = new GeneralAssistantAgent("general", memoryStore,
                 agentService, toolAssignments,
                 new LlmCallRecorder(mapper, mock(com.dark.javaHarness.mapper.ToolCallLogMapper.class)),
-                null, null, null, null, null, null, null, modelResolver, agentCatalog, llmClientRegistry);
+                null, null, null, null, null, null, null, modelResolver, agentCatalog, llmClientRegistry, null);
         observed.executeStreamReactive(new Goal("g3", "自我介绍")).collectList().block();
 
         verify(mapper, timeout(2000)).insert(argThat((LlmCallLogEntity e) ->
@@ -209,7 +209,7 @@ class GeneralAssistantAgentTest {
         GeneralAssistantAgent observed = new GeneralAssistantAgent("general", memoryStore,
                 agentService, toolAssignments,
                 new LlmCallRecorder(mapper, mock(com.dark.javaHarness.mapper.ToolCallLogMapper.class)),
-                null, null, null, null, null, null, null, modelResolver, agentCatalog, llmClientRegistry);
+                null, null, null, null, null, null, null, modelResolver, agentCatalog, llmClientRegistry, null);
         observed.executeStreamReactive(new Goal("g5", "自我介绍")).collectList().block(Duration.ofSeconds(5));
 
         ArgumentCaptor<LlmCallLogEntity> captor = ArgumentCaptor.forClass(LlmCallLogEntity.class);

@@ -1,6 +1,6 @@
 # LLM 供应商 / 模型 / 路由与 Agent 绑定设计
 
-> 状态：方案设计（未实施）
+> 状态：已实施（2026-11-12；验收记录见 [docs/task-checklist/llm-routing.md](../task-checklist/llm-routing.md)）
 > 日期：2026-11-12
 > 范围：`deerfect-server` 的模型解析、客户端构建、Agent 绑定、失败切换与观测
 > 前提：按全新设计落地，不保留与现有 `model_provider` 表及按名查找接口的兼容

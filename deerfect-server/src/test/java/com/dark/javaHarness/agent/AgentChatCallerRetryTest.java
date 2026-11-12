@@ -73,7 +73,7 @@ class AgentChatCallerRetryTest {
         // 基准退避调小加速，确保测试不慢
         return new AgentChatCaller(agentService, toolAssignments, null,
                 new LlmRetry(3, 1), null, new PromptAssembler(agentService, toolAssignments),
-                null, null, null, null, null, null, modelResolver, agentCatalog, clientRegistry);
+                null, null, null, null, null, null, modelResolver, agentCatalog, clientRegistry, null);
     }
 
     /** 组装一个流式 stub 客户端：chatResponse() 的 Flux 由调用方逐次给出，calls 计数每次尝试 +1 */
@@ -126,7 +126,7 @@ class AgentChatCallerRetryTest {
         when(clientRegistry.get(9L)).thenReturn(stub.client());
         new AgentChatCaller(agentService, toolAssignments, recorder,
                 new LlmRetry(3, 1), null, new PromptAssembler(agentService, toolAssignments),
-                null, null, null, null, null, null, modelResolver, agentCatalog, clientRegistry)
+                null, null, null, null, null, null, modelResolver, agentCatalog, clientRegistry, null)
                 .call("s1", "coder", "sys", "任务");
 
         org.mockito.Mockito.verify(recorder, org.mockito.Mockito.times(2)).record(captor.capture());
