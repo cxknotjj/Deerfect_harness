@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Deerfect Harness — Java Agent 编排框架</title>
+    <meta
+      name="description"
+      content="面向生产环境的 Java Agent 编排框架：模型路由、失败切换、预算护栏、MCP 工具与多渠道交付。"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- 内联 SVG favicon：与导航 LogoMark 同形，避免额外的静态资源与 404 -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'%3E%3Cg stroke='%230485f7' stroke-width='1.8' stroke-linecap='round'%3E%3Cpath d='M12 21v-6m0 0c0-3.2-2.2-5.2-5.4-6.2M12 15c0-3.2 2.2-5.2 5.4-6.2'/%3E%3Cpath d='M6.6 8.8C5 7.9 4 6.3 4 4.4m3.4 3.2c.5-1.6.2-3-.9-4.2M17.4 8.8c1.6-.9 2.6-2.5 2.6-4.4m-3.4 3.2c-.5-1.6-.2-3 .9-4.2'/%3E%3C/g%3E%3Ccircle cx='12' cy='15' r='1.6' fill='%230485f7'/%3E%3C/svg%3E"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <!-- 主题在首帧前确定，避免闪烁：localStorage 优先，其次跟随系统 -->
+    <script>
+      ;(() => {
+        try {
+          var saved = localStorage.getItem('dh-theme')
+          var theme =
+            saved === 'light' || saved === 'dark'
+              ? saved
+              : window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light'
+          document.documentElement.dataset.theme = theme
+        } catch (e) {
+          /* 隐私模式下 localStorage 不可用时保持默认亮色 */
+        }
+      })()
+    </script>
+    <script type="module" crossorigin src="/Deerfect_harness/assets/index-DujWPeNB.js"></script>
+    <link rel="stylesheet" crossorigin href="/Deerfect_harness/assets/index-BDKwurKP.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
