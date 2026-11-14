@@ -17,7 +17,7 @@ flowchart LR
 - 🧩 **Agent**（`agent` 表）：每行一个 Agent（`agent_name`/`route_id`/`prompt`）。种子行：`general`/`deepseek`（聊天）、`multi-agent`（编排器）、`lead`（拆解器）、`aggregator`（聚合器）、`researcher`/`coder`/`analyst`/`writer`（专家）、`wms`（领域专员，工具绑定见 [wms-mcp.md](wms-mcp.md)）
 - 🗺️ **路由**（`llm_route` + `llm_route_member`）：Agent 只认路由 id；成员按 `priority` 升序构成失败链，仅首个 token 前允许切换；`capabilities` 声明工具/视觉/思考/上下文窗口，启动与热更新时校验
 - 🧭 **调用链**：Agent → `route_id` → 首选成员 `model_id` → `llm_provider` 端点与凭证；代码只按 id 查找，不按模型名解析
-- 📈 **观测**：`llm_call_log` 记录 `route_id`/`model_id`/`provider_code`/`upstream_name`/`fallback_from_model_id`/`error_class`，可还原失败切换路径
+- 📈 **观测**：`llm_call_log` 记录 `route_id`/`model_id`/`provider_code`/`upstream_name`/`fallback_from_model_id`/`error_class`，可还原失败切换路径。其中 `model` 列写**实际应答成员**的上游模型名（fallback 后不再是首选成员），按 `model` 聚合与 `upstream_name` 同口径；请求侧的原始模型名不再单独落库
 
 > [!TIP]
 > **新增第三方供应商（如 Moonshot、OpenRouter）零代码**：

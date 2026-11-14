@@ -60,6 +60,23 @@ class LlmCallObserverTest {
 
     /** 路由字段透传：route/model/provider/upstream/fallback 落库，失败行带 error_class */
     @Test
+    void record_modelColumnUsesServedUpstream() {
+        LlmCallLogMapper mapper = Mockito.mock(LlmCallLogMapper.class);
+        LlmCallObserver observer = new LlmCallObserver(new LlmCallRecorder(mapper,
+                Mockito.mock(com.dark.javaHarness.mapper.ToolCallLogMapper.class)));
+
+        observer.okStream("s1", "general", "qwen-plus", System.currentTimeMillis(), "答", null, null,
+                System.currentTimeMillis(), 1, 1,
+                null, null, null, null,
+                new com.dark.javaHarness.llm.routing.RouteAttempt(7L, "main", 11L, "deepseek",
+                        "deepseek-chat", 10L));
+
+        verify(mapper, timeout(2000)).insert(Mockito.argThat((LlmCallLogEntity e) ->
+                "deepseek-chat".equals(e.getModel())
+                        && "deepseek-chat".equals(e.getUpstreamName())));
+    }
+
+    @Test
     void record_routeAttempt_fieldsMapped() {
         LlmCallLogMapper mapper = Mockito.mock(LlmCallLogMapper.class);
         LlmCallObserver observer = new LlmCallObserver(new LlmCallRecorder(mapper,

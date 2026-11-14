@@ -70,7 +70,11 @@ public final class LlmCallObserver {
         if (recorder == null) {
             return;
         }
-        recorder.record(new LlmCallLog(sessionId, agentName, model, stream, ok,
+        // model 列记「实际应答的成员模型」：fallback 后请求侧模型名仍是首选成员，
+        // 按它统计会把失败切换的调用全算到首选模型头上（upstream_name 同源，保留兼容）。
+        String servedModel = route != null && route.upstreamName() != null
+                ? route.upstreamName() : model;
+        recorder.record(new LlmCallLog(sessionId, agentName, servedModel, stream, ok,
                 promptTokens, completionTokens, totalTokens,
                 tokensEstimated,
                 System.currentTimeMillis() - start, errorMsg,
