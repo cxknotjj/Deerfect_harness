@@ -29,7 +29,7 @@ import org.springframework.ai.openai.OpenAiChatOptions;
 /**
  * LlmRouteJudge 单测：
  * - 合法 JSON 返回 complex / simple 时判定正确
- * - 非 JSON / 空 / 调用异常时兜底 SIMPLE（TODO ⑤ 宁可简单）
+ * - 非 JSON / 空 / 调用异常时兜底 SIMPLE（宁可简单，不做猜测）
  * - 判定走轻量客户端（短读超时、无默认工具），失败时丢弃其连接池缓存
  * - 表驱动配置（agent 表 route-judge 行）：命中走库，无行/异常回退内置常量
  */

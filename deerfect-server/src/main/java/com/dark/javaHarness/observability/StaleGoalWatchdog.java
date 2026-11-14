@@ -17,7 +17,7 @@ import org.springframework.stereotype.Component;
  *
  * <p>覆盖的异常是「进程还活着、任务已无进展」——启动清理 {@code failAllRunning} 只处理
  * 非正常退出残留，运行中卡住的 Goal 需要本回路发现。只标失败，不自动重投
- * （重投由 HARNESS_TODO P2「Goal 失败重投」另立任务）。
+ * ——重投是独立能力，不在看门狗职责内。
  *
  * <p>默认关闭（{@code app.watchdog.enabled=false}）：阈值必须大于 LLM 读超时与流空闲超时，
  * 先观察一轮实际进展间隔再开启。单实例假设与 {@code failAllRunning} 一致；

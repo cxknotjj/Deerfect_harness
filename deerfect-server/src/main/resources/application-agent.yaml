@@ -67,7 +67,7 @@ app:
     model: qwen3.8-27b                         # 判断用模型（与 route-judge 同档轻量模型）
   # Goal 停滞看门狗（StaleGoalWatchdog）：定时扫描 RUNNING 且 last_progress_at 超过阈值的
   # 目标并条件更新为 FAILED；默认关闭，阈值必须大于 LLM 读超时与流空闲超时，
-  # 建议先观察一轮实际进展间隔再开启。只标失败，不自动重投（重投见 HARNESS_TODO P2）。
+  # 建议先观察一轮实际进展间隔再开启。只标失败，不自动重投。
   watchdog:
     enabled: false
     stagnant-minutes: 30                         # 无进展判定阈值（分钟）

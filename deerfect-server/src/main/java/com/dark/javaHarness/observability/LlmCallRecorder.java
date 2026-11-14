@@ -21,7 +21,7 @@ import org.springframework.stereotype.Service;
 
 /**
  * LLM / 工具调用观测记录器：把每次 LLM 调用的耗时 / token 消耗异步写入 llm_call_log 表，
- * 每次真实工具执行异步写入 tool_call_log 表（HARNESS_TODO「工具调用与 MCP 日志记录」）。
+ * 每次真实工具执行异步写入 tool_call_log 表。
  *
  * <p>设计约束：<b>观测永不影响主链路</b>——落库交给单线程 + 有界队列异步执行，
  * 队列打满时直接丢弃并计入 {@code harness.observability.dropped} / 周期性 warn，

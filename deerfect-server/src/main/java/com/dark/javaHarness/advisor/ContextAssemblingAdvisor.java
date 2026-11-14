@@ -28,7 +28,7 @@ import reactor.core.publisher.Flux;
  * 它是纯横切增强：不负责"从哪里加载历史"（历史加载由 Agent 侧 SessionService 完成，
  * 与本 Advisor 解耦），只负责"把已给到的消息裁剪成一个 LLM 友好、受控长度的上下文"。
  *
- * <p>对应 HARNESS_TODO ①（执行上下文组装）：
+ * <p>在上下文进入模型前做三件事：
  * - 按 token 预算裁剪（保留 system + 最近 N 轮）
  * - 过滤空/系统噪声消息
  * - 保证 role 顺序（system → user/assistant 交替）
