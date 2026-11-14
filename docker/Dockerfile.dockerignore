@@ -25,9 +25,12 @@ mcp-config.json
 # 表情包资源由用户提供，不进镜像（运行时挂载；映射表首次启动自动创建）
 emojis/
 
-# 前端依赖与构建产物（镜像不需要，node_modules 约百 MB）
-node_modules
-web/node_modules
+# 前端整体不进服务端镜像：deerfect-web 只产静态资源，服务端 Dockerfile 不 COPY 它。
+# 旧规则写的是 web/node_modules，模块改名（web → deerfect-web）后已失效，
+# 导致 146MB 依赖每次 build 都被打进上下文——这里按目录整体排除。
+deerfect-web
+# 任意层级的 node_modules（含子目录），避免新增前端/工具目录时再次漏网
+**/node_modules
 
 # 本地密钥与个人数据
 .env.local

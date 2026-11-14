@@ -22,11 +22,15 @@ docker build -f docker/Dockerfile -t deerfect-harness:local .
 # Docker Hub 不可达（国内常见）时，经加速通道覆盖基础镜像：
 docker build \
   --build-arg BUILD_BASE=docker.m.daocloud.io/library/maven:3.9-eclipse-temurin-25 \
-  --build-arg RUN_BASE=docker.m.daocloud.io/library/eclipse-temurin:25-jre \
+  --build-arg RUN_BASE=docker.m.daocloud.io/library/ubuntu:24.04 \
   -f docker/Dockerfile -t deerfect-harness:local .
 ```
 
-多阶段构建：构建阶段在容器内 `mvn package`（沿用 `.mvn/settings.xml` 阿里云镜像，pom 不变时层缓存秒级重建）→ 运行阶段仅 JRE + jar + `skills/knowledge/channel` 运行期资源。
+三阶段构建：构建阶段在容器内 `mvn package`（依赖走 BuildKit 缓存卷 `/root/.m2`，跨构建复用）→ `jlink` 按 jdeps 结果裁剪出最小 JRE（约 54MB，完整 JRE 200MB+）→ 运行阶段仅「裁剪运行时 + jar + `skills/knowledge/tools`」。
+
+Maven 默认走中央仓库；国内构建可加 `--build-arg MAVEN_MIRROR=https://maven.aliyun.com/repository/public`（compose 侧同名环境变量），只镜像 central，不引入项目内的 `.mvn/settings.xml`（该文件不入仓库，镜像里也没有）。
+
+体积参考（2026-11）：fat jar 207MB（已排除 playwright `driver-bundle` 163MB 与 `tea-openapi` 误带的 jacoco agent）+ 运行时 54MB，整镜像比旧版（完整 JRE + 370MB jar）小约 280MB。
 
 **2️⃣ 启动三件套**
 
@@ -50,7 +54,7 @@ compose 启动时自动读取 compose 文件同目录的 `docker/.env`（`-f` �
 - **与 application.yaml 的关系**：jar 内 yaml 的库口令等敏感项本身就是 `${MYSQL_ROOT_PASSWORD:harness123}` 占位符写法（环境变量优先、冒号后为兜底默认值）；compose 把 `.env` 里的值同时喂给数据库容器（root 密码）和 app 容器（连接密码），两边天然一致，改口令只动 `.env` 一处（配合上条删卷注意）
 - **安全**：`.env` 含 API key 与数据库口令，已在 `.gitignore` 排除，**禁止提交**；换机器部署时把它一起拷走（变量清单与逐项注释见 `docker/.env` 本体）
 - **改库口令**：`MYSQL_ROOT_PASSWORD` / `PGVECTOR_PASSWORD` 修改后必须 `docker compose down -v` 删数据卷再 up，已初始化的旧卷不会自动应用新口令
-- **基础镜像**：`BUILD_BASE` / `RUN_BASE` 仅 `--build` 重建镜像时生效，默认已指向 daocloud 加速通道
+- **基础镜像**：`BUILD_BASE` / `RUN_BASE` 仅在 `--build` 重建镜像时生效，默认是官方地址（`maven:3.9-eclipse-temurin-25` / `ubuntu:24.04`）；Docker Hub 不可达时再覆盖为加速通道地址
 - **QQ 渠道**：不用 QQ 就设 `NAPCAT_ENABLED=false`；`NAPCAT_API_TOKEN` / `NAPCAT_EVENT_SECRET` 必须与 NapCat 侧配置一致，否则消息收不到/上报被拒
 - **邮件渠道**：不用就保持 `CHANNEL_EMAIL_ENABLED=false`（默认）；启用需设 `MAIL_HOST`（如 `smtp.qq.com`）、`MAIL_USERNAME` / `MAIL_PASSWORD`（**授权码，不是登录密码**），`MAIL_FROM` 可省略（默认等于 `MAIL_USERNAME`）。首次启用先发一封测试邮件确认收件箱而非垃圾箱——「能发出去」和「你会看到」是两件事
 - **飞书渠道**：不用就保持 `CHANNEL_FEISHU_ENABLED=false`（默认）；启用需设 `FEISHU_WEBHOOK_URL` / `FEISHU_WEBHOOK_SECRET`（群自定义机器人，开启签名校验）。`notify_channel` 写 `feishu:main` 别名，URL 不进业务表；缺 secret 时应用拒绝启动，这是刻意的不容错；长连接（在群里 @ 机器人对话）另设 `CHANNEL_FEISHU_WS_ENABLED=true` + `FEISHU_APP_ID` / `FEISHU_APP_SECRET`，并在自建应用里开通 `im:message` / `im:message.group_at_msg` / `im:message:send_as_bot` 后发布

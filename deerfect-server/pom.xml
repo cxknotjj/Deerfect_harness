@@ -88,6 +88,22 @@
                     <groupId>commons-logging</groupId>
                     <artifactId>commons-logging</artifactId>
                 </exclusion>
+                <!-- Playwright 的 driver-bundle 是四平台（mac/linux/win + arm64）Node 二进制，
+                     解压后 484MB、压缩后 163MB，占 fat jar 四成以上。
+                     本项目的浏览器沙箱跑在独立镜像 runtime-sandbox-browser 里，
+                     JVM 内不做浏览器自动化（代码中无 Playwright 调用），
+                     只需保留 playwright 的 Java 类（driver 6KB 占位），排除二进制包。
+                     若将来要在进程内直接拉起浏览器，删掉这条 exclusion 并接受镜像变大。 -->
+                <exclusion>
+                    <groupId>com.microsoft.playwright</groupId>
+                    <artifactId>driver-bundle</artifactId>
+                </exclusion>
+                <!-- com.aliyun:tea-openapi 把 jacoco 的 coverage agent 当 compile 依赖带进来，
+                     运行期没有意义（只在跑测试覆盖率时才需要），排除以免污染生产 classpath -->
+                <exclusion>
+                    <groupId>org.jacoco</groupId>
+                    <artifactId>org.jacoco.agent</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
 
