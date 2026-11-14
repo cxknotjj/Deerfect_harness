@@ -26,7 +26,7 @@ docker build \
   -f docker/Dockerfile -t deerfect-harness:local .
 ```
 
-三阶段构建：构建阶段在容器内 `mvn package`（依赖走 BuildKit 缓存卷 `/root/.m2`，跨构建复用）→ `jlink` 按 jdeps 结果裁剪出最小 JRE（约 54MB，完整 JRE 200MB+）→ 运行阶段仅「裁剪运行时 + jar + `skills/knowledge/tools`」。
+三阶段构建：构建阶段在容器内 `mvn package`（`dependency:go-offline` 单独一层，pom 不变时命中 CI 的 gha 层缓存）→ `jlink` 按 jdeps 结果裁剪出最小 JRE（约 54MB，完整 JRE 200MB+）→ 运行阶段仅「裁剪运行时 + jar + `skills/knowledge/tools`」。
 
 Maven 默认走中央仓库；国内构建可加 `--build-arg MAVEN_MIRROR=https://maven.aliyun.com/repository/public`（compose 侧同名环境变量），只镜像 central，不引入项目内的 `.mvn/settings.xml`（该文件不入仓库，镜像里也没有）。
 

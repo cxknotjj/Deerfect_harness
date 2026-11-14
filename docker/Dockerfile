@@ -11,7 +11,7 @@
 #   - fat jar 207MB：已排除 playwright driver-bundle（四平台 Node 二进制，163MB）
 #     与 tea-openapi 误带的 jacoco agent；浏览器沙箱跑在独立镜像里，JVM 内不需要它
 #   - 运行时 54MB：jlink 只打包应用实际引用到的 JDK 模块 + 中英文 locale
-#   - 依赖下载走 BuildKit 缓存卷 /root/.m2，跨构建复用，不再用 dependency:go-offline
+#   - 依赖层按 pom 单独缓存：CI 的 gha 层缓存可直接命中（不要换成 cache mount，见下方说明）
 #   - Maven 默认走中央仓库；国内构建可加 --build-arg MAVEN_MIRROR=<镜像地址>
 # ============================================================
 
@@ -49,19 +49,21 @@ COPY channel-email/src ./channel-email/src
 COPY channel-feishu/src ./channel-feishu/src
 COPY deerfect-server/src ./deerfect-server/src
 
-# 依赖缓存：BuildKit 缓存卷挂到 /root/.m2，跨构建复用（不进镜像层）。
-# 不再执行 dependency:go-offline——它会把 test 依赖也拉一遍，且失败被 `|| true` 吞掉。
+# 依赖层与源码层分离：go-offline 单独一层，只要 pom 不变，CI 的 gha 层缓存
+# （workflow 里的 cache-from/to: type=gha）就能直接命中，不用重新下载。
+# 注意：不能用 RUN --mount=type=cache 替代——缓存卷内容不会被 gha 缓存导出，
+# GitHub 的临时 runner 上等于每次全量重下，比层缓存更慢。
 # MAVEN_MIRROR 非空时写一份临时 settings.xml（只镜像 central），用于国内加速。
 ARG MAVEN_MIRROR=
-# 仅构建 deerfect-server（-am 连带 deerfect-api 与 channel-qq / email / feishu；
-# deerfect-cli/wms 不进服务端镜像）；测试需真实数据库，镜像构建跳过
-RUN --mount=type=cache,target=/root/.m2 \
-    if [ -n "$MAVEN_MIRROR" ]; then \
+RUN if [ -n "$MAVEN_MIRROR" ]; then \
         mkdir -p /root/.m2 && \
         printf '%s' "<settings><mirrors><mirror><id>build-mirror</id><mirrorOf>central</mirrorOf><url>${MAVEN_MIRROR}</url></mirror></mirrors></settings>" \
             > /root/.m2/settings.xml; \
     fi && \
-    mvn -B -q -DskipTests -pl deerfect-server -am package
+    (mvn -B -q dependency:go-offline || true)
+# 仅构建 deerfect-server（-am 连带 deerfect-api 与 channel-qq / email / feishu；
+# deerfect-cli/wms 不进服务端镜像）；测试需真实数据库，镜像构建跳过
+RUN mvn -B -q -DskipTests -pl deerfect-server -am package
 
 # ---------- 运行时裁剪 ----------
 # 用 jdeps 扫出应用真正引用的 JDK 模块，再 jlink 生成最小运行时：
