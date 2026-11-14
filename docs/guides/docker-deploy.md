@@ -141,6 +141,72 @@ IMAGE_TAG=$TAG docker compose -f docker/docker-compose.yml up -d --no-build
 > - 架构需一致：Docker Desktop（WSL2）产物为 `linux/amd64`，x86_64 服务器通用；ARM 服务器用不了此镜像包，需在目标机重新构建
 
 
+
+## 镜像来源与版本号（与构建脚本 / CI 实际配置对照）
+
+| 来源 | 触发方式 | tag 形式 |
+| --- | --- | --- |
+| 本地构建 | `docker/build-image.sh`（或 `.ps1`） | `sha-<8 位短 sha>`（`git rev-parse --short=8`） |
+| GitHub Actions → GHCR | push `master` / `v*` | `sha-<7 位短 sha>`（metadata-action `type=sha,format=short`）+ `latest`（仅 master）+ `v*` 版本号 |
+| 阿里云 ACR | 手动 `docker push` | 沿用本地构建的 tag |
+
+> **短 sha 长度确实不同**：本地 8 位、CI 7 位，都是各自工具的真实输出。选版本时不要假设固定长度，用 `docker images` 或 `docker inspect --format '{{json .Config.Labels}}'` 里的 `org.opencontainers.image.revision` 核对。
+>
+> GHCR 包默认公开（匿名可拉）；若在 Packages 设置里改成私有，目标机需先 `docker login ghcr.io`。
+
+## 升级与回滚
+
+```bash
+# 升级：拉新版本 → 改 IMAGE_TAG → 不重新构建
+docker pull ghcr.io/cxknotjj/deerfect-harness:sha-1c59846
+IMAGE_REPO=ghcr.io/cxknotjj/deerfect-harness IMAGE_TAG=sha-1c59846 \
+  docker compose -f docker/docker-compose.yml up -d --no-build
+
+# 回滚：镜像层回退，数据层不回退
+IMAGE_REPO=ghcr.io/cxknotjj/deerfect-harness IMAGE_TAG=sha-<旧版本> \
+  docker compose -f docker/docker-compose.yml up -d --no-build
+```
+
+- **Flyway 只前进不后退**：回滚镜像前确认旧版本能跑新库结构（加列/加表通常兼容；删列/改类型不兼容）。不确定时先在副本库验证。
+- **`latest` 只代表最近一次 master 构建**，不能作为回滚依据；保留最近 3 个 `sha-*` 与全部语义化版本。
+- **不要 `docker image prune -a`**：目标机上删掉旧 tag 就没有回滚点了。
+
+## 卷挂载与网络（逐项对齐 compose）
+
+| 宿主机 | 容器内 | 模式 | 用途 |
+| --- | --- | --- | --- |
+| `/var/run/docker.sock` | 同路径 | rw | 沙箱拉容器（不需要沙箱可删这一行） |
+| `../knowledge` | `/workspace/knowledge` | ro | RAG 语料，改完调 `POST /api/knowledge/sync` |
+| `../skills` | `/workspace/skills` | ro | skill 目录，mtime 热重载 |
+| `../tools` | `/workspace/tools` | ro | 声明式 HTTP 工具清单，改完调 `POST /api/capabilities/reload` |
+| `../emojis` | `/workspace/emojis` | rw | 表情图片与映射表（映射表缺失时自动创建） |
+| `../user-profile` | `/workspace/user-profile` | rw | 长期画像，应用写入 |
+| `../mcp-config.json` | `/workspace/mcp-config.json` | ro | MCP server 配置，改完 `up -d --force-recreate app` |
+| `./config` | `/workspace/config` | ro | Spring 外置覆盖，改完 `restart app` |
+| `./pg-init` | `/docker-entrypoint-initdb.d` | ro | 仅 pgvector 首次建库时执行 |
+
+| 端口 | 说明 |
+| --- | --- |
+| `8080 → 8080` | 应用 HTTP / SSE |
+| `3306 → 3306` | MySQL，仅供宿主机管理工具；不需要可删映射 |
+| `5432 → 5432` | pgvector，宿主机端口被占时删映射（容器间走服务名） |
+
+网络：默认 bridge；`extra_hosts: host.docker.internal:host-gateway` 让容器访问宿主机（默认可连宿主 NapCat 的 3000 端口）。
+
+## 故障排查
+
+| 现象 | 判断依据 | 处理 |
+| --- | --- | --- |
+| 容器反复重启，日志有 `绑定校验失败` / 路由无可用成员 | 库是全新初始化，迁移版本低于 V25 | 用新镜像重启触发 V25；或手工核对 `llm_route` 每条路由是否有启用成员 |
+| `/api/chat` 返回 401 / 403 | `llm_call_log.error_msg` 或日志里的供应商原文 | 401 = key 错/缺；403 `AllocationQuota` = 账号额度或「仅免费额度」开关 |
+| 健康检查 `db` DOWN | 容器到宿主 3306 不通，或口令不一致 | 核对 `MYSQL_ROOT_PASSWORD` 与 `SPRING_DATASOURCE_PASSWORD`；`docker compose down -v` 后旧卷不会应用新口令 |
+| 健康检查 `vectorDataSource` DOWN | pgvector 未起或口令不一致 | `docker compose ps` 看 pgvector；首次建库需 `pg-init` 挂载 |
+| 日志 `Failed to connect to Docker` | 单跑 `docker run` 未挂 socket | 挂 `/var/run/docker.sock`，或用 compose |
+| 8080 被占用 | `netstat`/`lsof` | 改 compose 端口映射，或停掉占用进程 |
+| 容器被 OOM kill | `docker inspect` 的 OOMKilled | compose 已限制 600m + 收紧 JVM；更小内存机需下调 `-Xmx` |
+| 时间显示 UTC | 容器无时区数据 | 镜像已内置 zoneinfo + `TZ=Asia/Shanghai`；自建镜像勿删该层 |
+| 拉取镜像慢 | — | 用 ACR 公开仓库，或离线 tar |
+
 ---
 
 [⬅ 返回 README](../../README.md)
