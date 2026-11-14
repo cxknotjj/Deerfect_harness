@@ -71,6 +71,11 @@
 | `POST` | `/api/auth/logout` | 🔐 登出 |
 | `POST` | `/onebot/event` | 🤖 QQ 渠道 OneBot 11 上报端点（`channel-qq` 模块，NapCat 调用） |
 
+> [!IMPORTANT]
+> **管理面鉴权**：`app.security.api-token`（请求头 `X-API-Token`）与 `app.security.password`（登录 Cookie）配任意一个即启用，过滤器覆盖全部 `/api/**`——包括 `/api/admin/**` 与 `/api/admin/routes/{id}/test`。
+> 两者都为空时管理面**不鉴权**，仅适合本机；对外部署请设置口令，并把 `app.security.require-configured` 设为 `true`，缺口令会直接启动失败而不是静默裸奔。
+> 目前管理面没有内置限流，`/routes/{id}/test` 会真实调用上游模型，请只在可信网络暴露。
+
 **知识库**
 
 | 方法 | 路径 | 说明 |
