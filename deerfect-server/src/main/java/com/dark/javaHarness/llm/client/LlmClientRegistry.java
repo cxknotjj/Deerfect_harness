@@ -14,8 +14,9 @@ import org.springframework.stereotype.Component;
 /**
  * LLM 客户端注册表：按 model_id 缓存与失效。
  *
- * <p>缓存键与失效键一律是部署模型 id，不存在按模型名或供应商标识的入口。
- * 缓存键只有模型 id：不存在按名称或供应商标识的入口。
+ * <p>普通客户端的缓存键是部署模型 id；轻量客户端还要带上读超时——同一模型在
+ * 不同调用场景下超时不同（judge 短超时、管理面连通性测试 15s），只按 id 缓存会
+ * 让后来的调用拿到别人的超时配置。不存在按名称或供应商标识的入口。
  */
 @Component
 public class LlmClientRegistry {
@@ -26,7 +27,11 @@ public class LlmClientRegistry {
     private final ProviderCatalog providerCatalog;
 
     private final Map<Long, ChatClient> clients = new ConcurrentHashMap<>();
-    private final Map<Long, ChatClient> lightClients = new ConcurrentHashMap<>();
+    private final Map<LightKey, ChatClient> lightClients = new ConcurrentHashMap<>();
+
+    /** 轻量客户端缓存键：模型 id + 读超时（null = 用默认读超时） */
+    private record LightKey(Long modelId, Integer readTimeoutSeconds) {
+    }
 
     public LlmClientRegistry(LlmClientFactory clientFactory, ProviderCatalog providerCatalog) {
         this.clientFactory = clientFactory;
@@ -67,7 +72,8 @@ public class LlmClientRegistry {
         if (modelId == null) {
             throw new IllegalArgumentException("modelId 不能为空");
         }
-        ChatClient cached = lightClients.get(modelId);
+        LightKey key = new LightKey(modelId, readTimeoutSeconds);
+        ChatClient cached = lightClients.get(key);
         if (cached != null) {
             return cached;
         }
@@ -80,7 +86,7 @@ public class LlmClientRegistry {
         if (built == null) {
             throw new IllegalStateException("轻量客户端构建失败: modelId=" + modelId);
         }
-        ChatClient existing = lightClients.putIfAbsent(modelId, built);
+        ChatClient existing = lightClients.putIfAbsent(key, built);
         return existing == null ? built : existing;
     }
 
@@ -88,7 +94,7 @@ public class LlmClientRegistry {
     public void invalidate(Long modelId) {
         if (modelId != null) {
             clients.remove(modelId);
-            lightClients.remove(modelId);
+            lightClients.keySet().removeIf(key -> key.modelId().equals(modelId));
         }
     }
 

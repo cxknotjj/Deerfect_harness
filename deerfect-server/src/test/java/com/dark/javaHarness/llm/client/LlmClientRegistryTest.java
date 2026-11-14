@@ -1,5 +1,6 @@
 package com.dark.javaHarness.llm.client;
 
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -40,6 +41,32 @@ class LlmClientRegistryTest {
     }
 
     @Test
+    void getLightweight_keysByModelIdAndTimeout() {
+        Fixture f = new Fixture();
+
+        ChatClient judge = f.registry.getLightweight(10L, 5);
+        ChatClient admin = f.registry.getLightweight(10L, 15);
+        ChatClient judgeAgain = f.registry.getLightweight(10L, 5);
+
+        assertNotSame(judge, admin, "不同读超时必须是不同客户端（否则后建的会覆盖前者的超时）");
+        assertSame(judge, judgeAgain, "同模型同超时应命中缓存");
+        verify(f.factory, times(1)).buildLightweight(any(), org.mockito.ArgumentMatchers.eq(5));
+        verify(f.factory, times(1)).buildLightweight(any(), org.mockito.ArgumentMatchers.eq(15));
+    }
+
+    @Test
+    void invalidate_clearsAllTimeoutVariants() {
+        Fixture f = new Fixture();
+        f.registry.getLightweight(10L, 5);
+        f.registry.getLightweight(10L, 15);
+
+        f.registry.invalidate(10L);
+        f.registry.getLightweight(10L, 5);
+
+        verify(f.factory, times(2)).buildLightweight(any(), org.mockito.ArgumentMatchers.eq(5));
+    }
+
+    @Test
     void missingModel_throwsInsteadOfFallback() {
         Fixture f = new Fixture();
         when(f.catalog.requireModel(99L)).thenThrow(new IllegalStateException("llm_model 不存在: id=99"));
@@ -72,6 +99,7 @@ class LlmClientRegistryTest {
             when(catalog.requireModel(10L)).thenReturn(model);
             when(catalog.requireProvider(1L)).thenReturn(provider);
             when(factory.build(any())).thenReturn(mock(ChatClient.class));
+            when(factory.buildLightweight(any(), any())).thenAnswer(inv -> mock(ChatClient.class));
             registry = new LlmClientRegistry(factory, catalog);
         }
     }
