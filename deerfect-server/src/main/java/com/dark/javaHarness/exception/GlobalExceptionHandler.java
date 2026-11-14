@@ -117,7 +117,7 @@ public class GlobalExceptionHandler {
         return ErrorResponse.of(HttpStatus.SERVICE_UNAVAILABLE.value(), message);
     }
 
-    /** 409：唯一键冲突（如 model_provider.model 大小写不敏感撞键，并发 add 场景兜底） */
+    /** 409：唯一键冲突（如 llm_model.upstream_name 大小写不敏感撞键，并发 add 场景兜底） */
     @ExceptionHandler(org.springframework.dao.DuplicateKeyException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
     public ErrorResponse handleDuplicateKey(org.springframework.dao.DuplicateKeyException e) {

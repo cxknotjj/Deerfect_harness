@@ -91,7 +91,7 @@ flowchart TD
 | 📦 Sandbox | `agentscope-runtime-sandbox-core` 1.0.2 | Container-level tool execution isolation: Python/Shell/file + browser; requires local Docker |
 | 🔌 MCP | `spring-ai-starter-mcp-client` + `server-webmvc` (MCP SDK 2.1.0 managed by Spring AI) | Client connects to external tools across multiple servers (lazy + failure isolation); server exposes the `/mcp` endpoint over Streamable-HTTP |
 | 📚 RAG | `spring-ai-pgvector-store` + PostgreSQL (pgvector) + DashScope text-embedding-v4 | Knowledge-base vector search: incremental ingestion + retrieval enhancement on both paths (optional dependency; an unavailable PostgreSQL never blocks startup) |
-| 🗄️ ORM | MyBatis-Plus 3.5.17 | CRUD for `goal` / `session` / `session_messages` / `agent` / `model_provider` |
+| 🗄️ ORM | MyBatis-Plus 3.5.17 | CRUD for `goal` / `session` / `session_messages` / `agent` / `llm_provider` / `llm_model` / `llm_route` |
 | 🛫 Schema | Flyway | Migrations run automatically at startup — no manual table creation |
 | 🖥️ CLI | In-house `ChatCli` + OkHttp 5.5.0 | Standalone pure HTTP client process; SSE parsing + terminal rendering |
 | ✅ Validation / JSON | Jakarta Validation / Jackson | Parameter validation, DTO serialization, SSE meta parsing |
@@ -265,28 +265,31 @@ A third entry point besides CLI / REST: connects to QQ group & private chats via
 
 ## 🔌 Multi-Model & Multi-Provider
 
-**Database-driven multi-agent + multi-provider** — adding providers takes zero code:
+**Three layers, all database-driven** — an agent binds a route, the route holds an ordered fallback chain, and each model points at a provider:
 
 ```mermaid
 flowchart LR
-    A[agent table<br/>agent_name / model / prompt] -->|agent.model references| B[model_provider table<br/>model → provider / api_url]
-    B --> C[ChatClientRegistry<br/>Resolve provider ChatClient by model]
+    A[agent table<br/>agent_name / route_id / prompt] -->|route_id| R[llm_route<br/>stable alias main/fast/judge/multi]
+    R --> M[llm_route_member<br/>priority = fallback order]
+    M --> D[llm_model<br/>upstream model + capabilities]
+    D --> P[llm_provider<br/>base_url + credential ref]
 ```
 
-- 🧩 **Agents** (`agent` table): one row per agent (`agent_name`/`model`/`prompt`). Seed rows: `general`/`deepseek` (chat), `multi-agent` (orchestrator), `lead` (decomposer), `aggregator`, and the experts `researcher`/`coder`/`analyst`/`writer`
-- 🗺️ **Model mapping** (`model_provider` table): adding a model/provider = adding one row (`status=1`) and restarting; `status=0` disables it → falls back to the default DashScope client
-- 🧭 **Routing**: a request carrying `agentId` maps to `agentName` for routing; misses fall back to the default `general`
+- 🧩 **Agents** (`agent` table): one row per agent; it references `route_id` instead of a model name. Seed rows: `general` / `deepseek`, `multi-agent`, `lead` / `aggregator` / the experts, plus system agents `summary` / `profile` / `trigger-judge` / `route-judge`
+- 🗺️ **Routes** (`llm_route` + `llm_route_member`): members are tried in `priority` order; switching is only allowed before the first token. Declared `capabilities` (tools / vision / thinking / context window) are validated on startup and on hot reload
+- 🔌 **Models & providers** (`llm_model` / `llm_provider`): one deployment row per upstream model, pointing at a provider endpoint. Code resolves strictly by id — never by model name
+- 🔁 **Hot reload**: changes go through `/api/admin/*`; the validated config is swapped atomically, no restart required (up to 30s lag)
 
 > [!TIP]
-> **Add a third-party provider (e.g. Moonshot, OpenRouter) with zero code**:
-> 1. Set the environment variable `MOONSHOT_API_KEY` (convention: `<PROVIDER in upper case>_API_KEY`)
-> 2. Add a row to `model_provider`: `INSERT INTO model_provider(model, provider, api_url, status) VALUES('kimi-k2','moonshot','https://api.moonshot.cn/v1',1);`
-> 3. Restart to take effect
+> **Add a third-party provider (e.g. Moonshot) with zero code**:
+> 1. Export `MOONSHOT_API_KEY` (convention: `<PROVIDER in upper case>_API_KEY`)
+> 2. Register provider → model → route member through the admin API (payloads in [`docs/guides/models.md`](./docs/guides/models.md))
+> 3. Bind the route to an agent with `PUT /api/admin/agents/{id}/route`
 >
-> Alternatively, map keys explicitly in `application-ai.yaml` under `app.providers.<provider>.api-key` (takes priority over the environment-variable convention; existing variable names stay compatible).
+> The admin surface also exposes `GET /api/admin/{providers,models,routes}` and `POST /api/admin/routes/{id}/test` for connectivity checks.
 
 > [!WARNING]
-> For security, API keys are never stored in the database. Resolution rules (convention over configuration):
+> API keys are never stored in the database; `llm_provider.credential_ref` only records which environment variable to read. Resolution rules (convention over configuration):
 > 1. `app.providers.<provider>.api-key` (explicit yaml mapping, highest priority)
 > 2. `<PROVIDER in upper case>_API_KEY` environment variable (fallback by convention, e.g. `QWEN_API_KEY`, `DEEPSEEK_API_KEY`)
 >
@@ -338,7 +341,7 @@ mvn -s .mvn/settings.xml test
 | 🔌 Tools & MCP | `WebToolsTest` `SandboxToolProviderTest` `McpToolProviderTest` `ToolAssignmentsTest` | HTML→Markdown extraction and protocol whitelist, sandbox lazy-init degradation, MCP multi-server config parsing, least-privilege tool assignment with dedup |
 | 📚 Knowledge base (RAG) | `MarkdownChunkerTest` `KnowledgeDocumentScannerTest` `KnowledgeServiceImplTest` `KnowledgeRetrieverTest` | Paragraph-aware chunking with overlap carryover, front-matter parsing & bad-file skip, incremental ingestion / delete / pagination / search (mocked VectorStore+Mapper), role skip / budget truncation / 【Source N】 rendering |
 | 🖥️ CLI | `TerminalRendererTest` `TerminalInputTest` `ResumeStateStoreTest` | Markdown line coloring and incremental streaming output (anti ghost-repeat regression), degraded input without a TTY, resume-state read/write roundtrip |
-| 🌐 API & infrastructure | `ChatControllerTest` `HarnessControllerTest` `ChatServiceImplTest` `GlobalExceptionHandlerTest` `ChatClientRegistryTest` `ChatClientFactoryTest` `ThinkingSwitchChatModelTest` `ProviderAdminServiceImplTest` `AgentRegistryTest` `ClientAbortLogFilterTest` `ModelQuotaExceptionTest` | REST contracts (streaming element-by-element / newlines), SSE contract & resume validation (400/409), uniform {code, message} errors, multi-provider registry with hot refresh, thinking switch |
+| 🌐 API & infrastructure | `ChatControllerTest` `HarnessControllerTest` `ChatServiceImplTest` `GlobalExceptionHandlerTest` `LlmClientRegistryTest` `ChatClientFactoryTest` `ThinkingSwitchChatModelTest` `LlmAdminServiceTest` `ModelResolverTest` `RouteExecutorTest` `AgentRegistryTest` `ClientAbortLogFilterTest` `ModelQuotaExceptionTest` | REST contracts (streaming element-by-element / newlines), SSE contract & resume validation (400/409), uniform {code, message} errors, multi-provider registry with hot refresh, thinking switch |
 
 </details>
 

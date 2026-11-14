@@ -25,7 +25,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
  * AgentConfigProvider 单测：按 agentId 查名称、按 agentName 读部署模型绑定/提示词。
- * agent.model_provider_id → model_provider.id 解析模型名。
+ * agent.route_id → 首选成员 model_id 解析模型名。
  */
 @ExtendWith(MockitoExtension.class)
 class AgentConfigProviderTest {
@@ -112,7 +112,7 @@ class AgentConfigProviderTest {
         assertThrows(RuntimeException.class, () -> provider.getAgentConfig("general"));
     }
 
-    /** 同一 agent 连续读取走缓存：命中后不再查 agent / model_provider 两张表（编排内 10+ 次读取只落 2 条查询） */
+    /** 同一 agent 连续读取走缓存：命中后不再查 agent / 路由 / 模型三类表（编排内 10+ 次读取只落首次查询） */
     @Test
     void getAgentConfig_repeated_shouldQueryTablesOnce() {
         provider = newProvider();

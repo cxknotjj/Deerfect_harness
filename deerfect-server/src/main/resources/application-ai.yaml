@@ -44,7 +44,7 @@ spring:
         # 改动文件后需重启（McpToolProvider 启动时读一次）
         stdio-config-file: mcp-config.json
 
-# 多服务商 API Key 配置（敏感信息不落库；端点 url 以 model_provider 表为准，此处只管 key）。
+# 多服务商 API Key 配置（敏感信息不落库；端点 url 以 llm_provider.base_url 为准，此处只管 key）。
 # 解析规则：app.providers.<provider>.api-key 优先，未配置时回退环境变量 <PROVIDER大写>_API_KEY。
 # 因此新增供应商通常零配置——设置 MOONSHOT_API_KEY 之类的环境变量即可。
 app:

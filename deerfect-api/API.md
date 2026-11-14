@@ -258,7 +258,7 @@ record AgentConfig(Long modelProviderId, String model, String prompt, String kno
 record AgentItemView(Long id, String name)
 ```
 
-`AgentConfig` 来自 agent 表 JOIN model_provider；`knowledge` 是逗号分隔的知识库标识，
+`AgentConfig` 来自 agent 表 JOIN llm_route → llm_route_member → llm_model；`knowledge` 是逗号分隔的知识库标识，
 `thinking` 控制思考内容是否透传（null/0 = 不透传）。
 
 ### 会话相关记录

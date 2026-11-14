@@ -381,7 +381,7 @@ mock `AgentCatalog` / `ModelResolver` / `LlmClientRegistry` 与 `ChatClient` 固
 | Graph 编排路径实时进度推送 | `MultiAgentGraphAgentTest.executeStreamReactive_*`、`ProgressLineTest`、`ChatServiceImplTest.streamReactive_shouldMapProgressRowToProgressEvent` |
 | SSE 对外契约（token/DONE/meta/error 按序） | `ChatServiceImplTest.streamReactive_*`、`ChatControllerTest` |
 | 多 Agent 显式指定与回退 | `AgentServiceImplTest` |
-| agent/model 双表配置驱动 | `AgentConfigProviderTest`、`ChatClientRegistryTest` |
+| agent/model 双表配置驱动 | `AgentConfigProviderTest`、`LlmClientRegistryTest` |
 | LLM 调用观测（耗时/token 账本） | `LlmCallRecorderTest` |
 | 观测表保留期清理 | `ObservabilityLogCleanerTest` |
 | 观测查询接口（三张观测表读取口径收口） | `ObserveQueryServiceImplTest` |

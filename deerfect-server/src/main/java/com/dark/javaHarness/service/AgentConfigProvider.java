@@ -31,7 +31,7 @@ public class AgentConfigProvider {
     private static final long CONFIG_CACHE_TTL_MILLIS = 30_000L;
 
     private final AgentMapper agentMapper;
-    /** 路由解析：模型名取 Agent 绑定路由的首选成员（不再读 model_provider） */
+    /** 路由解析：按 agent.route_id 取首选成员（不按模型名解析） */
     private final ModelResolver modelResolver;
 
     /** 命中结果缓存（key=agentName）：配置是热路径上的只读小表，避免每条 LLM 调用两查 */

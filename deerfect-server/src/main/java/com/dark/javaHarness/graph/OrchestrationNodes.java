@@ -485,7 +485,7 @@ public class OrchestrationNodes {
 
     /**
      * agent 表 thinking 显示口径判定（仅控制是否显示思考内容，并不是控制模型是否思考——
-     * 模型思考由 model_provider.disable_thinking 端点配置决定）：行 thinking=1 才透传；
+     * 模型思考由 llm_model.default_params.thinking_mode 决定）：行 thinking=1 才透传；
      * 行缺失/查询失败/列 NULL 或 0 均不透传（getAgentConfig 内部容错返回 empty，此处不抛）。
      * provider null（单测场景）恒不透传。
      */

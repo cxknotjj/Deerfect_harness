@@ -148,7 +148,7 @@ final class CommandDispatcher {
         ui.get().println("  " + c + "/routing" + r + "       查看/设置执行路径：auto | agentic | graph");
         ui.get().println("  " + c + "/resume" + r + "       断点续跑：恢复当前会话最近一次编排任务（从中断处继续）");
         ui.get().println("  " + c + "/resume <goalId>" + r + "  断点续跑指定的 goal（goalId 见每回合末尾的会话信息）");
-        ui.get().println("  " + c + "/provider" + r + "      查看模型-服务商映射（model_provider 表全量）");
+        ui.get().println("  " + c + "/provider" + r + "      查看模型-服务商映射（llm_provider 表全量）");
         ui.get().println("  " + c + "/provider add" + r + "  新增供应商：/provider add <provider> <apiUrl> <模型1,模型2,...>");
         ui.get().println("  " + c + "/schedule" + r + "     定时任务：list（默认）| add \"<cron>\" <agent> <目标> | del <id>");
         ui.get().println("  " + c + "/goal" + r + "         长期目标：查看 | /goal <目标描述> 登记 | /goal done <id> 完成");
@@ -245,7 +245,7 @@ final class CommandDispatcher {
     }
 
     /**
-     * 处理 /provider 命令：模型-服务商映射管理（model_provider 表）。
+     * 处理 /provider 命令：模型-服务商映射管理（llm_provider 表；模型与路由走 /api/admin）。
      * <pre>
      * /provider [list]                                    查看全量映射（含禁用行）
      * /provider add &lt;provider&gt; &lt;apiUrl&gt; &lt;模型1,模型2,...&gt;   新增映射并热刷新（免重启生效）
