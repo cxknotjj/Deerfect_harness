@@ -20,6 +20,8 @@
 
 *Agentic 单 Agent 自主执行 · Graph 多 Agent 编排 · 全程流式可视化*
 
+🔗 **在线浏览**：http://deerfect.me/Deerfect_harness/
+
 </div>
 
 **项目定位**：个人agent助手，并非coding agent
