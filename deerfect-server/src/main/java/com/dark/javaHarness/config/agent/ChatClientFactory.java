@@ -59,23 +59,6 @@ public class ChatClientFactory {
         return Duration.ofSeconds(configured != null ? configured : defaultSeconds);
     }
 
-    /** 默认 DashScope 客户端（基于 spring.ai.openai 自动配置的 Builder，注册表兜底用） */
-    public ChatClient defaultClient(ChatClient.Builder dashScopeBuilder) {
-        warnIfPlaceholderKey();
-        return dashScopeBuilder
-                .defaultTools(new DemoTools())
-                .build();
-    }
-
-    /** 若 api-key 仍为启动占位值，记录警告提示配置真实 key */
-    private void warnIfPlaceholderKey() {
-        String placeholder = "dummy-key-for-startup";
-        if (placeholder.equals(env.getProperty("spring.ai.openai.api-key"))) {
-            log.warn("检测到使用占位 API Key（'{}'）。真实调用大模型前，" +
-                    "请通过环境变量 QWEN_API_KEY 配置真实密钥。", placeholder);
-        }
-    }
-
     /** 按服务商 + api_url 构建 OpenAI 兼容 ChatClient（模型默认思考行为）；参数无效或未配置 key 返回 null */
     public ChatClient build(String provider, String apiUrl) {
         return build(provider, apiUrl, false);
