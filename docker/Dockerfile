@@ -92,12 +92,13 @@ ENV TZ=Asia/Shanghai
 # jlink 运行时不在标准路径，显式加到 PATH（ENTRYPOINT 用的 java 即来自这里）
 ENV PATH=/opt/jre/bin:$PATH
 
-# ca-certificates：访问模型 API / webhook 走 HTTPS 必需，缺了会 PKIX 报错
-# tzdata：TZ=Asia/Shanghai 需要 /usr/share/zoneinfo
-# libstdc++6：libjvm.so 的动态依赖（官方 slim 镜像不保证自带）
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates tzdata libstdc++6 \
-    && rm -rf /var/lib/apt/lists/*
+# 不跑 apt-get：受限网络（国内/企业代理）下 ubuntu 源经常 503，构建会无谓失败。
+# 需要的两样东西直接从构建阶段复制——基础镜像里本来就有：
+#   ca-certificates.crt —— curl/openssl 等系统工具用；JVM 自身用 $JAVA_HOME/lib/security/cacerts
+#   zoneinfo            —— TZ=Asia/Shanghai 的时区数据（2MB）
+# libstdc++6 / libz 由 ubuntu:24.04 基础镜像自带，无需安装。
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build /usr/share/zoneinfo /usr/share/zoneinfo
 
 # 版本信息写入 OCI labels：docker inspect 可追溯版本与提交，无需进容器查
 ARG APP_VERSION=dev
