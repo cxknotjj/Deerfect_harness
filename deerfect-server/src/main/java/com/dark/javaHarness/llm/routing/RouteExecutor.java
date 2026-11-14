@@ -124,10 +124,10 @@ public class RouteExecutor {
                               BooleanSupplier cancelled,
                               StreamAttempt<T> attempt,
                               AttemptObserver observer) {
-        return streamMember(plan, 0, cancelled, attempt, observer, new AtomicInteger(), null);
+        return streamMember(plan, 0, 0, cancelled, attempt, observer, new AtomicInteger(), null);
     }
 
-    private <T> Flux<T> streamMember(RoutePlan plan, int index,
+    private <T> Flux<T> streamMember(RoutePlan plan, int index, int sameMemberRetried,
                                      BooleanSupplier cancelled,
                                      StreamAttempt<T> attempt,
                                      AttemptObserver observer,
@@ -162,6 +162,17 @@ public class RouteExecutor {
                     if (action == FailurePolicy.Action.FAIL) {
                         return Flux.error(e);
                     }
+                    // 429 限流：先在当前成员上退避重试，重试次数用尽才切换——
+                    // 与阻塞路径 execute 的推进策略保持一致（此前会直接切换，
+                    // 既少了一次恢复机会，又多记一次 route.fallbacks）
+                    if (action == FailurePolicy.Action.RETRY_SAME
+                            && sameMemberRetried < maxSameMemberRetries) {
+                        log.warn("[llm] 路由 {} 成员 {} 第 {} 次重试（{}）",
+                                plan.routeCode(), member.modelId(), sameMemberRetried + 1,
+                                failure.getClass().getSimpleName());
+                        return streamMember(plan, index, sameMemberRetried + 1, cancelled,
+                                attempt, observer, attemptNo, fallbackFrom);
+                    }
                     if (index + 1 >= members.size()) {
                         // 已是最后一个成员：原样上抛本次错误，交给外层重试策略分类
                         // （此前会换成「路由无可用成员」，把可重试的超时/5xx 误判为不可重试）
@@ -172,7 +183,7 @@ public class RouteExecutor {
                     }
                     log.warn("[llm] 路由 {} 成员 {} 失败，切换下一成员: {}",
                             plan.routeCode(), member.modelId(), e.getMessage());
-                    return streamMember(plan, index + 1, cancelled, attempt, observer,
+                    return streamMember(plan, index + 1, 0, cancelled, attempt, observer,
                             attemptNo, member.modelId());
                 });
     }

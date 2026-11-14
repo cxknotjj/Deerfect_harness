@@ -180,6 +180,74 @@ class RouteExecutorTest {
         assertEquals(0, secondCalled.get(), "首 token 后错误不得切换成员（避免两段模型输出拼接）");
     }
 
+    @Test
+    void stream_rateLimit_retriesSameMemberThenSucceeds() {
+        RoutePlan plan = plan(member(1L, 10), member(2L, 20));
+        AtomicInteger firstCalls = new AtomicInteger();
+        AtomicInteger switches = new AtomicInteger();
+
+        List<String> out = executor.stream(plan, () -> false, m -> {
+            if (m.modelId() == 1L && firstCalls.incrementAndGet() <= 2) {
+                return Flux.error(http(429));
+            }
+            return Flux.just("ok-" + m.modelId());
+        }, switchCounter(switches)).collectList().block();
+
+        assertEquals(List.of("ok-1"), out);
+        assertEquals(3, firstCalls.get(), "429 应在同成员上重试 2 次后成功（共 3 次）");
+        assertEquals(0, switches.get(), "同成员重试不应记为失败切换");
+    }
+
+    @Test
+    void stream_rateLimitExhausted_switchesToNextMember() {
+        RoutePlan plan = plan(member(1L, 10), member(2L, 20));
+        AtomicInteger firstCalls = new AtomicInteger();
+        AtomicInteger switches = new AtomicInteger();
+
+        List<String> out = executor.stream(plan, () -> false, m -> {
+            if (m.modelId() == 1L) {
+                firstCalls.incrementAndGet();
+                return Flux.error(http(429));
+            }
+            return Flux.just("ok-" + m.modelId());
+        }, switchCounter(switches)).collectList().block();
+
+        assertEquals(List.of("ok-2"), out);
+        assertEquals(3, firstCalls.get(), "重试 2 次用尽后才切换（共 3 次）");
+        assertEquals(1, switches.get(), "真正换成员时才计一次 route.fallbacks");
+    }
+
+    @Test
+    void stream_clientError_failsWithoutRetryOrSwitch() {
+        RoutePlan plan = plan(member(1L, 10), member(2L, 20));
+        AtomicInteger firstCalls = new AtomicInteger();
+        AtomicInteger secondCalls = new AtomicInteger();
+        AtomicInteger switches = new AtomicInteger();
+
+        assertThrows(WebClientResponseException.class, () ->
+                executor.stream(plan, () -> false, m -> {
+                    if (m.modelId() == 1L) {
+                        firstCalls.incrementAndGet();
+                        return Flux.error(http(400));
+                    }
+                    secondCalls.incrementAndGet();
+                    return Flux.just("ok");
+                }, switchCounter(switches)).collectList().block());
+
+        assertEquals(1, firstCalls.get(), "4xx 不可重试，只尝试一次");
+        assertEquals(0, secondCalls.get(), "4xx 不应切换成员");
+        assertEquals(0, switches.get());
+    }
+
+    private static RouteExecutor.AttemptObserver switchCounter(AtomicInteger counter) {
+        return new RouteExecutor.AttemptObserver() {
+            @Override
+            public void onSwitch(RoutePlan.Member from, RoutePlan.Member to) {
+                counter.incrementAndGet();
+            }
+        };
+    }
+
     private static RoutePlan plan(RoutePlan.Member... members) {
         return new RoutePlan(1L, "main", List.of(members));
     }
