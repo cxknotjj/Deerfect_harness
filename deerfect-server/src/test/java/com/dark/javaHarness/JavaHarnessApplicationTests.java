@@ -2,11 +2,17 @@ package com.dark.javaHarness;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import javax.sql.DataSource;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.env.Environment;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 @SpringBootTest
 class JavaHarnessApplicationTests {
@@ -14,8 +20,38 @@ class JavaHarnessApplicationTests {
     @Autowired
     private Environment environment;
 
+    /** 主库（MySQL）数据源；容器里另有向量库 JdbcTemplate，必须显式限定，避免查错库 */
+    @Autowired
+    @Qualifier("dataSource")
+    private DataSource dataSource;
+
     @Test
     void contextLoads() {
+    }
+
+    /**
+     * 种子契约（最小版）：每条启用的路由都必须有「成员 + 模型都启用」的可用成员。
+     *
+     * <p>这是 V20/V24 事故的直接守卫：V20 按硬编码 id 回填成员，全新库匹配不到时
+     * main 路由为 0 成员，启动校验才失败、且本地因手工数据无法复现。这里在空库与
+     * 开发库上都能跑，只断言不变量，不绑定具体模型名（模型名随部署而变）。
+     */
+    @Test
+    void everyEnabledRouteHasUsableMember() {
+        List<String> emptyRoutes = new JdbcTemplate(dataSource).queryForList("""
+                SELECT r.code
+                FROM llm_route r
+                WHERE r.enabled = 1
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM llm_route_member rm
+                    JOIN llm_model m ON m.id = rm.model_id
+                    WHERE rm.route_id = r.id AND rm.enabled = 1 AND m.enabled = 1
+                  )
+                ORDER BY r.code
+                """, String.class);
+
+        assertTrue(emptyRoutes.isEmpty(), "以下路由没有可用成员（启动校验会失败）：" + emptyRoutes);
     }
 
     /**
