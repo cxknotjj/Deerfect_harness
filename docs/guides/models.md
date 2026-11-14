@@ -1,6 +1,6 @@
 # 🔌 多模型与多服务商
 
-> 数据库驱动的三层 LLM 配置：供应商 → 模型部署 → 路由，Agent 只绑定路由；新增模型零代码、热更新免重启。
+> 数据库驱动的三层 LLM 配置：供应商 → 模型部署 → 路由，Agent 只绑定路由；新增模型零代码、热更新免重启（管理接口写入即时生效；直接改库不会触发刷新，见文末说明）。
 
 ---
 
@@ -30,6 +30,8 @@ flowchart LR
 >    PUT  /api/admin/agents/{agentId}/route   {"routeId":<路由 id>}
 >    ```
 > 3. 立即生效（服务端重读目录 → 全量校验 → 原子替换；校验失败保留旧配置并返回原因）
+>
+> **直接改库不会触发刷新**：`llm_provider` / `llm_model` / `llm_route` / `llm_route_member` 只在管理接口写入后重建内存映射，手工 SQL 修改需再调一次管理接口写入或重启服务。Agent 行（prompt / tools / route_id）走 30s 进程内缓存，最多滞后 30s；新增 Agent 行因未命中缓存而立即注册。
 >
 > CLI：`/provider` 查看供应商，`/provider add <provider> <apiUrl> <模型1,模型2,...>` 走同一管理接口。
 

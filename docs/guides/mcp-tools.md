@@ -18,7 +18,7 @@
 ```
 
 - 远程 server 填 `url`，本地进程填 `command`(±`args`)；`enabled: false` 跳过条目；**改配置需重启**
-- **按 agent 分配**：`agent` 表 `tools` 列按精确工具名授予（改库免重启）。如把 Tavily 搜索分给 general/researcher：
+- **按 agent 分配**：`agent` 表 `tools` 列按精确工具名授予（改库免重启，已有行的改动最多滞后 30s）。如把 Tavily 搜索分给 general/researcher：
 
 ```sql
 UPDATE agent SET tools = CONCAT(tools, ', tavily_search')

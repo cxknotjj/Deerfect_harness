@@ -28,7 +28,7 @@
 ③' Agent 路由（表驱动动态注册）
      AgentServiceImpl.requireAgent(name) → AgentRegistry.require(name)
        注册表命中 → 直取实例；未命中 → 查 agent 表惰性注册（computeIfAbsent 原子构造）
-       内部角色（is_internal=1）不注册；运行中插行免重启
+       内部角色（is_internal=1）不注册；运行中插行立即可用（已有行的改动走 30s 缓存）
         │
 ④ 统一出口：会话记忆写回 + 同步/SSE 响应（对外契约一致）
 
@@ -465,7 +465,7 @@ AgentChatCaller.buildSpec()（统一出口）
 ## 5g. Agent 表驱动自动注册与路由（AgentRegistry）
 
 > Agent 注册口径从「bean + 表行」收敛为「agent 表一行」：注册一个新 Agent = 插一行数据，
-> 无需改代码、无需重启。`is_internal=1`（multi-agent/lead/aggregator）标记内部编排角色。
+> 无需改代码、无需重启（新增行立即可用；已有行的 prompt/tools/route_id 改动最多滞后 30s）。`is_internal=1`（multi-agent/lead/aggregator）标记内部编排角色。
 
 ```
 启动期
@@ -478,7 +478,7 @@ AgentChatCaller.buildSpec()（统一出口）
    未命中（如 CLI /agent 切到新插入的 nailong）
      → 查表惰性注册：ConcurrentHashMap.computeIfAbsent 原子构造（并发请求只构造一次）
      → 表中无该行 → 抛「未知 Agent」（CLI 展示可用列表）
-     ⚠️ 运行中插行即生效（免重启），查表仅依赖 Dao 层，无循环依赖
+     ⚠️ 运行中插行即生效（免重启）；已有行的配置改动走 30s 缓存。查表仅依赖 Dao 层，无循环依赖
 ```
 
 **关键点**：① 单一事实来源（agent 表）；② internal 标记避免编排角色被对话路由选中；

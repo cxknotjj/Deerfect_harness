@@ -47,7 +47,7 @@ java -jar wms-mcp-adapter/target/wms-mcp-adapter-<version>.jar
 > [!NOTE]
 > 当前 harness 版本的 mcp-config.json 解析仅识别 `url`/`command`/`args`/`enabled` 字段（见 `deerfect-server/src/main/java/com/dark/javaHarness/tool/McpConfigParser.java`），`headers` 字段的支持以 harness 版本为准——未支持时 token 不会随请求携带，adapter 将拒绝调用（见常见问题）。
 
-**2. agent 表 wms 行**：由 Flyway 基线 `V1__init_schema.sql` 的种子数据自带（原 V25 迁移并入；is_internal=0，web AgentSelect 可见可绑定；tools 列绑定下表 10 个工具名，改库免重启）。前提是 `llm_model` 中已有 `wms` 绑定的路由首选成员模型（V20 已从旧数据回填）。
+**2. agent 表 wms 行**：由 Flyway 基线 `V1__init_schema.sql` 的种子数据自带（原 V25 迁移并入；is_internal=0，web AgentSelect 可见可绑定；tools 列绑定下表 10 个工具名，改库免重启，最多滞后 30s）。前提是 `llm_model` 中已有 `wms` 绑定的路由首选成员模型（V20 已从旧数据回填）。
 
 **3. 使用**：QQ / web / CLI 任一渠道选择「仓储专员（wms）」或由编排指派后，即可自然语言查询；每次工具调用落库 `tool_call_log`（含来源 server=wms）。
 
@@ -85,7 +85,7 @@ java -jar wms-mcp-adapter/target/wms-mcp-adapter-<version>.jar
 **Q：agent 的工具列表里没有 wms_* 工具？**
 
 - mcp-config.json 无 wms 条目或 url 写错：harness 启动/预热日志会 warn「连接/发现失败」（改配置需重启）
-- agent 表 tools 列未绑定：确认 wms 行 `tools` 列含对应工具名（精确名授予，改库免重启）
+- agent 表 tools 列未绑定：确认 wms 行 `tools` 列含对应工具名（精确名授予，改库免重启，最多滞后 30s）
 - 按名授予时 server 未连接则该 token 跳过（warn），不影响其余工具；`enabled: false` 会整体跳过条目
 
 ---
