@@ -1,24 +1,39 @@
 <script setup lang="ts">
 /**
- * 全局导航壳层：品牌头 + 工作区 + 分组导航（核心 / 观测）+ 底部外观与用户位。
+ * 全局导航壳层：品牌头 + 工作区 + 新建会话 + 分组导航 + 系统诊断/外观/用户位。
  *
- * 只负责「切页」这一件事：页面状态由 App.vue 持有，本组件通过 navigate 上报；
- * 主题与退出同样是动作型条目，不在此维护状态。
+ * 只负责「切页」与外观切换：页面状态由 App.vue 持有，本组件通过 navigate 上报；
+ * 新建会话同样是动作型条目（emit new-session），不在此维护会话状态。
  * 轨迹与监控属于对话页内的 tab（按会话/运行态观测），不占全局导航。
+ *
+ * 几何对齐控制台参考图：卡片圆角 14px、条目标高 38px/圆角 11px/间距 4px、
+ * 活动项左侧 3px 竖条；分组标签与底部面板留白比列表更宽一档。
  */
 import { computed } from 'vue'
+import { useSystemHealth } from '../composables/systemHealth'
 
-type PageId = 'dashboard' | 'chat' | 'monitor'
+type PageId =
+  | 'dashboard'
+  | 'chat'
+  | 'knowledge'
+  | 'memory'
+  | 'skills'
+  | 'calendar'
+  | 'mcp'
+  | 'monitor'
 
 const props = defineProps<{
   page: PageId
   theme: 'dark' | 'light'
   authEnabled: boolean
+  /** 各页条目计数（可选）：仅 >0 时在导航项右侧显示徽标 */
+  counts?: Partial<Record<PageId, number>>
 }>()
 
 const emit = defineEmits<{
   navigate: [page: PageId]
-  'toggle-theme': []
+  'new-session': []
+  'set-theme': [theme: 'dark' | 'light']
   logout: []
 }>()
 
@@ -44,6 +59,40 @@ const NAV: NavItem[] = [
     paths: ['M20 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z'],
   },
   {
+    id: 'knowledge',
+    label: '知识库',
+    group: '核心',
+    paths: ['M4 19.5A2.5 2.5 0 0 1 6.5 17H20', 'M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z'],
+  },
+  {
+    id: 'memory',
+    label: '记忆',
+    group: '核心',
+    paths: [
+      'M4.5 6c0-1.66 3.36-3 7.5-3s7.5 1.34 7.5 3-3.36 3-7.5 3-7.5-1.34-7.5-3z',
+      'M4.5 6v6c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3V6',
+      'M4.5 12v6c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3v-6',
+    ],
+  },
+  {
+    id: 'skills',
+    label: '技能',
+    group: '连接',
+    paths: ['M13.5 2.5 5 13.5h5.5L10 21.5 19 10h-5.5z'],
+  },
+  {
+    id: 'calendar',
+    label: '内容日历',
+    group: '连接',
+    paths: ['M4 8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z', 'M4 10.5h16', 'M8.5 3v4M15.5 3v4'],
+  },
+  {
+    id: 'mcp',
+    label: 'MCP',
+    group: '连接',
+    paths: ['M9 3v5M15 3v5', 'M6.5 8h11v2.5a5.5 5.5 0 0 1-11 0z', 'M12 16v5'],
+  },
+  {
     id: 'monitor',
     label: '监控',
     group: '观测',
@@ -65,29 +114,55 @@ const groups = computed(() => {
   return order.map((name) => ({ name, items: map.get(name)! }))
 })
 
-const themeLabel = computed(() => (props.theme === 'dark' ? '暗色' : '亮色'))
+function badgeOf(id: PageId): number | undefined {
+  const count = props.counts?.[id]
+  return count !== undefined && count > 0 ? count : undefined
+}
+
+const { health } = useSystemHealth()
+
+const healthText = computed(() => {
+  if (health.value === 'online') return '在线'
+  if (health.value === 'offline') return '离线'
+  return '检测中'
+})
 </script>
 
 <template>
   <aside class="app-nav" aria-label="主导航">
-    <div class="app-nav-head">
-      <img class="nav-logo" src="/deer_logo.png" alt="" />
+    <header class="app-nav-head">
+      <span class="nav-logo-wrap" aria-hidden="true">
+        <img class="nav-logo" src="/deer_logo.png" alt="" />
+      </span>
       <div class="nav-brand">
-        <span class="nav-brand-name">DeerFect</span>
-        <span class="nav-brand-sub">HARNESS</span>
+        <div class="nav-brand-row">
+          <span class="nav-brand-name">DeerFect</span>
+          <span class="nav-brand-tag">HARNESS</span>
+        </div>
+        <span class="nav-brand-sub">本地 Agent 控制台</span>
       </div>
-    </div>
+    </header>
 
-    <!-- 工作区：当前为单实例部署，保留层级但不做假下拉 -->
-    <button class="nav-workspace" type="button" title="当前工作区">
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
-      </svg>
-      <span class="nav-workspace-name">默认工作区</span>
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="m7 10 5 5 5-5" />
-      </svg>
-    </button>
+    <div class="nav-top">
+      <!-- 工作区：当前为单实例部署，保留层级但不做假下拉 -->
+      <button class="nav-workspace" type="button" title="当前工作区">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
+        </svg>
+        <span class="nav-workspace-name">默认工作区</span>
+        <span class="nav-workspace-role">管理员</span>
+        <svg class="nav-chevron" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="m7 10 5 5 5-5" />
+        </svg>
+      </button>
+
+      <button class="nav-new" type="button" data-testid="nav-new-session" @click="emit('new-session')">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+        <span>新会话</span>
+      </button>
+    </div>
 
     <nav class="nav-scroll">
       <div v-for="group in groups" :key="group.name" class="nav-group">
@@ -106,33 +181,64 @@ const themeLabel = computed(() => (props.theme === 'dark' ? '暗色' : '亮色')
             <path v-for="d in item.paths" :key="d" :d="d" />
           </svg>
           <span class="nav-item-label">{{ item.label }}</span>
+          <span v-if="badgeOf(item.id)" class="nav-badge">{{ badgeOf(item.id) }}</span>
         </button>
       </div>
     </nav>
 
-    <div class="app-nav-foot">
+    <footer class="app-nav-foot">
       <button
-        class="nav-item nav-theme"
+        class="nav-health"
+        :class="`nav-health-${health}`"
         type="button"
-        :title="theme === 'dark' ? '切换亮色' : '切换暗色'"
-        @click="emit('toggle-theme')"
+        title="服务端可达性；组件详情见监控页"
+        @click="emit('navigate', 'monitor')"
       >
-        <svg v-if="theme === 'dark'" viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="4" />
-          <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" />
-        </svg>
-        <svg v-else viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11Z" />
-        </svg>
-        <span class="nav-item-label">外观</span>
-        <span class="nav-theme-state">{{ themeLabel }}</span>
+        <span class="nav-health-dot" aria-hidden="true"></span>
+        <span class="nav-health-label">系统诊断</span>
+        <span class="nav-health-state">{{ healthText }}</span>
       </button>
+
+      <div class="nav-panel">
+        <div class="nav-panel-row">
+          <span class="nav-panel-label">外观</span>
+          <div class="nav-segment" role="group" aria-label="外观">
+            <button
+              class="nav-segment-btn"
+              :class="{ 'nav-segment-btn-active': theme === 'light' }"
+              type="button"
+              title="日间"
+              aria-label="日间"
+              :aria-pressed="theme === 'light'"
+              @click="emit('set-theme', 'light')"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" />
+              </svg>
+            </button>
+            <button
+              class="nav-segment-btn"
+              :class="{ 'nav-segment-btn-active': theme === 'dark' }"
+              type="button"
+              title="夜间"
+              aria-label="夜间"
+              :aria-pressed="theme === 'dark'"
+              @click="emit('set-theme', 'dark')"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11Z" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div class="nav-user">
         <span class="nav-avatar" aria-hidden="true">管</span>
         <div class="nav-user-text">
           <span class="nav-user-name">管理员</span>
-          <span class="nav-user-role">本地实例</span>
+          <span class="nav-user-role">{{ authEnabled ? '已登录' : '本地实例' }}</span>
         </div>
         <button
           v-if="authEnabled"
@@ -149,6 +255,6 @@ const themeLabel = computed(() => (props.theme === 'dark' ? '暗色' : '亮色')
           </svg>
         </button>
       </div>
-    </div>
+    </footer>
   </aside>
 </template>

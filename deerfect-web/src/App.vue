@@ -1,6 +1,7 @@
 /**
  * 应用骨架：全局导航（AppNav）+ 内容区。
- * - 页面：仪表盘 / 对话 / 轨迹 / 监控，由导航切换；对话页内嵌会话列表 + 聊天窗
+ * - 页面：仪表盘 / 对话（含轨迹 tab）/ 知识库 / 记忆 / 技能 / 内容日历 / MCP / 监控，由导航切换
+ * - 资源页写操作通过 changed 事件刷新导航徽标计数；侧栏「新会话」直达 onCreate
  * - 会话联动：切换/新建会话 → showChat(id)；onMeta 回写 sessionId 并刷新列表首页
  * - Agent 选中变化 → bindAgent，成功/失败以顶栏轻提示呈现（3 秒消失）
  * - 窄屏（≤768px）：导航转抽屉 + 顶部条；会话列表为第二层抽屉，选中/新建后自动收起
@@ -17,6 +18,11 @@ import RoutingSelect from './components/RoutingSelect.vue'
 import type { RoutingMode } from './api/types'
 import TraceView from './components/TraceView.vue'
 import MonitorView from './components/MonitorView.vue'
+import KnowledgeView from './components/KnowledgeView.vue'
+import MemoryView from './components/MemoryView.vue'
+import SkillView from './components/SkillView.vue'
+import CalendarView from './components/CalendarView.vue'
+import McpView from './components/McpView.vue'
 import LoginView from './components/LoginView.vue'
 import OfflineView from './components/OfflineView.vue'
 import { api, setUnauthorizedHandler } from './api'
@@ -26,7 +32,15 @@ import { useAgents } from './composables/useAgents'
 import { useOfflineGate, useUnreadBadge } from './composables/pwa'
 import { reportGlobalError, useGlobalError } from './composables/globalError'
 
-type PageId = 'dashboard' | 'chat' | 'monitor'
+type PageId =
+  | 'dashboard'
+  | 'chat'
+  | 'knowledge'
+  | 'memory'
+  | 'skills'
+  | 'calendar'
+  | 'mcp'
+  | 'monitor'
 
 const { message: globalError, dismiss: dismissGlobalError } = useGlobalError()
 
@@ -57,6 +71,24 @@ const page = ref<PageId>('dashboard')
 
 /** 对话页内的分段：对话 / 轨迹（轨迹按会话，跟随会话列表） */
 const chatTab = ref<'chat' | 'trace'>('chat')
+
+/**
+ * 导航徽标计数：三个轻量列表接口，任一失败只让该项不计，不打断主界面。
+ * 资源页写操作（同步/新增/删除/重载）通过 changed 事件触发重新统计。
+ */
+const navCounts = ref<Partial<Record<PageId, number>>>({})
+async function loadNavCounts(): Promise<void> {
+  const [kb, mem, skills] = await Promise.allSettled([
+    api.listKbDocuments(1, 1),
+    api.listMemories('active', 200),
+    api.listSkills(),
+  ])
+  navCounts.value = {
+    knowledge: kb.status === 'fulfilled' ? kb.value.total : 0,
+    memory: mem.status === 'fulfilled' ? mem.value.length : 0,
+    skills: skills.status === 'fulfilled' ? skills.value.length : 0,
+  }
+}
 
 const {
   messages,
@@ -109,6 +141,7 @@ async function onLogin(password: string): Promise<void> {
     needsLogin.value = false
     void loadFirst()
     void loadAgents()
+    void loadNavCounts()
   } catch (e) {
     loginError.value = errText(e)
   } finally {
@@ -141,6 +174,7 @@ onMounted(async () => {
   }
   void loadFirst()
   void loadAgents()
+  void loadNavCounts()
 })
 
 function errText(e: unknown): string {
@@ -219,12 +253,24 @@ const currentSessionName = computed(
   () => sessions.value.find((s) => s.id === currentSessionId.value)?.name ?? '新对话',
 )
 
-/** 窄屏顶部条标题 */
-const pageTitle = computed(() => {
-  if (page.value === 'monitor') return '监控'
-  if (page.value !== 'chat') return '仪表盘'
-  return chatTab.value === 'trace' ? '轨迹' : currentSessionName.value
-})
+/** 窄屏顶部条标题（对话页按内层 tab 显示轨迹/会话名） */
+const PAGE_TITLES: Record<PageId, string> = {
+  dashboard: '仪表盘',
+  chat: '对话',
+  knowledge: '知识库',
+  memory: '记忆',
+  skills: '技能',
+  calendar: '内容日历',
+  mcp: 'MCP',
+  monitor: '监控',
+}
+const pageTitle = computed(() =>
+  page.value === 'chat'
+    ? chatTab.value === 'trace'
+      ? '轨迹'
+      : currentSessionName.value
+    : PAGE_TITLES[page.value],
+)
 
 /** 当前选中的 agent id(数字,列表下标 + 1;null = 默认 Agent) */
 const selectedAgentId = ref<number | null>(null)
@@ -305,13 +351,13 @@ onBeforeUnmount(() => {
   stopUnreadBadge()
 })
 
-/** 主题切换:夜间(Telemetry Dark,默认)⇄ 日间(DeepSeek 蓝白);持久化 localStorage,入口在导航底部 */
+/** 主题:夜间(Telemetry Dark,默认)⇄ 日间(DeepSeek 蓝白);导航底部两段式控件直接指定目标值 */
 const theme = ref<'dark' | 'light'>(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark')
-function toggleTheme(): void {
-  theme.value = theme.value === 'dark' ? 'light' : 'dark'
-  localStorage.setItem('web-theme', theme.value)
-  document.documentElement.dataset.theme = theme.value
-  document.documentElement.style.colorScheme = theme.value
+function setTheme(next: 'dark' | 'light'): void {
+  theme.value = next
+  localStorage.setItem('web-theme', next)
+  document.documentElement.dataset.theme = next
+  document.documentElement.style.colorScheme = next
 }
 
 /** 下载当前会话纯文本日志:消息按角色拼接(【user】/【assistant】),Blob 触发 a.download */
@@ -346,8 +392,10 @@ function downloadSessionLog(): void {
       :page="page"
       :theme="theme"
       :auth-enabled="authEnabled"
+      :counts="navCounts"
       @navigate="goPage"
-      @toggle-theme="toggleTheme"
+      @new-session="onCreate"
+      @set-theme="setTheme"
       @logout="onLogout"
     />
     <!-- 窄屏导航抽屉遮罩 -->
@@ -365,7 +413,9 @@ function downloadSessionLog(): void {
       <!-- 窄屏顶部条：导航入口 + 品牌 + 当前页 -->
       <div v-if="isNarrow" class="mobile-bar">
         <button class="icon-btn" type="button" aria-label="打开导航" @click="navOpen = true">☰</button>
-        <img class="mobile-logo" src="/deer_logo.png" alt="" />
+        <span class="mobile-logo-wrap" aria-hidden="true">
+          <img class="mobile-logo" src="/deer_logo.png" alt="" />
+        </span>
         <span class="mobile-title">{{ pageTitle }}</span>
         <button
           v-if="page === 'chat'"
@@ -383,6 +433,12 @@ function downloadSessionLog(): void {
       </div>
 
       <DashboardView v-if="page === 'dashboard'" />
+
+      <KnowledgeView v-else-if="page === 'knowledge'" @changed="loadNavCounts" />
+      <MemoryView v-else-if="page === 'memory'" @changed="loadNavCounts" />
+      <SkillView v-else-if="page === 'skills'" />
+      <CalendarView v-else-if="page === 'calendar'" />
+      <McpView v-else-if="page === 'mcp'" @changed="loadNavCounts" />
 
       <div v-else-if="page === 'chat'" class="chat-layout" :class="{ 'sessions-hidden': sessionsHidden }">
         <SessionList
