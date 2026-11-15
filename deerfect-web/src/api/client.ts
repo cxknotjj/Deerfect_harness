@@ -8,6 +8,16 @@
  */
 import type { ChatRequest, KbRetrievalItem, LlmCallItem, MonitorContextComposition, MonitorSnapshot, ToolCallItem } from './types'
 import type { AgentListView, SessionAgentView, SessionCreatedView, SessionMessagesView, SessionPage } from './types'
+import type {
+  CapabilityReloadResult,
+  CapabilityReport,
+  KbDocument,
+  KnowledgeSyncResult,
+  MemoryItem,
+  PageResult,
+  ScheduleItem,
+  SkillItem,
+} from './types'
 import { authState, login, logout } from './auth'
 import type { AuthStateView } from './auth'
 import { isAbort, streamChat } from './chatStream'
@@ -28,6 +38,19 @@ import {
   monitor,
   monitorContext,
 } from './observability'
+import {
+  capabilities,
+  createMemory,
+  deleteKbDocument,
+  deleteMemory,
+  deleteSchedule,
+  listKbDocuments,
+  listMemories,
+  listSchedules,
+  listSkills,
+  reloadCapabilities,
+  syncKnowledge,
+} from './resources'
 
 /** 统一 API 面：真实现与 mock 实现同签名，由 index.ts 按 VITE_USE_MOCK 二选一导出 */
 export interface Api {
@@ -46,6 +69,18 @@ export interface Api {
   authState(): Promise<AuthStateView>
   login(password: string): Promise<void>
   logout(): Promise<void>
+  /* 资源面：知识库 / 记忆 / 技能 / 定时排期 / MCP 能力清单 */
+  listKbDocuments(page?: number, size?: number): Promise<PageResult<KbDocument>>
+  syncKnowledge(): Promise<KnowledgeSyncResult>
+  deleteKbDocument(docName: string): Promise<boolean>
+  listMemories(status?: string, limit?: number): Promise<MemoryItem[]>
+  createMemory(content: string, key?: string): Promise<MemoryItem>
+  deleteMemory(id: number): Promise<void>
+  listSkills(): Promise<SkillItem[]>
+  listSchedules(): Promise<ScheduleItem[]>
+  deleteSchedule(id: string): Promise<void>
+  capabilities(): Promise<CapabilityReport>
+  reloadCapabilities(): Promise<CapabilityReloadResult>
 }
 
 /** 真实 HTTP 实现 */
@@ -65,6 +100,17 @@ export const realApi: Api = {
   authState,
   login,
   logout,
+  listKbDocuments,
+  syncKnowledge,
+  deleteKbDocument,
+  listMemories,
+  createMemory,
+  deleteMemory,
+  listSkills,
+  listSchedules,
+  deleteSchedule,
+  capabilities,
+  reloadCapabilities,
 }
 
 // 兼容既有调用方的具名导出（实现已下沉到领域模块）

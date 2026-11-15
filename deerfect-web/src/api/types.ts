@@ -361,3 +361,108 @@ export interface LlmCallItem {
   /** 父调用 span_id;根调用/旧数据为 null(前端缺失时按根缩进) */
   parentSpan?: string | null
 }
+
+/* ============================================================
+   资源面（知识库 / 记忆 / 技能 / 定时排期 / MCP 能力清单）
+   与后端 GET /api/knowledge|memories|skills|schedules、/api/capabilities 对齐
+   ============================================================ */
+
+/** 知识库文档台账行（GET /api/knowledge/documents 的 list 项） */
+export interface KbDocument {
+  id: number
+  /** 相对知识目录的路径（子目录文档带 kb 前缀，如 java/spring.md） */
+  docName: string
+  /** 所属知识库（知识目录一级子目录名，根目录为 default） */
+  kb: string
+  title: string
+  /** 文件最后修改时间（epoch 毫秒） */
+  mtime: number
+  chunkCount: number
+  /** 1 = 已摄取有效，0 = 下线或摄取失败 */
+  status: number
+  createdAt: string
+  updatedAt: string
+}
+
+/** 通用分页响应（对齐后端 PageResult） */
+export interface PageResult<T> {
+  list: T[]
+  total: number
+  page: number
+  size: number
+}
+
+/** 增量摄取结果（POST /api/knowledge/sync） */
+export interface KnowledgeSyncResult {
+  scanned: number
+  updated: number
+  skipped: number
+  chunks: number
+}
+
+/** 一条显式记忆（GET /api/memories 的 items 项） */
+export interface MemoryItem {
+  id: number
+  /** 可选短标签（车牌/技术栈等） */
+  key: string | null
+  content: string
+  /** user=对话中明示 / cli=命令行 / manual=管理接口 */
+  source: string
+  sessionId: string | null
+  createdAt: string
+  expiresAt: string | null
+  status: string
+}
+
+/** 技能目录解析结果（GET /api/skills） */
+export interface SkillItem {
+  name: string
+  description: string | null
+  /** 限定可用的 agent 名；null = 全部 agent 可用 */
+  agents: string[] | null
+  entryFile: string
+  /** 入口文件字节数 */
+  size: number
+  /** 解析诊断（null = 正常） */
+  error: string | null
+}
+
+/** 定时排期（GET /api/schedules 的 items 项；每次触发产生一个 Goal） */
+export interface ScheduleItem {
+  id: string
+  objective: string
+  agentName: string
+  /** Spring 6 段 cron（秒 分 时 日 月 周） */
+  cron: string
+  notifyChannel: string | null
+  enabled: boolean
+  lastRunAt: string | null
+  nextRunAt: string | null
+  lastGoalId: string | null
+  createdAt: string
+}
+
+/** 能力清单条目（GET /api/capabilities；source: core/sandbox/http/mcp:http/skill） */
+export interface CapabilityEntry {
+  pack: string
+  source: string
+  location: string
+  tools: string[]
+  /** ready / unavailable / disabled / missing-config / CONNECTED / FAILED */
+  state: string
+}
+
+/** 能力清单（MCP 页取 source 以 mcp 开头的条目） */
+export interface CapabilityReport {
+  totalTools: number
+  entries: CapabilityEntry[]
+  problems: string[]
+}
+
+/** 能力重载结果（POST /api/capabilities/reload） */
+export interface CapabilityReloadResult {
+  problems: string[]
+  tools: number
+  directory: string
+  mcp: { servers: number; previousServers: number; names: string[] }
+}

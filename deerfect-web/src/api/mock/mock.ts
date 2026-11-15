@@ -6,18 +6,27 @@
 import type { Api, StreamHandlers } from '../client'
 import type {
   AgentListView,
+  CapabilityEntry,
+  CapabilityReloadResult,
+  CapabilityReport,
   ChatRequest,
+  KbDocument,
   KbRetrievalItem,
+  KnowledgeSyncResult,
   LlmCallItem,
+  MemoryItem,
   MonitorChannel,
   MonitorContextComposition,
   MonitorLlmCall,
   MonitorSnapshot,
   MonitorToolCall,
+  PageResult,
+  ScheduleItem,
   SessionAgentView,
   SessionCreatedView,
   SessionMessagesView,
   SessionPage,
+  SkillItem,
   SseMeta,
   ToolCallItem,
 } from '../types'
@@ -428,6 +437,236 @@ async function monitorContext(sessionId: string): Promise<MonitorContextComposit
   }
 }
 
+/* ============================================================
+   资源面 mock：知识库台账 / 记忆 / 技能 / 定时排期 / MCP 能力清单
+   与真实现同形；写操作直接改内存副本，刷新页面即复位
+   ============================================================ */
+
+/** 本地时区「YYYY-MM-DDTHH:mm:ss」：对齐后端 LocalDateTime 序列化（无时区后缀） */
+function localDateTime(offsetMinutes: number): string {
+  const d = new Date(Date.now() + offsetMinutes * 60_000)
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
+const nowEpoch = Date.now()
+
+const kbDocuments: KbDocument[] = [
+  {
+    id: 1,
+    docName: 'java/SpringBoot常见问题.md',
+    kb: 'java',
+    title: 'Spring Boot 常见问题',
+    mtime: nowEpoch - 3 * 86_400_000,
+    chunkCount: 1,
+    status: 1,
+    createdAt: localDateTime(-60 * 24 * 30),
+    updatedAt: localDateTime(-3 * 24 * 60),
+  },
+  {
+    id: 2,
+    docName: 'frontend/Vue3组件模式.md',
+    kb: 'frontend',
+    title: 'Vue3 组件模式',
+    mtime: nowEpoch - 5 * 86_400_000,
+    chunkCount: 2,
+    status: 1,
+    createdAt: localDateTime(-60 * 24 * 30),
+    updatedAt: localDateTime(-5 * 24 * 60),
+  },
+  {
+    id: 3,
+    docName: 'ops/推理服务运维手册.md',
+    kb: 'ops',
+    title: '智算云推理服务运维手册',
+    mtime: nowEpoch - 12 * 86_400_000,
+    chunkCount: 4,
+    status: 1,
+    createdAt: localDateTime(-60 * 24 * 28),
+    updatedAt: localDateTime(-12 * 24 * 60),
+  },
+  {
+    id: 4,
+    docName: 'default/术语表.md',
+    kb: 'default',
+    title: '术语表',
+    mtime: nowEpoch - 20 * 86_400_000,
+    chunkCount: 1,
+    status: 1,
+    createdAt: localDateTime(-60 * 24 * 20),
+    updatedAt: localDateTime(-20 * 24 * 60),
+  },
+]
+
+let memoryRows: MemoryItem[] = [
+  {
+    id: 1,
+    key: 'tech-stack',
+    content: '前端偏好 Vue 3 + TypeScript + Vite，样式用手写 CSS token，不引入组件库。',
+    source: 'user',
+    sessionId: '1',
+    createdAt: localDateTime(-2 * 24 * 60),
+    expiresAt: null,
+    status: 'ACTIVE',
+  },
+  {
+    id: 2,
+    key: null,
+    content: '部署走 GitHub Actions 构建镜像并推 GHCR，本地验证用 docker compose。',
+    source: 'manual',
+    sessionId: null,
+    createdAt: localDateTime(-5 * 24 * 60),
+    expiresAt: null,
+    status: 'ACTIVE',
+  },
+]
+
+const mockSkills: SkillItem[] = [
+  {
+    name: 'systematic-debugging',
+    description: '出现可复现缺陷、测试失败或需要定位根因时使用，在提出修复方案之前执行。',
+    agents: null,
+    entryFile: 'systematic-debugging/SKILL.md',
+    size: 9825,
+    error: null,
+  },
+  {
+    name: 'web-research',
+    description: '网页调研纪律：多来源信息收集、交叉核对与出处标注的步骤。',
+    agents: ['researcher', 'general'],
+    entryFile: 'web-research/web-research.md',
+    size: 1210,
+    error: null,
+  },
+  {
+    name: 'wms',
+    description: '查询 WMS 仓储数据（库存、商品、出入库单、发运、仓库网络、作业任务）。',
+    agents: ['wms'],
+    entryFile: 'wms/SKILL.md',
+    size: 4104,
+    error: '缺少 description 字段（示例诊断）',
+  },
+]
+
+let scheduleRows: ScheduleItem[] = [
+  {
+    id: 'sched-mock-1',
+    objective: '汇总昨日仓库入库异常并生成值班简报',
+    agentName: 'wms',
+    cron: '0 30 9 * * MON-FRI',
+    notifyChannel: 'qq:group-1024',
+    enabled: true,
+    lastRunAt: localDateTime(-18 * 60),
+    nextRunAt: localDateTime(6 * 60),
+    lastGoalId: 'goal-mock-1',
+    createdAt: localDateTime(-40 * 24 * 60),
+  },
+  {
+    id: 'sched-mock-2',
+    objective: '抓取行业资讯并按主题归档到知识库',
+    agentName: 'researcher',
+    cron: '0 0 20 * * SUN',
+    notifyChannel: null,
+    enabled: true,
+    lastRunAt: localDateTime(-3 * 24 * 60),
+    nextRunAt: localDateTime(4 * 24 * 60),
+    lastGoalId: null,
+    createdAt: localDateTime(-30 * 24 * 60),
+  },
+]
+
+const mockCapabilities: CapabilityEntry[] = [
+  {
+    pack: 'tavily',
+    source: 'mcp:http',
+    location: 'http://localhost:8080/mcp',
+    tools: ['search', 'extract', 'crawl', 'map', 'qna'],
+    state: 'CONNECTED',
+  },
+  {
+    pack: 'wms',
+    source: 'mcp:http',
+    location: 'http://localhost:18080/mcp',
+    tools: [],
+    state: 'FAILED',
+  },
+]
+
+async function listKbDocuments(page = 1, size = 200): Promise<PageResult<KbDocument>> {
+  const start = (page - 1) * size
+  return { list: kbDocuments.slice(start, start + size), total: kbDocuments.length, page, size }
+}
+
+async function syncKnowledge(): Promise<KnowledgeSyncResult> {
+  return { scanned: kbDocuments.length, updated: 0, skipped: kbDocuments.length, chunks: 8 }
+}
+
+async function deleteKbDocument(docName: string): Promise<boolean> {
+  const index = kbDocuments.findIndex((doc) => doc.docName === docName)
+  if (index < 0) return false
+  kbDocuments.splice(index, 1)
+  return true
+}
+
+async function listMemories(status = 'active', limit = 100): Promise<MemoryItem[]> {
+  const target = status.toUpperCase()
+  return memoryRows.filter((row) => row.status === target).slice(0, limit)
+}
+
+async function createMemory(content: string, key?: string): Promise<MemoryItem> {
+  const trimmed = key?.trim()
+  memoryRows = memoryRows.filter((row) => !trimmed || row.key !== trimmed)
+  const row: MemoryItem = {
+    id: Math.max(0, ...memoryRows.map((m) => m.id)) + 1,
+    key: trimmed ? trimmed : null,
+    content,
+    source: 'manual',
+    sessionId: null,
+    createdAt: localDateTime(0),
+    expiresAt: null,
+    status: 'ACTIVE',
+  }
+  memoryRows.unshift(row)
+  return row
+}
+
+async function deleteMemory(id: number): Promise<void> {
+  memoryRows = memoryRows.filter((row) => row.id !== id)
+}
+
+async function listSkills(): Promise<SkillItem[]> {
+  return mockSkills
+}
+
+async function listSchedules(): Promise<ScheduleItem[]> {
+  return scheduleRows
+}
+
+async function deleteSchedule(id: string): Promise<void> {
+  scheduleRows = scheduleRows.filter((row) => row.id !== id)
+}
+
+async function capabilities(): Promise<CapabilityReport> {
+  return {
+    totalTools: mockCapabilities.reduce((sum, entry) => sum + entry.tools.length, 0),
+    entries: mockCapabilities,
+    problems: [],
+  }
+}
+
+async function reloadCapabilities(): Promise<CapabilityReloadResult> {
+  return {
+    problems: [],
+    tools: 0,
+    directory: '/mock/http-tools',
+    mcp: {
+      servers: mockCapabilities.length,
+      previousServers: mockCapabilities.length,
+      names: mockCapabilities.map((entry) => entry.pack),
+    },
+  }
+}
+
 /** mock API 实现(与 realApi 同签名) */
 export const mockApi: Api = {
   listAgents,
@@ -446,4 +685,15 @@ export const mockApi: Api = {
   authState: async () => ({ enabled: false, authenticated: true }),
   login: async () => {},
   logout: async () => {},
+  listKbDocuments,
+  syncKnowledge,
+  deleteKbDocument,
+  listMemories,
+  createMemory,
+  deleteMemory,
+  listSkills,
+  listSchedules,
+  deleteSchedule,
+  capabilities,
+  reloadCapabilities,
 }
