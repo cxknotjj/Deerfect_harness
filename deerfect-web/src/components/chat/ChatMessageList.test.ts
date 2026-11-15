@@ -26,7 +26,7 @@ describe('ChatMessageList', () => {
     })
 
     expect(wrapper.find('.chat-empty-title').text()).toBe('开始新的对话')
-    const chips = wrapper.findAll('.suggest-chip')
+    const chips = wrapper.findAll('.suggest-card')
     expect(chips).toHaveLength(4)
 
     await chips[0].trigger('click')

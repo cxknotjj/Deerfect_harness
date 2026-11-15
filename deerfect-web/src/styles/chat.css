@@ -22,7 +22,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--ink-dim);
   transition: color 0.15s;
@@ -122,7 +122,7 @@
   padding: 12px 14px;
   border: 1px solid var(--grid-line);
   border-radius: 12px;
-  font-size: 12.5px;
+  font-size: 13.5px;
   line-height: 1.55;
   color: var(--ink-dim);
   transition: color 0.15s, border-color 0.15s, background 0.15s, transform 0.12s var(--ease-out-quart);

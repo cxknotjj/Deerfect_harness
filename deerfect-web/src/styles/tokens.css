@@ -11,7 +11,7 @@
      圆形发送键 + 底部状态栏;消息两端对齐(assistant 靠左/user 靠右)
    - 双主题共用 DS 蓝 #4D6BFE 主强调:夜间深蓝黑 + 图纸网格,
      日间纯白蓝白,只换中性色 token
-   - 字体对:拉丁/数字 = 本地打包 IBM Plex Sans + JetBrains Mono
+   - 字体对:拉丁/数字/品牌 = 本地打包 Inter + JetBrains Mono
      (@fontsource 构建期引入,运行时零外链),CJK 回退系统字体栈;
      阅读区 15px/1.75,UI 控件 13-14px;数据数字 tabular-nums 对齐
    - 圆角体系:控件 8px / 气泡 12px / 输入卡片 16px
@@ -61,11 +61,12 @@
   --menu-shadow: 0 8px 28px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4);
   --mask-veil: rgba(0, 0, 0, 0.55); /* 窄屏抽屉遮罩 */
 
-  /* 字体栈(零外链):拉丁/数字走本地打包的 IBM Plex Sans / JetBrains Mono
-     (main.ts 按权重引入 woff2),CJK 回退系统字体;两族构成「工程控制台」字体对 */
+  /* 字体栈(零外链):拉丁/数字/品牌字走本地打包 Inter(几何中性无衬线、0 为窄椭圆);
+     CJK 依次回退 PingFang / HarmonyOS Sans / 思源黑体 / Noto Sans / 微软雅黑;
+     JetBrains Mono 只保留给代码、标识与键值等需要等宽对照的语义 */
   --font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
-  --font-sans: 'IBM Plex Sans', -apple-system, 'PingFang SC', 'Hiragino Sans GB',
-    'Microsoft YaHei', 'Noto Sans SC', 'Segoe UI', sans-serif;
+  --font-sans: 'Inter', 'PingFang SC', 'HarmonyOS Sans SC', 'Source Han Sans SC',
+    'Noto Sans SC', 'Microsoft YaHei', sans-serif;
 
   /* 控制台壳层三级表面:画布(主区底) / 卡片(统计与面板) / 细分隔线
      参考产品控制台的「导航—画布—卡片」层次,色相仍落在同一蓝黑族,不引入新色系 */

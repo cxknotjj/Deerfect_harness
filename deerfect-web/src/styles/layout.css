@@ -73,7 +73,7 @@
   background: var(--accent-lift);
   border: none;
   border-radius: var(--radius-ctl);
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--accent);
   transition: background 0.15s;
@@ -134,7 +134,7 @@
   flex: 1;
   min-width: 0;
   font-weight: 500;
-  font-size: 13.5px;
+  font-size: 14px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
