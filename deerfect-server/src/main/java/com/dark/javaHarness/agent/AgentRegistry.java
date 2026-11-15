@@ -89,38 +89,6 @@ public class AgentRegistry {
                 null, null, null, null, null, null, null);
     }
 
-    /** 全参构造：promptAssembler 为共享 bean（含 skill 段提供者），skillManager 供 GA 注册 load_skill 元工具 */
-    public AgentRegistry(AgentConfigProvider provider,
-                         ObjectProvider<AgentService> agentServiceProvider,
-                         SessionService memoryStore,
-                         ToolAssignments toolAssignments,
-                         LlmCallRecorder recorder,
-                         ContextBudgetProperties budgets,
-                         ToolLazyManager lazyTools,
-                         PromptAssembler promptAssembler,
-                         SkillManager skillManager) {
-        this(provider, agentServiceProvider, memoryStore, toolAssignments,
-                recorder, budgets, lazyTools, promptAssembler, skillManager, null, null,
-                null, null, null, null, null, null, null);
-    }
-
-    /** 全参构造（含 RAG 知识检索）：knowledgeRetriever 仅知识库启用时非 null（ChatAgentConfig 经 ObjectProvider 注入） */
-    public AgentRegistry(AgentConfigProvider provider,
-                         ObjectProvider<AgentService> agentServiceProvider,
-                         SessionService memoryStore,
-                         ToolAssignments toolAssignments,
-                         LlmCallRecorder recorder,
-                         ContextBudgetProperties budgets,
-                         ToolLazyManager lazyTools,
-                         PromptAssembler promptAssembler,
-                         SkillManager skillManager,
-                         KnowledgeRetriever knowledgeRetriever,
-                         ChatTimeoutProperties timeouts) {
-        this(provider, agentServiceProvider, memoryStore, toolAssignments, recorder,
-                budgets, lazyTools, promptAssembler, skillManager, knowledgeRetriever, timeouts,
-                null, null, null, null, null, null, null);
-    }
-
     /**
      * 全参构造（含 Agentic 路径）：agenticProperties.enabled 且 modelFactory 非空时，
      * 可路由对话 Agent 由 {@link AgentScopeGeneralAgent}（ReAct）承载，ChatClient 实例作为回退。

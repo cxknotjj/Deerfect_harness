@@ -77,90 +77,6 @@ public class MultiAgentGraphAgent implements Agent {
     /** 自研编排引擎：同步执行、流式执行与断点续跑的唯一执行体 */
     private final OrchestrationEngine engine;
 
-    public MultiAgentGraphAgent(String agentName,
-                                AgentService agentService,
-                                ToolAssignments toolAssignments,
-                                LlmCallRecorder recorder) {
-        this(agentName, agentService, toolAssignments, recorder, null, null);
-    }
-
-    public MultiAgentGraphAgent(String agentName,
-                                AgentService agentService,
-                                ToolAssignments toolAssignments,
-                                LlmCallRecorder recorder,
-                                OrchestrationCheckpointStore checkpointStore) {
-        this(agentName, agentService, toolAssignments, recorder, checkpointStore, null);
-    }
-
-    public MultiAgentGraphAgent(String agentName,
-                                AgentService agentService,
-                                ToolAssignments toolAssignments,
-                                LlmCallRecorder recorder,
-                                OrchestrationCheckpointStore checkpointStore,
-                                ContextBudgetProperties budgets) {
-        this(agentName, agentService, toolAssignments, recorder, checkpointStore, budgets, null);
-    }
-
-    /**
-     * @param memoryStore 会话记忆源（SessionService，与路径 A GeneralAssistantAgent 同源同口径）：
-     *                    lead 拆解节点据此注入会话记忆，null 时不注入（单测场景）
-     */
-    public MultiAgentGraphAgent(String agentName,
-                                AgentService agentService,
-                                ToolAssignments toolAssignments,
-                                LlmCallRecorder recorder,
-                                OrchestrationCheckpointStore checkpointStore,
-                                ContextBudgetProperties budgets,
-                                SessionService memoryStore) {
-        this(agentName, agentService, toolAssignments, recorder,
-                checkpointStore, budgets, memoryStore, null, null, null, null, null, null);
-    }
-
-    /**
-     * 兼容重载（不接 RAG 预取器）：既有调用方/单测直接构造时预取钩子零行为，
-     * 与知识库禁用（ragPrefetcher bean 缺位）同语义；工具包解析同取零行为（provider=null）。
-     */
-    public MultiAgentGraphAgent(String agentName,
-                                AgentService agentService,
-                                ToolAssignments toolAssignments,
-                                LlmCallRecorder recorder,
-                                OrchestrationCheckpointStore checkpointStore,
-                                ContextBudgetProperties budgets,
-                                SessionService memoryStore,
-                                ToolLazyManager lazyTools,
-                                PromptAssembler promptAssembler,
-                                SkillManager skillManager,
-                                KnowledgeRetriever knowledgeRetriever,
-                                ChatTimeoutProperties timeouts) {
-        this(agentName, agentService, toolAssignments, recorder,
-                checkpointStore, budgets, memoryStore, lazyTools, promptAssembler,
-                skillManager, knowledgeRetriever, timeouts, null, null, null,
-                null, null, null, null);
-    }
-
-    /**
-     * 兼容重载（不接工具包定义读取器）：既有调用方/单测直接构造时工具包挂载零行为
-     * （子任务 toolPacks 声明被忽略、只按模板自身工具面执行），对齐 ragPrefetcher 先例。
-     */
-    public MultiAgentGraphAgent(String agentName,
-                                AgentService agentService,
-                                ToolAssignments toolAssignments,
-                                LlmCallRecorder recorder,
-                                OrchestrationCheckpointStore checkpointStore,
-                                ContextBudgetProperties budgets,
-                                SessionService memoryStore,
-                                ToolLazyManager lazyTools,
-                                PromptAssembler promptAssembler,
-                                SkillManager skillManager,
-                                KnowledgeRetriever knowledgeRetriever,
-                                ChatTimeoutProperties timeouts,
-                                RagPrefetcher ragPrefetcher) {
-        this(agentName, agentService, toolAssignments, recorder,
-                checkpointStore, budgets, memoryStore, lazyTools, promptAssembler,
-                skillManager, knowledgeRetriever, timeouts, ragPrefetcher, null, null,
-                null, null, null, null);
-    }
-
     /**
      * 全参构造（含 skill 装配、RAG 知识检索与工具包定义读取）：knowledgeRetriever 仅知识库启用时非 null
      * （ChatAgentConfig 经 ObjectProvider 注入），透传给编排调用器后 lead/各子任务按
@@ -209,27 +125,6 @@ public class MultiAgentGraphAgent implements Agent {
         this.engine = new ParallelOrchestrationEngine(this.nodes, this.orchestrationBudget,
                 checkpointStore, this.budgets.getSubtaskConcurrency());
         this.streamPipeline = new MultiAgentStreamPipeline();
-    }
-
-    /** 旧全参重载（单测）：未注入新解析链。 */
-    public MultiAgentGraphAgent(String agentName,
-                                AgentService agentService,
-                                ToolAssignments toolAssignments,
-                                LlmCallRecorder recorder,
-                                OrchestrationCheckpointStore checkpointStore,
-                                ContextBudgetProperties budgets,
-                                SessionService memoryStore,
-                                ToolLazyManager lazyTools,
-                                PromptAssembler promptAssembler,
-                                SkillManager skillManager,
-                                KnowledgeRetriever knowledgeRetriever,
-                                ChatTimeoutProperties timeouts,
-                                RagPrefetcher ragPrefetcher,
-                                AgentConfigProvider agentConfigProvider,
-                                ContextCompositionRecorder compositionRecorder) {
-        this(agentName, agentService, toolAssignments, recorder, checkpointStore,
-                budgets, memoryStore, lazyTools, promptAssembler, skillManager, knowledgeRetriever,
-                timeouts, ragPrefetcher, agentConfigProvider, compositionRecorder, null, null, null, null);
     }
 
     @Override
