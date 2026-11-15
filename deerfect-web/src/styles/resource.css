@@ -1,0 +1,675 @@
+/* ------------------------------------------------------------
+   资源面通用页（知识库 / 记忆 / 技能 / 内容日历 / MCP）
+   与仪表盘同一套表面层次：画布 --bg-canvas → 卡片 --bg-card → 细边 --line-soft
+   只放复用骨架，页面私有块（表单、服务器卡、日期块）留在本文件末尾。
+   ------------------------------------------------------------ */
+
+.res-page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background-color: var(--bg-canvas);
+}
+
+/* 夜间保留全站图纸网格，日间为纯色画布 */
+html[data-theme='dark'] .res-page {
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.res-inner {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 28px 32px 44px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* ---------- 页头 ---------- */
+.res-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.res-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--accent-lift);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.res-title {
+  margin-top: 10px;
+  font-size: clamp(30px, 3vw, 42px);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: 0;
+}
+
+.res-sub {
+  margin-top: 8px;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--ink-dim);
+}
+
+.res-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  flex-shrink: 0;
+}
+
+/* ---------- 按钮 ---------- */
+.res-btn {
+  height: 36px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--bg-card);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.res-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.res-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.res-btn-primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--on-accent);
+}
+
+.res-btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: transparent;
+  color: var(--on-accent);
+}
+
+.res-btn svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---------- 提示条 ---------- */
+.res-alert,
+.res-note {
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.res-alert {
+  background: var(--accent-warm-soft);
+  color: var(--accent-warm);
+}
+
+.res-note {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+/* ---------- 统计条 ---------- */
+.res-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.res-stat {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+}
+
+.res-stat-label {
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+.res-stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 面板与列表 ---------- */
+.res-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
+  padding: 4px;
+}
+
+.res-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px 10px;
+}
+
+.res-panel-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.res-panel-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ink-dim);
+  line-height: 1.5;
+}
+
+.res-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  min-width: 250px;
+  padding: 0 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--bg-inset);
+  color: var(--ink-dim);
+  transition: border-color 0.15s;
+}
+
+.res-search:focus-within {
+  border-color: var(--accent);
+}
+
+.res-search svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+.res-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.res-search input::placeholder {
+  color: var(--ink-dim);
+}
+
+.res-list {
+  list-style: none;
+}
+
+/* flex 而非定长 grid：不同页面的行尾字段数量不同（状态徽标/分块/时间/删除），
+   多一项时不该挤到第二行 */
+.res-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border-radius: 12px;
+  transition: background 0.15s;
+}
+
+.res-row + .res-row {
+  border-top: 1px solid var(--line-soft);
+}
+
+.res-row:hover {
+  background: var(--hover-veil);
+}
+
+.res-row-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.res-row-title {
+  font-size: 14px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 记忆正文：允许折行，不能像台账标题那样单行省略 */
+.res-row-text {
+  font-size: 13.5px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.res-row-meta {
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+.res-row-col {
+  flex-shrink: 0;
+  min-width: 58px;
+  font-size: 12px;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.res-row-time {
+  min-width: 108px;
+  text-align: right;
+}
+
+.res-mono {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 行首图标方块（知识库文档 / 记忆） */
+.res-mark {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--accent-lift);
+  color: var(--accent);
+}
+
+.res-mark svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---------- 小标签 ---------- */
+.res-chip {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: var(--hover-veil);
+  color: var(--ink-dim);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* 台账里的 kb 列给固定宽度，行尾字段才会在视觉上对齐成一列 */
+.res-kb-chip {
+  min-width: 66px;
+  justify-content: center;
+}
+
+.res-chip-accent {
+  background: var(--accent-lift);
+  color: var(--accent);
+}
+
+.res-chip-ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.res-chip-warn {
+  background: var(--accent-warm-soft);
+  color: var(--accent-warm);
+}
+
+/* 行内删除：默认隐形，悬停显现；窄屏常显 */
+.res-row-del {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--ink-dim);
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+
+.res-row:hover .res-row-del,
+.res-row-del:focus-visible {
+  opacity: 1;
+}
+
+.res-row-del:hover {
+  background: var(--accent-warm-soft);
+  color: var(--accent-warm);
+}
+
+.res-row-del svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+/* ---------- 空态 / 载入 ---------- */
+.res-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 44px 20px 48px;
+  text-align: center;
+}
+
+.res-empty-icon {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 4px;
+  border-radius: 14px;
+  background: var(--accent-lift);
+  color: var(--accent);
+}
+
+.res-empty-icon svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.res-empty-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.res-empty-desc {
+  max-width: 430px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--ink-dim);
+}
+
+.res-loading {
+  padding: 28px 14px 32px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ink-dim);
+}
+
+/* ---------- 记忆：新增表单 ---------- */
+.res-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px 14px;
+}
+
+.res-form-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.res-textarea,
+.res-input {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--bg-inset);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink);
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.res-textarea:focus,
+.res-input:focus {
+  border-color: var(--accent);
+}
+
+.res-textarea::placeholder,
+.res-input::placeholder {
+  color: var(--ink-dim);
+}
+
+.res-input-key {
+  max-width: 200px;
+  flex-shrink: 0;
+}
+
+.res-form-foot {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.res-form-hint {
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+/* ---------- 技能：名称与说明 ---------- */
+.res-skill-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.res-skill-desc {
+  margin-top: 5px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-dim);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- 内容日历：日程行 ---------- */
+.res-date {
+  width: 52px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.res-date-day {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.res-date-week {
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+.res-row-sub {
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+/* ---------- MCP：服务器卡 ---------- */
+.mcp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 10px;
+  padding: 4px 10px 10px;
+}
+
+.mcp-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  background: var(--bg-inset);
+}
+
+.mcp-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mcp-name {
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-location {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.mcp-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.mcp-foot {
+  padding: 0 14px 12px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+/* ---------- 窄屏 ---------- */
+@media (max-width: 860px) {
+  .res-inner {
+    padding: 20px 16px 32px;
+    gap: 14px;
+  }
+
+  .res-head {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .res-head-actions {
+    padding-top: 0;
+  }
+
+  .res-panel-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .res-search {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .res-row {
+    gap: 10px;
+  }
+
+  /* 窄屏只留主信息与一个状态位，时间/分块等次要列收起 */
+  .res-row-col,
+  .res-row-time {
+    display: none;
+  }
+
+  .res-row-del {
+    opacity: 1;
+  }
+
+  .res-form-row {
+    flex-direction: column;
+  }
+
+  .res-input-key {
+    max-width: none;
+  }
+
+  .mcp-grid {
+    grid-template-columns: 1fr;
+  }
+}

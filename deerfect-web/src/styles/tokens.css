@@ -30,6 +30,7 @@
   --ink-dim: #7e8da0;     /* 次级文本(对比度 ≥4.5:1) */
   --accent: #4d6bfe;      /* DS 蓝(与日间一致):选中态/状态灯/发送键 */
   --accent-warm: #e08e45; /* 信号橙:错误/警示 */
+  --ok: #45c98a;          /* 健康绿:侧栏系统诊断在线态 */
   --blueprint: #7fa6cc;   /* 蓝图蓝:链接/引用/次级强调 */
 
   /* 派生色 */
@@ -37,6 +38,8 @@
   --accent-lift: rgba(77, 107, 254, 0.08); /* 选中项背景微抬升 */
   --accent-lift-strong: rgba(77, 107, 254, 0.12); /* 选中项 hover 再抬一档 */
   --accent-warm-soft: rgba(224, 142, 69, 0.12);   /* 橙底软填充 */
+  --ok-soft: rgba(69, 201, 138, 0.1);             /* 绿底软填充(诊断在线) */
+  --ok-soft-strong: rgba(69, 201, 138, 0.16);     /* 绿底 hover */
   --hover-veil: rgba(255, 255, 255, 0.03); /* 常规 hover 微亮 */
   --selection: rgba(77, 107, 254, 0.3);    /* 文本选区 */
   --thumb: #26313f;                        /* 滚动条 thumb:grid-line 提亮一档 */
