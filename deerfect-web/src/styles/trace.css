@@ -17,7 +17,6 @@
 }
 .trace-stats { display: flex; flex-wrap: wrap; gap: 8px; }
 .trace-chip {
-  font-family: var(--font-mono);
   font-size: 11.5px;
   color: var(--ink-dim);
   border: 1px solid var(--grid-line);
@@ -44,7 +43,6 @@
   align-items: center;
   gap: 8px;
   padding: 10px 10px 2px;
-  font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.05em;
   color: var(--blueprint);
@@ -69,7 +67,6 @@
 .trace-kind {
   flex-shrink: 0;
   width: 46px;
-  font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.08em;
   text-align: center;
@@ -91,8 +88,8 @@
 }
 .trace-meta {
   flex-shrink: 0;
-  font-family: var(--font-mono);
   font-size: 11px;
+  font-variant-numeric: tabular-nums;
   color: var(--ink-dim);
 }
 .trace-detail {
@@ -101,7 +98,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--font-mono);
   font-size: 11.5px;
   color: var(--ink-dim);
 }
@@ -130,7 +126,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--font-mono);
   font-size: 12.5px;
   color: var(--ink-dim);
 }

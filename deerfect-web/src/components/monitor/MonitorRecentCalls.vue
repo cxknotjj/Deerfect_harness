@@ -33,15 +33,15 @@ defineProps<{ data: MonitorSnapshot }>()
         </thead>
         <tbody>
           <tr v-for="c in data.llmCalls" :key="c.id" class="llm-call-row">
-            <td class="mono">{{ fmtTime(c.createdAt) }}</td>
-            <td class="mono">{{ c.sessionId ?? '—' }}</td>
+            <td class="num">{{ fmtTime(c.createdAt) }}</td>
+            <td class="num">{{ c.sessionId ?? '—' }}</td>
             <td><span class="channel-badge">{{ channelLabel(c.channel) }}</span></td>
             <td>{{ c.agentName ?? '—' }}</td>
-            <td class="mono ellipsis" :title="c.model ?? ''">{{ c.model ?? '—' }}</td>
-            <td class="mono">{{ c.callKind ?? '—' }}</td>
-            <td class="mono">{{ fmtMs(c.firstTokenMs) }}</td>
-            <td class="mono">{{ fmtMs(c.durationMs) }}</td>
-            <td class="mono">{{ fmtNumber(c.totalTokens) }}</td>
+            <td class="num ellipsis" :title="c.model ?? ''">{{ c.model ?? '—' }}</td>
+            <td class="num">{{ c.callKind ?? '—' }}</td>
+            <td class="num">{{ fmtMs(c.firstTokenMs) }}</td>
+            <td class="num">{{ fmtMs(c.durationMs) }}</td>
+            <td class="num">{{ fmtNumber(c.totalTokens) }}</td>
             <td>
               <span class="status" :class="statusClass(c.status)">{{ c.status ?? '—' }}</span>
             </td>
@@ -73,13 +73,13 @@ defineProps<{ data: MonitorSnapshot }>()
         </thead>
         <tbody>
           <tr v-for="t in data.toolCalls" :key="t.id">
-            <td class="mono">{{ fmtTime(t.createdAt) }}</td>
-            <td class="mono">{{ t.sessionId ?? '—' }}</td>
+            <td class="num">{{ fmtTime(t.createdAt) }}</td>
+            <td class="num">{{ t.sessionId ?? '—' }}</td>
             <td><span class="channel-badge">{{ channelLabel(t.channel) }}</span></td>
             <td>{{ t.agentName ?? '—' }}</td>
-            <td class="mono">{{ t.toolName ?? '—' }}</td>
+            <td class="num">{{ t.toolName ?? '—' }}</td>
             <td>{{ t.serverName ?? '内置' }}</td>
-            <td class="mono">{{ fmtMs(t.durationMs) }}</td>
+            <td class="num">{{ fmtMs(t.durationMs) }}</td>
             <td>
               <span class="status" :class="statusClass(t.status)">{{ t.status ?? '—' }}</span>
             </td>

@@ -151,7 +151,7 @@ defineProps<{ data: MonitorSnapshot }>()
         </thead>
         <tbody>
           <tr v-for="c in data.components" :key="c.name" class="component-row">
-            <td class="mono">{{ c.name }}</td>
+            <td class="num">{{ c.name }}</td>
             <td>
               <span class="status" :class="componentClass(c)">{{ componentLabel(c) }}</span>
             </td>

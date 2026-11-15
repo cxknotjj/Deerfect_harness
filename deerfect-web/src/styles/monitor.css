@@ -54,7 +54,6 @@
   border-radius: var(--radius-ctl);
   background: var(--bg-panel);
   color: var(--ink);
-  font-family: var(--font-sans);
   font-size: 12px;
 }
 
@@ -127,9 +126,8 @@
 }
 
 .monitor .kpi-value {
-  font-family: var(--font-mono);
   font-size: 24px;
-  font-weight: 600;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
@@ -204,15 +202,13 @@
 
 .monitor .runtime-label code {
   margin-left: 4px;
-  font-family: var(--font-mono);
   font-size: 10px;
   color: var(--blueprint);
 }
 
 .monitor .runtime-value {
-  font-family: var(--font-mono);
   font-size: 18px;
-  font-weight: 600;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
@@ -257,7 +253,6 @@
 }
 
 .monitor .bar-label {
-  font-family: var(--font-mono);
   font-size: 10px;
   color: var(--ink-dim);
   white-space: nowrap;
@@ -298,9 +293,9 @@
   background: var(--hover-veil);
 }
 
-.monitor .mono {
-  font-family: var(--font-mono);
+.monitor .num {
   font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .monitor .ellipsis {
@@ -313,8 +308,8 @@
   display: inline-block;
   padding: 1px 7px;
   border-radius: 999px;
-  font-family: var(--font-mono);
   font-size: 10px;
+  font-variant-numeric: tabular-nums;
 }
 
 .monitor .status-ok {
@@ -343,7 +338,6 @@
   padding: 1px 7px;
   border: 1px solid var(--grid-line);
   border-radius: 999px;
-  font-family: var(--font-mono);
   font-size: 10px;
   color: var(--blueprint);
   background: var(--accent-lift);
@@ -374,7 +368,6 @@
   border-radius: var(--radius-ctl);
   background: var(--bg-panel);
   color: var(--blueprint);
-  font-family: var(--font-sans);
   font-size: 11px;
   cursor: pointer;
 }
@@ -398,8 +391,8 @@
   color: var(--ink-dim);
 }
 
-.monitor .ctx-meta code, .monitor .ctx-meta strong {
-  font-family: var(--font-mono);
+.monitor .ctx-meta code,
+.monitor .ctx-meta strong {
   color: var(--blueprint);
 }
 

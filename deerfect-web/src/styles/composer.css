@@ -113,7 +113,6 @@
   align-items: center;
   justify-content: flex-start;
   gap: 10px;
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 11px;
   color: var(--ink-dim);

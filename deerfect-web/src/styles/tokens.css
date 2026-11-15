@@ -82,8 +82,13 @@
 
 html, body, #app { height: 100%; }
 
+/* 全局默认字体：所有元素从 html 继承，组件里不再单独声明 font-family；
+   唯一的例外是代码类元素（见下），保证「一处定义、全站一致」 */
+html { font-family: var(--font-sans); }
+
+code, pre, kbd, samp { font-family: var(--font-mono); }
+
 body {
-  font-family: var(--font-sans);
   font-size: 14px;
   color: var(--ink);
   background-color: var(--bg-base);
@@ -112,6 +117,8 @@ body, .chat-header, .composer-wrap, .msg-bubble-user {
 ::-webkit-scrollbar-thumb:hover { background: var(--thumb-hover); }
 ::-webkit-scrollbar-corner { background: transparent; }
 
-button { font: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+/* 表单控件不会自动继承字体：统一继承，避免输入框/下拉落到 UA 默认字体 */
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; border: none; background: none; }
 button:disabled { cursor: not-allowed; }
 button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }

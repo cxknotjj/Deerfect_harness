@@ -10,7 +10,6 @@
 
 /* 消息头:mono 小字标注时间(数据语义);时间/计数一律 tabular-nums 纵向对齐 */
 .msg-meta {
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 11px;
   color: var(--ink-dim);
@@ -81,7 +80,6 @@
   letter-spacing: 0.05em;
 }
 .msg-source-tag {
-  font-family: var(--font-mono);
   font-size: 10px;
   color: var(--blueprint);
   border: 1px solid var(--grid-line);
@@ -211,7 +209,6 @@
 .md-body a { color: var(--blueprint); text-decoration: none; }
 .md-body a:hover { text-decoration: underline; }
 .md-body code {
-  font-family: var(--font-mono);
   font-size: 12.5px;
   background: var(--bg-inset);
   border-radius: 4px;
@@ -245,7 +242,7 @@
   background: var(--bg-inset);
   border-bottom: 1px solid var(--grid-line);
 }
-.code-lang { font-family: var(--font-mono); font-size: 11px; color: var(--ink-dim); letter-spacing: 0.05em; }
+.code-lang { font-size: 11px; color: var(--ink-dim); letter-spacing: 0.05em; }
 .code-copy {
   font-size: 12px;
   color: var(--ink-dim);

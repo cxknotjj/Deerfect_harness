@@ -58,11 +58,11 @@ function toggleChannel(key: string): void {
                 @click="toggleChannel(c.channel)"
               >{{ channelLabel(c.channel) }}</button>
             </td>
-            <td class="mono">{{ fmtNumber(c.calls) }}</td>
-            <td class="mono" :class="{ 'cell-bad': c.errors > 0 }">{{ fmtNumber(c.errors) }}</td>
-            <td class="mono">{{ fmtNumber(c.totalTokens) }}</td>
-            <td class="mono">{{ fmtNumber(c.toolCalls) }}</td>
-            <td class="mono" :class="{ 'cell-bad': c.toolErrors > 0 }">{{ fmtNumber(c.toolErrors) }}</td>
+            <td class="num">{{ fmtNumber(c.calls) }}</td>
+            <td class="num" :class="{ 'cell-bad': c.errors > 0 }">{{ fmtNumber(c.errors) }}</td>
+            <td class="num">{{ fmtNumber(c.totalTokens) }}</td>
+            <td class="num">{{ fmtNumber(c.toolCalls) }}</td>
+            <td class="num" :class="{ 'cell-bad': c.toolErrors > 0 }">{{ fmtNumber(c.toolErrors) }}</td>
           </tr>
         </tbody>
       </table>

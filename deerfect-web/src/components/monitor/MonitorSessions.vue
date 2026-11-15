@@ -62,13 +62,13 @@ async function loadContext(sessionId: string): Promise<void> {
         </thead>
         <tbody>
           <tr v-for="s in data.sessions" :key="s.sessionId">
-            <td class="mono">{{ s.sessionId }}</td>
+            <td class="num">{{ s.sessionId }}</td>
             <td><span class="channel-badge">{{ channelLabel(s.channel) }}</span></td>
             <td>{{ s.agentName ?? '—' }}</td>
             <td class="ellipsis" :title="s.sessionName ?? ''">{{ s.sessionName ?? '—' }}</td>
-            <td class="mono">{{ fmtTime(s.lastActiveAt) }}</td>
-            <td class="mono">{{ fmtNumber(s.calls) }}</td>
-            <td class="mono">{{ fmtNumber(s.totalTokens) }}</td>
+            <td class="num">{{ fmtTime(s.lastActiveAt) }}</td>
+            <td class="num">{{ fmtNumber(s.calls) }}</td>
+            <td class="num">{{ fmtNumber(s.totalTokens) }}</td>
             <td>
               <button
                 type="button"
@@ -123,11 +123,11 @@ async function loadContext(sessionId: string): Promise<void> {
           <tbody>
             <tr v-for="p in contextData.parts" :key="p.key">
               <td>{{ p.label }}</td>
-              <td class="mono">
+              <td class="num">
                 <span class="ctx-dot" :class="ctxGroupClass(p.group)"></span>{{ p.group }}
               </td>
-              <td class="mono">{{ fmtNumber(p.tokens) }}</td>
-              <td class="mono">{{ p.percent.toFixed(1) }}%</td>
+              <td class="num">{{ fmtNumber(p.tokens) }}</td>
+              <td class="num">{{ p.percent.toFixed(1) }}%</td>
             </tr>
           </tbody>
         </table>
