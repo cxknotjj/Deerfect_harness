@@ -66,13 +66,10 @@ function onItemKeydown(id: string, e: KeyboardEvent): void {
 <template>
   <aside class="session-list">
     <div class="session-list-head">
-      <div class="session-brand">
-        <img class="session-brand-logo" src="/deer_logo.png" alt="" />
-        <span class="session-brand-name">DeerFect</span>
-        <span class="brand-badge">HARNESS</span>
-      </div>
-      <!-- 收起侧栏(展开入口在顶栏左侧) -->
-      <button class="icon-btn" type="button" title="收起侧栏" @click="emit('collapse')">☰</button>
+      <!-- 品牌已在全局导航展示，这里只保留面板标题，避免同一屏出现两个 brand -->
+      <span class="session-list-title">会话</span>
+      <!-- 收起面板(展开入口在聊天顶栏左侧) -->
+      <button class="icon-btn" type="button" title="收起会话列表" @click="emit('collapse')">☰</button>
     </div>
 
     <div class="session-new">

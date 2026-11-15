@@ -1,12 +1,23 @@
 import { expect, test } from '@playwright/test'
 
 /**
- * mock 模式冒烟三条：聊天流式链路、路由徽标回显、轨迹页观测数据。
+ * mock 模式冒烟：仪表盘落地页、聊天流式链路、路由徽标回显、轨迹页与监控页。
+ * 默认页为仪表盘，聊天/轨迹/监控统一走左侧导航切换。
  * mock 数据与事件形状见 src/api/mock/mock.ts（meta.route 固定 Agentic/confidence=1）。
  */
 test.describe('mock 模式冒烟', () => {
+  test('仪表盘：统计卡、周趋势与周期对比', async ({ page }) => {
+    await page.goto('/')
+
+    await expect(page.locator('.dash-title')).toHaveText('仪表盘')
+    await expect(page.locator('.stat-card')).toHaveCount(4)
+    await expect(page.locator('.chart-svg')).toBeVisible()
+    await expect(page.locator('.period-card')).toHaveCount(3)
+  })
+
   test('聊天流式：进度行 → token 渲染 → meta 收尾', async ({ page }) => {
     await page.goto('/')
+    await page.getByTestId('nav-chat').click()
     await page.getByRole('button', { name: '介绍一下这个项目的架构' }).click()
 
     await expect(page.locator('.msg-bubble-user')).toContainText('介绍一下这个项目的架构')
@@ -21,6 +32,7 @@ test.describe('mock 模式冒烟', () => {
 
   test('路由徽标：流末 meta 回显路径与置信度', async ({ page }) => {
     await page.goto('/')
+    await page.getByTestId('nav-chat').click()
     const input = page.locator('.composer-input')
     await input.fill('用 Python 写一个快速排序')
     await input.press('Enter')
@@ -30,9 +42,10 @@ test.describe('mock 模式冒烟', () => {
 
   test('轨迹页：展示会话的 LLM 调用记录', async ({ page }) => {
     await page.goto('/')
+    await page.getByTestId('nav-chat').click()
     // 选中预置会话（mock 的会话 1 有 2 条 LLM + 2 条工具记录）
     await page.getByRole('button', { name: '会话 Qwen 接入排查' }).click()
-    await page.getByRole('tab', { name: '轨迹' }).click()
+    await page.getByTestId('nav-trace').click()
 
     await expect(page.locator('.trace-row').first()).toBeVisible()
     await expect(page.locator('.trace-kind').first()).toHaveText('LLM')
@@ -41,7 +54,7 @@ test.describe('mock 模式冒烟', () => {
 
   test('监控页：全渠道 KPI、渠道分布与调用明细', async ({ page }) => {
     await page.goto('/')
-    await page.getByRole('tab', { name: '监控' }).click()
+    await page.getByTestId('nav-monitor').click()
 
     await expect(page.locator('.kpi-grid .kpi').first()).toBeVisible()
     await expect(page.locator('.kpi-label').first()).toHaveText('LLM 调用')

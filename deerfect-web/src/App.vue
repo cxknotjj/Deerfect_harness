@@ -1,17 +1,15 @@
 /**
- * 应用骨架:三段布局 —— 左栏会话列表(260px)+ 右侧聊天窗(顶栏会话标题 + 模式标签 +
- * Session log + 对话/轨迹 tab + 消息区 + 卡片式 Composer + 分段状态栏)。
- * 组合层只做联动:
- * - 切换/新建会话 → showChat(id):把聊天视图切到该会话的消息桶(先用 localStorage 缓存即时渲染,
- *   再拉服务端历史覆盖),并重置 agent 选择(流式 onMeta 回写 sessionId 不经过此处,不会误清)
- * - onMeta 报告后端新建会话 → useChat 内已迁移消息桶,此处回写 sessionId 并刷新列表首页
- * - Agent 选中变化 → bindAgent(会话, agent 真实主键),成功/失败均以顶栏轻提示呈现(3 秒自动消失);
- * - 窄屏(≤768px):左侧 56px 图标竖条栏,侧栏转抽屉模式(遮罩 + 滑入滑出),桌面内联折叠不变;
- *   选中/新建会话后自动收起。AgentSelect 位于 Composer 控制位(对齐截图模型选择位)
- * - 占位交互(附件/工作区权限/消息反馈/搜索/设置)统一顶栏轻提示「功能开发中」
+ * 应用骨架：全局导航（AppNav）+ 内容区。
+ * - 页面：仪表盘 / 对话 / 轨迹 / 监控，由导航切换；对话页内嵌会话列表 + 聊天窗
+ * - 会话联动：切换/新建会话 → showChat(id)；onMeta 回写 sessionId 并刷新列表首页
+ * - Agent 选中变化 → bindAgent，成功/失败以顶栏轻提示呈现（3 秒消失）
+ * - 窄屏（≤768px）：导航转抽屉 + 顶部条；会话列表为第二层抽屉，选中/新建后自动收起
+ * - 占位交互（搜索/设置/反馈）统一顶栏轻提示「功能开发中」
  */
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onErrorCaptured, onMounted, ref, watch } from 'vue'
+import AppNav from './components/AppNav.vue'
+import DashboardView from './components/DashboardView.vue'
 import SessionList from './components/SessionList.vue'
 import ChatWindow from './components/ChatWindow.vue'
 import AgentSelect from './components/AgentSelect.vue'
@@ -27,6 +25,8 @@ import { useChat } from './composables/useChat'
 import { useAgents } from './composables/useAgents'
 import { useOfflineGate, useUnreadBadge } from './composables/pwa'
 import { reportGlobalError, useGlobalError } from './composables/globalError'
+
+type PageId = 'dashboard' | 'chat' | 'trace' | 'monitor'
 
 const { message: globalError, dismiss: dismissGlobalError } = useGlobalError()
 
@@ -52,8 +52,8 @@ const {
 /** 显式执行路径(auto=服务端判定;agentic/graph 随每轮请求下发覆盖) */
 const selectedRouting = ref<RoutingMode>('auto')
 
-/** 主面板 tab:对话 / 轨迹 / 运行监控 */
-const activeTab = ref<'chat' | 'trace' | 'monitor'>('chat')
+/** 当前页：仪表盘为默认落地页 */
+const page = ref<PageId>('dashboard')
 
 const {
   messages,
@@ -159,6 +159,13 @@ function clearTip(): void {
   tip.value = null
 }
 
+/** 导航切页：关闭窄屏导航抽屉与轻提示 */
+function goPage(next: PageId): void {
+  page.value = next
+  navOpen.value = false
+  clearTip()
+}
+
 /** 选中会话:聊天视图切到该会话(消息按会话保留),重置 agent 选择;窄屏自动收抽屉 */
 function onSelect(id: string): void {
   if (isNarrow.value) drawerOpen.value = false
@@ -166,7 +173,6 @@ function onSelect(id: string): void {
   selectSession(id)
   showChat(id)
   selectedAgentId.value = null
-  activeTab.value = 'chat' // 切会话回对话视图(轨迹按会话惰性加载,切回即看)
   clearTip()
 }
 
@@ -193,19 +199,26 @@ async function onRemoveSession(id: string): Promise<void> {
 async function onCreate(): Promise<void> {
   try {
     await createSession()
+    page.value = 'chat'
     showChat(currentSessionId.value)
     selectedAgentId.value = null
-    activeTab.value = 'chat' // 新会话从空轨迹页等视图回到对话
     if (isNarrow.value) drawerOpen.value = false
   } catch (e) {
     showTip(`新建会话失败:${errText(e)}`, true)
   }
 }
 
-/** 顶栏标题:监控 tab 固定标题;其余为当前会话名(未选中/已删除时回退「新对话」) */
-const currentSessionName = computed(() => {
-  if (activeTab.value === 'monitor') return '运行监控'
-  return sessions.value.find((s) => s.id === currentSessionId.value)?.name ?? '新对话'
+/** 顶栏标题：对话页显示当前会话名 */
+const currentSessionName = computed(
+  () => sessions.value.find((s) => s.id === currentSessionId.value)?.name ?? '新对话',
+)
+
+/** 窄屏顶部条标题 */
+const pageTitle = computed(() => {
+  if (page.value === 'chat') return currentSessionName.value
+  if (page.value === 'trace') return '轨迹'
+  if (page.value === 'monitor') return '监控'
+  return '仪表盘'
 })
 
 /** 当前选中的 agent id(数字,列表下标 + 1;null = 默认 Agent) */
@@ -225,25 +238,25 @@ async function onAgentChange(agentId: number | null): Promise<void> {
   }
 }
 
-/** 侧栏收起/展开(收起后入口在顶栏左侧;仅桌面内联折叠,窄屏走抽屉) */
-const sidebarCollapsed = ref(false)
+/** 会话列表面板隐藏（仅桌面；窄屏走抽屉） */
+const sessionsHidden = ref(false)
 
-/** 窄屏判定(≤768px):侧栏由内联折叠切换为抽屉模式(遮罩 + 滑入滑出) */
+/** 窄屏判定(≤768px):导航转抽屉，会话列表为第二层抽屉 */
 const narrowMql = window.matchMedia('(max-width: 768px)')
 const isNarrow = ref(narrowMql.matches)
 function onNarrowChange(e: MediaQueryListEvent): void {
   isNarrow.value = e.matches
-  // 模式切换时互斥状态复位:桌面折叠/抽屉展开互不残留
-  if (e.matches) {
-    sidebarCollapsed.value = false
-    drawerOpen.value = false
-  } else {
-    drawerOpen.value = false
-  }
+  // 模式切换时复位所有抽屉/隐藏态，避免跨模式残留
+  navOpen.value = false
+  drawerOpen.value = false
+  sessionsHidden.value = false
 }
 narrowMql.addEventListener('change', onNarrowChange)
 
-/** 抽屉开合(仅窄屏生效;桌面端该状态无样式效果);开合伴随焦点移入/归还(可达性) */
+/** 导航抽屉（仅窄屏生效） */
+const navOpen = ref(false)
+
+/** 会话抽屉（仅窄屏生效）；开合伴随焦点移入/归还（可达性） */
 const drawerOpen = ref(false)
 const sidebarEl = ref<InstanceType<typeof SessionList> | null>(null)
 const expandBtnEl = ref<HTMLButtonElement | null>(null)
@@ -261,21 +274,23 @@ watch(drawerOpen, (open) => {
   }
 })
 
-/** 侧栏头部收起钮:窄屏=收抽屉;桌面=内联折叠 */
+/** 会话列表收起钮：窄屏收抽屉；桌面隐藏整列（顶栏可再展开） */
 function onSidebarCollapse(): void {
   if (isNarrow.value) drawerOpen.value = false
-  else sidebarCollapsed.value = true
+  else sessionsHidden.value = true
 }
 
-/** 顶栏展开钮:窄屏常显(侧栏常态离屏)点击开抽屉;桌面仅折叠态显示 */
+/** 会话列表展开钮：窄屏开抽屉；桌面恢复整列 */
 function onSidebarExpand(): void {
   if (isNarrow.value) drawerOpen.value = true
-  else sidebarCollapsed.value = false
+  else sessionsHidden.value = false
 }
 
-/** Escape 关抽屉(窄屏可达性) */
+/** Escape 关闭抽屉(窄屏可达性) */
 function onGlobalKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Escape' && drawerOpen.value) drawerOpen.value = false
+  if (e.key !== 'Escape') return
+  if (navOpen.value) navOpen.value = false
+  else if (drawerOpen.value) drawerOpen.value = false
 }
 window.addEventListener('keydown', onGlobalKeydown)
 onBeforeUnmount(() => {
@@ -285,7 +300,7 @@ onBeforeUnmount(() => {
   stopUnreadBadge()
 })
 
-/** 主题切换:夜间(Telemetry Dark,默认)⇄ 日间(DeepSeek 蓝白);持久化 localStorage,按钮在顶栏右上角 */
+/** 主题切换:夜间(Telemetry Dark,默认)⇄ 日间(DeepSeek 蓝白);持久化 localStorage,入口在导航底部 */
 const theme = ref<'dark' | 'light'>(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark')
 function toggleTheme(): void {
   theme.value = theme.value === 'dark' ? 'light' : 'dark'
@@ -293,8 +308,6 @@ function toggleTheme(): void {
   document.documentElement.dataset.theme = theme.value
   document.documentElement.style.colorScheme = theme.value
 }
-
-
 
 /** 下载当前会话纯文本日志:消息按角色拼接(【user】/【assistant】),Blob 触发 a.download */
 function downloadSessionLog(): void {
@@ -322,170 +335,131 @@ function downloadSessionLog(): void {
   <div
     v-else
     class="app-shell"
-    :class="{ 'app-streaming': streaming, 'sidebar-collapsed': sidebarCollapsed, 'drawer-open': drawerOpen }"
+    :class="{ 'app-streaming': streaming, 'nav-open': navOpen, 'drawer-open': drawerOpen }"
   >
-    <!-- 窄屏左侧图标竖条栏:新会话/搜索占位 + 底部设置占位(桌面端隐藏;
-         历史入口与顶栏侧栏开关重复,不设) -->
-    <nav v-if="isNarrow" class="icon-rail">
-      <img class="rail-logo" src="/deer_logo.png" alt="" />
-      <button class="rail-btn" type="button" title="新会话" @click="onCreate">+</button>
-      <button class="rail-btn" type="button" title="搜索" @click="showTip('功能开发中')">
-        <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="1.8" />
-          <path d="m20 20-4.35-4.35" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" />
-        </svg>
-      </button>
-      <button class="rail-btn rail-btn-bottom" type="button" title="设置" @click="showTip('功能开发中')">⚙</button>
-    </nav>
-    <!-- 窄屏抽屉遮罩:点击关闭(桌面端不渲染) -->
+    <AppNav
+      :page="page"
+      :theme="theme"
+      :auth-enabled="authEnabled"
+      @navigate="goPage"
+      @toggle-theme="toggleTheme"
+      @logout="onLogout"
+    />
+    <!-- 窄屏导航抽屉遮罩 -->
+    <button v-if="isNarrow" class="nav-mask" type="button" aria-label="关闭导航" @click="navOpen = false"></button>
+    <!-- 窄屏会话抽屉遮罩（点击关闭） -->
     <button
       v-if="isNarrow"
       class="drawer-mask"
       type="button"
-      aria-label="关闭侧栏"
+      aria-label="关闭会话列表"
       @click="drawerOpen = false"
     ></button>
-    <SessionList
-      ref="sidebarEl"
-      :sessions="sessions"
-      :current-id="currentSessionId"
-      :has-more="hasMore"
-      :loading="sessionsLoading"
-      @select="onSelect"
-      @create="onCreate"
-      @more="loadMore"
-      @collapse="onSidebarCollapse"
-      @settings="showTip('设置功能开发中')"
-      @remove="onRemoveSession"
-    />
 
-    <section class="chat-pane">
-      <header class="chat-header">
-        <!-- 侧栏收起时的展开入口 -->
+    <div class="app-main">
+      <!-- 窄屏顶部条：导航入口 + 品牌 + 当前页 -->
+      <div v-if="isNarrow" class="mobile-bar">
+        <button class="icon-btn" type="button" aria-label="打开导航" @click="navOpen = true">☰</button>
+        <img class="mobile-logo" src="/deer_logo.png" alt="" />
+        <span class="mobile-title">{{ pageTitle }}</span>
         <button
-          v-if="sidebarCollapsed || isNarrow"
+          v-if="page === 'chat'"
           ref="expandBtnEl"
-          class="icon-btn"
+          class="icon-btn mobile-action"
           type="button"
-          :title="isNarrow ? '打开侧栏' : '展开侧栏'"
-          :aria-label="isNarrow ? '打开侧栏' : '展开侧栏'"
+          aria-label="打开会话列表"
+          title="会话列表"
           @click="onSidebarExpand"
-        >☰</button>
-        <span class="chat-title">{{ currentSessionName }}</span>
-        <!-- 轻提示:无条件渲染容器,仅由 tip 是否为空决定显隐,避免被条件渲染链路吞掉 -->
-        <span v-if="tip" class="chat-tip" :class="{ 'chat-tip-error': tip.error }" role="status">{{
-          tip.text
-        }}</span>
-        <!-- 右上控制组:会话日志下载(无会话时置灰)+ 主题切换 + 退出登录(带文字,高危操作显性化) -->
-        <div class="chat-header-right">
-          <button
-            class="session-log"
-            type="button"
-            title="下载会话日志(纯文本)"
-            :disabled="currentSessionId === ''"
-            @click="downloadSessionLog"
-          >Session log ↓</button>
-          <button
-            v-if="!sidebarCollapsed"
-            class="hdr-icon"
-            type="button"
-            :title="theme === 'dark' ? '切换日间模式' : '切换夜间模式'"
-            :aria-label="theme === 'dark' ? '切换日间模式' : '切换夜间模式'"
-            @click="toggleTheme"
-          >
-            <svg v-if="theme === 'dark'" viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="12" cy="12" r="4.2" />
-              <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5 5l1.6 1.6M17.4 17.4 19 19M19 5l-1.6 1.6M6.6 17.4 5 19" />
-            </svg>
-            <svg v-else viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11Z" />
-            </svg>
-          </button>
-          <button
-            v-if="authEnabled"
-            class="hdr-logout"
-            type="button"
-            title="退出登录"
-            aria-label="退出登录"
-            @click="onLogout"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M9 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3" />
-              <path d="m16 17 5-5-5-5" />
-              <path d="M21 12H9" />
-            </svg>
-            <span class="hdr-logout-text">退出</span>
-          </button>
-        </div>
-      </header>
-
-      <!-- 对话/轨迹 tab:分段控件,轨迹是可观测性主入口,与对话同级醒目呈现 -->
-      <div class="chat-tabs" role="tablist">
-        <button
-          class="chat-tab"
-          :class="{ 'chat-tab-active': activeTab === 'chat' }"
-          type="button"
-          role="tab"
-          :aria-selected="activeTab === 'chat'"
-          @click="activeTab = 'chat'"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" />
+            <path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" />
           </svg>
-          对话
-        </button>
-        <button
-          class="chat-tab"
-          :class="{ 'chat-tab-active': activeTab === 'trace' }"
-          type="button"
-          role="tab"
-          :aria-selected="activeTab === 'trace'"
-          @click="activeTab = 'trace'"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-          </svg>
-          轨迹
-        </button>
-        <button
-          class="chat-tab"
-          :class="{ 'chat-tab-active': activeTab === 'monitor' }"
-          type="button"
-          role="tab"
-          :aria-selected="activeTab === 'monitor'"
-          @click="activeTab = 'monitor'"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M3 12h4l2-6 4 12 2-6h6" />
-          </svg>
-          监控
         </button>
       </div>
 
-      <ChatWindow
-        v-if="activeTab === 'chat'"
-        :messages="messages"
-        :streaming="streaming"
-        :session-id="currentSessionId"
-        @send="send"
-        @stop="stop"
-        @delete="deleteMessage"
-        @regenerate="regenerate"
-        @feedback="showTip('功能开发中')"
-        @placeholder="showTip('功能开发中')"
-      >
-        <template #controls>
-          <RoutingSelect v-model="selectedRouting" />
-          <AgentSelect
-            :agents="agents"
-            :model-value="selectedAgentId"
-            :disabled="currentSessionId === ''"
-            @update:model-value="onAgentChange"
-          />
-        </template>
-      </ChatWindow>
-      <TraceView v-else-if="activeTab === 'trace'" :session-id="currentSessionId" />
+      <DashboardView v-if="page === 'dashboard'" />
+
+      <div v-else-if="page === 'chat'" class="chat-layout" :class="{ 'sessions-hidden': sessionsHidden }">
+        <SessionList
+          ref="sidebarEl"
+          :sessions="sessions"
+          :current-id="currentSessionId"
+          :has-more="hasMore"
+          :loading="sessionsLoading"
+          @select="onSelect"
+          @create="onCreate"
+          @more="loadMore"
+          @collapse="onSidebarCollapse"
+          @settings="showTip('设置功能开发中')"
+          @remove="onRemoveSession"
+        />
+
+        <section class="chat-pane">
+          <!-- 窄屏顶部条已承担标题与会话入口，这里只在有轻提示时出现，避免双标题 -->
+          <header v-if="!isNarrow || tip" class="chat-header">
+            <button
+              v-if="!isNarrow && sessionsHidden"
+              ref="expandBtnEl"
+              class="icon-btn"
+              type="button"
+              title="展开会话列表"
+              aria-label="展开会话列表"
+              @click="onSidebarExpand"
+            >☰</button>
+            <span v-if="!isNarrow" class="chat-title">{{ currentSessionName }}</span>
+            <!-- 轻提示:无条件渲染容器,仅由 tip 是否为空决定显隐,避免被条件渲染链路吞掉 -->
+            <span v-if="tip" class="chat-tip" :class="{ 'chat-tip-error': tip.error }" role="status">{{
+              tip.text
+            }}</span>
+            <div class="chat-header-right">
+              <button
+                class="session-log"
+                type="button"
+                title="下载会话日志(纯文本)"
+                :disabled="currentSessionId === ''"
+                @click="downloadSessionLog"
+              >Session log ↓</button>
+            </div>
+          </header>
+
+          <ChatWindow
+            :messages="messages"
+            :streaming="streaming"
+            :session-id="currentSessionId"
+            @send="send"
+            @stop="stop"
+            @delete="deleteMessage"
+            @regenerate="regenerate"
+            @feedback="showTip('功能开发中')"
+            @placeholder="showTip('功能开发中')"
+          >
+            <template #controls>
+              <RoutingSelect v-model="selectedRouting" />
+              <AgentSelect
+                :agents="agents"
+                :model-value="selectedAgentId"
+                :disabled="currentSessionId === ''"
+                @update:model-value="onAgentChange"
+              />
+            </template>
+          </ChatWindow>
+        </section>
+      </div>
+
+      <section v-else-if="page === 'trace'" class="page-pane">
+        <header class="page-head">
+          <h1 class="page-title">轨迹</h1>
+          <p class="page-sub">
+            当前会话的 LLM 与工具调用链路<span v-if="currentSessionId === ''"> · 请先在对话中选择会话</span>
+          </p>
+          <button v-if="currentSessionId === ''" class="page-link" type="button" @click="goPage('chat')">
+            去对话选择会话 →
+          </button>
+        </header>
+        <TraceView :session-id="currentSessionId" />
+      </section>
+
       <MonitorView v-else />
-    </section>
+    </div>
   </div>
 </template>

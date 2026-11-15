@@ -67,6 +67,12 @@
   --font-sans: 'IBM Plex Sans', -apple-system, 'PingFang SC', 'Hiragino Sans GB',
     'Microsoft YaHei', 'Noto Sans SC', 'Segoe UI', sans-serif;
 
+  /* 控制台壳层三级表面:画布(主区底) / 卡片(统计与面板) / 细分隔线
+     参考产品控制台的「导航—画布—卡片」层次,色相仍落在同一蓝黑族,不引入新色系 */
+  --bg-canvas: #0b1017;   /* 仪表盘画布:比 bg-base 再深一档,让卡片浮起来 */
+  --bg-card: #131b25;     /* 卡片/面板表面 */
+  --line-soft: #1b2634;   /* 卡片边框:比网格线更克制 */
+
   /* 动效曲线:自然减速,入场/微交互统一使用(animate 规范:不用默认 ease) */
   --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
 }

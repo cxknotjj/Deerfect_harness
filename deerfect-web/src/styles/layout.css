@@ -3,18 +3,32 @@
    自 main.css 按域拆出（原第 122-341 行）
    ------------------------------------------------------------ */
 
-/* ---------- 布局骨架:左栏会话列表 + 右侧聊天窗 ---------- */
+/* ---------- 布局骨架:全局导航(236px) + 内容区 ---------- */
 .app-shell { display: flex; height: 100%; overflow: hidden; }
-/* 内联折叠(桌面):宽度收缩 + 淡出;窄屏(≤768px)不适用,侧栏走抽屉模式 */
-@media (min-width: 769px) {
-  .app-shell.sidebar-collapsed .session-list {
-    width: 0;
-    border-right-width: 0;
-    opacity: 0;
-    visibility: hidden;
-    transition: width 0.28s ease, opacity 0.28s ease, visibility 0s linear 0.28s;
-  }
+
+/* 内容区：撑满剩余宽度，纵向排列页面（窄屏顶部条 + 页面主体） */
+.app-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
+
+/* 对话页：会话列表 + 聊天窗；桌面上会话列表可整列隐藏 */
+.chat-layout { flex: 1; min-height: 0; display: flex; }
+.chat-layout.sessions-hidden .session-list { display: none; }
+
+/* 通用页面（轨迹）：页头固定，内容区自行滚动 */
+.page-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.page-head { padding: 22px 24px 6px; }
+.page-title {
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+.page-sub { margin-top: 4px; font-size: 12.5px; color: var(--ink-dim); }
 
 /* ---------- 会话列表(左栏 260px) ---------- */
 .session-list {
@@ -57,20 +71,6 @@
   transition: background 0.15s, color 0.15s;
 }
 .icon-btn:hover { background: var(--hover-veil); color: var(--ink); }
-.session-brand { display: flex; align-items: center; gap: 8px; }
-.session-brand-logo { width: 26px; height: 26px; }
-.session-brand-name { font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
-/* HARNESS 描边 mono 小徽章(deepseek 文字右侧) */
-.brand-badge {
-  flex-shrink: 0;
-  padding: 2px 6px;
-  border: 1px solid var(--grid-line);
-  border-radius: 4px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  color: var(--ink-dim);
-}
 /* 通栏「新会话」:侧栏主行动,accent 微底 + accent 字,可点性一目了然 */
 .session-new { margin: 2px 14px 4px; }
 .btn-new {
@@ -193,9 +193,6 @@
   background: var(--accent-lift);
 }
 
-/* ---------- 移动端图标竖条栏(桌面隐藏;窄屏样式统一在文末媒体查询) ---------- */
-.icon-rail { display: none; }
-
 /* 窄屏抽屉遮罩:桌面隐藏(窄屏样式见文末媒体查询) */
 .drawer-mask { display: none; }
 
@@ -222,3 +219,20 @@
   background: var(--accent-warm);
   animation: none;
 }
+
+/* 会话面板标题（品牌已在全局导航，面板内只留层级标题） */
+.session-list-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+}
+
+/* 页面级文字按钮（如轨迹页「去对话选择会话」） */
+.page-link {
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--accent);
+  transition: opacity 0.15s;
+}
+.page-link:hover { opacity: 0.75; }

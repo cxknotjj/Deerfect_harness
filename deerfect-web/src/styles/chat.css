@@ -11,6 +11,7 @@
   gap: 12px;
   padding: 12px 20px;
   background: var(--bg-panel);
+  border-bottom: 1px solid var(--grid-line);
 }
 /* 会话名超宽省略:min-width 0 允许在 flex 内收缩,超出即 … 截断(标题让位给右侧控制组) */
 .chat-title {
@@ -35,83 +36,8 @@
 }
 .session-log:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .session-log:disabled { opacity: 0.4; }
-/* 顶栏描边图标钮(主题切换):有边界才有可点感,替代无轮廓字符图标 */
-.hdr-icon {
-  flex-shrink: 0;
-  width: 30px;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--grid-line);
-  border-radius: var(--radius-ctl);
-  color: var(--ink-dim);
-  transition: color 0.15s, border-color 0.15s, background 0.15s;
-}
-.hdr-icon:hover { color: var(--ink); border-color: var(--ink-dim); background: var(--hover-veil); }
-.hdr-icon svg,
-.hdr-logout svg {
-  width: 15px;
-  height: 15px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-/* 退出登录:图标 + 文字的完整按钮,hover 转警示色(高危操作显性化,替代纯 ⎋ 猜谜图标) */
-.hdr-logout {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 30px;
-  padding: 0 12px;
-  border: 1px solid var(--grid-line);
-  border-radius: var(--radius-ctl);
-  font-size: 13px;
-  color: var(--ink-dim);
-  transition: color 0.15s, border-color 0.15s, background 0.15s;
-}
-.hdr-logout:hover { color: var(--accent-warm); border-color: var(--accent-warm); background: var(--accent-warm-soft); }
 .chat-tip { font-size: 13px; color: var(--blueprint); }
 .chat-tip-error { color: var(--accent-warm); }
-
-/* 对话/轨迹 tab 行:分段控件式胶囊(带图标,大点击区)——轨迹是可观测性主入口,
-   与对话同级醒目呈现;底边线仍落在 tab 行,与顶栏构成一个面板区 */
-.chat-tabs {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--grid-line);
-}
-.chat-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--ink-dim);
-  border: 1px solid transparent;
-  border-radius: 999px;
-  transition: color 0.15s, background 0.15s, transform 0.12s var(--ease-out-quart);
-}
-.chat-tab svg {
-  width: 14px;
-  height: 14px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.chat-tab:hover { color: var(--ink); }
-.chat-tab:active { transform: scale(0.97); }
-.chat-tab-active,
-.chat-tab-active:hover { color: var(--accent); background: var(--accent-lift); }
 
 /* 轨迹占位(功能未实现) */
 .trace-placeholder {

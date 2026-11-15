@@ -1,6 +1,6 @@
 # web
 
-Vue 3 + TypeScript + Vite 前端控制台：会话管理、流式对话、思考折叠、轨迹观测、监控页、登录与 PWA 离线。
+Vue 3 + TypeScript + Vite 前端控制台：全局分组导航（仪表盘 / 对话 / 轨迹 / 监控）+ 运行仪表盘、会话管理、流式对话、思考折叠、观测与监控、登录与 PWA 离线。
 
 **不在 Maven 反应堆里**——它不进 `server` 的 fat jar，独立构建、独立部署（Nginx / 静态托管 / `vite preview`）。
 和后端的唯一约定是 HTTP：开发态由 Vite 把 `/api` 代理到 `localhost:8080`。
@@ -43,6 +43,8 @@ deerfect-web/
 
 | 分组 | 内容 |
 | --- | --- |
+| 全局框架 | `AppNav`（品牌 / 工作区 / 分组导航 / 外观与用户）、`DashboardView`（运行仪表盘） |
+| `dashboard/` | `StatCard`（统计卡）、`TrendChart`（7 天双轴折线，纯 SVG） |
 | 聊天主界面 | `ChatWindow`、`Composer`、`MessageBubble`、`SessionList`、`AgentSelect`、`RoutingSelect`、`ContextUsageRing` |
 | `chat/` | `ChatMessageList`（消息列表与折叠）、`ChatStatusBar`（阶段/耗时状态条） |
 | `monitor/` + `MonitorView` | `MonitorSummary`、`MonitorBreakdown`、`MonitorRecentCalls`、`MonitorSessions`——对应后端 `/api/monitor` 与观测接口 |
@@ -57,7 +59,7 @@ deerfect-web/
 
 ### `src/styles/` 与 `src/utils/`
 
-样式按区域拆分（`chat.css` / `monitor.css` / `login.css` / `motion.css` …），入口 `main.css` 汇总。
+样式按区域拆分（`nav.css` / `dashboard.css` / `chat.css` / `monitor.css` / `login.css` / `motion.css` …），入口 `main.css` 汇总。
 `utils/` 是纯函数：相对时间、会话排序、监控数值格式化、轨迹格式化——同样带单测。
 
 ## 开发与验证

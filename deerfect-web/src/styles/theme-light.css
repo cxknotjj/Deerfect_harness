@@ -37,4 +37,9 @@
   --usage-ring-from: #8e96a6;
   --usage-ring-to: #aab1bd;
   --usage-bar-track: #e5e7eb;
+
+  /* 控制台壳层三级表面:浅灰画布 + 纯白卡片 + 浅灰蓝细边 */
+  --bg-canvas: #f5f6f8;
+  --bg-card: #ffffff;
+  --line-soft: #e8ecf2;
 }

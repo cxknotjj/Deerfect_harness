@@ -341,18 +341,25 @@ async function monitor(hours = 24, agent = '', channel = ''): Promise<MonitorSna
     sessions: sessionRows,
     llmCalls: filteredLlm,
     toolCalls: filteredTools,
-    hourly: [
-      { bucket: '10-31 11:00', calls: 0, tokens: 0, avgTtftMs: 0 },
-      { bucket: '10-31 12:00', calls: 1, tokens: 832, avgTtftMs: 3047 },
-      { bucket: '10-31 13:00', calls: 0, tokens: 0, avgTtftMs: 0 },
-      { bucket: '10-31 14:00', calls: 1, tokens: 902, avgTtftMs: 0 },
-      { bucket: '10-31 15:00', calls: 0, tokens: 0, avgTtftMs: 0 },
-      { bucket: '10-31 16:00', calls: 0, tokens: 0, avgTtftMs: 0 },
-      { bucket: '10-31 17:00', calls: 0, tokens: 0, avgTtftMs: 0 },
-      { bucket: '10-31 18:00', calls: 0, tokens: 0, avgTtftMs: 0 },
-      { bucket: '10-31 19:00', calls: 2, tokens: 1135, avgTtftMs: 1180 },
-      { bucket: '10-31 20:00', calls: 2, tokens: 1937, avgTtftMs: 2582 },
-    ].slice(-Math.max(1, Math.min(hours, 10))),
+    // 小时桶按请求窗口动态生成（截止当前整点），保证仪表盘的「近 7 天」聚合始终有数据；
+    // calls/tokens 用固定波形，截图与断言可复现
+    hourly: (() => {
+      const size = Math.max(1, Math.min(hours, 168))
+      const pad = (v: number): string => String(v).padStart(2, '0')
+      const end = new Date()
+      end.setMinutes(0, 0, 0)
+      return Array.from({ length: size }, (_, idx) => {
+        const d = new Date(end.getTime() - (size - 1 - idx) * 3_600_000)
+        const wave = (idx * 7 + 3) % 11
+        const calls = wave < 3 ? 2 : wave < 6 ? 1 : 0
+        return {
+          bucket: `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:00`,
+          calls,
+          tokens: calls === 0 ? 0 : 420 + wave * 130,
+          avgTtftMs: calls === 0 ? 0 : 900 + wave * 160,
+        }
+      })
+    })(),
     runtime: {
       uptimeSeconds: 1830,
       processCpuUsage: 0.021,
