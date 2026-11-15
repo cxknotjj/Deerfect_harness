@@ -33,7 +33,7 @@
             "problemMatcher": []
         },
         {
-            // 前端启动：先等 5s（后端已在自己的新终端进入启动流程），再起 vite dev（5173，/api 代理到 8080）
+            // 前端启动：先等 5s（后端已在自己的新终端进入启动流程），再起 vite dev（80，/api 代理到 8080）
             // 等待内嵌在命令里，不依赖 VS Code 的任务编排判定（sequence + isBackground + 空
             // problemMatcher 的组合下，独立等待任务会打断依赖链导致本任务被跳过）
             "label": "前端:启动",

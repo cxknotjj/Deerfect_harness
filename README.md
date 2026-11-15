@@ -94,7 +94,7 @@ java -jar deerfect-server/target/deerfect-server-0.0.1-SNAPSHOT.jar
 
 ```bash
 # Web 控制台（推荐：会话管理 / 思考折叠 / 轨迹观测全都有）
-cd deerfect-web && npm install && npm run dev   # 打开 http://localhost:5173
+cd deerfect-web && npm install && npm run dev   # 打开 http://localhost
 ```
 
 ```bash

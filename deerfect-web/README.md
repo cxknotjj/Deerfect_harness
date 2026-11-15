@@ -10,7 +10,7 @@ Vue 3 + TypeScript + Vite 前端控制台：会话管理、流式对话、思考
 ```text
 deerfect-web/
 ├── index.html
-├── vite.config.ts          # 开发端口 5173，/api → localhost:8080，含 PWA 插件
+├── vite.config.ts          # 开发端口 80，/api → localhost:8080，含 PWA 插件
 ├── vitest.config.ts        # 单元测试
 ├── playwright.config.ts    # 端到端
 ├── TODO.md
@@ -65,7 +65,7 @@ deerfect-web/
 ```bash
 cd deerfect-web
 npm install
-npm run dev        # 5173，/api 代理到 8080
+npm run dev        # 80，/api 代理到 8080（Windows 监听 80 需管理员权限）
 npm run typecheck  # vue-tsc --noEmit
 npm run lint
 npm run test       # vitest

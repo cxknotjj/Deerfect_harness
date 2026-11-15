@@ -41,7 +41,7 @@
 | 组件            | 地址                            | 是否必需   | 说明                                                                                                  |
 | ------------- | ----------------------------- | ------ | --------------------------------------------------------------------------------------------------- |
 | server        | `8080`                        | 必需     | REST + SSE；MCP 端点在同端口 `/mcp`                                                                        |
-| Web 开发服务器     | `5173`                        | 只在调前端时 | vite，proxy 到 8080                                                                                   |
+| Web 开发服务器     | `80`                          | 只在调前端时 | vite，proxy 到 8080；Windows 监听 80 需管理员权限（或改 `vite.config.ts` 的 `server.port`）                     |
 | MySQL         | `127.0.0.1:3306`，库 `harness`  | 必需     | 配置见 `application-datasource.yaml`                                                                   |
 | PgVector      | `127.0.0.1:5432`，库 `postgres` | 可选     | 仅知识库（RAG）；未启用时 `/api/knowledge*` 返回 503                                                             |
 | Docker daemon | `127.0.0.1:2375`              | 可选     | 沙箱工具；**必须写 `127.0.0.1`，不要写 `localhost`**（IPv6 解析会超时）                                                |
@@ -164,7 +164,7 @@ Test-NetConnection 127.0.0.1 -Port 3306
 ```bash
 cd deerfect-web
 npm install
-npm run dev        # 5173，proxy 到 8080
+npm run dev        # 80，proxy 到 8080
 npm run typecheck  # vue-tsc --noEmit
 npm run build      # typecheck + vite build
 npm test           # vitest run（Node ≥ 22.12）
