@@ -4,10 +4,11 @@
  *
  * 只负责「切页」这一件事：页面状态由 App.vue 持有，本组件通过 navigate 上报；
  * 主题与退出同样是动作型条目，不在此维护状态。
+ * 轨迹与监控属于对话页内的 tab（按会话/运行态观测），不占全局导航。
  */
 import { computed } from 'vue'
 
-type PageId = 'dashboard' | 'chat' | 'trace' | 'monitor'
+type PageId = 'dashboard' | 'chat' | 'monitor'
 
 const props = defineProps<{
   page: PageId
@@ -41,12 +42,6 @@ const NAV: NavItem[] = [
     label: '对话',
     group: '核心',
     paths: ['M20 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z'],
-  },
-  {
-    id: 'trace',
-    label: '轨迹',
-    group: '观测',
-    paths: ['M3 12h4l2-6 4 12 2-6h6'],
   },
   {
     id: 'monitor',

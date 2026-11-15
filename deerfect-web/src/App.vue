@@ -26,7 +26,7 @@ import { useAgents } from './composables/useAgents'
 import { useOfflineGate, useUnreadBadge } from './composables/pwa'
 import { reportGlobalError, useGlobalError } from './composables/globalError'
 
-type PageId = 'dashboard' | 'chat' | 'trace' | 'monitor'
+type PageId = 'dashboard' | 'chat' | 'monitor'
 
 const { message: globalError, dismiss: dismissGlobalError } = useGlobalError()
 
@@ -54,6 +54,9 @@ const selectedRouting = ref<RoutingMode>('auto')
 
 /** 当前页：仪表盘为默认落地页 */
 const page = ref<PageId>('dashboard')
+
+/** 对话页内的分段：对话 / 轨迹（轨迹按会话，跟随会话列表） */
+const chatTab = ref<'chat' | 'trace'>('chat')
 
 const {
   messages,
@@ -162,6 +165,7 @@ function clearTip(): void {
 /** 导航切页：关闭窄屏导航抽屉与轻提示 */
 function goPage(next: PageId): void {
   page.value = next
+  if (next === 'chat') chatTab.value = 'chat'
   navOpen.value = false
   clearTip()
 }
@@ -173,6 +177,7 @@ function onSelect(id: string): void {
   selectSession(id)
   showChat(id)
   selectedAgentId.value = null
+  chatTab.value = 'chat' // 切会话回对话视图（轨迹按会话惰性加载，切回即看）
   clearTip()
 }
 
@@ -200,6 +205,7 @@ async function onCreate(): Promise<void> {
   try {
     await createSession()
     page.value = 'chat'
+    chatTab.value = 'chat'
     showChat(currentSessionId.value)
     selectedAgentId.value = null
     if (isNarrow.value) drawerOpen.value = false
@@ -215,10 +221,9 @@ const currentSessionName = computed(
 
 /** 窄屏顶部条标题 */
 const pageTitle = computed(() => {
-  if (page.value === 'chat') return currentSessionName.value
-  if (page.value === 'trace') return '轨迹'
   if (page.value === 'monitor') return '监控'
-  return '仪表盘'
+  if (page.value !== 'chat') return '仪表盘'
+  return chatTab.value === 'trace' ? '轨迹' : currentSessionName.value
 })
 
 /** 当前选中的 agent id(数字,列表下标 + 1;null = 默认 Agent) */
@@ -395,34 +400,58 @@ function downloadSessionLog(): void {
         />
 
         <section class="chat-pane">
-          <!-- 窄屏顶部条已承担标题与会话入口，这里只在有轻提示时出现，避免双标题 -->
-          <header v-if="!isNarrow || tip" class="chat-header">
+          <!-- 主区顶栏：对话 / 轨迹 / 监控 三段式 + 右侧会话日志（对齐控制台参考图） -->
+          <div class="chat-tabs" role="tablist">
             <button
               v-if="!isNarrow && sessionsHidden"
-              ref="expandBtnEl"
               class="icon-btn"
               type="button"
               title="展开会话列表"
               aria-label="展开会话列表"
               @click="onSidebarExpand"
             >☰</button>
-            <span v-if="!isNarrow" class="chat-title">{{ currentSessionName }}</span>
-            <!-- 轻提示:无条件渲染容器,仅由 tip 是否为空决定显隐,避免被条件渲染链路吞掉 -->
+            <button
+              class="chat-tab"
+              :class="{ 'chat-tab-active': chatTab === 'chat' }"
+              type="button"
+              role="tab"
+              :aria-selected="chatTab === 'chat'"
+              @click="chatTab = 'chat'"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" />
+              </svg>
+              对话
+            </button>
+            <button
+              class="chat-tab"
+              :class="{ 'chat-tab-active': chatTab === 'trace' }"
+              type="button"
+              role="tab"
+              :aria-selected="chatTab === 'trace'"
+              @click="chatTab = 'trace'"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 12h4l2-6 4 12 2-6h6" />
+              </svg>
+              轨迹
+            </button>
             <span v-if="tip" class="chat-tip" :class="{ 'chat-tip-error': tip.error }" role="status">{{
               tip.text
             }}</span>
-            <div class="chat-header-right">
+            <div class="chat-tabs-right">
               <button
                 class="session-log"
                 type="button"
                 title="下载会话日志(纯文本)"
                 :disabled="currentSessionId === ''"
                 @click="downloadSessionLog"
-              >Session log ↓</button>
+              >会话日志 ↓</button>
             </div>
-          </header>
+          </div>
 
           <ChatWindow
+            v-if="chatTab === 'chat'"
             :messages="messages"
             :streaming="streaming"
             :session-id="currentSessionId"
@@ -443,21 +472,9 @@ function downloadSessionLog(): void {
               />
             </template>
           </ChatWindow>
+          <TraceView v-else :session-id="currentSessionId" />
         </section>
       </div>
-
-      <section v-else-if="page === 'trace'" class="page-pane">
-        <header class="page-head">
-          <h1 class="page-title">轨迹</h1>
-          <p class="page-sub">
-            当前会话的 LLM 与工具调用链路<span v-if="currentSessionId === ''"> · 请先在对话中选择会话</span>
-          </p>
-          <button v-if="currentSessionId === ''" class="page-link" type="button" @click="goPage('chat')">
-            去对话选择会话 →
-          </button>
-        </header>
-        <TraceView :session-id="currentSessionId" />
-      </section>
 
       <MonitorView v-else />
     </div>

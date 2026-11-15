@@ -40,12 +40,19 @@ watch(
   { deep: true },
 )
 
-/** 空会话快捷提问(点击即发) */
+/** 空会话快捷提问(点击即发)；图标按顺序对应记忆/文档/流程/插件四类意图 */
 const SUGGESTIONS = [
   '介绍一下这个项目的架构',
   '用 Python 写一个快速排序',
   'RAG 知识库是怎么工作的?',
   '帮我写一个单元测试示例',
+]
+
+const SUGGEST_ICONS: string[][] = [
+  ['M6 3.8h7.5L18 8.2V20a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4.8a1 1 0 0 1 1-1Z', 'M13.2 4v4.4H18', 'M9 13h6', 'M9 16.5h4'],
+  ['M4 5h16v14H4z', 'M8 9h8', 'M8 13h5'],
+  ['M4 7h5v5H4z', 'M15 12h5v5h-5z', 'M9 9h3a3 3 0 0 1 3 3v2'],
+  ['M9 7V4M15 7V4', 'M7 7h10v5a5 5 0 0 1-10 0z', 'M12 17v3'],
 ]
 
 /** 错误消息重试:重新发送最后一条 user 消息(新增气泡,与会话记忆语义一致) */
@@ -66,8 +73,19 @@ function onRetry(): void {
       <p class="chat-empty-title">开始新的对话</p>
       <p class="chat-empty-sub">在下方输入消息,或试试这些问题</p>
       <div class="chat-empty-suggest">
-        <button v-for="q in SUGGESTIONS" :key="q" class="suggest-chip" type="button" @click="emit('send', q)">
-          {{ q }}
+        <button
+          v-for="(q, i) in SUGGESTIONS"
+          :key="q"
+          class="suggest-card"
+          type="button"
+          @click="emit('send', q)"
+        >
+          <span class="suggest-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path v-for="d in SUGGEST_ICONS[i % SUGGEST_ICONS.length]" :key="d" :d="d" />
+            </svg>
+          </span>
+          <span class="suggest-text">{{ q }}</span>
         </button>
       </div>
     </div>

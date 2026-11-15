@@ -43,10 +43,9 @@
   /* 抽屉展开时锁定聊天区滚动,防止背景跟着滚 */
   .app-shell.drawer-open .chat-scroll { overflow: hidden; }
 
-  /* 窄屏顶部空间有限:隐藏 Session log（下载入口仅桌面提供） */
+  /* 窄屏顶部空间有限:隐藏会话日志（下载入口仅桌面提供），tab 行收紧 */
   .session-log { display: none; }
-  .chat-header { padding: 10px 12px; }
-  .page-head { padding: 16px 16px 4px; }
+  .chat-tabs { gap: 16px; height: 44px; padding: 0 12px; }
 
   /* Composer 控制行窄屏收缩:🛡 行隐藏文案只留图标位,右侧组收紧,
      容器两侧让出 8px,防左右两块在小屏上互相重叠 */

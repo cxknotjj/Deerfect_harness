@@ -20,16 +20,6 @@
 .chat-layout { flex: 1; min-height: 0; display: flex; }
 .chat-layout.sessions-hidden .session-list { display: none; }
 
-/* 通用页面（轨迹）：页头固定，内容区自行滚动 */
-.page-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.page-head { padding: 22px 24px 6px; }
-.page-title {
-  font-size: 20px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
-}
-.page-sub { margin-top: 4px; font-size: 12.5px; color: var(--ink-dim); }
-
 /* ---------- 会话列表(左栏 260px) ---------- */
 .session-list {
   width: 260px;
@@ -227,12 +217,3 @@
   letter-spacing: 0.08em;
   color: var(--ink-dim);
 }
-
-/* 页面级文字按钮（如轨迹页「去对话选择会话」） */
-.page-link {
-  margin-top: 8px;
-  font-size: 12.5px;
-  color: var(--accent);
-  transition: opacity 0.15s;
-}
-.page-link:hover { opacity: 0.75; }

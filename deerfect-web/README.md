@@ -1,6 +1,6 @@
 # web
 
-Vue 3 + TypeScript + Vite 前端控制台：全局分组导航（仪表盘 / 对话 / 轨迹 / 监控）+ 运行仪表盘、会话管理、流式对话、思考折叠、观测与监控、登录与 PWA 离线。
+Vue 3 + TypeScript + Vite 前端控制台：左侧分组导航（仪表盘 / 对话 / 监控）+ 运行仪表盘；对话页内以「对话 / 轨迹」tab 切换，含会话管理、流式对话、思考折叠、登录与 PWA 离线。
 
 **不在 Maven 反应堆里**——它不进 `server` 的 fat jar，独立构建、独立部署（Nginx / 静态托管 / `vite preview`）。
 和后端的唯一约定是 HTTP：开发态由 Vite 把 `/api` 代理到 `localhost:8080`。

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 
 /**
  * mock 模式冒烟：仪表盘落地页、聊天流式链路、路由徽标回显、轨迹页与监控页。
- * 默认页为仪表盘，聊天/轨迹/监控统一走左侧导航切换。
+ * 默认页为仪表盘；对话与轨迹在对话页内以 tab 切换，监控走左侧导航。
  * mock 数据与事件形状见 src/api/mock/mock.ts（meta.route 固定 Agentic/confidence=1）。
  */
 test.describe('mock 模式冒烟', () => {
@@ -45,7 +45,7 @@ test.describe('mock 模式冒烟', () => {
     await page.getByTestId('nav-chat').click()
     // 选中预置会话（mock 的会话 1 有 2 条 LLM + 2 条工具记录）
     await page.getByRole('button', { name: '会话 Qwen 接入排查' }).click()
-    await page.getByTestId('nav-trace').click()
+    await page.getByRole('tab', { name: '轨迹' }).click()
 
     await expect(page.locator('.trace-row').first()).toBeVisible()
     await expect(page.locator('.trace-kind').first()).toHaveText('LLM')
