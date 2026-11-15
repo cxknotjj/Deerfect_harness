@@ -29,63 +29,68 @@ function toggleChannel(key: string): void {
 </script>
 
 <template>
-  <section class="panel">
-    <div class="panel-head">
-      <h3>渠道分布</h3>
-      <span class="panel-note">{{ channel ? `当前筛选：${channelLabel(channel)}` : '点击渠道名可筛选 / 取消筛选' }}</span>
-    </div>
-    <div v-if="data.channels.length === 0" class="empty">时间窗内暂无调用</div>
-    <div v-else class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>渠道</th>
-            <th>LLM 调用</th>
-            <th>错误</th>
-            <th>Tokens</th>
-            <th>工具调用</th>
-            <th>工具错误</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="c in data.channels" :key="c.channel">
-            <td>
-              <button
-                type="button"
-                class="channel-filter"
-                :class="{ active: channel === c.channel }"
-                :title="channel === c.channel ? '取消渠道筛选' : `只看 ${channelLabel(c.channel)}`"
-                @click="toggleChannel(c.channel)"
-              >{{ channelLabel(c.channel) }}</button>
-            </td>
-            <td class="num">{{ fmtNumber(c.calls) }}</td>
-            <td class="num" :class="{ 'cell-bad': c.errors > 0 }">{{ fmtNumber(c.errors) }}</td>
-            <td class="num">{{ fmtNumber(c.totalTokens) }}</td>
-            <td class="num">{{ fmtNumber(c.toolCalls) }}</td>
-            <td class="num" :class="{ 'cell-bad': c.toolErrors > 0 }">{{ fmtNumber(c.toolErrors) }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
-
-  <section class="panel">
-    <div class="panel-head">
-      <h3>每小时调用量</h3>
-      <span class="panel-note">柱高 = 调用次数，悬停查看 token 与平均首 token</span>
-    </div>
-    <div v-if="data.hourly.length === 0" class="empty">时间窗内暂无调用</div>
-    <div v-else class="chart" role="img" aria-label="每小时调用量柱状图">
-      <div v-for="(h, i) in data.hourly" :key="h.bucket" class="bar-col">
-        <div class="bar-track">
-          <div
-            class="bar"
-            :style="{ height: barHeight(h.calls) }"
-            :title="`${h.bucket} · ${h.calls} 次 · ${fmtNumber(h.tokens)} tokens · 首 token ${fmtMs(h.avgTtftMs)}`"
-          ></div>
-        </div>
-        <span v-if="i % labelStep === 0" class="bar-label">{{ h.bucket }}</span>
+  <!-- 渠道分布与趋势图并排：左窄右宽，比例参考控制台排版 -->
+  <div class="monitor-split monitor-split-trend">
+    <section class="panel">
+      <div class="panel-head">
+        <h3>渠道分布</h3>
+        <span class="panel-note">
+          {{ channel ? `当前筛选：${channelLabel(channel)}` : '点击渠道名可筛选 / 取消筛选' }}
+        </span>
       </div>
-    </div>
-  </section>
+      <div v-if="data.channels.length === 0" class="empty">时间窗内暂无调用</div>
+      <div v-else class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>渠道</th>
+              <th>LLM 调用</th>
+              <th>错误</th>
+              <th>Tokens</th>
+              <th>工具调用</th>
+              <th>工具错误</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="c in data.channels" :key="c.channel">
+              <td>
+                <button
+                  type="button"
+                  class="channel-filter"
+                  :class="{ active: channel === c.channel }"
+                  :title="channel === c.channel ? '取消渠道筛选' : `只看 ${channelLabel(c.channel)}`"
+                  @click="toggleChannel(c.channel)"
+                >{{ channelLabel(c.channel) }}</button>
+              </td>
+              <td class="num">{{ fmtNumber(c.calls) }}</td>
+              <td class="num" :class="{ 'cell-bad': c.errors > 0 }">{{ fmtNumber(c.errors) }}</td>
+              <td class="num">{{ fmtNumber(c.totalTokens) }}</td>
+              <td class="num">{{ fmtNumber(c.toolCalls) }}</td>
+              <td class="num" :class="{ 'cell-bad': c.toolErrors > 0 }">{{ fmtNumber(c.toolErrors) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h3>每小时调用量</h3>
+        <span class="panel-note">柱高 = 调用次数，悬停查看 token 与平均首 token</span>
+      </div>
+      <div v-if="data.hourly.length === 0" class="empty">时间窗内暂无调用</div>
+      <div v-else class="chart" role="img" aria-label="每小时调用量柱状图">
+        <div v-for="(h, i) in data.hourly" :key="h.bucket" class="bar-col">
+          <div class="bar-track">
+            <div
+              class="bar"
+              :style="{ height: barHeight(h.calls) }"
+              :title="`${h.bucket} · ${h.calls} 次 · ${fmtNumber(h.tokens)} tokens · 首 token ${fmtMs(h.avgTtftMs)}`"
+            ></div>
+          </div>
+          <span v-if="i % labelStep === 0" class="bar-label">{{ h.bucket }}</span>
+        </div>
+      </div>
+    </section>
+  </div>
 </template>
