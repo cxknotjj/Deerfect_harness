@@ -32,6 +32,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import lombok.RequiredArgsConstructor;
 
 /**
  * LLM 管理面业务实现：供应商 / 模型 / 路由 / Agent 绑定的 CRUD 与路由连通性测试。
@@ -41,6 +42,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 内存配置由 {@link LlmConfigRefresher} 恢复旧快照——不允许"部分成功"。
  */
 @Service
+@RequiredArgsConstructor
 public class LlmAdminService {
 
     private static final Logger log = LoggerFactory.getLogger(LlmAdminService.class);
@@ -57,26 +59,6 @@ public class LlmAdminService {
     private final ModelResolver modelResolver;
     private final LlmClientRegistry clientRegistry;
     private final LlmConfigRefresher refresher;
-
-    public LlmAdminService(LlmProviderMapper providerMapper,
-                           LlmModelMapper modelMapper,
-                           LlmRouteMapper routeMapper,
-                           LlmRouteMemberMapper memberMapper,
-                           AgentMapper agentMapper,
-                           ProviderCatalog providerCatalog,
-                           ModelResolver modelResolver,
-                           LlmClientRegistry clientRegistry,
-                           LlmConfigRefresher refresher) {
-        this.providerMapper = providerMapper;
-        this.modelMapper = modelMapper;
-        this.routeMapper = routeMapper;
-        this.memberMapper = memberMapper;
-        this.agentMapper = agentMapper;
-        this.providerCatalog = providerCatalog;
-        this.modelResolver = modelResolver;
-        this.clientRegistry = clientRegistry;
-        this.refresher = refresher;
-    }
 
     // ---------------- 供应商 ----------------
 

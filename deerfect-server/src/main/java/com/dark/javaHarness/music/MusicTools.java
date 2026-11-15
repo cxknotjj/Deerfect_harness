@@ -13,6 +13,7 @@ import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
+import lombok.RequiredArgsConstructor;
 
 /**
  * 点歌工具：从本地曲库取一首歌放进语音工件库，由渠道发成语音消息。
@@ -25,6 +26,7 @@ import org.springframework.stereotype.Component;
  * <p>音乐有版权，曲库不进仓库也不进镜像，靠部署方自己放文件——见 {@link MusicProperties#getDir()}。
  */
 @Component
+@RequiredArgsConstructor
 public class MusicTools {
 
     private static final Logger log = LoggerFactory.getLogger(MusicTools.class);
@@ -38,12 +40,6 @@ public class MusicTools {
     private final MusicProperties props;
     private final MusicLibrary library;
     private final VoiceArtifactStore artifacts;
-
-    public MusicTools(MusicProperties props, MusicLibrary library, VoiceArtifactStore artifacts) {
-        this.props = props;
-        this.library = library;
-        this.artifacts = artifacts;
-    }
 
     /** 供工具装配判断是否暴露本工具（关闭时模型看不到 play_music） */
     public boolean enabled() {

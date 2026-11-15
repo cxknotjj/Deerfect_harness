@@ -15,6 +15,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import lombok.RequiredArgsConstructor;
 
 /**
  * 路由解析器：route_id → 有序可用成员。
@@ -23,6 +24,7 @@ import org.springframework.stereotype.Component;
  * 配置热更新时整体清空。
  */
 @Component
+@RequiredArgsConstructor
 public class ModelResolver {
 
     private static final Logger log = LoggerFactory.getLogger(ModelResolver.class);
@@ -32,14 +34,6 @@ public class ModelResolver {
     private final ProviderCatalog providerCatalog;
 
     private final Map<Long, RoutePlan> cache = new ConcurrentHashMap<>();
-
-    public ModelResolver(LlmRouteMapper routeMapper,
-                         LlmRouteMemberMapper memberMapper,
-                         ProviderCatalog providerCatalog) {
-        this.routeMapper = routeMapper;
-        this.memberMapper = memberMapper;
-        this.providerCatalog = providerCatalog;
-    }
 
     /**
      * 解析路由；路由不存在、禁用、成员为空、成员引用的模型或供应商禁用均抛错。

@@ -15,6 +15,7 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import lombok.RequiredArgsConstructor;
 
 /**
  * 绑定校验：启动与热加载时确认每个 Agent 的路由、能力与凭证可用。
@@ -22,6 +23,7 @@ import org.springframework.stereotype.Component;
  * <p>校验失败直接抛错，不静默回退默认客户端。
  */
 @Component
+@RequiredArgsConstructor
 public class BindingValidator {
 
     private static final Logger log = LoggerFactory.getLogger(BindingValidator.class);
@@ -29,14 +31,6 @@ public class BindingValidator {
     private final AgentCatalog agentCatalog;
     private final ModelResolver modelResolver;
     private final ProviderCatalog providerCatalog;
-
-    public BindingValidator(AgentCatalog agentCatalog,
-                            ModelResolver modelResolver,
-                            ProviderCatalog providerCatalog) {
-        this.agentCatalog = agentCatalog;
-        this.modelResolver = modelResolver;
-        this.providerCatalog = providerCatalog;
-    }
 
     @PostConstruct
     public void validateOnStartup() {

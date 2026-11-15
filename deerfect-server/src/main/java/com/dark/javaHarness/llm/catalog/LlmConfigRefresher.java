@@ -9,6 +9,7 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import lombok.RequiredArgsConstructor;
 
 /**
  * LLM 配置热更新：重读目录 → 全量校验 → 通过后生效；失败回滚到更新前快照。
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Component;
  * 路由 / 客户端缓存，保证非法配置不会进入调用链，旧配置继续服务。
  */
 @Component
+@RequiredArgsConstructor
 public class LlmConfigRefresher {
 
     private static final Logger log = LoggerFactory.getLogger(LlmConfigRefresher.class);
@@ -28,20 +30,6 @@ public class LlmConfigRefresher {
     private final BindingValidator bindingValidator;
     /** Agent 配置缓存（模型名随路由变化，刷新后必须失效，避免滞后一个 TTL） */
     private final AgentConfigProvider agentConfigProvider;
-
-    public LlmConfigRefresher(AgentCatalog agentCatalog,
-                              ProviderCatalog providerCatalog,
-                              ModelResolver modelResolver,
-                              LlmClientRegistry clientRegistry,
-                              BindingValidator bindingValidator,
-                              AgentConfigProvider agentConfigProvider) {
-        this.agentCatalog = agentCatalog;
-        this.providerCatalog = providerCatalog;
-        this.modelResolver = modelResolver;
-        this.clientRegistry = clientRegistry;
-        this.bindingValidator = bindingValidator;
-        this.agentConfigProvider = agentConfigProvider;
-    }
 
     /** 重建配置并校验；任一步失败回滚到调用前状态后抛出。 */
     public synchronized void refresh() {

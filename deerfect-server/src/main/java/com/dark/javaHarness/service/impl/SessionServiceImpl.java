@@ -27,6 +27,7 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import lombok.RequiredArgsConstructor;
 
 /**
  * 会话服务实现：会话生命周期（建档 / 自动命名 / 切换 Agent / 分页 / 软删）+ ChatMemory 适配。
@@ -46,6 +47,7 @@ import org.springframework.transaction.annotation.Transactional;
  * Store 内部的行锁才有意义。
  */
 @Service
+@RequiredArgsConstructor
 public class SessionServiceImpl implements SessionService {
 
     private static final Logger log = LoggerFactory.getLogger(SessionServiceImpl.class);
@@ -66,18 +68,6 @@ public class SessionServiceImpl implements SessionService {
     private final ObjectProvider<SessionBindingCleaner> bindingCleaner;
     /** 长期记忆滚动摘要端口（P2-3）：读取/投递均由 SessionSummaryService 承载 */
     private final SessionSummaryPort summaryPort;
-
-    public SessionServiceImpl(SessionMapper sessionMapper,
-                              SessionSnapshotStore snapshotStore,
-                              AgentConfigProvider agentConfigProvider,
-                              ObjectProvider<SessionBindingCleaner> bindingCleaner,
-                              SessionSummaryPort summaryPort) {
-        this.sessionMapper = sessionMapper;
-        this.snapshotStore = snapshotStore;
-        this.agentConfigProvider = agentConfigProvider;
-        this.bindingCleaner = bindingCleaner;
-        this.summaryPort = summaryPort;
-    }
 
     /** 创建新会话（会话名取首条提问截断），返回自增主键的字符串形式 */
     @Override

@@ -19,6 +19,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
+import lombok.RequiredArgsConstructor;
 
 /**
  * 两段式路径判断器：规则短路（多工作流措辞 / 短消息）+ 灰区轻量 LLM 判定 + 置信度策略。
@@ -31,6 +32,7 @@ import org.springframework.stereotype.Service;
  * 且不向调用方抛出——宁可轻量，不阻塞请求。
  */
 @Service
+@RequiredArgsConstructor
 public class LlmRouteJudge implements RouteJudge {
 
     private static final Logger log = LoggerFactory.getLogger(LlmRouteJudge.class);
@@ -82,31 +84,19 @@ public class LlmRouteJudge implements RouteJudge {
     private static final int JUDGE_MAX_TOKENS = 512;
 
     private final LlmCallRecorder recorder;
+    /** LLM 超时配置：判定调用用独立短读超时（app.chat.timeouts.judge-read-timeout-seconds） */
+    private final ChatTimeoutProperties timeouts;
     /** agent 表配置读取：route-judge 行提供 prompt，模型由路由解析 */
     private final AgentConfigProvider agentConfigProvider;
     private final com.dark.javaHarness.llm.catalog.AgentCatalog llmAgentCatalog;
     private final com.dark.javaHarness.llm.routing.ModelResolver llmModelResolver;
     private final com.dark.javaHarness.llm.client.LlmClientRegistry llmClientRegistry;
-    /** 模型调用重试策略（最多执行 3 次、指数退避；重试耗尽或不可重试的解析错误才兜底 SIMPLE） */
-    private final com.dark.javaHarness.agent.LlmRetry retry;
-
-    /** LLM 超时配置：判定调用用独立短读超时（app.chat.timeouts.judge-read-timeout-seconds） */
-    private final ChatTimeoutProperties timeouts;
-
-    public LlmRouteJudge(LlmCallRecorder recorder, ChatTimeoutProperties timeouts,
-                         AgentConfigProvider agentConfigProvider,
-                         com.dark.javaHarness.llm.catalog.AgentCatalog llmAgentCatalog,
-                         com.dark.javaHarness.llm.routing.ModelResolver llmModelResolver,
-                         com.dark.javaHarness.llm.client.LlmClientRegistry llmClientRegistry) {
-        this.recorder = recorder;
-        this.timeouts = timeouts;
-        this.agentConfigProvider = agentConfigProvider;
-        this.llmAgentCatalog = llmAgentCatalog;
-        this.llmModelResolver = llmModelResolver;
-        this.llmClientRegistry = llmClientRegistry;
-        // 判定失败即兜底 Agentic，重试只会把首字延迟成倍放大（每次尝试同样受 judge 读超时约束）
-        this.retry = new com.dark.javaHarness.agent.LlmRetry(1, 500);
-    }
+    /**
+     * 模型调用重试策略：判定失败即兜底 Agentic，重试只会把首字延迟成倍放大
+     * （每次尝试同样受 judge 读超时约束），因此固定 1 次尝试、500ms 退避。
+     */
+    private final com.dark.javaHarness.agent.LlmRetry retry =
+            new com.dark.javaHarness.agent.LlmRetry(1, 500);
 
     /** 本次判定的生效配置：路由/模型 + 判定提示词（模型来自路由，提示词来自 agent 行） */
     private record JudgeSettings(Long routeId, String routeCode, Long modelId, String providerCode,

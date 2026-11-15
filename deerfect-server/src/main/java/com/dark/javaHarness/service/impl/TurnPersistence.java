@@ -18,6 +18,8 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
 
 /**
  * 一轮聊天的会话状态与落库（自 {@link ChatServiceImpl} 拆出，超长类拆分 2026-11-05）：
@@ -27,6 +29,7 @@ import reactor.core.scheduler.Schedulers;
  * 直接上抛（不回退 general）；写回只发生在成功轮。
  */
 @Component
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 class TurnPersistence {
 
     private static final Logger log = LoggerFactory.getLogger(TurnPersistence.class);
@@ -34,12 +37,6 @@ class TurnPersistence {
     private final SessionService sessionService;
     private final AgentService agentService;
     private final GoalService goalService;
-
-    TurnPersistence(SessionService sessionService, AgentService agentService, GoalService goalService) {
-        this.sessionService = sessionService;
-        this.agentService = agentService;
-        this.goalService = goalService;
-    }
 
     /** 会话标识（sid + 是否新建） */
     record SessionCtx(String sid, boolean newSession) {

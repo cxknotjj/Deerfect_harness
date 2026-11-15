@@ -18,6 +18,7 @@ import io.agentscope.extensions.model.openai.formatter.OpenAIChatFormatter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import lombok.RequiredArgsConstructor;
 
 /**
  * AgentScope 模型工厂：把 Agent 绑定的路由首选成员转成 AgentScope {@link Model}。
@@ -28,6 +29,7 @@ import org.springframework.stereotype.Component;
  * （与 ThinkingSwitchChatModel 同语义）。
  */
 @Component
+@RequiredArgsConstructor
 public class AgentScopeModelFactory {
 
     private static final Logger log = LoggerFactory.getLogger(AgentScopeModelFactory.class);
@@ -36,16 +38,6 @@ public class AgentScopeModelFactory {
     private final ModelResolver modelResolver;
     private final AgentCatalog agentCatalog;
     private final ProviderCatalog providerCatalog;
-
-    public AgentScopeModelFactory(ChatClientFactory chatClientFactory,
-                                  ModelResolver modelResolver,
-                                  AgentCatalog agentCatalog,
-                                  ProviderCatalog providerCatalog) {
-        this.chatClientFactory = chatClientFactory;
-        this.modelResolver = modelResolver;
-        this.agentCatalog = agentCatalog;
-        this.providerCatalog = providerCatalog;
-    }
 
     /** 解析路由首选成员的模型行：Agent → 路由 → 首选成员；不按模型名兜底。 */
     public LlmModelEntity resolveModel(String agentName) {

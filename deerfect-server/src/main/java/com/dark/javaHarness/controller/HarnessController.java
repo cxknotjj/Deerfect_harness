@@ -23,23 +23,19 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import lombok.RequiredArgsConstructor;
 
 /**
  * Harness 编排管理接口（表现层，纯转发）。
  */
 @RestController
 @RequestMapping("/api/harness")
+@RequiredArgsConstructor
 public class HarnessController {
 
     private final AgentService agentService;
     private final GoalService goalService;
     private final SessionService sessionService;
-
-    public HarnessController(AgentService agentService, GoalService goalService, SessionService sessionService) {
-        this.agentService = agentService;
-        this.goalService = goalService;
-        this.sessionService = sessionService;
-    }
 
     /** 列出已注册的 Agent */
     @GetMapping("/agents")

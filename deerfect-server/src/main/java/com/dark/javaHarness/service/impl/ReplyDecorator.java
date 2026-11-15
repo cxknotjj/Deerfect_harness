@@ -10,12 +10,15 @@ import java.util.List;
 import java.util.Set;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
 
 /**
  * 回复后处理与出参装饰（自 {@link ChatServiceImpl} 拆出，超长类拆分 2026-11-05）：
  * 回复后处理器链 / 语音 flag / RAG 出处透出。三条装饰都只读本轮执行结果，不改变执行路径。
  */
 @Component
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 class ReplyDecorator {
 
     /** 回复后处理器扩展点（渠道无关的通用 SPI，按注册顺序依次调用）；无实现时缺位，后处理零行为 */
@@ -29,16 +32,6 @@ class ReplyDecorator {
 
     /** 知识检索器（RAG 出处透出源）；bean 缺位（知识库禁用）时 meta.sources 恒空 */
     private final ObjectProvider<KnowledgeRetriever> knowledgeRetrieverProvider;
-
-    ReplyDecorator(ObjectProvider<ReplyPostProcessor> replyPostProcessors,
-                   VoiceArtifactStore voiceArtifacts,
-                   FileArtifactStore fileArtifacts,
-                   ObjectProvider<KnowledgeRetriever> knowledgeRetrieverProvider) {
-        this.replyPostProcessors = replyPostProcessors;
-        this.voiceArtifacts = voiceArtifacts;
-        this.fileArtifacts = fileArtifacts;
-        this.knowledgeRetrieverProvider = knowledgeRetrieverProvider;
-    }
 
     /** 后处理结果载体 */
     record Processed(String text, Set<String> flags) {

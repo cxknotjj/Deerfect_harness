@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
+import lombok.RequiredArgsConstructor;
 
 /**
  * 组件状态汇总：外部依赖（NapCat 渠道）、Docker 沙箱、各 MCP server 是否启用且可用。
@@ -16,19 +17,12 @@ import org.springframework.stereotype.Service;
  * Docker 读取沙箱初始化结果，MCP 读取预热缓存，均不触发新的连接。
  */
 @Service
+@RequiredArgsConstructor
 public class ComponentStatusService {
 
     private final ObjectProvider<ChannelHealth> channelHealths;
     private final SandboxToolProvider sandbox;
     private final McpToolProvider mcp;
-
-    public ComponentStatusService(ObjectProvider<ChannelHealth> channelHealths,
-                                  SandboxToolProvider sandbox,
-                                  McpToolProvider mcp) {
-        this.channelHealths = channelHealths;
-        this.sandbox = sandbox;
-        this.mcp = mcp;
-    }
 
     /** 组件状态列表：渠道在前，沙箱与 MCP 在后（MCP 每个 server 一条）。 */
     public List<ComponentStatus> statuses() {

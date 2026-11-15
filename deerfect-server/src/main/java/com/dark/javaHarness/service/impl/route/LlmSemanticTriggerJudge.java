@@ -11,6 +11,7 @@ import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
+import lombok.RequiredArgsConstructor;
 
 /**
  * 语义层触发判断实现（Slow Path）：对渠道标记为「候选」的事件做一次轻量 LLM 判断。
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Service;
  */
 @Service
 @ConditionalOnProperty(name = "app.trigger-judge.enabled", havingValue = "true")
+@RequiredArgsConstructor
 public class LlmSemanticTriggerJudge implements SemanticTriggerJudge {
 
     private static final Logger log = LoggerFactory.getLogger(LlmSemanticTriggerJudge.class);
@@ -40,16 +42,6 @@ public class LlmSemanticTriggerJudge implements SemanticTriggerJudge {
     private final com.dark.javaHarness.llm.catalog.AgentCatalog llmAgentCatalog;
     private final com.dark.javaHarness.llm.routing.ModelResolver llmModelResolver;
     private final ChatTimeoutProperties timeouts;
-
-    public LlmSemanticTriggerJudge(com.dark.javaHarness.llm.client.LlmClientRegistry llmClientRegistry,
-                                   com.dark.javaHarness.llm.catalog.AgentCatalog llmAgentCatalog,
-                                   com.dark.javaHarness.llm.routing.ModelResolver llmModelResolver,
-                                   ChatTimeoutProperties timeouts) {
-        this.llmClientRegistry = llmClientRegistry;
-        this.llmAgentCatalog = llmAgentCatalog;
-        this.llmModelResolver = llmModelResolver;
-        this.timeouts = timeouts;
-    }
 
     @Override
     public boolean shouldRespond(String channel, String conversationKey, String message) {

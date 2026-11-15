@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
+import lombok.RequiredArgsConstructor;
 
 /**
  * 供应商与模型目录：读取端点、能力与凭证。
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Component;
  * 由启动校验统一暴露。首次访问懒加载，热更新时调用 {@link #reload()}。
  */
 @Component
+@RequiredArgsConstructor
 public class ProviderCatalog {
 
     private static final Logger log = LoggerFactory.getLogger(ProviderCatalog.class);
@@ -30,14 +32,6 @@ public class ProviderCatalog {
 
     private volatile Map<Long, LlmProviderEntity> providers = Map.of();
     private volatile Map<Long, LlmModelEntity> models = Map.of();
-
-    public ProviderCatalog(LlmProviderMapper providerMapper,
-                           LlmModelMapper modelMapper,
-                           Environment environment) {
-        this.providerMapper = providerMapper;
-        this.modelMapper = modelMapper;
-        this.environment = environment;
-    }
 
     public LlmProviderEntity requireProvider(Long providerId) {
         ensureLoaded();

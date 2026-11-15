@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import lombok.RequiredArgsConstructor;
 
 /**
  * 能力清单与外部工具重载。
@@ -18,17 +19,12 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/capabilities")
+@RequiredArgsConstructor
 public class CapabilityController {
 
     private final CapabilityReport report;
     private final HttpToolLoader httpTools;
     private final McpToolProvider mcpTools;
-
-    public CapabilityController(CapabilityReport report, HttpToolLoader httpTools, McpToolProvider mcpTools) {
-        this.report = report;
-        this.httpTools = httpTools;
-        this.mcpTools = mcpTools;
-    }
 
     @GetMapping
     public CapabilityReport.Report list() {

@@ -22,8 +22,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.tool.ToolCallback;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import lombok.RequiredArgsConstructor;
 
 /**
  * 工具分配表：按专家 agent 分配可用工具集（prompt 动态加载·子项 2 数据驱动）。
@@ -51,6 +51,7 @@ import org.springframework.stereotype.Component;
  * 未分配的工具模型不可见、服务端也无执行注册。
  */
 @Component
+@RequiredArgsConstructor
 public class ToolAssignments {
 
     private static final Logger log = LoggerFactory.getLogger(ToolAssignments.class);
@@ -114,6 +115,8 @@ public class ToolAssignments {
     private final WebTools webTools;
     private final SandboxToolProvider sandbox;
     private final McpToolProvider mcp;
+    /** agent 表 tools 列读取器（数据驱动分配来源）；null=纯 legacy 路径（测试场景） */
+    private final AgentConfigProvider agentConfigProvider;
     private final TextToSpeechTools textToSpeechTools;
     /** 点歌工具（app.music.enabled=false 时不暴露给模型） */
     private final MusicTools musicTools;
@@ -124,28 +127,6 @@ public class ToolAssignments {
     /** 外部声明式 HTTP 工具（tools/http/*.yaml）：按 pack 名整组注入，不参与 legacy 默认集 */
     private final HttpToolLoader httpTools;
     private final DemoTools demoTools = new DemoTools();
-    /** agent 表 tools 列读取器（数据驱动分配来源）；null=纯 legacy 路径（测试场景） */
-    private final AgentConfigProvider agentConfigProvider;
-
-    /** 全参构造（Spring 装配）：agentConfigProvider 非 null 时 forAgent 优先读 agent 表 tools 列 */
-    @Autowired
-    public ToolAssignments(WebTools webTools, SandboxToolProvider sandbox, McpToolProvider mcp,
-                           AgentConfigProvider agentConfigProvider,
-                           TextToSpeechTools textToSpeechTools,
-                           MusicTools musicTools,
-                           RecallHistoryTools recallHistoryTools,
-                           MemoryTools memoryTools,
-                           HttpToolLoader httpTools) {
-        this.webTools = webTools;
-        this.sandbox = sandbox;
-        this.mcp = mcp;
-        this.agentConfigProvider = agentConfigProvider;
-        this.textToSpeechTools = textToSpeechTools;
-        this.musicTools = musicTools;
-        this.recallHistoryTools = recallHistoryTools;
-        this.memoryTools = memoryTools;
-        this.httpTools = httpTools;
-    }
 
     /** 取某专家的工具：tools 列声明优先（数据驱动），无声明回退代码内置（legacy） */
     public ToolSet forAgent(String agentName) {

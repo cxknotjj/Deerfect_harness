@@ -10,12 +10,14 @@ import com.dark.javaHarness.mapper.ToolCallLogMapper;
 import com.dark.javaHarness.observability.ObserveQueryService;
 import java.util.List;
 import org.springframework.stereotype.Service;
+import lombok.RequiredArgsConstructor;
 
 /**
  * 观测日志查询实现：三张观测表（V3 llm_call_log / V15 tool_call_log / V34 kb_retrieval_log）
  * 共用一套过滤与截断口径——可选条件为空查全量、按 id 倒序、limit 钳制 [1, 200]。
  */
 @Service
+@RequiredArgsConstructor
 public class ObserveQueryServiceImpl implements ObserveQueryService {
 
     /** 返回条数上限（防全表拖取），下限 1 */
@@ -24,14 +26,6 @@ public class ObserveQueryServiceImpl implements ObserveQueryService {
     private final LlmCallLogMapper llmCallLogMapper;
     private final ToolCallLogMapper toolCallLogMapper;
     private final KbRetrievalLogMapper kbRetrievalLogMapper;
-
-    public ObserveQueryServiceImpl(LlmCallLogMapper llmCallLogMapper,
-                                   ToolCallLogMapper toolCallLogMapper,
-                                   KbRetrievalLogMapper kbRetrievalLogMapper) {
-        this.llmCallLogMapper = llmCallLogMapper;
-        this.toolCallLogMapper = toolCallLogMapper;
-        this.kbRetrievalLogMapper = kbRetrievalLogMapper;
-    }
 
     @Override
     public List<LlmCallLogEntity> listLlmCalls(String sessionId, int limit) {

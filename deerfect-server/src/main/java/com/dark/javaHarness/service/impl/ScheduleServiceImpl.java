@@ -26,6 +26,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Service;
+import lombok.RequiredArgsConstructor;
 
 /**
  * 定时任务实现。
@@ -40,6 +41,7 @@ import org.springframework.stereotype.Service;
  * <p>单实例假设：扫描与推进同线程串行。多实例部署需要分布式锁（ShedLock）或改消息队列。
  */
 @Service
+@RequiredArgsConstructor
 public class ScheduleServiceImpl implements ScheduleService {
 
     private static final Logger log = LoggerFactory.getLogger(ScheduleServiceImpl.class);
@@ -79,16 +81,6 @@ public class ScheduleServiceImpl implements ScheduleService {
 
     /** 推送防重入：上一轮没跑完就跳过本轮，避免慢渠道把任务堆在队列里 */
     private final AtomicBoolean notifying = new AtomicBoolean();
-
-    public ScheduleServiceImpl(ScheduleMapper mapper, AgentService agentService,
-                               GoalService goalService, MessageSenderRegistry senders,
-                               DeliveryOutboxService outbox) {
-        this.mapper = mapper;
-        this.agentService = agentService;
-        this.goalService = goalService;
-        this.senders = senders;
-        this.outbox = outbox;
-    }
 
     /**
      * 调度节拍：先派发到期任务，再补推送已完成但未通知的。

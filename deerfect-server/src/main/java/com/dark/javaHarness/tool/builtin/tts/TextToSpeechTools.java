@@ -8,6 +8,7 @@ import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
+import lombok.RequiredArgsConstructor;
 
 /**
  * 文字转语音工具：纯「文本 → mp3」能力，不感知调用渠道、不负责发送。
@@ -16,17 +17,12 @@ import org.springframework.stereotype.Component;
  * 追加 voice:&lt;id&gt;，QQ 渠道按 id 取音频发送，其他渠道忽略 flag 照常展示文字。
  */
 @Component
+@RequiredArgsConstructor
 public class TextToSpeechTools {
 
     private final TtsProperties props;
     private final EdgeTtsClient edgeTts;
     private final VoiceArtifactStore artifacts;
-
-    public TextToSpeechTools(TtsProperties props, EdgeTtsClient edgeTts, VoiceArtifactStore artifacts) {
-        this.props = props;
-        this.edgeTts = edgeTts;
-        this.artifacts = artifacts;
-    }
 
     /**
      * 把一段文字合成为语音，供支持语音的渠道发送。
