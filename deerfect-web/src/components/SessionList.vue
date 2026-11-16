@@ -1,7 +1,7 @@
 /**
- * 左栏会话列表(DeepSeek 桌面端复刻):brand 行(鹿 logo + deepseek + HARNESS 描边徽章)→
- * 左对齐「+ 新会话」→ 工作区标签行(右侧装饰图标,不接行为)→
- * 会话项(单行:名称 + 右侧灰色相对时间)→ 底部用户区(头像 + 我的工作区)。
+ * 左栏会话列表：面板标题 → 通栏「+ 新会话」→ 工作区标签行（右侧装饰图标，不接行为）→
+ * 会话项（单行：名称 + 右侧灰色相对时间）。
+ * 底部不再放「我的工作区」用户区——全局导航已有工作区与用户位，重复。
  * 相对时间用服务端 lastActiveAt(真实最近活跃时刻);缺失时回退 utils/sessionMtime 首见时间。
  */
 <script setup lang="ts">
@@ -21,7 +21,6 @@ const emit = defineEmits<{
   create: []
   more: []
   collapse: []
-  settings: []
   remove: [id: string]
 }>()
 
@@ -133,11 +132,5 @@ function onItemKeydown(id: string, e: KeyboardEvent): void {
     <div v-else-if="sessions.length === 0" class="session-list-foot session-list-foot-tip">
       没有更多会话了
     </div>
-
-    <!-- 底部:用户区;点击沿用原 settings 事件(主题切换在顶栏右上角) -->
-    <button class="user-row" type="button" title="我的工作区" @click="emit('settings')">
-      <img class="user-avatar" src="/deer_logo.png" alt="" />
-      <span>我的工作区</span>
-    </button>
   </aside>
 </template>

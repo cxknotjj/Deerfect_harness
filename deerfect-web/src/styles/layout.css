@@ -157,31 +157,9 @@
 }
 .session-item:hover .session-item-del { opacity: 1; }
 .session-item-del:hover { background: var(--hover-veil); color: var(--accent-warm); }
-.session-list-foot { padding: 6px 14px 2px; }
+.session-list-foot { padding: 6px 14px 10px; }
 .session-list-foot .btn-ghost { width: 100%; }
-.session-list-foot-tip { font-size: 12px; color: var(--ink-dim); text-align: center; padding: 8px 0 12px; }
-
-/* 左栏底部:用户区(28px 圆形头像 + 我的工作区;主题切换在顶栏右上角) */
-.user-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 14px;
-  padding: 12px 2px;
-  font-size: 13px;
-  color: var(--ink);
-  transition: color 0.15s;
-  border-top: 1px solid var(--grid-line);
-  margin-top: 4px;
-}
-.user-row:hover { color: var(--accent); }
-.user-avatar {
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--accent-lift);
-}
+.session-list-foot-tip { font-size: 12px; color: var(--ink-dim); text-align: center; padding: 8px 0 14px; }
 
 /* 窄屏抽屉遮罩:桌面隐藏(窄屏样式见文末媒体查询) */
 .drawer-mask { display: none; }

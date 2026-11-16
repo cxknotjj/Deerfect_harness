@@ -533,7 +533,6 @@ function downloadSessionLog(): void {
           @create="onCreate"
           @more="loadMore"
           @collapse="onSidebarCollapse"
-          @settings="showTip('设置功能开发中')"
           @remove="onRemoveSession"
         />
 
