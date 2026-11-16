@@ -66,11 +66,52 @@ const {
 /** 显式执行路径(auto=服务端判定;agentic/graph 随每轮请求下发覆盖) */
 const selectedRouting = ref<RoutingMode>('auto')
 
-/** 当前页：仪表盘为默认落地页 */
-const page = ref<PageId>('dashboard')
+/* ---------- URL 路由（hash，零依赖） ----------
+   页面与对话内 tab 写进地址栏：#/dashboard、#/chat、#/chat/trace、#/knowledge …
+   刷新或直接改地址都落在同一页；浏览器前进/后退由 hashchange 同步回来。
+   会话选择（sessionId）仍是内存态，刷新后轨迹页会停在空态，这不属于页面路由。 */
+const PAGES: PageId[] = [
+  'dashboard',
+  'chat',
+  'knowledge',
+  'memory',
+  'skills',
+  'calendar',
+  'mcp',
+  'monitor',
+]
+
+function parseRoute(): { page: PageId; tab: 'chat' | 'trace' } {
+  const raw = window.location.hash.replace(/^#\/?/, '')
+  const [head, sub] = raw.split('/')
+  const page = (PAGES as string[]).includes(head) ? (head as PageId) : 'dashboard'
+  return { page, tab: page === 'chat' && sub === 'trace' ? 'trace' : 'chat' }
+}
+
+function routeHash(target: PageId, tab: 'chat' | 'trace'): string {
+  return target === 'chat' && tab === 'trace' ? '#/chat/trace' : `#/${target}`
+}
+
+const initialRoute = parseRoute()
+
+/** 当前页：由地址栏决定，缺省/非法值回落到仪表盘 */
+const page = ref<PageId>(initialRoute.page)
 
 /** 对话页内的分段：对话 / 轨迹（轨迹按会话，跟随会话列表） */
-const chatTab = ref<'chat' | 'trace'>('chat')
+const chatTab = ref<'chat' | 'trace'>(initialRoute.tab)
+
+/** 写 URL：切页用 push（可后退），对话内 tab 用 replace（不污染历史） */
+function syncRoute(target: PageId, tab: 'chat' | 'trace', replace = false): void {
+  const next = routeHash(target, tab)
+  if (window.location.hash === next) return
+  if (replace) window.history.replaceState(null, '', next)
+  else window.location.hash = next
+}
+
+// 规范化地址栏：无 hash 或非法路径时补成 #/当前页，避免刷新后地址空着
+if (window.location.hash !== routeHash(initialRoute.page, initialRoute.tab)) {
+  window.history.replaceState(null, '', routeHash(initialRoute.page, initialRoute.tab))
+}
 
 /**
  * 导航徽标计数：三个轻量列表接口，任一失败只让该项不计，不打断主界面。
@@ -196,12 +237,19 @@ function clearTip(): void {
   tip.value = null
 }
 
-/** 导航切页：关闭窄屏导航抽屉与轻提示 */
+/** 导航切页：写 URL（可后退）、关闭窄屏导航抽屉与轻提示 */
 function goPage(next: PageId): void {
   page.value = next
   if (next === 'chat') chatTab.value = 'chat'
+  syncRoute(next, chatTab.value)
   navOpen.value = false
   clearTip()
+}
+
+/** 对话页内 tab：切页内视图用 replace，避免每次点 tab 都压一条历史 */
+function setChatTab(tab: 'chat' | 'trace'): void {
+  chatTab.value = tab
+  syncRoute('chat', tab, true)
 }
 
 /** 选中会话:聊天视图切到该会话(消息按会话保留),重置 agent 选择;窄屏自动收抽屉 */
@@ -211,7 +259,7 @@ function onSelect(id: string): void {
   selectSession(id)
   showChat(id)
   selectedAgentId.value = null
-  chatTab.value = 'chat' // 切会话回对话视图（轨迹按会话惰性加载，切回即看）
+  setChatTab('chat') // 切会话回对话视图（轨迹按会话惰性加载，切回即看）
   clearTip()
 }
 
@@ -240,6 +288,7 @@ async function onCreate(): Promise<void> {
     await createSession()
     page.value = 'chat'
     chatTab.value = 'chat'
+    syncRoute('chat', 'chat')
     showChat(currentSessionId.value)
     selectedAgentId.value = null
     if (isNarrow.value) drawerOpen.value = false
@@ -344,9 +393,28 @@ function onGlobalKeydown(e: KeyboardEvent): void {
   else if (drawerOpen.value) drawerOpen.value = false
 }
 window.addEventListener('keydown', onGlobalKeydown)
+
+/**
+ * 地址栏变化（前进/后退、手改 hash）：把页面与对话内 tab 同步回来。
+ * 非法/多余路径（#/nope、#/chat/trace/x）就地 replace 成规范形式，不再压历史。
+ */
+function onHashChange(): void {
+  const route = parseRoute()
+  page.value = route.page
+  chatTab.value = route.tab
+  const canonical = routeHash(route.page, route.tab)
+  if (window.location.hash !== canonical) {
+    window.history.replaceState(null, '', canonical)
+  }
+  navOpen.value = false
+  clearTip()
+}
+window.addEventListener('hashchange', onHashChange)
+
 onBeforeUnmount(() => {
   narrowMql.removeEventListener('change', onNarrowChange)
   window.removeEventListener('keydown', onGlobalKeydown)
+  window.removeEventListener('hashchange', onHashChange)
   stopOfflineGate()
   stopUnreadBadge()
 })
@@ -472,7 +540,7 @@ function downloadSessionLog(): void {
               type="button"
               role="tab"
               :aria-selected="chatTab === 'chat'"
-              @click="chatTab = 'chat'"
+              @click="setChatTab('chat')"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" />
@@ -485,7 +553,7 @@ function downloadSessionLog(): void {
               type="button"
               role="tab"
               :aria-selected="chatTab === 'trace'"
-              @click="chatTab = 'trace'"
+              @click="setChatTab('trace')"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M3 12h4l2-6 4 12 2-6h6" />
