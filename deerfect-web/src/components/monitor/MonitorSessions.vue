@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /**
- * 监控·会话与上下文明细：活跃会话表 + 单会话上下文构成面板。
+ * 监控·会话与上下文明细：可折叠的活跃会话表 + 单会话上下文构成面板。
+ * 折叠状态由父级 MonitorView 提供（本组件只 emit toggle）。
  *
  * 上下文快照按需拉取（点击会话行「上下文」），自带加载/错误/空态；
  * 用递增序号丢弃过期响应，避免快速连点导致旧结果覆盖新结果。
@@ -9,8 +10,10 @@ import { ref } from 'vue'
 import { api } from '../../api'
 import type { MonitorContextComposition, MonitorSnapshot } from '../../api'
 import { channelLabel, ctxGroupClass, fmtClock, fmtNumber, fmtTime } from '../../utils/monitorFormat'
+import CollapsiblePanel from './CollapsiblePanel.vue'
 
-defineProps<{ data: MonitorSnapshot }>()
+defineProps<{ data: MonitorSnapshot; open: boolean }>()
+const emit = defineEmits<{ toggle: [] }>()
 
 const contextSessionId = ref('')
 const contextData = ref<MonitorContextComposition | null>(null)
@@ -40,11 +43,14 @@ async function loadContext(sessionId: string): Promise<void> {
 </script>
 
 <template>
-  <section class="panel">
-    <div class="panel-head">
-      <h3>活跃会话</h3>
-      <span class="panel-note">时间窗内最近活跃 · {{ data.sessions.length }} 条</span>
-    </div>
+  <CollapsiblePanel
+    id="sessions"
+    title="活跃会话"
+    note="时间窗内最近活跃"
+    :count="data.sessions.length"
+    :open="open"
+    @toggle="emit('toggle')"
+  >
     <div v-if="data.sessions.length === 0" class="empty">时间窗内暂无活跃会话</div>
     <div v-else class="table-wrap">
       <table>
@@ -81,7 +87,7 @@ async function loadContext(sessionId: string): Promise<void> {
         </tbody>
       </table>
     </div>
-  </section>
+  </CollapsiblePanel>
 
   <section v-if="contextSessionId" class="panel" aria-label="上下文构成">
     <div class="panel-head">

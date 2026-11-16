@@ -8,9 +8,10 @@
  * 视图只负责取数与筛选；渲染拆成五个子组件（指标区 / 资源占用 / 分布 / 会话明细 /
  * 调用轨迹），样式统一在 styles/monitor.css（.monitor 作用域）。
  * 排版按控制台参考图：6 张 KPI 一行 → 运行时指标分隔线网格 → 组件状态/资源占用双栏
- * → 渠道分布/每小时调用量双栏 → 活跃会话 → 调用轨迹 → 「更新于」页脚。
+ * → 渠道分布/每小时调用量双栏 → 明细区（活跃会话 / LLM 调用 / 工具调用，三张表
+ * 各自可折叠，另有「全部收起/展开」）→ 「更新于」页脚。
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { api } from '../api'
 import type { MonitorSnapshot } from '../api'
 import { useAgents } from '../composables/useAgents'
@@ -43,6 +44,33 @@ const hoursLabel = computed(() => {
   return `${hours.value} 小时`
 })
 
+/* ---------- 明细区折叠 ----------
+   三张长表默认全展开；开关写 localStorage，切页/刷新后仍保留用户的选择。
+   「全部收起/展开」把三项一次性拉齐，避免逐个点三次。 */
+type DetailKey = 'sessions' | 'llm' | 'tools'
+const DETAILS_STORAGE_KEY = 'monitor-details-open'
+const detailsOpen = reactive<Record<DetailKey, boolean>>({ sessions: true, llm: true, tools: true })
+const allDetailsOpen = computed(
+  () => detailsOpen.sessions && detailsOpen.llm && detailsOpen.tools,
+)
+
+function saveDetails(): void {
+  localStorage.setItem(DETAILS_STORAGE_KEY, JSON.stringify(detailsOpen))
+}
+
+function setDetail(key: DetailKey, open: boolean): void {
+  detailsOpen[key] = open
+  saveDetails()
+}
+
+function toggleAllDetails(): void {
+  const next = !allDetailsOpen.value
+  detailsOpen.sessions = next
+  detailsOpen.llm = next
+  detailsOpen.tools = next
+  saveDetails()
+}
+
 async function load(): Promise<void> {
   const seq = ++fetchSeq
   loading.value = true
@@ -71,6 +99,17 @@ watch([hours, agent, channel], () => {
 })
 
 onMounted(() => {
+  try {
+    const raw = localStorage.getItem(DETAILS_STORAGE_KEY)
+    if (raw) {
+      const saved = JSON.parse(raw) as Partial<Record<DetailKey, boolean>>
+      for (const key of ['sessions', 'llm', 'tools'] as DetailKey[]) {
+        if (typeof saved[key] === 'boolean') detailsOpen[key] = saved[key]!
+      }
+    }
+  } catch {
+    /* 本地偏好损坏时按默认全展开，不阻塞页面 */
+  }
   void loadAgents()
   void load()
   timer = window.setInterval(() => {
@@ -127,8 +166,32 @@ onBeforeUnmount(() => {
     <template v-if="data">
       <MonitorSummary :data="data" />
       <MonitorBreakdown :data="data" :channel="channel" @filter="channel = $event" />
-      <MonitorSessions :data="data" />
-      <MonitorRecentCalls :data="data" />
+
+      <!-- 明细区：三张长表各自可折叠，也可一键全部收起/展开 -->
+      <div class="details-bar">
+        <span class="details-bar-title">明细数据</span>
+        <span class="details-bar-note">活跃会话 · LLM 调用 · 工具调用</span>
+        <button
+          class="details-toggle-all"
+          type="button"
+          data-testid="details-toggle-all"
+          :aria-expanded="allDetailsOpen"
+          @click="toggleAllDetails"
+        >{{ allDetailsOpen ? '全部收起' : '全部展开' }}</button>
+      </div>
+
+      <MonitorSessions
+        :data="data"
+        :open="detailsOpen.sessions"
+        @toggle="setDetail('sessions', !detailsOpen.sessions)"
+      />
+      <MonitorRecentCalls
+        :data="data"
+        :llm-open="detailsOpen.llm"
+        :tools-open="detailsOpen.tools"
+        @toggle-llm="setDetail('llm', !detailsOpen.llm)"
+        @toggle-tools="setDetail('tools', !detailsOpen.tools)"
+      />
 
       <footer class="monitor-foot">
         更新于 {{ updatedAt }} · {{ auto ? '每 15 秒自动刷新' : '自动刷新已关闭' }}

@@ -1,19 +1,25 @@
 <script setup lang="ts">
 /**
- * 监控·调用轨迹：最近 LLM 调用与工具调用两张表（观测数据，mono 示波器语义）。
+ * 监控·调用轨迹：最近 LLM 调用与工具调用两张可折叠表（观测数据，mono 示波器语义）。
+ * 两个面板的折叠状态由父级 MonitorView 分别提供。
  */
 import type { MonitorSnapshot } from '../../api'
 import { channelLabel, fmtMs, fmtNumber, fmtTime, statusClass } from '../../utils/monitorFormat'
+import CollapsiblePanel from './CollapsiblePanel.vue'
 
-defineProps<{ data: MonitorSnapshot }>()
+defineProps<{ data: MonitorSnapshot; llmOpen: boolean; toolsOpen: boolean }>()
+const emit = defineEmits<{ 'toggle-llm': []; 'toggle-tools': [] }>()
 </script>
 
 <template>
-  <section class="panel">
-    <div class="panel-head">
-      <h3>最近 LLM 调用</h3>
-      <span class="panel-note">首 token — 表示该调用未采集 TTFT</span>
-    </div>
+  <CollapsiblePanel
+    id="llm"
+    title="最近 LLM 调用"
+    note="首 token — 表示该调用未采集 TTFT"
+    :count="data.llmCalls.length"
+    :open="llmOpen"
+    @toggle="emit('toggle-llm')"
+  >
     <div v-if="data.llmCalls.length === 0" class="empty">时间窗内暂无 LLM 调用</div>
     <div v-else class="table-wrap">
       <table>
@@ -49,13 +55,16 @@ defineProps<{ data: MonitorSnapshot }>()
         </tbody>
       </table>
     </div>
-  </section>
+  </CollapsiblePanel>
 
-  <section class="panel">
-    <div class="panel-head">
-      <h3>最近工具调用</h3>
-      <span class="panel-note">{{ data.toolCalls.length }} 条</span>
-    </div>
+  <CollapsiblePanel
+    id="tools"
+    title="最近工具调用"
+    note="外部与内置工具的执行记录"
+    :count="data.toolCalls.length"
+    :open="toolsOpen"
+    @toggle="emit('toggle-tools')"
+  >
     <div v-if="data.toolCalls.length === 0" class="empty">时间窗内暂无工具调用</div>
     <div v-else class="table-wrap">
       <table>
@@ -87,5 +96,5 @@ defineProps<{ data: MonitorSnapshot }>()
         </tbody>
       </table>
     </div>
-  </section>
+  </CollapsiblePanel>
 </template>

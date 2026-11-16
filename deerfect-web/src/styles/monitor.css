@@ -5,7 +5,8 @@
    这类通用类名冲突
 
    排版：6 KPI 一行 / 运行时指标 5 列分隔线网格 / 组件状态+资源占用 1.8:1 双栏 /
-   渠道分布+每小时调用量 0.8:1.2 双栏 / 活跃会话与调用轨迹通栏 / 页脚更新时间。
+   渠道分布+每小时调用量 0.8:1.2 双栏 / 明细区三张长表可折叠（整行标题即开关）/
+   页脚更新时间。
    窄屏双栏落单栏，运行时网格列数只取 5 / 2 / 1（10 格整除，分隔线不残缺）。
    ------------------------------------------------------------ */
 
@@ -17,6 +18,12 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+/* 纵向滚动容器里的子项不能被 flex 压缩：折叠面板带 overflow:hidden 后
+   min-height:auto 会退化为 0，否则会被压成 2px（只剩上下边框），标题按钮溢出不可点 */
+.monitor > * {
+  flex-shrink: 0;
 }
 
 .monitor .monitor-head {
@@ -307,6 +314,125 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ---------- 明细数据折叠 ---------- */
+.monitor .details-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 2px 0;
+}
+
+.monitor .details-bar-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.monitor .details-bar-note {
+  min-width: 0;
+  font-size: 11px;
+  color: var(--ink-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monitor .details-toggle-all {
+  height: 26px;
+  margin-left: auto;
+  padding: 0 10px;
+  flex-shrink: 0;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--ink-dim);
+  font-size: 11.5px;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.monitor .details-toggle-all:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* 折叠面板自带标题行，覆盖通用 .panel 的内边距 */
+.monitor .panel-collapsible {
+  padding: 0;
+  overflow: hidden;
+}
+
+.monitor .panel-toggle {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+/* 展开时标题行与表格之间留一条细分隔线；收起态不需要 */
+.monitor .panel-collapsible:not(.panel-collapsed) .panel-toggle {
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.monitor .panel-toggle:hover {
+  background: var(--hover-veil);
+}
+
+.monitor .panel-toggle:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.monitor .panel-chevron {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: var(--ink-dim);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transform: rotate(90deg); /* 展开时朝下 */
+  transition: transform 0.18s var(--ease-out-quart);
+}
+
+.monitor .panel-collapsed .panel-chevron {
+  transform: rotate(0deg); /* 收起时朝右 */
+}
+
+.monitor .panel-title {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.monitor .panel-count {
+  height: 18px;
+  min-width: 18px;
+  padding: 0 6px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--hover-veil);
+  color: var(--ink-dim);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.monitor .panel-toggle .panel-note {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monitor .panel-body {
+  padding: 0 16px 14px;
+}
+
 /* ---------- 页脚 ---------- */
 .monitor .monitor-foot {
   padding: 2px 0 4px;
@@ -573,6 +699,12 @@
 
   .monitor .ellipsis {
     max-width: 140px;
+  }
+
+  /* 窄屏让折叠标题只留「箭头 + 标题 + 条数」，说明文字不挤占空间 */
+  .monitor .details-bar-note,
+  .monitor .panel-toggle .panel-note {
+    display: none;
   }
 }
 
