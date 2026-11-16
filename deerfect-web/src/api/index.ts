@@ -10,4 +10,5 @@ export const api: Api = import.meta.env.VITE_USE_MOCK === 'true' ? mockApi : rea
 
 export * from './types'
 export type { Api, StreamHandlers } from './client'
+export type { AuthStateView } from './auth'
 export { isAbort, setUnauthorizedHandler } from './client'

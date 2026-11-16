@@ -9,11 +9,22 @@ test.describe('资源面导航', () => {
   test('侧边栏：分组条目、徽标与系统诊断', async ({ page }) => {
     await page.goto('/')
 
-    const ids = ['dashboard', 'chat', 'knowledge', 'memory', 'skills', 'calendar', 'mcp', 'monitor']
+    const ids = [
+      'dashboard',
+      'chat',
+      'knowledge',
+      'memory',
+      'skills',
+      'calendar',
+      'mcp',
+      'monitor',
+      'settings',
+      'security',
+    ]
     for (const id of ids) {
       await expect(page.getByTestId(`nav-${id}`)).toBeVisible()
     }
-    await expect(page.locator('.nav-group-label')).toHaveText(['核心', '连接', '观测'])
+    await expect(page.locator('.nav-group-label')).toHaveText(['核心', '连接', '观测', '系统'])
     // mock 台账：4 篇文档 / 2 条记忆 / 3 个技能
     await expect(page.getByTestId('nav-knowledge')).toContainText('4')
     await expect(page.getByTestId('nav-memory')).toContainText('2')
@@ -84,6 +95,27 @@ test.describe('资源面导航', () => {
     await page.goto('/nope')
     await expect(page.locator('.dash-title')).toHaveText('仪表盘')
     await expect(page).toHaveURL(/\/dashboard$/)
+  })
+
+  test('系统分组：设置页主题/实例信息与安全页状态', async ({ page }) => {
+    await page.goto('/')
+
+    await page.getByTestId('nav-settings').click()
+    await expect(page).toHaveURL(/\/settings$/)
+    await expect(page.locator('.res-title')).toHaveText('设置')
+    await expect(page.locator('.settings-theme-card')).toHaveCount(2)
+    await expect(page.locator('.settings-stats .res-stat')).toHaveCount(4)
+
+    // 设置页切日间：主题立即生效并写回 localStorage
+    await page.locator('.settings-theme-card').filter({ hasText: '日间' }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+    expect(await page.evaluate(() => localStorage.getItem('web-theme'))).toBe('light')
+
+    await page.getByTestId('nav-security').click()
+    await expect(page).toHaveURL(/\/security$/)
+    await expect(page.locator('.res-title')).toHaveText('安全')
+    await expect(page.locator('.settings-stats .res-stat').first()).toContainText('登录通道')
+    await expect(page.locator('.settings-row').filter({ hasText: 'APP_PASSWORD' })).toBeVisible()
   })
 
   test('旧 hash 书签就地改写为干净路径', async ({ page }) => {

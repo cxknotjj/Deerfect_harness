@@ -23,6 +23,8 @@ import MemoryView from './components/MemoryView.vue'
 import SkillView from './components/SkillView.vue'
 import CalendarView from './components/CalendarView.vue'
 import McpView from './components/McpView.vue'
+import SettingsView from './components/SettingsView.vue'
+import SecurityView from './components/SecurityView.vue'
 import LoginView from './components/LoginView.vue'
 import OfflineView from './components/OfflineView.vue'
 import { api, setUnauthorizedHandler } from './api'
@@ -41,6 +43,8 @@ type PageId =
   | 'calendar'
   | 'mcp'
   | 'monitor'
+  | 'settings'
+  | 'security'
 
 const { message: globalError, dismiss: dismissGlobalError } = useGlobalError()
 
@@ -82,6 +86,8 @@ const PAGES: PageId[] = [
   'calendar',
   'mcp',
   'monitor',
+  'settings',
+  'security',
 ]
 
 /** 部署在子路径时（Vite base）拼前缀；根路径为空串 */
@@ -326,6 +332,8 @@ const PAGE_TITLES: Record<PageId, string> = {
   calendar: '内容日历',
   mcp: 'MCP',
   monitor: '监控',
+  settings: '设置',
+  security: '安全',
 }
 const pageTitle = computed(() =>
   page.value === 'chat'
@@ -521,6 +529,8 @@ function downloadSessionLog(): void {
       <SkillView v-else-if="page === 'skills'" />
       <CalendarView v-else-if="page === 'calendar'" />
       <McpView v-else-if="page === 'mcp'" @changed="loadNavCounts" />
+      <SettingsView v-else-if="page === 'settings'" :theme="theme" @set-theme="setTheme" />
+      <SecurityView v-else-if="page === 'security'" @logout="onLogout" />
 
       <div v-else-if="page === 'chat'" class="chat-layout" :class="{ 'sessions-hidden': sessionsHidden }">
         <SessionList
