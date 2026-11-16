@@ -40,16 +40,25 @@ test.describe('mock 模式冒烟', () => {
     await expect(page.locator('.msg-route-tag')).toHaveText('Agentic · 1.00')
   })
 
-  test('轨迹页：展示会话的 LLM 调用记录', async ({ page }) => {
+  test('轨迹页：概览指标、耗时分布、轮次与调用记录', async ({ page }) => {
     await page.goto('/')
     await page.getByTestId('nav-chat').click()
-    // 选中预置会话（mock 的会话 1 有 2 条 LLM + 2 条工具记录）
+    // 选中预置会话（mock 的会话 1：同一轮 2 LLM + 2 工具 + 2 RAG，含父子 span）
     await page.getByRole('button', { name: '会话 Qwen 接入排查' }).click()
     await page.getByRole('tab', { name: '轨迹' }).click()
 
-    await expect(page.locator('.trace-row').first()).toBeVisible()
-    await expect(page.locator('.trace-kind').first()).toHaveText('LLM')
+    // 概览卡 7 项指标，首项总耗时
+    await expect(page.locator('.trace-chip')).toHaveCount(7)
     await expect(page.locator('.trace-chip').first()).toContainText('总耗时')
+    // 耗时分布：色段 + 刻度 + 图例
+    await expect(page.locator('.trace-band-block').first()).toBeVisible()
+    await expect(page.locator('.trace-axis span')).toHaveCount(5)
+    await expect(page.getByText('耗时分布')).toBeVisible()
+    // 同一轮次：轮次头 + 6 步 + 行内类型徽标（首行是预取 RAG，LLM 行紧跟其后）
+    await expect(page.locator('.trace-turn-no')).toHaveText('第 1 轮')
+    await expect(page.locator('.trace-row')).toHaveCount(6)
+    await expect(page.locator('.trace-kind').filter({ hasText: 'LLM' }).first()).toBeVisible()
+    await expect(page.locator('.trace-bar-fill').first()).toBeVisible()
   })
 
   test('监控页：全渠道 KPI、渠道分布与调用明细', async ({ page }) => {
@@ -82,8 +91,29 @@ test.describe('mock 模式冒烟', () => {
     await expect(page.locator('.channel-filter').first()).toHaveText('QQ')
 
     // 活跃会话与 LLM 明细表带渠道列
-    await expect(page.getByText('活跃会话')).toBeVisible()
+    await expect(page.getByText('活跃会话', { exact: true })).toBeVisible()
     await expect(page.locator('.channel-badge').first()).toBeVisible()
     await expect(page.locator('.llm-call-row').first()).toBeVisible()
+
+    // 明细区：三张表默认展开；单表可折叠；总开关一键收起/展开；偏好刷新后保留
+    const toggleAll = page.getByTestId('details-toggle-all')
+    await expect(page.locator('.panel-collapsed')).toHaveCount(0)
+    await expect(toggleAll).toHaveText('全部收起')
+
+    await page.getByTestId('detail-llm').getByRole('button').first().click()
+    await expect(page.locator('.panel-collapsed')).toHaveCount(1)
+    await expect(page.locator('.llm-call-row').first()).toBeHidden()
+
+    await toggleAll.click() // 此时非全展开 → 全部展开
+    await expect(page.locator('.panel-collapsed')).toHaveCount(0)
+    await expect(page.locator('.llm-call-row').first()).toBeVisible()
+
+    await toggleAll.click() // 全部收起
+    await expect(page.locator('.panel-collapsed')).toHaveCount(3)
+    await expect(toggleAll).toHaveText('全部展开')
+
+    await page.reload()
+    await page.getByTestId('nav-monitor').click()
+    await expect(page.locator('.panel-collapsed')).toHaveCount(3)
   })
 })

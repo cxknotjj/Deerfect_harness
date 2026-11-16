@@ -197,9 +197,11 @@ async function listLlmCalls(sessionId: string): Promise<LlmCallItem[]> {
   return (traces.get(sessionId)?.llm ?? []).map((t) => ({ ...t }))
 }
 
-/** RAG 检索观测 mock:固定一条样例(覆盖来源/命中/降级三形态),与真实现语义一致 */
+/**
+ * RAG 检索观测 mock：预取 + 现查各一条，时间落在会话 1 的同一轮里，
+ * 让轨迹页的耗时分布能同时出现「预取 / 现查」两种颜色。
+ */
 async function listKbRetrievals(sessionId: string): Promise<KbRetrievalItem[]> {
-  const now = new Date().toISOString()
   const sample: KbRetrievalItem[] = [
     {
       id: 1,
@@ -212,10 +214,26 @@ async function listKbRetrievals(sessionId: string): Promise<KbRetrievalItem[]> {
       durationMs: 812,
       ok: 1,
       errorMsg: null,
-      turnId: null,
+      turnId: 'turn-mock-1',
       traceId: null,
-      startedAt: now,
-      createdAt: now,
+      startedAt: '2026-09-22T09:00:08',
+      createdAt: '2026-09-22T09:00:08',
+    },
+    {
+      id: 2,
+      sessionId,
+      agentName: 'general',
+      source: 'inline_query',
+      query: '401 与 key 权限的排查顺序',
+      kbs: 'kb-ops,kb-guide',
+      hitCount: 1,
+      durationMs: 240,
+      ok: 1,
+      errorMsg: null,
+      turnId: 'turn-mock-1',
+      traceId: null,
+      startedAt: '2026-09-22T09:01:05',
+      createdAt: '2026-09-22T09:01:05',
     },
   ]
   return sample.map((s) => ({ ...s }))

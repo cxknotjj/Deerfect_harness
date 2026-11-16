@@ -129,6 +129,8 @@ export const initialTraces: Record<string, { llm: LlmCallItem[]; tool: ToolCallI
         outputSummary: '接入新服务商:两步即可——设置环境变量(如 MOONSHOT_API_KEY),在 yaml 的 app.providers 下声明模型清单,落库后热刷新注册表。',
         firstTokenMs: 820,
         cachedTokens: 0,
+        turnId: 'turn-mock-1',
+        spanId: 'span-mock-root',
       },
       {
         id: 2,
@@ -147,6 +149,9 @@ export const initialTraces: Record<string, { llm: LlmCallItem[]; tool: ToolCallI
         cachedTokens: 512,
         attempt: 2,
         maxAttempts: 3,
+        turnId: 'turn-mock-1',
+        spanId: 'span-mock-child',
+        parentSpan: 'span-mock-root',
       },
     ],
     tool: [
@@ -160,6 +165,7 @@ export const initialTraces: Record<string, { llm: LlmCallItem[]; tool: ToolCallI
         durationMs: 1340,
         errorMsg: null,
         createdAt: '2026-09-22T09:00:52',
+        turnId: 'turn-mock-1',
       },
       {
         id: 2,
@@ -171,6 +177,7 @@ export const initialTraces: Record<string, { llm: LlmCallItem[]; tool: ToolCallI
         durationMs: 5020,
         errorMsg: 'HTTP 504: upstream timeout after 5s',
         createdAt: '2026-09-22T09:00:58',
+        turnId: 'turn-mock-1',
       },
     ],
   },
