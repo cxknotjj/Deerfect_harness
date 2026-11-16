@@ -256,3 +256,76 @@ export function computeBands(rows: TraceRow[]): TraceBand[] {
           : `TOOL ${r.item.toolName ?? ''} · ${fmtMs(r.item.durationMs)}`,
   }))
 }
+
+/* ============================================================
+   轨迹页·耗时分布（2026-11-16 按设计图重排新增）
+   设计图把时间线画成「一条横向时间轴 + 分类色段 + 刻度」，
+   同类相邻块先合并再画，否则几十个几十毫秒的块会糊成噪点。
+   ============================================================ */
+
+/** 分布段类别：LLM / 现查 RAG / 预取 RAG / 工具（颜色与图例一一对应） */
+export type TimelineTone = 'llm' | 'rag' | 'rag-prefetch' | 'tool'
+
+/** 图例与 tooltip 用的中文标签 */
+export const TIMELINE_LABEL: Record<TimelineTone, string> = {
+  llm: 'LLM',
+  rag: 'RAG',
+  'rag-prefetch': '预取',
+  tool: '工具',
+}
+
+export interface TimelineSpan {
+  key: string
+  tone: TimelineTone
+  /** flex-grow 权重：时长（毫秒）保底 1，避免 0ms 段消失 */
+  grow: number
+  title: string
+}
+
+/** 单行归入哪一类：RAG 里 inline_query 是现查，其余预取来源统一算「预取」 */
+export function timelineTone(r: TraceRow): TimelineTone {
+  if (r.kind === 'llm') return 'llm'
+  if (r.kind === 'tool') return 'tool'
+  return r.item.source === 'inline_query' ? 'rag' : 'rag-prefetch'
+}
+
+/** 时间轴色段：按时间顺序合并相邻同类调用，title 带类别、段数与合计时长 */
+export function computeTimeline(rows: TraceRow[]): TimelineSpan[] {
+  const spans: TimelineSpan[] = []
+  let lastTone: TimelineTone | null = null
+  let count = 0
+  let growSum = 0
+  for (const r of rows) {
+    const tone = timelineTone(r)
+    const grow = Math.max(r.item.durationMs ?? 0, 1)
+    if (tone === lastTone) {
+      count += 1
+      growSum += grow
+      const last = spans[spans.length - 1]
+      last.grow = growSum
+      last.title = `${TIMELINE_LABEL[tone]} ${count} 段 · ${fmtMs(growSum)}`
+      continue
+    }
+    count = 1
+    growSum = grow
+    lastTone = tone
+    spans.push({ key: r.key, tone, grow, title: `${TIMELINE_LABEL[tone]} 1 段 · ${fmtMs(grow)}` })
+  }
+  return spans
+}
+
+/** 轴刻度：0 / 25% / 50% / 75% / 总时长，首尾对齐由 CSS 处理 */
+export function computeAxisTicks(totalMs: number): { at: number; label: string }[] {
+  const total = Math.max(0, totalMs)
+  return [0, 0.25, 0.5, 0.75, 1].map((ratio) => ({
+    at: ratio * 100,
+    label: ratio === 0 ? '0s' : fmtMs(total * ratio),
+  }))
+}
+
+/** 单行耗时条比例（相对本轮最长调用），保底 2% 让极短 RAG 仍有可见小块 */
+export function durationRatio(ms: number | null | undefined, maxMs: number): number {
+  const d = ms ?? 0
+  const max = maxMs > 0 ? maxMs : Math.max(d, 1)
+  return Math.max(2, Math.round((d / max) * 100))
+}

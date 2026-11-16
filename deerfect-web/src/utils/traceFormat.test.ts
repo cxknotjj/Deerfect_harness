@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { KbRetrievalItem, LlmCallItem, ToolCallItem } from '../api'
 import {
+  computeAxisTicks,
   computeBands,
   computeDepths,
   computeSegments,
   computeStats,
+  computeTimeline,
+  durationRatio,
   fmtCreatedAt,
   fmtLlmTime,
   fmtMs,
@@ -12,6 +15,7 @@ import {
   fmtTokens,
   isRowError,
   sourceLabel,
+  timelineTone,
   type TraceRow,
 } from './traceFormat'
 
@@ -222,5 +226,43 @@ describe('traceFormat 统计与分段', () => {
     expect(bands[1].title).toBe('TOOL read_file · 20ms')
     expect(bands[2].error).toBe(false)
     expect(bands[2].title).toBe('RAG inline_query · 5ms')
+  })
+})
+
+describe('traceFormat 耗时分布', () => {
+  it('类别归类：LLM / 工具 / 现查 RAG / 预取 RAG', () => {
+    expect(timelineTone(llmRow(1, {}))).toBe('llm')
+    expect(timelineTone(toolRow(2, {}))).toBe('tool')
+    expect(timelineTone(kbRow(3, { source: 'inline_query' }))).toBe('rag')
+    expect(timelineTone(kbRow(4, { source: 'entry_prefetch' }))).toBe('rag-prefetch')
+    expect(timelineTone(kbRow(5, { source: null }))).toBe('rag-prefetch')
+  })
+
+  it('相邻同类合并，跨类另起一段，grow 按累计时长', () => {
+    const spans = computeTimeline([
+      llmRow(1, { durationMs: 1000 }),
+      kbRow(2, { durationMs: 100, source: 'entry_prefetch' }),
+      kbRow(3, { durationMs: 200, source: 'subtask_prefetch' }),
+      llmRow(4, { durationMs: 3000 }),
+      toolRow(5, { durationMs: 50 }),
+    ])
+
+    expect(spans.map((s) => s.tone)).toEqual(['llm', 'rag-prefetch', 'llm', 'tool'])
+    expect(spans.map((s) => s.grow)).toEqual([1000, 300, 3000, 50])
+    expect(spans[1].title).toBe('预取 2 段 · 300ms')
+  })
+
+  it('轴刻度固定 5 个，首尾落 0s 与总时长', () => {
+    const ticks = computeAxisTicks(11_200)
+    expect(ticks.map((t) => t.at)).toEqual([0, 25, 50, 75, 100])
+    expect(ticks[0].label).toBe('0s')
+    expect(ticks[4].label).toBe('11.2s')
+  })
+
+  it('耗时条比例：相对最长调用，极短调用保底 2%', () => {
+    expect(durationRatio(1000, 4000)).toBe(25)
+    expect(durationRatio(5, 10_000)).toBe(2)
+    expect(durationRatio(null, 1000)).toBe(2)
+    expect(durationRatio(500, 0)).toBe(100)
   })
 })

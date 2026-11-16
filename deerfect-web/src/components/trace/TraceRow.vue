@@ -1,10 +1,15 @@
 <!--
-  轨迹单行（自 TraceView 拆出，2026-11-05）：类型徽章 + 名称 + 元信息 + 可双击展开的详情摘要。
-  行级样式类（trace-row / is-error / is-expanded）与文案保持原样，供 e2e 与现有 CSS 复用。
+  轨迹单行（2026-11-16 按设计图重排）：
+  类型徽标 → 名称 → 时间 → 元信息 → 摘要 → 耗时条，六列对齐；
+  层级缩进沿用 depth（parentSpan 链），depth>0 时左侧补一条引导竖线。
+  双击仍展开完整摘要；类名（trace-row / trace-kind / trace-name / trace-time /
+  trace-meta / trace-detail）保持稳定，单测与 e2e 继续复用。
 -->
 <script setup lang="ts">
+import { computed } from 'vue'
 import {
   INDENT_PX,
+  durationRatio,
   fmtCreatedAt,
   fmtLlmTime,
   fmtMs,
@@ -15,55 +20,77 @@ import {
   type TraceRow,
 } from '../../utils/traceFormat'
 
-// 模板直接使用解构后的 row / depth / expanded，不需要 props 对象本身
-defineProps<{ row: TraceRow; depth: number; expanded: boolean }>()
+const props = defineProps<{ row: TraceRow; depth: number; expanded: boolean; maxMs?: number }>()
 const emit = defineEmits<{ toggle: [key: string] }>()
+
+/** 把三种行压成同一套展示字段，模板只负责摆放 */
+const view = computed(() => {
+  const r = props.row
+  if (r.kind === 'llm') {
+    const meta = [
+      r.item.agentName ?? '—',
+      r.item.callKind === 'STREAM' ? '流式' : '同步',
+      fmtMs(r.item.durationMs),
+      fmtTokenFlow(r.item.promptTokens, r.item.completionTokens),
+      r.item.firstTokenMs != null ? `首 token ${fmtMs(r.item.firstTokenMs)}` : '',
+      r.item.cachedTokens != null ? `缓存 ${fmtTokens(r.item.cachedTokens)} tok` : '',
+      (r.item.attempt ?? 1) > 1 ? `尝试 ${r.item.attempt}/${r.item.maxAttempts ?? '?'}` : '',
+    ]
+    return {
+      kind: 'LLM',
+      name: r.item.model ?? 'LLM',
+      time: fmtLlmTime(r.item),
+      meta: meta.filter(Boolean).join(' · '),
+      detail: r.item.errorMsg ?? r.item.outputSummary ?? '',
+    }
+  }
+  if (r.kind === 'kb') {
+    const meta = [
+      r.item.agentName ?? '—',
+      fmtMs(r.item.durationMs),
+      r.item.kbs ?? '',
+      r.item.hitCount != null ? `命中 ${r.item.hitCount} 段` : '',
+    ]
+    return {
+      kind: 'RAG',
+      name: sourceLabel(r.item.source),
+      time: fmtCreatedAt(r.item.startedAt ?? r.item.createdAt),
+      meta: meta.filter(Boolean).join(' · '),
+      detail: r.item.errorMsg ?? r.item.query ?? '',
+    }
+  }
+  const meta = [r.item.agentName ?? '—', fmtMs(r.item.durationMs), r.item.serverName ?? '']
+  return {
+    kind: 'TOOL',
+    name: r.item.toolName ?? 'TOOL',
+    time: fmtCreatedAt(r.item.createdAt),
+    meta: meta.filter(Boolean).join(' · '),
+    detail: r.item.errorMsg ?? r.item.argsSummary ?? '',
+  }
+})
+
+/** 最右耗时条：相对本轮最长调用，极短调用保底 2% 可见 */
+const barPercent = computed(() => durationRatio(props.row.item.durationMs, props.maxMs ?? 0))
 </script>
 
 <template>
   <div
     class="trace-row"
-    :class="{ 'is-error': isRowError(row), 'is-expanded': expanded }"
+    :class="{
+      'is-error': isRowError(row),
+      'is-expanded': expanded,
+      'is-nested': depth > 0,
+    }"
     :style="depth > 0 ? { marginLeft: `${depth * INDENT_PX}px` } : undefined"
     @dblclick="emit('toggle', row.key)"
   >
-    <span class="trace-kind" :class="`is-${row.kind}`">{{ row.kind === 'llm' ? 'LLM' : row.kind === 'kb' ? 'RAG' : 'TOOL' }}</span>
-    <template v-if="row.kind === 'llm'">
-      <span class="trace-name" :title="row.item.model ?? ''">{{ row.item.model ?? 'LLM' }}</span>
-      <span class="trace-meta">
-        <template v-if="fmtLlmTime(row.item)">{{ fmtLlmTime(row.item) }} · </template>{{ row.item.agentName ?? '—' }} · {{ row.item.callKind === 'STREAM' ? '流式' : '同步' }}
-        · {{ fmtMs(row.item.durationMs) }}<template v-if="fmtTokenFlow(row.item.promptTokens, row.item.completionTokens) !== null">
-          · {{ fmtTokenFlow(row.item.promptTokens, row.item.completionTokens) }}</template><template v-if="row.item.firstTokenMs != null">
-          · 首 token {{ fmtMs(row.item.firstTokenMs) }}</template><template v-if="row.item.cachedTokens != null">
-          · 缓存 {{ fmtTokens(row.item.cachedTokens) }} tok</template><template v-if="(row.item.attempt ?? 1) > 1">
-          · 尝试 {{ row.item.attempt }}/{{ row.item.maxAttempts ?? '?' }}</template>
-      </span>
-      <span
-        v-if="row.item.errorMsg || row.item.outputSummary"
-        class="trace-detail"
-        :title="row.item.errorMsg ?? row.item.outputSummary ?? ''"
-      >{{ row.item.errorMsg ?? row.item.outputSummary }}</span>
-    </template>
-    <template v-else-if="row.kind === 'kb'">
-      <span class="trace-name" :title="row.item.query ?? ''">{{ sourceLabel(row.item.source) }}</span>
-      <span class="trace-meta">
-        <template v-if="fmtCreatedAt(row.item.startedAt ?? row.item.createdAt)">{{ fmtCreatedAt(row.item.startedAt ?? row.item.createdAt) }} · </template>{{ row.item.agentName ?? '—' }} · {{ fmtMs(row.item.durationMs) }}<template v-if="row.item.kbs">
-          · {{ row.item.kbs }}</template><template v-if="row.item.hitCount != null">
-          · 命中 {{ row.item.hitCount }} 段</template>
-      </span>
-      <span class="trace-detail" :title="row.item.errorMsg ?? row.item.query ?? ''">
-        {{ row.item.errorMsg ?? row.item.query }}
-      </span>
-    </template>
-    <template v-else>
-      <span class="trace-name" :title="row.item.toolName ?? ''">{{ row.item.toolName ?? 'TOOL' }}</span>
-      <span class="trace-meta">
-        <template v-if="fmtCreatedAt(row.item.createdAt)">{{ fmtCreatedAt(row.item.createdAt) }} · </template>{{ row.item.agentName ?? '—' }} · {{ fmtMs(row.item.durationMs) }}
-        <template v-if="row.item.serverName"> · {{ row.item.serverName }}</template>
-      </span>
-      <span class="trace-detail" :title="row.item.errorMsg ?? row.item.argsSummary ?? ''">
-        {{ row.item.errorMsg ?? row.item.argsSummary }}
-      </span>
-    </template>
+    <span class="trace-kind" :class="`is-${row.kind}`">{{ view.kind }}</span>
+    <span class="trace-name" :title="view.name">{{ view.name }}</span>
+    <span class="trace-time">{{ view.time }}</span>
+    <span class="trace-meta">{{ view.meta }}</span>
+    <span class="trace-detail" :title="view.detail">{{ view.detail }}</span>
+    <span class="trace-bar-track" aria-hidden="true">
+      <i class="trace-bar-fill" :class="`is-${row.kind}`" :style="{ width: `${barPercent}%` }"></i>
+    </span>
   </div>
 </template>

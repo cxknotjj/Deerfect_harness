@@ -16,6 +16,9 @@
   --accent: #4d6bfe;       /* DS 蓝:选中态/状态灯/发送键/链接 */
   --accent-warm: #c0392b;  /* 警示红:错误 */
   --ok: #1f8f5c;           /* 健康绿:白底对比度 ≥4.5:1 */
+  --trace-rag: #1f9fb2;    /* 轨迹 RAG 青:白底加深一档 */
+  --trace-rag-soft: rgba(31, 159, 178, 0.1);
+  --trace-rag-prefetch: #6fa6c4;
   --blueprint: #4d6bfe;    /* 链接与主强调同色(单蓝语言) */
 
   --accent-hover: #6c85ff;
