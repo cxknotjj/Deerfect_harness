@@ -66,9 +66,12 @@ const {
 /** 显式执行路径(auto=服务端判定;agentic/graph 随每轮请求下发覆盖) */
 const selectedRouting = ref<RoutingMode>('auto')
 
-/* ---------- URL 路由（hash，零依赖） ----------
-   页面与对话内 tab 写进地址栏：#/dashboard、#/chat、#/chat/trace、#/knowledge …
-   刷新或直接改地址都落在同一页；浏览器前进/后退由 hashchange 同步回来。
+/* ---------- URL 路由（History API，零依赖） ----------
+   地址栏直接是 /dashboard、/chat、/chat/trace、/knowledge …，不带 #。
+   刷新或直接改地址都落在同一页；浏览器前进/后退由 popstate 同步回来。
+   dev / preview 由 Vite 的 SPA fallback 兜底；静态托管需把未命中的路径回落 index.html
+   （见 docs/dev.md「前端路由与静态托管」）。
+   兼容旧 hash 书签：/#/mcp 会被就地改写成 /mcp。
    会话选择（sessionId）仍是内存态，刷新后轨迹页会停在空态，这不属于页面路由。 */
 const PAGES: PageId[] = [
   'dashboard',
@@ -81,15 +84,23 @@ const PAGES: PageId[] = [
   'monitor',
 ]
 
+/** 部署在子路径时（Vite base）拼前缀；根路径为空串 */
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, '')
+
 function parseRoute(): { page: PageId; tab: 'chat' | 'trace' } {
-  const raw = window.location.hash.replace(/^#\/?/, '')
+  // 旧 hash 链接优先（#/chat/trace），其次才是 pathname
+  const legacy = window.location.hash.startsWith('#/') ? window.location.hash.slice(1) : ''
+  const raw = (legacy || window.location.pathname)
+    .slice(BASE.length)
+    .replace(/^\/+|\/+$/g, '')
   const [head, sub] = raw.split('/')
   const page = (PAGES as string[]).includes(head) ? (head as PageId) : 'dashboard'
   return { page, tab: page === 'chat' && sub === 'trace' ? 'trace' : 'chat' }
 }
 
-function routeHash(target: PageId, tab: 'chat' | 'trace'): string {
-  return target === 'chat' && tab === 'trace' ? '#/chat/trace' : `#/${target}`
+function routePath(target: PageId, tab: 'chat' | 'trace'): string {
+  const path = target === 'chat' && tab === 'trace' ? '/chat/trace' : `/${target}`
+  return `${BASE}${path}`
 }
 
 const initialRoute = parseRoute()
@@ -102,15 +113,18 @@ const chatTab = ref<'chat' | 'trace'>(initialRoute.tab)
 
 /** 写 URL：切页用 push（可后退），对话内 tab 用 replace（不污染历史） */
 function syncRoute(target: PageId, tab: 'chat' | 'trace', replace = false): void {
-  const next = routeHash(target, tab)
-  if (window.location.hash === next) return
+  const next = routePath(target, tab)
+  if (window.location.pathname === next && window.location.hash === '') return
   if (replace) window.history.replaceState(null, '', next)
-  else window.location.hash = next
+  else window.history.pushState(null, '', next)
 }
 
-// 规范化地址栏：无 hash 或非法路径时补成 #/当前页，避免刷新后地址空着
-if (window.location.hash !== routeHash(initialRoute.page, initialRoute.tab)) {
-  window.history.replaceState(null, '', routeHash(initialRoute.page, initialRoute.tab))
+// 规范化地址栏：根路径/非法路径/旧 hash 都改写成 /当前页，避免刷新后地址空着或带 #
+if (
+  window.location.pathname !== routePath(initialRoute.page, initialRoute.tab)
+  || window.location.hash !== ''
+) {
+  window.history.replaceState(null, '', routePath(initialRoute.page, initialRoute.tab))
 }
 
 /**
@@ -395,26 +409,26 @@ function onGlobalKeydown(e: KeyboardEvent): void {
 window.addEventListener('keydown', onGlobalKeydown)
 
 /**
- * 地址栏变化（前进/后退、手改 hash）：把页面与对话内 tab 同步回来。
- * 非法/多余路径（#/nope、#/chat/trace/x）就地 replace 成规范形式，不再压历史。
+ * 前进/后退：把页面与对话内 tab 同步回来。
+ * 非法/多余路径（/nope、/chat/trace/x）就地 replace 成规范形式，不再压历史。
  */
-function onHashChange(): void {
+function onPopState(): void {
   const route = parseRoute()
   page.value = route.page
   chatTab.value = route.tab
-  const canonical = routeHash(route.page, route.tab)
-  if (window.location.hash !== canonical) {
+  const canonical = routePath(route.page, route.tab)
+  if (window.location.pathname !== canonical || window.location.hash !== '') {
     window.history.replaceState(null, '', canonical)
   }
   navOpen.value = false
   clearTip()
 }
-window.addEventListener('hashchange', onHashChange)
+window.addEventListener('popstate', onPopState)
 
 onBeforeUnmount(() => {
   narrowMql.removeEventListener('change', onNarrowChange)
   window.removeEventListener('keydown', onGlobalKeydown)
-  window.removeEventListener('hashchange', onHashChange)
+  window.removeEventListener('popstate', onPopState)
   stopOfflineGate()
   stopUnreadBadge()
 })

@@ -169,7 +169,7 @@ npm run typecheck  # vue-tsc --noEmit
 npm run build      # typecheck + vite build
 npm test           # vitest run（Node ≥ 22.12）
 npx playwright install chromium   # 首次跑 E2E 前装浏览器
-npm run test:e2e   # Playwright 冒烟 5 条，mock 模式，不需要后端
+npm run test:e2e   # Playwright 冒烟（mock 模式，不需要后端）
 ```
 
 本地不想下载 Playwright 的 Chromium 时，可复用系统浏览器（CI 不设该变量，仍用自带 Chromium）：
@@ -177,6 +177,23 @@ npm run test:e2e   # Playwright 冒烟 5 条，mock 模式，不需要后端
 ```powershell
 $env:PLAYWRIGHT_CHANNEL='chrome'; npm run test:e2e   # 系统 Chrome；Edge 用 'msedge'
 ```
+
+### 前端路由与静态托管
+
+- 前端用 History API 路由，地址形如 `/dashboard`、`/chat/trace`、`/knowledge`，**不带 `#`**；
+  刷新、直达链接与浏览器前进/后退都按 `pathname` 还原页面，旧 hash 书签（`/#/mcp`）启动时
+  会就地改写成 `/mcp`。
+- `npm run dev` / `npm run preview` 自带 SPA fallback，无需额外配置。
+- 用 nginx 等静态服务器托管 `dist/` 时，必须把未命中的路径回落到 `index.html`，否则直接访问
+  或刷新 `/knowledge` 会 404：
+
+  ```nginx
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+  ```
+
+- `/api` 仍由反向代理转给 8080，与前端路由不冲突；`/assets`、`/icons` 等静态文件正常直出。
 
 ### 启用邮件推送渠道
 
