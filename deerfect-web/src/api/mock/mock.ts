@@ -30,6 +30,7 @@ import type {
   SseMeta,
   ToolCallItem,
 } from '../types'
+import type { LlmModelView, LlmProviderUpsert, LlmProviderView } from '../admin'
 import { initialSessions, initialTraces, mockAgents } from './data'
 import type { MockMessage } from './data'
 
@@ -685,6 +686,51 @@ async function reloadCapabilities(): Promise<CapabilityReloadResult> {
   }
 }
 
+/* ============================================================
+   LLM 管理 mock：供应商 + 模型（结构对齐 /api/admin）
+   凭证只给环境变量引用名，与真实实现一致（不出现密钥值）
+   ============================================================ */
+
+let llmProviders: LlmProviderView[] = [
+  { id: 1, code: 'dashscope', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode', credentialRef: 'DASHSCOPE_API_KEY', protocol: 'openai', enabled: 1 },
+  { id: 2, code: 'deepseek', baseUrl: 'https://api.deepseek.com', credentialRef: 'DEEPSEEK_API_KEY', protocol: 'openai', enabled: 1 },
+  { id: 3, code: 'tecent', baseUrl: 'https://chatapi.weixin.qq.com/openai', credentialRef: 'TECENT_API_KEY', protocol: 'openai', enabled: 1 },
+]
+
+const llmModels: LlmModelView[] = [
+  { id: 1, providerId: 1, providerCode: 'dashscope', upstreamName: 'qwen-plus', displayName: 'qwen-plus', capabilities: null, defaultParams: null, enabled: 1 },
+  { id: 2, providerId: 1, providerCode: 'dashscope', upstreamName: 'qwen-max', displayName: 'qwen-max', capabilities: null, defaultParams: null, enabled: 1 },
+  { id: 3, providerId: 1, providerCode: 'dashscope', upstreamName: 'deepseek-v4.1-flash-1017', displayName: 'deepseek-v4.1-flash-1017', capabilities: null, defaultParams: null, enabled: 1 },
+  { id: 4, providerId: 2, providerCode: 'deepseek', upstreamName: 'deepseek-chat', displayName: 'deepseek-chat', capabilities: null, defaultParams: null, enabled: 1 },
+  { id: 5, providerId: 2, providerCode: 'deepseek', upstreamName: 'deepseek-reasoner', displayName: 'deepseek-reasoner', capabilities: null, defaultParams: null, enabled: 1 },
+  { id: 6, providerId: 3, providerCode: 'tecent', upstreamName: 'Deepseek-v4-flash', displayName: 'Deepseek-v4-flash', capabilities: null, defaultParams: null, enabled: 1 },
+]
+
+async function listLlmProviders(): Promise<LlmProviderView[]> {
+  return llmProviders.map((p) => ({ ...p }))
+}
+
+async function listLlmModels(): Promise<LlmModelView[]> {
+  return llmModels.map((m) => ({ ...m }))
+}
+
+async function createLlmProvider(body: LlmProviderUpsert): Promise<LlmProviderView> {
+  const row: LlmProviderView = {
+    id: Math.max(0, ...llmProviders.map((p) => p.id)) + 1,
+    ...body,
+  }
+  llmProviders = [...llmProviders, row]
+  return { ...row }
+}
+
+async function updateLlmProvider(id: number, body: LlmProviderUpsert): Promise<LlmProviderView> {
+  const index = llmProviders.findIndex((p) => p.id === id)
+  if (index < 0) throw new Error(`供应商不存在: ${id}`)
+  const row: LlmProviderView = { id, ...body }
+  llmProviders = llmProviders.map((p) => (p.id === id ? row : p))
+  return { ...row }
+}
+
 /** mock API 实现(与 realApi 同签名) */
 export const mockApi: Api = {
   listAgents,
@@ -714,4 +760,8 @@ export const mockApi: Api = {
   deleteSchedule,
   capabilities,
   reloadCapabilities,
+  listLlmProviders,
+  listLlmModels,
+  createLlmProvider,
+  updateLlmProvider,
 }

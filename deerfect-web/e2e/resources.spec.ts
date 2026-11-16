@@ -106,21 +106,35 @@ test.describe('资源面导航', () => {
     await expect(page).toHaveURL(/\/dashboard$/)
   })
 
-  test('系统分组：设置页主题/实例信息与安全页状态', async ({ page }) => {
+  test('系统分组：设置页模型管理/外观/实例与安全页状态', async ({ page }) => {
     await page.goto('/')
 
     await page.getByTestId('nav-settings').click()
     await expect(page).toHaveURL(/\/settings$/)
-    await expect(page.locator('.res-title')).toHaveText('设置')
-    await expect(page.locator('.settings-theme-card')).toHaveCount(2)
-    await expect(page.locator('.settings-stats .res-stat')).toHaveCount(4)
+    await expect(page.locator('.settings-nav-title')).toHaveText('设置')
 
-    // 设置页切日间：主题立即生效并写回 localStorage
+    // 模型管理：3 个 mock 供应商；卡片只展示凭证引用名，不出现密钥
+    await expect(page.locator('.provider-card')).toHaveCount(3)
+    await expect(page.locator('.provider-card').first()).toContainText('DASHSCOPE_API_KEY')
+
+    // 禁用第一个供应商 → 状态徽标变「已禁用」
+    const firstCard = page.locator('.provider-card').first()
+    await firstCard.getByRole('button', { name: '禁用' }).click()
+    await expect(firstCard.locator('.res-chip').first()).toHaveText('已禁用')
+
+    // 外观 tab：切日间立即生效并写回 localStorage
+    await page.getByTestId('settings-nav-appearance').click()
+    await expect(page.locator('.settings-theme-card')).toHaveCount(2)
     await page.locator('.settings-theme-card').filter({ hasText: '日间' }).click()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
     expect(await page.evaluate(() => localStorage.getItem('web-theme'))).toBe('light')
 
-    await page.getByTestId('nav-security').click()
+    // 实例信息 tab
+    await page.getByTestId('settings-nav-instance').click()
+    await expect(page.locator('.settings-stats .res-stat')).toHaveCount(4)
+
+    // 安全是快捷入口：跳到独立页面
+    await page.getByTestId('settings-nav-security').click()
     await expect(page).toHaveURL(/\/security$/)
     await expect(page.locator('.res-title')).toHaveText('安全')
     await expect(page.locator('.settings-stats .res-stat').first()).toContainText('登录通道')

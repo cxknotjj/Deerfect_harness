@@ -39,6 +39,13 @@ import {
   monitorContext,
 } from './observability'
 import {
+  createLlmProvider,
+  listLlmModels,
+  listLlmProviders,
+  updateLlmProvider,
+} from './admin'
+import type { LlmModelView, LlmProviderUpsert, LlmProviderView } from './admin'
+import {
   capabilities,
   createMemory,
   deleteKbDocument,
@@ -81,6 +88,11 @@ export interface Api {
   deleteSchedule(id: string): Promise<void>
   capabilities(): Promise<CapabilityReport>
   reloadCapabilities(): Promise<CapabilityReloadResult>
+  /* LLM 管理：供应商与模型（凭证值不落库，只给环境变量引用名） */
+  listLlmProviders(): Promise<LlmProviderView[]>
+  listLlmModels(): Promise<LlmModelView[]>
+  createLlmProvider(body: LlmProviderUpsert): Promise<LlmProviderView>
+  updateLlmProvider(id: number, body: LlmProviderUpsert): Promise<LlmProviderView>
 }
 
 /** 真实 HTTP 实现 */
@@ -111,6 +123,10 @@ export const realApi: Api = {
   deleteSchedule,
   capabilities,
   reloadCapabilities,
+  listLlmProviders,
+  listLlmModels,
+  createLlmProvider,
+  updateLlmProvider,
 }
 
 // 兼容既有调用方的具名导出（实现已下沉到领域模块）

@@ -529,7 +529,12 @@ function downloadSessionLog(): void {
       <SkillView v-else-if="page === 'skills'" />
       <CalendarView v-else-if="page === 'calendar'" />
       <McpView v-else-if="page === 'mcp'" @changed="loadNavCounts" />
-      <SettingsView v-else-if="page === 'settings'" :theme="theme" @set-theme="setTheme" />
+      <SettingsView
+        v-else-if="page === 'settings'"
+        :theme="theme"
+        @set-theme="setTheme"
+        @navigate="goPage"
+      />
       <SecurityView v-else-if="page === 'security'" @logout="onLogout" />
 
       <div v-else-if="page === 'chat'" class="chat-layout" :class="{ 'sessions-hidden': sessionsHidden }">
