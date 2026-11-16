@@ -56,6 +56,35 @@ test.describe('资源面导航', () => {
     await expect(page.getByTestId('nav-memory')).toContainText('3')
   })
 
+  test('URL 路由：刷新保持当前页，前进后退与非法路径回落', async ({ page }) => {
+    await page.goto('/')
+    await expect(page).toHaveURL(/#\/dashboard$/)
+
+    await page.getByTestId('nav-knowledge').click()
+    await expect(page).toHaveURL(/#\/knowledge$/)
+    await expect(page.locator('.res-title')).toHaveText('知识库')
+
+    // 刷新后仍停在知识库
+    await page.reload()
+    await expect(page.locator('.res-title')).toHaveText('知识库')
+
+    // 浏览器后退回到仪表盘
+    await page.goBack()
+    await expect(page.locator('.dash-title')).toHaveText('仪表盘')
+
+    // 对话内 tab 也进地址栏：轨迹刷新后仍激活
+    await page.getByTestId('nav-chat').click()
+    await page.getByRole('tab', { name: '轨迹' }).click()
+    await expect(page).toHaveURL(/#\/chat\/trace$/)
+    await page.reload()
+    await expect(page.getByRole('tab', { name: '轨迹' })).toHaveAttribute('aria-selected', 'true')
+
+    // 未知路径回落到仪表盘并修正地址
+    await page.goto('/#/nope')
+    await expect(page.locator('.dash-title')).toHaveText('仪表盘')
+    await expect(page).toHaveURL(/#\/dashboard$/)
+  })
+
   test('外观分段与通栏新会话', async ({ page }) => {
     await page.goto('/')
 
