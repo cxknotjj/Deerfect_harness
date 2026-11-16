@@ -1,0 +1,276 @@
+/* ------------------------------------------------------------
+   技能页（2026-11-16 按能力面参考图改为卡片网格）
+   统计条复用 resource.css 的 .res-stats；这里只放筛选 chips、
+   搜索行与技能卡片的专属样式。
+   ------------------------------------------------------------ */
+
+/* ---------- 筛选 chips ---------- */
+.skill-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.skill-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--ink-dim);
+  font-size: 12px;
+  white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.skill-filter:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.skill-filter.is-active {
+  border-color: transparent;
+  background: var(--accent-lift);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.skill-filter span {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+/* ---------- 搜索 + 排序 ---------- */
+.skill-searchbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.skill-search {
+  flex: 1;
+  min-width: 0;
+}
+
+.skill-sort {
+  height: 34px;
+  padding: 0 10px;
+  flex-shrink: 0;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--bg-card);
+  color: var(--ink);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.skill-sort:hover,
+.skill-sort:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* ---------- 列表标题行 ---------- */
+.skill-list-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 2px 0;
+}
+
+.skill-list-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.skill-list-title b {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.skill-list-note {
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+/* ---------- 卡片网格 ---------- */
+.skill-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.skill-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 232px;
+  padding: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  transition: border-color 0.15s;
+}
+
+.skill-card:hover {
+  border-color: var(--accent);
+}
+
+.skill-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.skill-mark {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--accent-lift);
+  color: var(--accent);
+}
+
+.skill-mark svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.skill-card-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.skill-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-agents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.skill-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.skill-file svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: var(--ink-dim);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* 描述固定四行高，卡片底部才能对齐 */
+.skill-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: calc(1.65em * 4);
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--ink-dim);
+  overflow-wrap: anywhere;
+}
+
+.skill-card-foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.skill-size {
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.skill-copy {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--ink-dim);
+  transition: background 0.15s, color 0.15s;
+}
+
+.skill-copy:hover {
+  background: var(--accent-lift);
+  color: var(--accent);
+}
+
+.skill-copy svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 1200px) {
+  .skill-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .skill-searchbar {
+    flex-wrap: wrap;
+  }
+
+  .skill-search {
+    flex-basis: 100%;
+  }
+
+  .skill-sort {
+    flex: 1;
+  }
+
+  .skill-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .skill-card {
+    min-height: 0;
+  }
+
+  .skill-list-note {
+    display: none;
+  }
+}

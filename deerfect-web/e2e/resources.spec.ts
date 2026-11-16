@@ -42,7 +42,16 @@ test.describe('资源面导航', () => {
 
     await page.getByTestId('nav-skills').click()
     await expect(page.locator('.res-title')).toHaveText('技能')
-    await expect(page.locator('.res-row')).toHaveCount(3)
+    await expect(page.locator('.skill-card')).toHaveCount(3)
+    // 筛选：限定 Agent 只剩 2 个（systematic-debugging 是全部 Agent）
+    await expect(page.locator('.skill-filter')).toHaveCount(4)
+    await page.locator('.skill-filter').filter({ hasText: '限定 Agent' }).click()
+    await expect(page.locator('.skill-card')).toHaveCount(2)
+    await page.locator('.skill-filter').filter({ hasText: '全部' }).click()
+    // 搜索：按名称/描述过滤
+    await page.locator('.skill-search input').fill('wms')
+    await expect(page.locator('.skill-card')).toHaveCount(1)
+    await page.locator('.skill-search input').fill('')
 
     await page.getByTestId('nav-calendar').click()
     await expect(page.locator('.res-title')).toHaveText('内容日历')

@@ -38,6 +38,7 @@
 @import './dashboard.css';
 @import './resource.css';
 @import './settings.css';
+@import './skill.css';
 
 /* ============================================================
    全局错误横幅:组件抛错/异步未捕获时的可见提示
