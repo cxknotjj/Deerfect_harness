@@ -11,18 +11,25 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
-import type { LlmModelView, LlmProviderUpsert, LlmProviderView } from '../api'
+import type { LlmModelView, LlmProviderUpsert, LlmProviderView, SessionView } from '../api'
 import SystemSettingsPanel from './settings/SystemSettingsPanel.vue'
 import TtsSettingsPanel from './settings/TtsSettingsPanel.vue'
+import WorkspaceSettingsPanel from './settings/WorkspaceSettingsPanel.vue'
 
-defineProps<{ theme: 'dark' | 'light'; themeMode: 'light' | 'dark' | 'system' }>()
+defineProps<{
+  theme: 'dark' | 'light'
+  themeMode: 'light' | 'dark' | 'system'
+  /** 真实会话列表：工作区卡片用它统计归属会话数 */
+  sessions: SessionView[]
+}>()
+
 const emit = defineEmits<{
   'set-theme': [theme: 'dark' | 'light']
   'set-theme-mode': [mode: 'light' | 'dark' | 'system']
   navigate: [page: 'security' | 'monitor' | 'skills']
 }>()
 
-type TabKey = 'models' | 'tts' | 'system' | 'appearance' | 'prefs' | 'instance'
+type TabKey = 'workspace' | 'models' | 'tts' | 'system' | 'appearance' | 'prefs' | 'instance'
 type NavKey = TabKey | 'security' | 'monitor' | 'skills'
 interface NavItem {
   key: NavKey
@@ -39,6 +46,11 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
         key: 'models',
         label: '模型管理',
         icon: ['M12 3 3 8l9 5 9-5-9-5z', 'M3 8v8l9 5 9-5V8', 'M12 13v8'],
+      },
+      {
+        key: 'workspace',
+        label: '工作区',
+        icon: ['M4 6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z'],
       },
       {
         key: 'tts',
@@ -91,6 +103,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
 ]
 
 const TABS: Record<TabKey, { title: string; sub: string }> = {
+  workspace: { title: '工作区', sub: '本地工作目录、会话归属与成员访问' },
   models: { title: '模型管理', sub: '配置模型提供商、凭证引用和模型列表' },
   tts: { title: '语音合成', sub: '文本转语音服务与默认语音参数' },
   system: { title: '系统设置', sub: '界面偏好、运行时行为与本地数据管理' },
@@ -104,6 +117,8 @@ const current = computed(() => TABS[tab.value])
 /** 系统设置 / 语音合成面板的保存、试听入口在页头右侧，通过 ref 调用 */
 const systemPanel = ref<InstanceType<typeof SystemSettingsPanel> | null>(null)
 const ttsPanel = ref<InstanceType<typeof TtsSettingsPanel> | null>(null)
+/** 工作区的新建 / 导入按钮同样在页头右侧 */
+const workspacePanel = ref<InstanceType<typeof WorkspaceSettingsPanel> | null>(null)
 
 function onNav(item: NavItem): void {
   if (item.link) {
@@ -344,7 +359,11 @@ onMounted(() => {
           <p>{{ current.sub }}</p>
         </div>
         <div class="settings-main-actions">
-          <template v-if="tab === 'models'">
+          <template v-if="tab === 'workspace'">
+            <button class="res-btn" type="button" @click="workspacePanel?.startCreate('import')">导入工作区</button>
+            <button class="res-btn res-btn-primary" type="button" @click="workspacePanel?.startCreate('create')">+ 新建工作区</button>
+          </template>
+          <template v-else-if="tab === 'models'">
             <button
               class="res-btn"
               type="button"
@@ -366,8 +385,16 @@ onMounted(() => {
       <p v-else-if="actionError" class="res-alert" role="alert">{{ actionError }}</p>
       <p v-else-if="actionNote" class="res-note" role="status">{{ actionNote }}</p>
 
+      <!-- 工作区：本地目录登记 + 会话归属 + 协作成员 -->
+      <WorkspaceSettingsPanel
+        v-if="tab === 'workspace'"
+        ref="workspacePanel"
+        :sessions="sessions"
+        @navigate="emit('navigate', 'security')"
+      />
+
       <!-- 模型管理 -->
-      <template v-if="tab === 'models'">
+      <template v-else-if="tab === 'models'">
         <div class="provider-head">
           <div>
             <h3>云端模型</h3>

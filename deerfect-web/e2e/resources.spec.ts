@@ -180,6 +180,44 @@ test.describe('资源面导航', () => {
     expect(stored).toContain('"rate":"1.2"')
   })
 
+  test('工作区：打开切换侧栏、新建与归档', async ({ page }) => {
+    await page.goto('/settings')
+    await page.getByTestId('settings-nav-workspace').click()
+    await expect(page.locator('.settings-main-head h2')).toHaveText('工作区')
+    await expect(page.locator('.ws-card')).toHaveCount(3)
+
+    // 打开沙盒实验：卡片转「活跃」，侧栏工作区名同步
+    const sandbox = page.locator('.ws-card').filter({ hasText: '沙盒实验' })
+    await sandbox.getByRole('button', { name: '打开' }).click()
+    await expect(page.locator('.nav-workspace-name')).toHaveText('沙盒实验')
+    await expect(sandbox.locator('.res-chip')).toHaveText('活跃')
+
+    // 新建工作区：「导入 / 新建」在页头，表单登记到本机
+    await page.getByRole('button', { name: '+ 新建工作区' }).click()
+    const form = page.locator('.ws-form')
+    await form.locator('input').nth(0).fill('数据实验')
+    await form.locator('input').nth(1).fill('D:/DoubaWork/data-lab')
+    await form.getByRole('button', { name: '创建' }).click()
+    await expect(page.locator('.ws-card')).toHaveCount(4)
+
+    // 行内设置：编辑表单占满整行，Agent 归属默认「全部」
+    const created = page.locator('.ws-card').filter({ hasText: '数据实验' })
+    await created.getByRole('button', { name: '设置' }).click()
+    const editor = page.locator('.ws-form-edit')
+    await expect(editor).toContainText('设置「数据实验」')
+    await expect(editor.locator('.ws-agent-chip').first()).toHaveText('全部')
+    await editor.getByRole('button', { name: '取消' }).click()
+    await expect(page.locator('.ws-form-edit')).toHaveCount(0)
+
+    // 归档后移出网格；刷新仍保留归档记录
+    await created.getByRole('button', { name: '归档' }).click()
+    await expect(page.locator('.ws-card')).toHaveCount(3)
+    await expect(page.locator('.ws-archive-row')).toHaveCount(1)
+    await page.reload()
+    await page.getByTestId('settings-nav-workspace').click()
+    await expect(page.locator('.ws-archive-row')).toHaveCount(1)
+  })
+
   test('旧 hash 书签就地改写为干净路径', async ({ page }) => {
     // 整页加载 #/mcp（模拟旧书签），应用启动时把地址改成 /mcp
     await page.goto('/#/mcp')

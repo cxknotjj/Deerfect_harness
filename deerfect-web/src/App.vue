@@ -34,6 +34,7 @@ import { useAgents } from './composables/useAgents'
 import { useOfflineGate, useUnreadBadge } from './composables/pwa'
 import { reportGlobalError, useGlobalError } from './composables/globalError'
 import { UI_KEYS, readBool, type ThemeMode } from './utils/uiPrefs'
+import { assignSessionToWorkspace } from './utils/workspaces'
 
 type PageId =
   | 'dashboard'
@@ -318,6 +319,8 @@ async function onRemoveSession(id: string): Promise<void> {
 async function onCreate(): Promise<void> {
   try {
     await createSession()
+    // 新会话归入「打开」的工作区（本机登记，仅影响 Web 分组）
+    assignSessionToWorkspace(currentSessionId.value)
     page.value = 'chat'
     chatTab.value = 'chat'
     syncRoute('chat', 'chat')
@@ -589,6 +592,7 @@ function downloadSessionLog(): void {
         v-else-if="page === 'settings'"
         :theme="theme"
         :theme-mode="themeMode"
+        :sessions="sessions"
         @set-theme="setTheme"
         @set-theme-mode="setThemeMode"
         @navigate="goPage"

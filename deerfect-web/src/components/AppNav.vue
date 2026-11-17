@@ -9,8 +9,9 @@
  * 几何对齐控制台参考图：卡片圆角 14px、条目标高 38px/圆角 11px/间距 4px、
  * 活动项左侧 3px 竖条；分组标签与底部面板留白比列表更宽一档。
  */
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useSystemHealth } from '../composables/systemHealth'
+import { WORKSPACES_EVENT, activeWorkspaceName } from '../utils/workspaces'
 
 type PageId =
   | 'dashboard'
@@ -138,6 +139,14 @@ function badgeOf(id: PageId): number | undefined {
 
 const { health } = useSystemHealth()
 
+/** 当前工作区名：设置页「打开」后通过 workspaces-changed 事件同步 */
+const workspaceName = ref(activeWorkspaceName())
+function onWorkspacesChanged(): void {
+  workspaceName.value = activeWorkspaceName()
+}
+onMounted(() => window.addEventListener(WORKSPACES_EVENT, onWorkspacesChanged))
+onBeforeUnmount(() => window.removeEventListener(WORKSPACES_EVENT, onWorkspacesChanged))
+
 const healthText = computed(() => {
   if (health.value === 'online') return '在线'
   if (health.value === 'offline') return '离线'
@@ -166,7 +175,7 @@ const healthText = computed(() => {
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
         </svg>
-        <span class="nav-workspace-name">默认工作区</span>
+        <span class="nav-workspace-name">{{ workspaceName }}</span>
         <span class="nav-workspace-role">管理员</span>
         <svg class="nav-chevron" viewBox="0 0 24 24" aria-hidden="true">
           <path d="m7 10 5 5 5-5" />

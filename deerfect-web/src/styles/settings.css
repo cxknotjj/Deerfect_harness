@@ -984,3 +984,395 @@ html[data-theme='dark'] .settings-page {
     flex-basis: 100%;
   }
 }
+
+/* ---------- 工作区：本地工作区卡片 / 归档 / 协作成员 ---------- */
+.ws-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+
+.ws-form-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.ws-form-head h3 {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.ws-form-head span {
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+.ws-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ws-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+.ws-field .res-input {
+  width: 100%;
+}
+
+.ws-field-label {
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+.ws-field-hint {
+  font-size: 10.5px;
+  color: var(--ink-dim);
+}
+
+.ws-form-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ws-form-hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+.ws-danger {
+  height: 28px;
+  padding: 0 10px;
+  flex-shrink: 0;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent-warm);
+  font-size: 11.5px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.ws-danger:hover {
+  border-color: var(--accent-warm);
+  background: var(--accent-warm-soft);
+}
+
+.ws-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ws-section + .ws-section {
+  margin-top: 22px;
+}
+
+.ws-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 0 2px;
+}
+
+.ws-section-head svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: var(--ink-dim);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ws-section-head h3 {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.ws-section-note {
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+.ws-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ws-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: var(--bg-card);
+  transition: border-color 0.15s;
+}
+
+.ws-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line-soft));
+}
+
+/* 当前打开的工作区：只加一点描边提示，参考图里卡片本身仍是同一种底 */
+.ws-card.is-active {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--line-soft));
+}
+
+/* 正在设置的工作区描边提示；编辑器本体是网格下方的整行表单 */
+.ws-card.is-editing {
+  border-color: var(--accent);
+}
+
+.ws-form-edit {
+  margin-top: 2px;
+}
+
+.ws-form-edit .ws-form-foot {
+  flex-wrap: wrap;
+}
+
+.ws-card-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.ws-mark {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--bg-inset);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.ws-mark.is-sm {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  font-size: 11px;
+}
+
+.ws-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.ws-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+.ws-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ws-chip {
+  padding: 2px 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  font-size: 10.5px;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.ws-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 2px;
+}
+
+.ws-agents {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ws-agent-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ws-agent-chip {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: transparent;
+  font-size: 11px;
+  color: var(--ink-dim);
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.ws-agent-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ws-agent-chip.is-on {
+  border-color: var(--accent);
+  background: var(--accent-lift);
+  color: var(--accent);
+}
+
+.ws-empty {
+  padding: 18px;
+  border: 1px dashed var(--line-soft);
+  border-radius: 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+/* 已归档：单列扁平行，不占卡片网格 */
+.ws-archive {
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+.ws-archive-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+}
+
+.ws-archive-row + .ws-archive-row {
+  border-top: 1px solid var(--line-soft);
+}
+
+.ws-archive-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ws-archive-name {
+  font-size: 12.5px;
+}
+
+.ws-archive-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: var(--ink-dim);
+}
+
+/* 协作成员 */
+.ws-members {
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+.ws-member {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 12px 14px;
+}
+
+.ws-member + .ws-member {
+  border-top: 1px solid var(--line-soft);
+}
+
+.ws-avatar {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--bg-inset);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.ws-member-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ws-member-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ws-member-role {
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+.ws-hint {
+  padding: 0 2px;
+  font-size: 11px;
+  line-height: 1.65;
+  color: var(--ink-dim);
+}
+
+@media (max-width: 1200px) {
+  .ws-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .ws-grid,
+  .ws-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ws-form-foot {
+    flex-wrap: wrap;
+  }
+
+  .ws-form-hint {
+    flex-basis: 100%;
+  }
+}
