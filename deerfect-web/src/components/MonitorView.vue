@@ -22,8 +22,7 @@ import MonitorChannels from './monitor/MonitorChannels.vue'
 import MonitorRuntime from './monitor/MonitorRuntime.vue'
 import MonitorComponents from './monitor/MonitorComponents.vue'
 import MonitorResources from './monitor/MonitorResources.vue'
-import MonitorSessions from './monitor/MonitorSessions.vue'
-import MonitorRecentCalls from './monitor/MonitorRecentCalls.vue'
+import MonitorDetails from './monitor/MonitorDetails.vue'
 
 type MonitorTab = 'overview' | 'runtime' | 'components' | 'details'
 const TABS: { key: MonitorTab; label: string }[] = [
@@ -88,6 +87,15 @@ function toggleAllDetails(): void {
   detailsOpen.llm = next
   detailsOpen.tools = next
   saveDetails()
+}
+
+/** 明细面板的开关：'all' 走一键收起/展开，其余切换单段 */
+function onDetailToggle(key: DetailKey | 'all'): void {
+  if (key === 'all') {
+    toggleAllDetails()
+    return
+  }
+  setDetail(key, !detailsOpen[key])
 }
 
 async function load(): Promise<void> {
@@ -214,39 +222,18 @@ onBeforeUnmount(() => {
       <!-- 运行时：Micrometer 累计指标 -->
       <MonitorRuntime v-else-if="tab === 'runtime'" :data="data" />
 
-      <!-- 组件与资源 -->
-      <div v-else-if="tab === 'components'" class="monitor-split monitor-split-status">
-        <MonitorComponents :data="data" />
-        <MonitorResources :data="data" />
-      </div>
+      <!-- 组件与资源：组件状态通栏 + [资源占用 | 探活与连接] -->
+      <MonitorComponents v-else-if="tab === 'components'" :data="data" />
 
-      <!-- 明细：三张长表各自可折叠，也可一键全部收起/展开 -->
-      <template v-else>
-        <div class="details-bar">
-          <span class="details-bar-title">明细数据</span>
-          <span class="details-bar-note">活跃会话 · LLM 调用 · 工具调用</span>
-          <button
-            class="details-toggle-all"
-            type="button"
-            data-testid="details-toggle-all"
-            :aria-expanded="allDetailsOpen"
-            @click="toggleAllDetails"
-          >{{ allDetailsOpen ? '全部收起' : '全部展开' }}</button>
-        </div>
-
-        <MonitorSessions
-          :data="data"
-          :open="detailsOpen.sessions"
-          @toggle="setDetail('sessions', !detailsOpen.sessions)"
-        />
-        <MonitorRecentCalls
-          :data="data"
-          :llm-open="detailsOpen.llm"
-          :tools-open="detailsOpen.tools"
-          @toggle-llm="setDetail('llm', !detailsOpen.llm)"
-          @toggle-tools="setDetail('tools', !detailsOpen.tools)"
-        />
-      </template>
+      <!-- 明细：统计卡 + 单面板三段折叠 -->
+      <MonitorDetails
+        v-else
+        :data="data"
+        :sessions-open="detailsOpen.sessions"
+        :llm-open="detailsOpen.llm"
+        :tools-open="detailsOpen.tools"
+        @toggle="onDetailToggle"
+      />
 
       <footer class="monitor-foot">
         更新于 {{ updatedAt }} · {{ auto ? '每 15 秒自动刷新' : '自动刷新已关闭' }}

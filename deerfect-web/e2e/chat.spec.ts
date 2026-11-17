@@ -80,45 +80,51 @@ test.describe('mock 模式冒烟', () => {
     // 运行时指标不在概览里，切 tab 才渲染
     await expect(page.locator('.runtime-item')).toHaveCount(0)
 
-    // 运行时：Micrometer 9 项（SSE / LLM / Tokens / 首 token / 耗时 / 路由 / 降级 / TTS / 线程）
+    // 运行时：进程累计指标 9 格 + [路径决策构成 | 连接与线程]
     await page.getByTestId('monitor-tab-runtime').click()
-    await expect(page.getByText('运行时指标')).toBeVisible()
+    await expect(page.getByText('进程累计指标')).toBeVisible()
     await expect(page.locator('.runtime-item')).toHaveCount(9)
     await expect(page.locator('.runtime-item').first()).toContainText('SSE 活跃连接')
+    await expect(page.locator('.route-bar')).toBeVisible()
+    await expect(page.getByRole('heading', { name: '路径决策构成' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '连接与线程' })).toBeVisible()
 
-    // 组件与资源：NapCat / Docker / MCP + 资源占用
+    // 组件与资源：组件状态通栏 + [资源占用 | 探活与连接]
     await page.getByTestId('monitor-tab-components').click()
     await expect(page.getByRole('heading', { name: '组件状态' })).toBeVisible()
     await expect(page.locator('.component-row')).toHaveCount(4)
     await expect(page.locator('.component-row').first()).toContainText('NapCat / QQ')
     await expect(page.locator('.component-row').first()).toContainText('可用')
     await expect(page.locator('.usage-track')).toHaveCount(2)
+    await expect(page.getByRole('heading', { name: '探活与连接' })).toBeVisible()
+    await expect(page.locator('.runtime-row')).toHaveCount(3)
 
-    // 明细：活跃会话与调用表带渠道列
+    // 明细：三张统计卡 + 单面板三段折叠
     await page.getByTestId('monitor-tab-details').click()
-    await expect(page.getByText('活跃会话', { exact: true })).toBeVisible()
+    await expect(page.locator('.detail-stat')).toHaveCount(3)
+    await expect(page.locator('.detail-section.is-open')).toHaveCount(3)
+    await expect(page.locator('.detail-row-title').first()).toHaveText('活跃会话')
     await expect(page.locator('.channel-badge').first()).toBeVisible()
     await expect(page.locator('.llm-call-row').first()).toBeVisible()
 
-    // 明细区：三张表默认展开；单表可折叠；总开关一键收起/展开；偏好刷新后保留
+    // 单段折叠 → 总开关全部展开 → 全部收起 → 刷新后保留
     const toggleAll = page.getByTestId('details-toggle-all')
-    await expect(page.locator('.panel-collapsed')).toHaveCount(0)
     await expect(toggleAll).toHaveText('全部收起')
 
-    await page.getByTestId('detail-llm').getByRole('button').first().click()
-    await expect(page.locator('.panel-collapsed')).toHaveCount(1)
+    await page.locator('.detail-row').filter({ hasText: '最近 LLM 调用' }).click()
+    await expect(page.locator('.detail-section.is-open')).toHaveCount(2)
     await expect(page.locator('.llm-call-row').first()).toBeHidden()
 
     await toggleAll.click() // 此时非全展开 → 全部展开
-    await expect(page.locator('.panel-collapsed')).toHaveCount(0)
+    await expect(page.locator('.detail-section.is-open')).toHaveCount(3)
     await expect(page.locator('.llm-call-row').first()).toBeVisible()
 
     await toggleAll.click() // 全部收起
-    await expect(page.locator('.panel-collapsed')).toHaveCount(3)
+    await expect(page.locator('.detail-section.is-open')).toHaveCount(0)
     await expect(toggleAll).toHaveText('全部展开')
 
     await page.reload()
     await page.getByTestId('nav-monitor').click()
-    await expect(page.locator('.panel-collapsed')).toHaveCount(3)
+    await expect(page.locator('.detail-section.is-open')).toHaveCount(0)
   })
 })

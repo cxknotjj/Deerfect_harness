@@ -279,49 +279,122 @@ html[data-theme='dark'] .monitor {
   border-bottom-color: var(--accent-hover);
 }
 
-/* 运行时指标：不再是一张张内嵌小卡，而是「一个面板 + 1px 分隔线网格」。
-   gap:1px + 容器底色 = 细线色，单元格用面板色盖住，列数变化时分隔线自动跟随
-   （列数只取 5 / 2 / 1，保证 10 个格子总是整除、不会出现空色块）。 */
+/* 运行时指标：3×3 带边框指标格（参考图），不再是整块分隔线网格 */
 .monitor .runtime-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 1px;
-  border: 1px solid var(--line-soft);
-  border-radius: 12px;
-  overflow: hidden;
-  background: var(--line-soft);
-}
-
-.monitor .runtime-item,
-.monitor .runtime-cell-blank {
-  min-width: 0;
-  min-height: 68px;
-  background: var(--bg-card);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .monitor .runtime-item {
+  min-width: 0;
+  min-height: 84px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 10px 12px;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--bg-card);
 }
 
 .monitor .runtime-label {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--ink-dim);
   cursor: help; /* title 里保留了 Micrometer 原始指标名 */
 }
 
 .monitor .runtime-value {
-  font-size: 17px;
+  font-size: 20px;
   font-weight: 700;
+  line-height: 1.2;
   font-variant-numeric: tabular-nums;
 }
 
 .monitor .runtime-note {
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.4;
   color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 路径决策构成：堆叠条 + 图例 */
+.monitor .route-bar {
+  display: flex;
+  height: 12px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--line-soft);
+}
+
+.monitor .route-bar-seg {
+  height: 100%;
+  transition: width 0.2s var(--ease-out-quart);
+}
+
+.monitor .route-bar-seg.is-agentic {
+  background: var(--accent);
+}
+
+.monitor .route-bar-seg.is-graph {
+  background: var(--accent);
+  opacity: 0.35;
+}
+
+.monitor .route-legend {
+  display: flex;
+  gap: 18px;
+  margin-top: 12px;
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.monitor .route-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.monitor .route-legend-item i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.monitor .route-legend-item i.is-agentic {
+  background: var(--accent);
+}
+
+.monitor .route-legend-item i.is-graph {
+  background: var(--accent);
+  opacity: 0.35;
+}
+
+/* 键值行：连接与线程 / 探活与连接 */
+.monitor .runtime-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.monitor .runtime-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 2px;
+  font-size: 12.5px;
+  color: var(--ink-dim);
+}
+
+.monitor .runtime-row + .runtime-row {
+  border-top: 1px solid var(--line-soft);
+}
+
+.monitor .runtime-row b {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
 
@@ -338,6 +411,14 @@ html[data-theme='dark'] .monitor {
 
 .monitor .monitor-split-overview {
   grid-template-columns: minmax(0, 1.85fr) minmax(300px, 1fr);
+}
+
+.monitor .monitor-split-runtime {
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+}
+
+.monitor .monitor-split-components {
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
 }
 
 /* ---------- 资源占用 ---------- */
@@ -393,20 +474,88 @@ html[data-theme='dark'] .monitor {
   font-variant-numeric: tabular-nums;
 }
 
-/* ---------- 明细数据折叠 ---------- */
-.monitor .details-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 4px 2px 0;
+/* ---------- 明细：统计卡 + 单面板三段折叠 ---------- */
+.monitor .detail-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
 }
 
-.monitor .details-bar-title {
-  font-size: 13px;
+.monitor .detail-stat {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+}
+
+.monitor .detail-stat-icon {
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--accent-lift);
+  color: var(--accent);
+}
+
+.monitor .detail-stat-icon svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.monitor .detail-stat-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.monitor .detail-stat-label {
+  font-size: 12.5px;
+  color: var(--ink-dim);
+}
+
+.monitor .detail-stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.monitor .detail-stat-note {
+  font-size: 11px;
+  color: var(--ink-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monitor .detail-panel {
+  padding: 14px 16px 10px;
+}
+
+.monitor .detail-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.monitor .detail-panel-head h3 {
+  font-size: 14px;
   font-weight: 600;
 }
 
-.monitor .details-bar-note {
+.monitor .detail-panel-note {
   min-width: 0;
   font-size: 11px;
   color: var(--ink-dim);
@@ -415,56 +564,30 @@ html[data-theme='dark'] .monitor {
   white-space: nowrap;
 }
 
-.monitor .details-toggle-all {
-  height: 26px;
+.monitor .detail-panel-head .res-btn {
   margin-left: auto;
-  padding: 0 10px;
   flex-shrink: 0;
-  border: 1px solid var(--line-soft);
-  border-radius: 8px;
-  background: var(--bg-card);
-  color: var(--ink-dim);
-  font-size: 11.5px;
-  transition: border-color 0.15s, color 0.15s;
 }
 
-.monitor .details-toggle-all:hover {
-  border-color: var(--accent);
+.monitor .detail-section + .detail-section {
+  border-top: 1px solid var(--line-soft);
+}
+
+.monitor .detail-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 2px;
+  text-align: left;
+  transition: color 0.15s;
+}
+
+.monitor .detail-row:hover {
   color: var(--accent);
 }
 
-/* 折叠面板自带标题行，覆盖通用 .panel 的内边距 */
-.monitor .panel-collapsible {
-  padding: 0;
-  overflow: hidden;
-}
-
-.monitor .panel-toggle {
-  width: 100%;
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  text-align: left;
-  transition: background 0.15s;
-}
-
-/* 展开时标题行与表格之间留一条细分隔线；收起态不需要 */
-.monitor .panel-collapsible:not(.panel-collapsed) .panel-toggle {
-  border-bottom: 1px solid var(--line-soft);
-}
-
-.monitor .panel-toggle:hover {
-  background: var(--hover-veil);
-}
-
-.monitor .panel-toggle:focus-visible {
-  outline: 1px solid var(--accent);
-  outline-offset: -2px;
-}
-
-.monitor .panel-chevron {
+.monitor .detail-chevron {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
@@ -473,21 +596,20 @@ html[data-theme='dark'] .monitor {
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
-  transform: rotate(90deg); /* 展开时朝下 */
   transition: transform 0.18s var(--ease-out-quart);
 }
 
-.monitor .panel-collapsed .panel-chevron {
-  transform: rotate(0deg); /* 收起时朝右 */
+.monitor .detail-section.is-open .detail-chevron {
+  transform: rotate(90deg);
 }
 
-.monitor .panel-title {
-  font-size: 14px;
+.monitor .detail-row-title {
+  font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
 }
 
-.monitor .panel-count {
+.monitor .detail-row-count {
   height: 18px;
   min-width: 18px;
   padding: 0 6px;
@@ -500,16 +622,40 @@ html[data-theme='dark'] .monitor {
   font-variant-numeric: tabular-nums;
 }
 
-.monitor .panel-toggle .panel-note {
+.monitor .detail-row-note {
   min-width: 0;
   margin-left: auto;
+  font-size: 11px;
+  color: var(--ink-dim);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.monitor .panel-body {
-  padding: 0 16px 14px;
+.monitor .detail-body {
+  padding: 0 2px 8px 26px;
+}
+
+.monitor .detail-hint {
+  padding: 10px 0 2px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+/* 组件状态表：行高放大一档，状态胶囊大一号 */
+.monitor .component-table th {
+  padding: 8px 10px;
+}
+
+.monitor .component-table td {
+  padding: 12px 10px;
+  font-size: 12.5px;
+}
+
+.monitor .component-table .status {
+  padding: 3px 10px;
+  font-size: 11px;
 }
 
 /* ---------- 页脚 ---------- */
@@ -776,7 +922,9 @@ html[data-theme='dark'] .monitor {
   }
 
   .monitor .monitor-split-status,
-  .monitor .monitor-split-overview {
+  .monitor .monitor-split-overview,
+  .monitor .monitor-split-runtime,
+  .monitor .monitor-split-components {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -798,9 +946,12 @@ html[data-theme='dark'] .monitor {
     max-width: 140px;
   }
 
-  /* 窄屏让折叠标题只留「箭头 + 标题 + 条数」，说明文字不挤占空间 */
-  .monitor .details-bar-note,
-  .monitor .panel-toggle .panel-note {
+  /* 窄屏：统计卡单列；折叠行只留「箭头 + 标题 + 条数」，说明文字不挤占空间 */
+  .monitor .detail-stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .monitor .detail-row-note {
     display: none;
   }
 }
