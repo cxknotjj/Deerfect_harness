@@ -51,6 +51,8 @@ export default defineConfig({
   ],
   server: {
     port: 80,
+    // 文档页直接 ?raw 打包仓库根下的 docs/（在 deerfect-web 之外），dev 需放行上一级
+    fs: { allow: ['..'] },
     proxy: {
       '/api': {
         target: 'http://localhost:8080',

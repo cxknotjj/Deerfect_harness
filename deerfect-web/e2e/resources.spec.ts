@@ -14,6 +14,7 @@ test.describe('资源面导航', () => {
       'chat',
       'knowledge',
       'memory',
+      'docs',
       'skills',
       'calendar',
       'mcp',
@@ -104,6 +105,32 @@ test.describe('资源面导航', () => {
     await page.goto('/nope')
     await expect(page.locator('.dash-title')).toHaveText('仪表盘')
     await expect(page).toHaveURL(/\/dashboard$/)
+  })
+
+  test('文档页：前端打包 docs、目录/搜索/内链与深链', async ({ page }) => {
+    await page.goto('/docs')
+    await expect(page.locator('.docs-doc-title')).toHaveText('javaHarness 文档导航')
+    await expect(page.locator('.docs-group-row')).toHaveCount(5)
+    await expect(page.locator('.docs-group-row').first()).toContainText('概览')
+    // 正文来自打包的 README：表格与「项目约束」段落
+    await expect(page.locator('.docs-md table').first()).toBeVisible()
+    await expect(page.locator('.docs-md')).toContainText('项目约束')
+
+    // 内链跳转：README → principal.md，地址栏同步到可刷新路径
+    await page.locator('.docs-md a').filter({ hasText: 'principal.md' }).click()
+    await expect(page).toHaveURL(/\/docs\/principal\.md$/)
+    await expect(page.locator('.docs-doc-title')).toHaveText('项目约束（Principal）')
+
+    // 搜索在本地扫描正文
+    await page.locator('.docs-search input').fill('飞书')
+    await expect(page.locator('.docs-hit').first()).toBeVisible()
+    await expect(page.locator('.docs-tree-head')).toContainText('搜索结果')
+
+    // 深链直接打开并刷新保持（前端打包，不依赖后端）
+    await page.goto('/docs/guides/setup.md')
+    await expect(page.locator('.docs-doc-title')).toHaveText('本地部署详解')
+    await page.reload()
+    await expect(page.locator('.docs-doc-title')).toHaveText('本地部署详解')
   })
 
   test('系统分组：设置页模型管理/外观/实例与安全页状态', async ({ page }) => {

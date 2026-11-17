@@ -18,6 +18,7 @@ type PageId =
   | 'chat'
   | 'knowledge'
   | 'memory'
+  | 'docs'
   | 'skills'
   | 'calendar'
   | 'mcp'
@@ -76,6 +77,12 @@ const NAV: NavItem[] = [
       'M4.5 6v6c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3V6',
       'M4.5 12v6c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3v-6',
     ],
+  },
+  {
+    id: 'docs',
+    label: '文档',
+    group: '核心',
+    paths: ['M7 3h7l4 4v14H7z', 'M14 3v4h4', 'M10 12h6', 'M10 16h6'],
   },
   {
     id: 'skills',

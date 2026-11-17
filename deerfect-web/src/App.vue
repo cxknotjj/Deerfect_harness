@@ -1,6 +1,6 @@
 /**
  * 应用骨架：全局导航（AppNav）+ 内容区。
- * - 页面：仪表盘 / 对话（含轨迹 tab）/ 知识库 / 记忆 / 技能 / 内容日历 / MCP / 监控，由导航切换
+ * - 页面：仪表盘 / 对话（含轨迹 tab）/ 知识库 / 记忆 / 文档 / 技能 / 内容日历 / MCP / 监控，由导航切换
  * - 资源页写操作通过 changed 事件刷新导航徽标计数；侧栏「新会话」直达 onCreate
  * - 会话联动：切换/新建会话 → showChat(id)；onMeta 回写 sessionId 并刷新列表首页
  * - Agent 选中变化 → bindAgent，成功/失败以顶栏轻提示呈现（3 秒消失）
@@ -8,7 +8,7 @@
  * - 占位交互（搜索/设置/反馈）统一顶栏轻提示「功能开发中」
  */
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onErrorCaptured, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onErrorCaptured, onMounted, ref, watch } from 'vue'
 import AppNav from './components/AppNav.vue'
 import DashboardView from './components/DashboardView.vue'
 import SessionList from './components/SessionList.vue'
@@ -18,6 +18,9 @@ import RoutingSelect from './components/RoutingSelect.vue'
 import type { RoutingMode } from './api/types'
 import TraceView from './components/TraceView.vue'
 import MonitorView from './components/MonitorView.vue'
+
+// 文档正文随前端打包（约 700KB Markdown），异步加载，不拖慢首屏
+const DocsView = defineAsyncComponent(() => import('./components/DocsView.vue'))
 import KnowledgeView from './components/KnowledgeView.vue'
 import MemoryView from './components/MemoryView.vue'
 import SkillView from './components/SkillView.vue'
@@ -41,6 +44,7 @@ type PageId =
   | 'chat'
   | 'knowledge'
   | 'memory'
+  | 'docs'
   | 'skills'
   | 'calendar'
   | 'mcp'
@@ -90,6 +94,7 @@ const PAGES: PageId[] = [
   'chat',
   'knowledge',
   'memory',
+  'docs',
   'skills',
   'calendar',
   'mcp',
@@ -101,19 +106,32 @@ const PAGES: PageId[] = [
 /** 部署在子路径时（Vite base）拼前缀；根路径为空串 */
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, '')
 
-function parseRoute(): { page: PageId; tab: 'chat' | 'trace' } {
+function parseRoute(): { page: PageId; tab: 'chat' | 'trace'; docPath: string } {
   // 旧 hash 链接优先（#/chat/trace），其次才是 pathname
   const legacy = window.location.hash.startsWith('#/') ? window.location.hash.slice(1) : ''
   const raw = (legacy || window.location.pathname)
     .slice(BASE.length)
     .replace(/^\/+|\/+$/g, '')
-  const [head, sub] = raw.split('/')
+  const [head, ...rest] = raw.split('/')
   const page = (PAGES as string[]).includes(head) ? (head as PageId) : 'dashboard'
-  return { page, tab: page === 'chat' && sub === 'trace' ? 'trace' : 'chat' }
+  // 文档页支持 /docs/guides/setup.md 这种深链；解不开的百分号编码按原样保留
+  const docPath = page === 'docs'
+    ? rest.map((part) => {
+        try {
+          return decodeURIComponent(part)
+        } catch {
+          return part
+        }
+      }).join('/')
+    : ''
+  return { page, tab: page === 'chat' && rest[0] === 'trace' ? 'trace' : 'chat', docPath }
 }
 
-function routePath(target: PageId, tab: 'chat' | 'trace'): string {
-  const path = target === 'chat' && tab === 'trace' ? '/chat/trace' : `/${target}`
+function routePath(target: PageId, tab: 'chat' | 'trace', docPath = ''): string {
+  let path = target === 'chat' && tab === 'trace' ? '/chat/trace' : `/${target}`
+  if (target === 'docs' && docPath) {
+    path += `/${docPath.split('/').filter(Boolean).map(encodeURIComponent).join('/')}`
+  }
   return `${BASE}${path}`
 }
 
@@ -125,9 +143,17 @@ const page = ref<PageId>(initialRoute.page)
 /** 对话页内的分段：对话 / 轨迹（轨迹按会话，跟随会话列表） */
 const chatTab = ref<'chat' | 'trace'>(initialRoute.tab)
 
-/** 写 URL：切页用 push（可后退），对话内 tab 用 replace（不污染历史） */
-function syncRoute(target: PageId, tab: 'chat' | 'trace', replace = false): void {
-  const next = routePath(target, tab)
+/** 文档页当前打开的文档（相对 docs/ 的路径），写进地址栏便于分享/刷新 */
+const docsPath = ref(initialRoute.docPath)
+
+/** 写 URL：切页用 push（可后退），对话内 tab 与文档选择用 replace（不污染历史） */
+function syncRoute(
+  target: PageId,
+  tab: 'chat' | 'trace',
+  replace = false,
+  docPath = '',
+): void {
+  const next = routePath(target, tab, target === 'docs' ? docPath : '')
   if (window.location.pathname === next && window.location.hash === '') return
   if (replace) window.history.replaceState(null, '', next)
   else window.history.pushState(null, '', next)
@@ -135,10 +161,14 @@ function syncRoute(target: PageId, tab: 'chat' | 'trace', replace = false): void
 
 // 规范化地址栏：根路径/非法路径/旧 hash 都改写成 /当前页，避免刷新后地址空着或带 #
 if (
-  window.location.pathname !== routePath(initialRoute.page, initialRoute.tab)
+  window.location.pathname !== routePath(initialRoute.page, initialRoute.tab, initialRoute.docPath)
   || window.location.hash !== ''
 ) {
-  window.history.replaceState(null, '', routePath(initialRoute.page, initialRoute.tab))
+  window.history.replaceState(
+    null,
+    '',
+    routePath(initialRoute.page, initialRoute.tab, initialRoute.docPath),
+  )
 }
 
 /**
@@ -274,9 +304,17 @@ function clearTip(): void {
 function goPage(next: PageId): void {
   page.value = next
   if (next === 'chat') chatTab.value = 'chat'
-  syncRoute(next, chatTab.value)
+  // 进入文档页走 /docs，由页面恢复上次阅读；点具体文档后再把路径写进地址栏
+  if (next === 'docs') docsPath.value = ''
+  syncRoute(next, chatTab.value, false, docsPath.value)
   navOpen.value = false
   clearTip()
+}
+
+/** 文档选择：replace 历史，地址栏变成 /docs/guides/setup.md 可刷新/分享 */
+function onDocSelect(path: string): void {
+  docsPath.value = path
+  syncRoute('docs', 'chat', true, path)
 }
 
 /** 对话页内 tab：切页内视图用 replace，避免每次点 tab 都压一条历史 */
@@ -343,6 +381,7 @@ const PAGE_TITLES: Record<PageId, string> = {
   chat: '对话',
   knowledge: '知识库',
   memory: '记忆',
+  docs: '文档',
   skills: '技能',
   calendar: '内容日历',
   mcp: 'MCP',
@@ -439,7 +478,8 @@ function onPopState(): void {
   const route = parseRoute()
   page.value = route.page
   chatTab.value = route.tab
-  const canonical = routePath(route.page, route.tab)
+  docsPath.value = route.docPath
+  const canonical = routePath(route.page, route.tab, route.docPath)
   if (window.location.pathname !== canonical || window.location.hash !== '') {
     window.history.replaceState(null, '', canonical)
   }
@@ -583,6 +623,7 @@ function downloadSessionLog(): void {
 
       <DashboardView v-if="page === 'dashboard'" />
 
+      <DocsView v-else-if="page === 'docs'" :initial-path="docsPath" @select="onDocSelect" />
       <KnowledgeView v-else-if="page === 'knowledge'" @changed="loadNavCounts" />
       <MemoryView v-else-if="page === 'memory'" @changed="loadNavCounts" />
       <SkillView v-else-if="page === 'skills'" />
