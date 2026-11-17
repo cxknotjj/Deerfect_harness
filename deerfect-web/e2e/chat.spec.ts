@@ -61,36 +61,41 @@ test.describe('mock 模式冒烟', () => {
     await expect(page.locator('.trace-bar-fill').first()).toBeVisible()
   })
 
-  test('监控页：全渠道 KPI、渠道分布与调用明细', async ({ page }) => {
+  test('监控页：概览/运行时/组件/明细四个 tab', async ({ page }) => {
     await page.goto('/')
     await page.getByTestId('nav-monitor').click()
 
-    await expect(page.locator('.kpi-grid .kpi').first()).toBeVisible()
+    // 概览：6 KPI + [每小时调用量 | 资源占用] + 渠道分布 + 页脚
+    await expect(page.locator('.monitor-tab')).toHaveCount(4)
+    await expect(page.locator('.monitor-tab').first()).toHaveText('概览')
+    await expect(page.locator('.kpi-grid .kpi')).toHaveCount(6)
     await expect(page.locator('.kpi-label').first()).toHaveText('LLM 调用')
+    await expect(page.locator('.chart .bar-col').first()).toBeVisible()
+    await expect(page.getByRole('heading', { name: '资源占用' })).toBeVisible()
+    await expect(page.locator('.usage-track')).toHaveCount(2)
+    await expect(page.getByRole('heading', { name: '渠道分布' })).toBeVisible()
+    await expect(page.locator('.channel-filter')).toHaveCount(3)
+    await expect(page.locator('.channel-filter').first()).toHaveText('QQ')
+    await expect(page.locator('.monitor-foot')).toContainText('更新于')
+    // 运行时指标不在概览里，切 tab 才渲染
+    await expect(page.locator('.runtime-item')).toHaveCount(0)
 
-    // Micrometer 运行时指标（与 /actuator/prometheus 同源）：SSE / LLM 调用 / Tokens /
-    // 首 token / 耗时 / 路径决策 / Graph 降级 / TTS / 活跃线程 共 9 项，5 列分隔线网格
+    // 运行时：Micrometer 9 项（SSE / LLM / Tokens / 首 token / 耗时 / 路由 / 降级 / TTS / 线程）
+    await page.getByTestId('monitor-tab-runtime').click()
     await expect(page.getByText('运行时指标')).toBeVisible()
     await expect(page.locator('.runtime-item')).toHaveCount(9)
     await expect(page.locator('.runtime-item').first()).toContainText('SSE 活跃连接')
-    // 双栏排版：组件状态+资源占用、渠道分布+每小时调用量
-    await expect(page.locator('.monitor-split')).toHaveCount(2)
-    await expect(page.getByRole('heading', { name: '资源占用' })).toBeVisible()
-    await expect(page.locator('.usage-track')).toHaveCount(2)
-    await expect(page.locator('.monitor-foot')).toContainText('更新于')
 
-    // 组件状态：NapCat / Docker / MCP server
+    // 组件与资源：NapCat / Docker / MCP + 资源占用
+    await page.getByTestId('monitor-tab-components').click()
     await expect(page.getByRole('heading', { name: '组件状态' })).toBeVisible()
     await expect(page.locator('.component-row')).toHaveCount(4)
     await expect(page.locator('.component-row').first()).toContainText('NapCat / QQ')
     await expect(page.locator('.component-row').first()).toContainText('可用')
+    await expect(page.locator('.usage-track')).toHaveCount(2)
 
-    // 渠道分布覆盖 QQ / Web / CLI，且可点击筛选
-    await expect(page.getByText('渠道分布')).toBeVisible()
-    await expect(page.locator('.channel-filter')).toHaveCount(3)
-    await expect(page.locator('.channel-filter').first()).toHaveText('QQ')
-
-    // 活跃会话与 LLM 明细表带渠道列
+    // 明细：活跃会话与调用表带渠道列
+    await page.getByTestId('monitor-tab-details').click()
     await expect(page.getByText('活跃会话', { exact: true })).toBeVisible()
     await expect(page.locator('.channel-badge').first()).toBeVisible()
     await expect(page.locator('.llm-call-row').first()).toBeVisible()

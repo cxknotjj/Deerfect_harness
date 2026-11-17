@@ -376,15 +376,17 @@ async function monitor(hours = 24, agent = '', channel = ''): Promise<MonitorSna
       const pad = (v: number): string => String(v).padStart(2, '0')
       const end = new Date()
       end.setMinutes(0, 0, 0)
+      // 对齐真实接口：只返回有调用的小时（7d 约 8 个桶），避免 mock 把图表画成一片细柱
+      const step = Math.max(1, Math.round(size / 8))
       return Array.from({ length: size }, (_, idx) => {
         const d = new Date(end.getTime() - (size - 1 - idx) * 3_600_000)
-        const wave = (idx * 7 + 3) % 11
-        const calls = wave < 3 ? 2 : wave < 6 ? 1 : 0
+        const hasData = idx % step === 0
+        const calls = hasData ? (idx % 2 === 0 ? 2 : 1) : 0
         return {
           bucket: `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:00`,
           calls,
-          tokens: calls === 0 ? 0 : 420 + wave * 130,
-          avgTtftMs: calls === 0 ? 0 : 900 + wave * 160,
+          tokens: calls === 0 ? 0 : 420 + (idx % 5) * 130,
+          avgTtftMs: calls === 0 ? 0 : 900 + (idx % 5) * 160,
         }
       })
     })(),

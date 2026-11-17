@@ -1,25 +1,39 @@
 <script setup lang="ts">
 /**
- * 运行监控：全部渠道（Web / CLI / QQ）的时间窗 KPI + 渠道分布 + 每小时调用量 +
- * 活跃会话 + 最近 LLM/工具调用。
+ * 运行监控：全部渠道（Web / CLI / QQ）的时间窗观测视图。
  * 数据来自 GET /api/monitor；15 秒自动刷新可关，切换时间窗/Agent/渠道立即重拉。
  * 仅展示观测结果，不提供修改入口。
  *
- * 视图只负责取数与筛选；渲染拆成五个子组件（指标区 / 资源占用 / 分布 / 会话明细 /
- * 调用轨迹），样式统一在 styles/monitor.css（.monitor 作用域）。
- * 排版按控制台参考图：6 张 KPI 一行 → 运行时指标分隔线网格 → 组件状态/资源占用双栏
- * → 渠道分布/每小时调用量双栏 → 明细区（活跃会话 / LLM 调用 / 工具调用，三张表
- * 各自可折叠，另有「全部收起/展开」）→ 「更新于」页脚。
+ * 2026-11-17 按参考图改为一级 tab：
+ *   概览   → 6 KPI + [每小时调用量 | 资源占用] + 渠道分布
+ *   运行时 → Micrometer 累计指标（5 列分隔线网格）
+ *   组件与资源 → 组件状态 + 资源占用
+ *   明细   → 活跃会话 / LLM 调用 / 工具调用（三表可折叠 + 全部收起/展开）
+ * tab 选择写 localStorage，刷新/切页后保持；数据仍只拉一次，切 tab 不重请求。
  */
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { api } from '../api'
 import type { MonitorSnapshot } from '../api'
 import { useAgents } from '../composables/useAgents'
 import { channelLabel, fmtClock } from '../utils/monitorFormat'
-import MonitorSummary from './monitor/MonitorSummary.vue'
-import MonitorBreakdown from './monitor/MonitorBreakdown.vue'
+import MonitorKpi from './monitor/MonitorKpi.vue'
+import MonitorTrend from './monitor/MonitorTrend.vue'
+import MonitorChannels from './monitor/MonitorChannels.vue'
+import MonitorRuntime from './monitor/MonitorRuntime.vue'
+import MonitorComponents from './monitor/MonitorComponents.vue'
+import MonitorResources from './monitor/MonitorResources.vue'
 import MonitorSessions from './monitor/MonitorSessions.vue'
 import MonitorRecentCalls from './monitor/MonitorRecentCalls.vue'
+
+type MonitorTab = 'overview' | 'runtime' | 'components' | 'details'
+const TABS: { key: MonitorTab; label: string }[] = [
+  { key: 'overview', label: '概览' },
+  { key: 'runtime', label: '运行时' },
+  { key: 'components', label: '组件与资源' },
+  { key: 'details', label: '明细' },
+]
+const TAB_STORAGE_KEY = 'monitor-tab'
+const tab = ref<MonitorTab>('overview')
 
 /** 默认 7 天：与控制台参考图同窗口，落地即可看到完整的渠道分布与会话明细 */
 const hours = ref(168)
@@ -43,6 +57,11 @@ const hoursLabel = computed(() => {
   if (hours.value === 168) return '7 天'
   return `${hours.value} 小时`
 })
+
+function pickTab(next: MonitorTab): void {
+  tab.value = next
+  localStorage.setItem(TAB_STORAGE_KEY, next)
+}
 
 /* ---------- 明细区折叠 ----------
    三张长表默认全展开；开关写 localStorage，切页/刷新后仍保留用户的选择。
@@ -107,8 +126,12 @@ onMounted(() => {
         if (typeof saved[key] === 'boolean') detailsOpen[key] = saved[key]!
       }
     }
+    const savedTab = localStorage.getItem(TAB_STORAGE_KEY)
+    if (savedTab && TABS.some((t) => t.key === savedTab)) {
+      tab.value = savedTab as MonitorTab
+    }
   } catch {
-    /* 本地偏好损坏时按默认全展开，不阻塞页面 */
+    /* 本地偏好损坏时按默认值，不阻塞页面 */
   }
   void loadAgents()
   void load()
@@ -161,37 +184,69 @@ onBeforeUnmount(() => {
       </div>
     </header>
 
+    <div class="monitor-tabs" role="tablist" aria-label="监控视图">
+      <button
+        v-for="t in TABS"
+        :key="t.key"
+        class="monitor-tab"
+        :class="{ 'is-active': tab === t.key }"
+        type="button"
+        role="tab"
+        :aria-selected="tab === t.key"
+        :data-testid="`monitor-tab-${t.key}`"
+        @click="pickTab(t.key)"
+      >{{ t.label }}</button>
+    </div>
+
     <div v-if="error" class="monitor-error" role="alert">{{ error }}</div>
 
     <template v-if="data">
-      <MonitorSummary :data="data" />
-      <MonitorBreakdown :data="data" :channel="channel" @filter="channel = $event" />
+      <!-- 概览：KPI → [每小时调用量 | 资源占用] → 渠道分布 -->
+      <template v-if="tab === 'overview'">
+        <MonitorKpi :data="data" />
+        <div class="monitor-split monitor-split-overview">
+          <MonitorTrend :data="data" />
+          <MonitorResources :data="data" />
+        </div>
+        <MonitorChannels :data="data" :channel="channel" @filter="channel = $event" />
+      </template>
 
-      <!-- 明细区：三张长表各自可折叠，也可一键全部收起/展开 -->
-      <div class="details-bar">
-        <span class="details-bar-title">明细数据</span>
-        <span class="details-bar-note">活跃会话 · LLM 调用 · 工具调用</span>
-        <button
-          class="details-toggle-all"
-          type="button"
-          data-testid="details-toggle-all"
-          :aria-expanded="allDetailsOpen"
-          @click="toggleAllDetails"
-        >{{ allDetailsOpen ? '全部收起' : '全部展开' }}</button>
+      <!-- 运行时：Micrometer 累计指标 -->
+      <MonitorRuntime v-else-if="tab === 'runtime'" :data="data" />
+
+      <!-- 组件与资源 -->
+      <div v-else-if="tab === 'components'" class="monitor-split monitor-split-status">
+        <MonitorComponents :data="data" />
+        <MonitorResources :data="data" />
       </div>
 
-      <MonitorSessions
-        :data="data"
-        :open="detailsOpen.sessions"
-        @toggle="setDetail('sessions', !detailsOpen.sessions)"
-      />
-      <MonitorRecentCalls
-        :data="data"
-        :llm-open="detailsOpen.llm"
-        :tools-open="detailsOpen.tools"
-        @toggle-llm="setDetail('llm', !detailsOpen.llm)"
-        @toggle-tools="setDetail('tools', !detailsOpen.tools)"
-      />
+      <!-- 明细：三张长表各自可折叠，也可一键全部收起/展开 -->
+      <template v-else>
+        <div class="details-bar">
+          <span class="details-bar-title">明细数据</span>
+          <span class="details-bar-note">活跃会话 · LLM 调用 · 工具调用</span>
+          <button
+            class="details-toggle-all"
+            type="button"
+            data-testid="details-toggle-all"
+            :aria-expanded="allDetailsOpen"
+            @click="toggleAllDetails"
+          >{{ allDetailsOpen ? '全部收起' : '全部展开' }}</button>
+        </div>
+
+        <MonitorSessions
+          :data="data"
+          :open="detailsOpen.sessions"
+          @toggle="setDetail('sessions', !detailsOpen.sessions)"
+        />
+        <MonitorRecentCalls
+          :data="data"
+          :llm-open="detailsOpen.llm"
+          :tools-open="detailsOpen.tools"
+          @toggle-llm="setDetail('llm', !detailsOpen.llm)"
+          @toggle-tools="setDetail('tools', !detailsOpen.tools)"
+        />
+      </template>
 
       <footer class="monitor-foot">
         更新于 {{ updatedAt }} · {{ auto ? '每 15 秒自动刷新' : '自动刷新已关闭' }}

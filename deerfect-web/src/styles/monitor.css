@@ -18,6 +18,16 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+  /* 与仪表盘同一画布色，不再自造渐变 */
+  background-color: var(--bg-canvas);
+}
+
+/* 夜间保留全站图纸网格（与 .dashboard 一致） */
+html[data-theme='dark'] .monitor {
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 24px 24px;
 }
 
 /* 纵向滚动容器里的子项不能被 flex 压缩：折叠面板带 overflow:hidden 后
@@ -25,6 +35,7 @@
 .monitor > * {
   flex-shrink: 0;
 }
+
 
 .monitor .monitor-head {
   display: flex;
@@ -104,6 +115,49 @@
   cursor: default;
 }
 
+/* ---------- 一级 tab：概览 / 运行时 / 组件与资源 / 明细 ---------- */
+.monitor .monitor-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--line-soft);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.monitor .monitor-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.monitor .monitor-tab {
+  position: relative;
+  height: 34px;
+  padding: 0 12px;
+  color: var(--ink-dim);
+  font-size: 13px;
+  white-space: nowrap;
+  transition: color 0.15s;
+}
+
+.monitor .monitor-tab:hover {
+  color: var(--ink);
+}
+
+.monitor .monitor-tab.is-active {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.monitor .monitor-tab.is-active::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
 .monitor .monitor-error {
   padding: 10px 14px;
   border: 1px solid var(--accent-warm);
@@ -139,10 +193,35 @@
 }
 
 .monitor .kpi-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-dim);
+}
+
+/* 指标卡小图标：与参考图一致，label 左侧一枚淡底方块 */
+.monitor .kpi-icon {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--accent-lift);
+  color: var(--accent);
+}
+
+.monitor .kpi-icon svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .monitor .kpi-value {
@@ -246,7 +325,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ---------- 双栏区：组件状态/资源占用、渠道分布/每小时调用量 ---------- */
+/* ---------- 双栏区：概览（趋势图/资源占用）、组件与资源 ---------- */
 .monitor .monitor-split {
   display: grid;
   gap: 14px;
@@ -257,8 +336,8 @@
   grid-template-columns: minmax(0, 1.8fr) minmax(280px, 1fr);
 }
 
-.monitor .monitor-split-trend {
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+.monitor .monitor-split-overview {
+  grid-template-columns: minmax(0, 1.85fr) minmax(300px, 1fr);
 }
 
 /* ---------- 资源占用 ---------- */
@@ -445,15 +524,18 @@
 .monitor .chart {
   display: flex;
   align-items: flex-end;
-  gap: 6px;
-  height: 120px;
+  justify-content: space-between;
+  gap: 12px;
+  height: 200px;
   padding-top: 8px;
-  overflow-x: auto; /* 7d 窗口有 168 个小时桶，超宽时可横向滚动 */
+  overflow-x: auto; /* 桶多时可横向滚动 */
   scrollbar-width: thin;
 }
 
+/* 柱子限宽 + 两端对齐：十几个桶时不会被拉成一根根宽条 */
 .monitor .bar-col {
-  flex: 1;
+  flex: 1 1 0;
+  max-width: 36px;
   min-width: 10px;
   display: flex;
   flex-direction: column;
@@ -465,7 +547,7 @@
 
 .monitor .bar-track {
   width: 100%;
-  height: 92px;
+  height: 158px;
   display: flex;
   align-items: flex-end;
 }
@@ -473,7 +555,7 @@
 .monitor .bar {
   width: 100%;
   min-height: 2px;
-  border-radius: 4px 4px 2px 2px;
+  border-radius: 5px 5px 2px 2px;
   background: linear-gradient(180deg, var(--accent), var(--accent-lift-strong));
   transition: height 0.2s var(--ease-out-quart);
 }
@@ -482,6 +564,11 @@
   font-size: 10px;
   color: var(--ink-dim);
   white-space: nowrap;
+}
+
+/* 首个刻度左对齐柱子，否则标签居中会超出滚动容器左边界被裁掉半截 */
+.monitor .bar-col:first-child .bar-label {
+  align-self: flex-start;
 }
 
 .monitor .table-wrap {
@@ -522,6 +609,16 @@
 .monitor .num {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+}
+
+/* 渠道分布是概览主表：行高放大一档，与参考图的表格密度一致 */
+.monitor .channel-table th {
+  padding: 8px 10px;
+}
+
+.monitor .channel-table td {
+  padding: 11px 10px;
+  font-size: 12.5px;
 }
 
 .monitor .ellipsis {
@@ -679,7 +776,7 @@
   }
 
   .monitor .monitor-split-status,
-  .monitor .monitor-split-trend {
+  .monitor .monitor-split-overview {
     grid-template-columns: minmax(0, 1fr);
   }
 }
