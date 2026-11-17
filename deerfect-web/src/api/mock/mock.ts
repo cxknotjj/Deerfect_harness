@@ -598,6 +598,13 @@ let scheduleRows: ScheduleItem[] = [
 
 const mockCapabilities: CapabilityEntry[] = [
   {
+    pack: 'text_to_speech',
+    source: 'core',
+    location: 'TextToSpeechTools',
+    tools: ['text_to_speech'],
+    state: 'ready',
+  },
+  {
     pack: 'tavily',
     source: 'mcp:http',
     location: 'http://localhost:8080/mcp',

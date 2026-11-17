@@ -141,6 +141,45 @@ test.describe('资源面导航', () => {
     await expect(page.locator('.settings-row').filter({ hasText: 'APP_PASSWORD' })).toBeVisible()
   })
 
+  test('系统设置：主题/字号/密度即时生效并保存', async ({ page }) => {
+    await page.goto('/')
+    await page.getByTestId('nav-settings').click()
+    await page.getByTestId('settings-nav-system').click()
+    await expect(page.locator('.setting-group')).toHaveCount(3)
+    await expect(page.locator('.setting-group-title').first()).toContainText('界面')
+
+    // 主题跟随系统：模式写入本机
+    await page.getByRole('group', { name: '主题外观' }).getByRole('button', { name: '跟随系统' }).click()
+    // 字号 110%：zoom 即时生效
+    await page.getByRole('group', { name: '字号缩放' }).getByRole('button', { name: '110%' }).click()
+    expect(await page.evaluate(() => document.documentElement.style.zoom)).toBe('1.1')
+
+    // 保存后落 localStorage；恢复默认回到 100%
+    await page.locator('.settings-main-actions').getByRole('button', { name: '保存设置' }).click()
+    expect(await page.evaluate(() => localStorage.getItem('ui-zoom'))).toBe('1.1')
+    expect(await page.evaluate(() => localStorage.getItem('web-theme-mode'))).toBe('system')
+
+    await page.locator('.settings-main-actions').getByRole('button', { name: '恢复默认' }).click()
+    expect(await page.evaluate(() => document.documentElement.style.zoom)).toBe('')
+    expect(await page.evaluate(() => localStorage.getItem('ui-zoom'))).toBe('1')
+  })
+
+  test('语音合成：Edge TTS 状态与试听参数保存', async ({ page }) => {
+    await page.goto('/')
+    await page.getByTestId('nav-settings').click()
+    await page.getByTestId('settings-nav-tts').click()
+
+    await expect(page.locator('.tts-card')).toHaveCount(2)
+    await expect(page.locator('.tts-card').first()).toContainText('Edge TTS')
+    await expect(page.locator('.tts-card').first()).toContainText('已接入')
+    await expect(page.locator('.tts-card').first()).toContainText('TextToSpeechTools')
+
+    // 语音参数保存在本机
+    await page.getByRole('group', { name: '语速' }).getByRole('button', { name: '1.2×' }).click()
+    const stored = await page.evaluate(() => localStorage.getItem('ui-tts-prefs'))
+    expect(stored).toContain('"rate":"1.2"')
+  })
+
   test('旧 hash 书签就地改写为干净路径', async ({ page }) => {
     // 整页加载 #/mcp（模拟旧书签），应用启动时把地址改成 /mcp
     await page.goto('/#/mcp')

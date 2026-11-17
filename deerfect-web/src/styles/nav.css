@@ -566,3 +566,20 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+
+/* ---------- 侧栏密度（设置·系统设置） ----------
+   紧凑模式压缩条目高度与分组留白，一屏多看 3-4 项；由 <html data-density> 驱动 */
+html[data-density='compact'] .nav-item {
+  height: 32px;
+  margin-bottom: 2px;
+  font-size: 13px;
+}
+
+html[data-density='compact'] .nav-group-label {
+  padding-top: 8px;
+  padding-bottom: 5px;
+}
+
+html[data-density='compact'] .nav-workspace {
+  margin-bottom: 6px;
+}

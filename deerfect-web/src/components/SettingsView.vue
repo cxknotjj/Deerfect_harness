@@ -12,14 +12,17 @@
 import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
 import type { LlmModelView, LlmProviderUpsert, LlmProviderView } from '../api'
+import SystemSettingsPanel from './settings/SystemSettingsPanel.vue'
+import TtsSettingsPanel from './settings/TtsSettingsPanel.vue'
 
-defineProps<{ theme: 'dark' | 'light' }>()
+defineProps<{ theme: 'dark' | 'light'; themeMode: 'light' | 'dark' | 'system' }>()
 const emit = defineEmits<{
   'set-theme': [theme: 'dark' | 'light']
+  'set-theme-mode': [mode: 'light' | 'dark' | 'system']
   navigate: [page: 'security' | 'monitor' | 'skills']
 }>()
 
-type TabKey = 'models' | 'appearance' | 'prefs' | 'instance'
+type TabKey = 'models' | 'tts' | 'system' | 'appearance' | 'prefs' | 'instance'
 type NavKey = TabKey | 'security' | 'monitor' | 'skills'
 interface NavItem {
   key: NavKey
@@ -37,11 +40,24 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
         label: '模型管理',
         icon: ['M12 3 3 8l9 5 9-5-9-5z', 'M3 8v8l9 5 9-5V8', 'M12 13v8'],
       },
+      {
+        key: 'tts',
+        label: '语音合成',
+        icon: ['M11 5 6 9H3v6h3l5 4z', 'M16 9a4 4 0 0 1 0 6', 'M19 6a8 8 0 0 1 0 12'],
+      },
     ],
   },
   {
     label: '界面',
     items: [
+      {
+        key: 'system',
+        label: '系统设置',
+        icon: [
+          'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+          'M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z',
+        ],
+      },
       {
         key: 'appearance',
         label: '外观',
@@ -76,6 +92,8 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
 
 const TABS: Record<TabKey, { title: string; sub: string }> = {
   models: { title: '模型管理', sub: '配置模型提供商、凭证引用和模型列表' },
+  tts: { title: '语音合成', sub: '文本转语音服务与默认语音参数' },
+  system: { title: '系统设置', sub: '界面偏好、运行时行为与本地数据管理' },
   appearance: { title: '外观', sub: '主题保存在本机 localStorage，不随账号同步' },
   prefs: { title: '本机偏好', sub: '只影响这个浏览器，不会写回服务端' },
   instance: { title: '实例信息', sub: '来自正在运行的后端接口，— 表示该项不可用' },
@@ -83,6 +101,9 @@ const TABS: Record<TabKey, { title: string; sub: string }> = {
 
 const tab = ref<TabKey>('models')
 const current = computed(() => TABS[tab.value])
+/** 系统设置 / 语音合成面板的保存、试听入口在页头右侧，通过 ref 调用 */
+const systemPanel = ref<InstanceType<typeof SystemSettingsPanel> | null>(null)
+const ttsPanel = ref<InstanceType<typeof TtsSettingsPanel> | null>(null)
 
 function onNav(item: NavItem): void {
   if (item.link) {
@@ -322,13 +343,23 @@ onMounted(() => {
           <h2>{{ current.title }}</h2>
           <p>{{ current.sub }}</p>
         </div>
-        <button
-          v-if="tab === 'models'"
-          class="res-btn"
-          type="button"
-          :disabled="llmLoading"
-          @click="loadLlm"
-        >{{ llmLoading ? '读取中…' : '刷新' }}</button>
+        <div class="settings-main-actions">
+          <template v-if="tab === 'models'">
+            <button
+              class="res-btn"
+              type="button"
+              :disabled="llmLoading"
+              @click="loadLlm"
+            >{{ llmLoading ? '读取中…' : '刷新' }}</button>
+          </template>
+          <template v-else-if="tab === 'system'">
+            <button class="res-btn" type="button" @click="systemPanel?.restoreDefaults()">恢复默认</button>
+            <button class="res-btn res-btn-primary" type="button" @click="systemPanel?.save()">保存设置</button>
+          </template>
+          <template v-else-if="tab === 'tts'">
+            <button class="res-btn" type="button" @click="ttsPanel?.speak()">试听示例</button>
+          </template>
+        </div>
       </header>
 
       <p v-if="tab === 'models' && llmError" class="res-alert" role="alert">{{ llmError }}</p>
@@ -461,6 +492,17 @@ onMounted(() => {
           </article>
         </div>
       </template>
+
+      <!-- 系统设置：界面 / 运行时 / 本地数据 -->
+      <SystemSettingsPanel
+        v-else-if="tab === 'system'"
+        ref="systemPanel"
+        :theme-mode="themeMode"
+        @set-theme-mode="emit('set-theme-mode', $event)"
+      />
+
+      <!-- 语音合成：真实服务状态 + 本机试听参数 -->
+      <TtsSettingsPanel v-else-if="tab === 'tts'" ref="ttsPanel" />
 
       <!-- 外观 -->
       <template v-else-if="tab === 'appearance'">

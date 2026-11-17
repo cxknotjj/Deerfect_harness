@@ -33,6 +33,7 @@ import { useChat } from './composables/useChat'
 import { useAgents } from './composables/useAgents'
 import { useOfflineGate, useUnreadBadge } from './composables/pwa'
 import { reportGlobalError, useGlobalError } from './composables/globalError'
+import { UI_KEYS, readBool, type ThemeMode } from './utils/uiPrefs'
 
 type PageId =
   | 'dashboard'
@@ -66,6 +67,12 @@ const {
   renameIfPlaceholder,
   remove: removeSession,
 } = useSessions((msg) => showTip(msg, true))
+
+/** 记住最近会话：开启「启动时恢复上次会话」时，切会话即写本机，启动后回选 */
+watch(currentSessionId, (id) => {
+  if (!readBool(UI_KEYS.restoreSession, true)) return
+  if (id) localStorage.setItem(UI_KEYS.lastSession, id)
+})
 
 /** 显式执行路径(auto=服务端判定;agentic/graph 随每轮请求下发覆盖) */
 const selectedRouting = ref<RoutingMode>('auto')
@@ -233,7 +240,12 @@ onMounted(async () => {
   } catch {
     /* 探测失败不阻塞(如反代短暂抖动):交由业务请求自身的 401 钩子兜底 */
   }
-  void loadFirst()
+  // 启动恢复上次会话：列表到位后再回选，避免选中一个不在列表里的 id
+  void loadFirst().then(() => {
+    if (!readBool(UI_KEYS.restoreSession, true)) return
+    const saved = localStorage.getItem(UI_KEYS.lastSession)
+    if (saved && sessions.value.some((s) => s.id === saved)) selectSession(saved)
+  })
   void loadAgents()
   void loadNavCounts()
 })
@@ -433,22 +445,66 @@ function onPopState(): void {
 }
 window.addEventListener('popstate', onPopState)
 
+/** 自动检查更新：开关打开时每 30 分钟向 Service Worker 要一次更新（dev 无 SW 时静默跳过） */
+let updateTimer: number | undefined
+function scheduleAutoUpdate(): void {
+  if (updateTimer !== undefined) window.clearInterval(updateTimer)
+  updateTimer = undefined
+  if (!readBool(UI_KEYS.autoUpdate, true)) return
+  updateTimer = window.setInterval(() => {
+    void navigator.serviceWorker?.getRegistration().then((reg) => reg?.update())
+  }, 30 * 60_000)
+}
+scheduleAutoUpdate()
+window.addEventListener('ui-prefs-changed', scheduleAutoUpdate)
+
 onBeforeUnmount(() => {
   narrowMql.removeEventListener('change', onNarrowChange)
   window.removeEventListener('keydown', onGlobalKeydown)
   window.removeEventListener('popstate', onPopState)
+  window.removeEventListener('ui-prefs-changed', scheduleAutoUpdate)
+  themeMq.removeEventListener('change', onSystemThemeChange)
+  if (updateTimer !== undefined) window.clearInterval(updateTimer)
   stopOfflineGate()
   stopUnreadBadge()
 })
 
-/** 主题:夜间(Telemetry Dark,默认)⇄ 日间(DeepSeek 蓝白);导航底部两段式控件直接指定目标值 */
-const theme = ref<'dark' | 'light'>(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark')
-function setTheme(next: 'dark' | 'light'): void {
+/**
+ * 主题：夜间(Telemetry Dark) / 日间(DeepSeek 蓝白) / 跟随系统。
+ * theme 是实际生效值（data-theme），themeMode 是用户选择（含 system），
+ * system 模式下监听系统配色变化即时切换。
+ */
+function initialThemeMode(): ThemeMode {
+  const mode = localStorage.getItem(UI_KEYS.themeMode)
+  if (mode === 'light' || mode === 'dark' || mode === 'system') return mode
+  return localStorage.getItem('web-theme') === 'light' ? 'light' : 'dark'
+}
+const themeMq = window.matchMedia('(prefers-color-scheme: dark)')
+const themeMode = ref<ThemeMode>(initialThemeMode())
+const theme = ref<'light' | 'dark'>(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark')
+
+function applyTheme(next: 'light' | 'dark'): void {
   theme.value = next
-  localStorage.setItem('web-theme', next)
   document.documentElement.dataset.theme = next
   document.documentElement.style.colorScheme = next
 }
+
+function setThemeMode(mode: ThemeMode): void {
+  themeMode.value = mode
+  localStorage.setItem(UI_KEYS.themeMode, mode)
+  if (mode !== 'system') localStorage.setItem('web-theme', mode)
+  applyTheme(mode === 'system' ? (themeMq.matches ? 'dark' : 'light') : mode)
+}
+
+/** 导航底部两段式控件直接指定目标值（等价于显式的 light/dark 模式） */
+function setTheme(next: 'dark' | 'light'): void {
+  setThemeMode(next)
+}
+
+function onSystemThemeChange(): void {
+  if (themeMode.value === 'system') applyTheme(themeMq.matches ? 'dark' : 'light')
+}
+themeMq.addEventListener('change', onSystemThemeChange)
 
 /** 下载当前会话纯文本日志:消息按角色拼接(【user】/【assistant】),Blob 触发 a.download */
 function downloadSessionLog(): void {
@@ -532,7 +588,9 @@ function downloadSessionLog(): void {
       <SettingsView
         v-else-if="page === 'settings'"
         :theme="theme"
+        :theme-mode="themeMode"
         @set-theme="setTheme"
+        @set-theme-mode="setThemeMode"
         @navigate="goPage"
       />
       <SecurityView v-else-if="page === 'security'" @logout="onLogout" />

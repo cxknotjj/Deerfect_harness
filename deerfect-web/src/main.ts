@@ -11,13 +11,25 @@ import '@fontsource/jetbrains-mono/400.css'
 import '@fontsource/jetbrains-mono/600.css'
 import './styles/main.css'
 import { reportGlobalError } from './composables/globalError'
+import { loadUiPrefs } from './utils/uiPrefs'
 
-// 主题初始化:默认夜间(Telemetry Dark);localStorage 为 light 时切日间。
-// 无论哪种主题都同步写 data-theme 与 colorScheme(挂载前执行,防首帧闪烁),
-// 否则夜间模式下原生 select 弹层/系统滚动条会按浅色 UA 渲染
-const theme = localStorage.getItem('web-theme') === 'light' ? 'light' : 'dark'
+// 主题初始化:默认夜间(Telemetry Dark);web-theme-mode 为 light/dark 时固定,
+// 为 system 时跟随 prefers-color-scheme。挂载前写 data-theme 与 colorScheme,防首帧闪烁
+// (否则夜间模式下原生 select 弹层/系统滚动条会按浅色 UA 渲染)
+function initialTheme(): 'light' | 'dark' {
+  const mode = localStorage.getItem('web-theme-mode')
+  if (mode === 'system') {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  }
+  if (mode === 'light' || mode === 'dark') return mode
+  return localStorage.getItem('web-theme') === 'light' ? 'light' : 'dark'
+}
+const theme = initialTheme()
 document.documentElement.dataset.theme = theme
 document.documentElement.style.colorScheme = theme
+
+// 字号缩放 / 侧栏密度同样在挂载前应用
+loadUiPrefs()
 
 const app = createApp(App)
 
