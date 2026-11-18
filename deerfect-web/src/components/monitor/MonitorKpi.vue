@@ -62,7 +62,7 @@ defineProps<{ data: MonitorSnapshot }>()
       </span>
       <strong class="kpi-value">{{ fmtNumber(data.summary.totalTokens) }}</strong>
       <span class="kpi-note">
-        prompt {{ fmtNumber(data.summary.promptTokens) }} / completion
+        输入 {{ fmtNumber(data.summary.promptTokens) }} · 输出
         {{ fmtNumber(data.summary.completionTokens) }}
       </span>
     </article>

@@ -117,7 +117,9 @@ async function reload(): Promise<void> {
         <div class="res-panel-head">
           <div>
             <h2 class="res-panel-title">MCP Server</h2>
-            <p class="res-panel-sub">配置来自项目根目录 mcp-config.json；重载会宽限关闭旧连接</p>
+            <p class="res-panel-sub">
+              配置来自项目根目录 mcp-config.json；重载会宽限关闭旧连接 · 传输类型 {{ transports }}
+            </p>
           </div>
         </div>
 
@@ -148,7 +150,6 @@ async function reload(): Promise<void> {
           </article>
         </div>
         <p v-if="problems.length" class="mcp-foot">配置问题：{{ problems.join('；') }}</p>
-        <p v-else class="mcp-foot">传输类型：{{ transports }}</p>
       </section>
     </div>
   </section>

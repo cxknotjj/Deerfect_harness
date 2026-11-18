@@ -45,7 +45,7 @@ html[data-theme='dark'] .monitor {
   gap: 12px;
 }
 
-.monitor .monitor-title h2 {
+.monitor .monitor-title h1 {
   font-size: 18px;
   font-weight: 600;
   letter-spacing: 0.01em;
@@ -422,10 +422,43 @@ html[data-theme='dark'] .monitor {
 }
 
 /* ---------- 资源占用 ---------- */
+.monitor .usage-panel {
+  display: flex;
+  flex-direction: column;
+}
+
 .monitor .usage-rows {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 18px;
+  padding: 6px 0 0;
+}
+
+/* 面板被左侧趋势卡拉到同高，用底部三格事实托住，不在中间硬撑空白 */
+.monitor .usage-meta {
+  margin-top: auto;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.monitor .usage-meta-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.monitor .usage-meta-cell span {
+  font-size: 10.5px;
+  color: var(--ink-dim);
+}
+
+.monitor .usage-meta-cell strong {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .monitor .usage-row {
@@ -450,6 +483,16 @@ html[data-theme='dark'] .monitor {
   font-variant-numeric: tabular-nums;
 }
 
+/* 低水位时进度条只有几个像素，用百分比文字把"占多少"补出来 */
+.monitor .usage-ratio {
+  margin-left: 6px;
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 600;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
 .monitor .usage-track {
   height: 6px;
   border: 1px solid var(--line-soft);
@@ -465,13 +508,6 @@ html[data-theme='dark'] .monitor {
   border-radius: 2px;
   background: var(--accent);
   transition: width 0.2s var(--ease-out-quart);
-}
-
-.monitor .usage-note {
-  font-size: 10.5px;
-  line-height: 1.45;
-  color: var(--ink-dim);
-  font-variant-numeric: tabular-nums;
 }
 
 /* ---------- 明细：统计卡 + 单面板三段折叠 ---------- */
@@ -672,10 +708,12 @@ html[data-theme='dark'] .monitor {
   align-items: flex-end;
   justify-content: space-between;
   gap: 12px;
-  height: 200px;
-  padding-top: 8px;
+  height: 208px;
+  /* 下/右留白：横轴标签不再贴着面板底边，末位标签也不会被 overflow 切掉 */
+  padding: 12px 10px 10px;
   overflow-x: auto; /* 桶多时可横向滚动 */
   scrollbar-width: thin;
+  box-sizing: border-box;
 }
 
 /* 柱子限宽 + 两端对齐：十几个桶时不会被拉成一根根宽条 */
@@ -707,7 +745,8 @@ html[data-theme='dark'] .monitor {
 }
 
 .monitor .bar-label {
-  font-size: 10px;
+  font-size: 10.5px;
+  letter-spacing: 0.01em;
   color: var(--ink-dim);
   white-space: nowrap;
 }
@@ -715,6 +754,11 @@ html[data-theme='dark'] .monitor {
 /* 首个刻度左对齐柱子，否则标签居中会超出滚动容器左边界被裁掉半截 */
 .monitor .bar-col:first-child .bar-label {
   align-self: flex-start;
+}
+
+/* 末位刻度右对齐，避免居中后越过容器右边界 */
+.monitor .bar-col:last-child .bar-label {
+  align-self: flex-end;
 }
 
 .monitor .table-wrap {

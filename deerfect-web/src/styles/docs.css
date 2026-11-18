@@ -559,9 +559,11 @@ html[data-theme='dark'] .docs-menu-panel {
   transform: translateY(-50%);
 }
 
+/* 文档标题是页内 h2：与页头 h1 拉开层级，不再和页面标题同号 */
 .docs-doc-title {
-  margin: 10px 0 12px;
-  font-size: 27px;
+  margin: 8px 0 10px;
+  font-size: 23px;
+  line-height: 1.35;
   font-weight: 700;
   letter-spacing: -0.01em;
 }

@@ -157,7 +157,7 @@ onBeforeUnmount(() => {
   <section class="monitor" aria-label="运行监控">
     <header class="monitor-head">
       <div class="monitor-title">
-        <h2>运行监控</h2>
+        <h1>运行监控</h1>
         <p class="monitor-sub">
           全部渠道 · 最近 {{ hoursLabel }} · {{ auto ? '每 15 秒自动刷新' : '自动刷新已关闭' }}
           <span v-if="loading" class="monitor-loading">刷新中…</span>

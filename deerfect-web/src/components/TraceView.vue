@@ -15,6 +15,7 @@
 import { computed, ref, watch } from 'vue'
 import { api } from '../api'
 import TraceRowView from './trace/TraceRow.vue'
+import EmptyState from './resource/EmptyState.vue'
 import {
   computeAxisTicks,
   computeSegments,
@@ -192,6 +193,14 @@ function toggleExpand(key: string): void {
         </div>
       </div>
     </template>
-    <div v-else class="trace-empty">{{ loading ? '加载中…' : '此会话暂无调用记录' }}</div>
+    <div v-else class="trace-empty">
+      <span v-if="loading">加载中…</span>
+      <EmptyState
+        v-else
+        icon="inbox"
+        title="此会话暂无调用记录"
+        desc="在对话里发一条消息，LLM 调用、工具调用与知识库检索会按轮次记录在这里。"
+      />
+    </div>
   </div>
 </template>

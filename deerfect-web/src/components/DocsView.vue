@@ -589,7 +589,7 @@ function submitCreate(): void {
         </div>
 
         <article ref="articleEl" class="docs-article" @click="onArticleClick">
-          <h1 class="docs-doc-title">{{ selected.title }}</h1>
+          <h2 class="docs-doc-title">{{ selected.title }}</h2>
           <div class="docs-doc-meta" aria-label="文档元信息">
             <span class="docs-doc-meta-strong">docs/{{ selected.path }}</span>
             <span class="docs-doc-meta-sep">|</span>

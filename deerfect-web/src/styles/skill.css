@@ -121,6 +121,11 @@
   border-color: var(--accent);
 }
 
+/* 解析异常卡加一条内侧警示条：一眼能从三列卡片里挑出坏的那张 */
+.skill-card.is-error {
+  box-shadow: inset 2px 0 0 var(--accent-warm);
+}
+
 .skill-card-head {
   display: flex;
   align-items: flex-start;

@@ -136,6 +136,9 @@ html[data-theme='dark'] .settings-page {
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
+  /* 左侧导航的「配置中心」胶囊把「设置」大标题压低了 27px，这里补齐，
+     让主区标题与导航标题同基线，而不是顶着页面顶端 */
+  padding-top: 27px;
 }
 
 .settings-main-head h2 {
@@ -879,6 +882,11 @@ html[data-theme='dark'] .settings-page {
 @media (max-width: 900px) {
   .settings-page {
     flex-direction: column;
+  }
+
+  /* 窄屏导航变横向 chips，标题已隐藏，桌面端为对齐补的顶部留白随之取消 */
+  .settings-main-head {
+    padding-top: 0;
   }
 
   .settings-nav {

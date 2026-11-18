@@ -34,7 +34,7 @@ const runtime = computed(() => props.data.runtime)
     <div class="usage-rows">
       <div class="usage-row">
         <div class="usage-line">
-          <span>堆内存</span>
+          <span>堆内存<em class="usage-ratio">{{ heapPercent.toFixed(1) }}%</em></span>
           <strong class="usage-value">{{ fmtBytes(runtime.heapUsedBytes) }}</strong>
         </div>
         <div class="usage-track" role="img" :aria-label="`堆内存占用 ${heapPercent.toFixed(1)}%`">
@@ -57,10 +57,21 @@ const runtime = computed(() => props.data.runtime)
           <span>运行时长</span>
           <strong class="usage-value">{{ fmtUptime(runtime.uptimeSeconds) }}</strong>
         </div>
-        <div class="usage-note">
-          上限 {{ fmtBytes(runtime.heapMaxBytes) }} · 线程 {{ fmtNumber(runtime.liveThreads) }}
-          · SSE {{ fmtNumber(runtime.sseActive) }}
-        </div>
+      </div>
+    </div>
+
+    <div class="usage-meta">
+      <div class="usage-meta-cell">
+        <span>堆上限</span>
+        <strong>{{ fmtBytes(runtime.heapMaxBytes) }}</strong>
+      </div>
+      <div class="usage-meta-cell">
+        <span>活跃线程</span>
+        <strong>{{ fmtNumber(runtime.liveThreads) }}</strong>
+      </div>
+      <div class="usage-meta-cell">
+        <span>SSE 连接</span>
+        <strong>{{ fmtNumber(runtime.sseActive) }}</strong>
       </div>
     </div>
   </section>

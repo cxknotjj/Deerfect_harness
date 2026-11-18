@@ -164,7 +164,12 @@ async function copyPath(skill: SkillItem): Promise<void> {
           : '换个关键词或切回「全部」试试。'"
       />
       <div v-else class="skill-grid">
-        <article v-for="skill in filtered" :key="skill.name" class="skill-card">
+        <article
+          v-for="skill in filtered"
+          :key="skill.name"
+          class="skill-card"
+          :class="{ 'is-error': skill.error }"
+        >
           <div class="skill-card-head">
             <span class="skill-mark" aria-hidden="true">
               <svg viewBox="0 0 24 24">
