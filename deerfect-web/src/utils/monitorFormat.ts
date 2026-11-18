@@ -93,7 +93,3 @@ export function channelLabel(key: string | null | undefined): string {
   }
 }
 
-/** 上下文构成分组 → 堆叠条/色点样式类（system / retrieval / tools / conversation） */
-export function ctxGroupClass(group: string): string {
-  return `ctx-${group}`
-}

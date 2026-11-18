@@ -127,4 +127,33 @@ test.describe('mock 模式冒烟', () => {
     await page.getByTestId('nav-monitor').click()
     await expect(page.locator('.detail-section.is-open')).toHaveCount(0)
   })
+
+  test('监控明细：上下文弹窗环状图、排行与关闭', async ({ page }) => {
+    await page.goto('/')
+    await page.getByTestId('nav-monitor').click()
+    await page.getByTestId('monitor-tab-details').click()
+    await page.locator('.ctx-btn').first().click()
+
+    await expect(page.locator('.ctx-modal')).toBeVisible()
+    await expect(page.locator('#ctx-modal-title')).toHaveText('上下文构成')
+    // 环图四段 + 中心合计 + 图例四组 + 明细排行 11 项
+    await expect(page.locator('.ctx-ring-seg')).toHaveCount(4)
+    await expect(page.locator('.ctx-ring-center strong')).toHaveText('2,602')
+    await expect(page.locator('.ctx-legend-item')).toHaveCount(4)
+    await expect(page.locator('.ctx-legend-item').first()).toContainText('45.4%')
+    await expect(page.locator('.ctx-rank-item')).toHaveCount(11)
+    await expect(page.locator('.ctx-modal-foot')).toContainText('估算合计 2,602 tokens')
+
+    // Esc 关闭：焦点回到触发按钮，页面滚动锁解除
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.ctx-modal')).toHaveCount(0)
+    await expect(page.locator('.ctx-btn').first()).toBeFocused()
+    expect(await page.evaluate(() => document.body.style.overflow)).toBe('')
+
+    // 点遮罩关闭
+    await page.locator('.ctx-btn').first().click()
+    await expect(page.locator('.ctx-modal')).toBeVisible()
+    await page.locator('.ctx-modal-mask').click({ position: { x: 8, y: 8 } })
+    await expect(page.locator('.ctx-modal')).toHaveCount(0)
+  })
 })

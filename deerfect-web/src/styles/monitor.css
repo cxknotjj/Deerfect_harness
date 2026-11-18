@@ -851,60 +851,6 @@ html[data-theme='dark'] .monitor {
   color: var(--on-accent);
 }
 
-.monitor .ctx-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 16px;
-  margin-bottom: 10px;
-  font-size: 11px;
-  color: var(--ink-dim);
-}
-
-.monitor .ctx-meta code,
-.monitor .ctx-meta strong {
-  color: var(--blueprint);
-}
-
-.monitor .ctx-bar {
-  display: flex;
-  width: 100%;
-  height: 20px;
-  margin-bottom: 12px;
-  border: 1px solid var(--grid-line);
-  border-radius: 4px;
-  overflow: hidden;
-  background: var(--bg-inset);
-}
-
-.monitor .ctx-seg {
-  height: 100%;
-  transition: width 0.2s var(--ease-out-quart);
-}
-
-.monitor .ctx-system {
-  background: var(--blueprint);
-}
-
-.monitor .ctx-retrieval {
-  background: var(--accent-warm);
-}
-
-.monitor .ctx-tools {
-  background: var(--accent);
-}
-
-.monitor .ctx-conversation {
-  background: var(--ink-dim);
-}
-
-.monitor .ctx-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-right: 6px;
-  border-radius: 2px;
-}
-
 .monitor .empty {
   padding: 16px 0;
   font-size: 12px;
@@ -959,5 +905,392 @@ html[data-theme='dark'] .monitor {
 @media (max-width: 480px) {
   .monitor .runtime-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ============================================================
+   上下文构成弹窗（明细 tab · 点「上下文」）
+   环状图 + 分组图例 + 右侧明细排行；Teleport 到 body，故不挂在 .monitor 下
+   ============================================================ */
+.ctx-modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(16, 20, 30, 0.38);
+  backdrop-filter: blur(2px);
+}
+
+html[data-theme='dark'] .ctx-modal-mask {
+  background: rgba(2, 5, 10, 0.66);
+}
+
+.ctx-modal {
+  width: min(760px, 100%);
+  max-height: min(88vh, 760px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
+  background: var(--bg-card);
+  box-shadow: 0 24px 70px rgba(8, 12, 22, 0.28);
+  overflow: hidden;
+}
+
+html[data-theme='dark'] .ctx-modal {
+  box-shadow: 0 26px 80px rgba(0, 0, 0, 0.6);
+}
+
+/* ---------- 头部 ---------- */
+.ctx-modal-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 18px 22px 6px;
+}
+
+.ctx-modal-title h3 {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.ctx-modal-title p {
+  margin-top: 3px;
+  font-size: 10.5px;
+  color: var(--ink-dim);
+}
+
+.ctx-modal-x {
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--ink-dim);
+  transition: background 0.15s, color 0.15s;
+}
+
+.ctx-modal-x:hover {
+  background: var(--hover-veil);
+  color: var(--ink);
+}
+
+.ctx-modal-x:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.ctx-modal-x svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+}
+
+/* ---------- 元信息与状态 ---------- */
+.ctx-modal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  padding: 2px 22px 12px;
+  font-size: 10.5px;
+  color: var(--ink-dim);
+}
+
+.ctx-modal-meta code {
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+.ctx-modal-state {
+  padding: 34px 22px 44px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+.ctx-modal-state.is-error {
+  color: var(--accent-warm);
+}
+
+/* ---------- 环图 + 排行 ---------- */
+.ctx-modal-body {
+  display: grid;
+  grid-template-columns: 262px minmax(0, 1fr);
+  gap: 22px;
+  padding: 4px 22px 16px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  overscroll-behavior: contain;
+}
+
+.ctx-modal-ring {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.ctx-ring {
+  position: relative;
+  width: 226px;
+  max-width: 100%;
+  aspect-ratio: 1;
+}
+
+.ctx-ring svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.ctx-ring-seg {
+  fill: none;
+  stroke: var(--tone, var(--ink-dim));
+  stroke-width: 26;
+}
+
+.ctx-ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.ctx-ring-center strong {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.ctx-ring-center span {
+  font-size: 10px;
+  color: var(--ink-dim);
+}
+
+.ctx-legend {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.ctx-legend-item {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.ctx-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tone, var(--ink-dim));
+}
+
+.ctx-legend-name {
+  color: var(--ink);
+  font-size: 11.5px;
+}
+
+.ctx-legend-pct {
+  width: 40px;
+  text-align: right;
+}
+
+.ctx-modal-rank {
+  min-width: 0;
+  padding-left: 22px;
+  border-left: 1px solid var(--line-soft);
+}
+
+.ctx-rank-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.ctx-rank-head h4 {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ctx-rank-head span {
+  font-size: 10px;
+  color: var(--ink-dim);
+}
+
+.ctx-rank-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.ctx-rank-item {
+  display: grid;
+  grid-template-columns: 7px minmax(0, 130px) minmax(64px, 1fr) 42px 38px;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ctx-rank-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tone, var(--ink-dim));
+}
+
+.ctx-rank-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.ctx-rank-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--hover-veil);
+  overflow: hidden;
+}
+
+.ctx-rank-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--tone, var(--ink-dim));
+}
+
+.ctx-rank-tokens {
+  text-align: right;
+  color: var(--ink);
+}
+
+.ctx-rank-pct {
+  text-align: right;
+  color: var(--ink-dim);
+}
+
+/* ---------- 底部 ---------- */
+.ctx-modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 22px 16px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.ctx-modal-foot > span {
+  margin-right: auto;
+  font-size: 10.5px;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.ctx-modal-foot .res-btn.is-fail {
+  border-color: var(--accent-warm);
+  color: var(--accent-warm);
+}
+
+/* ---------- 四组配色（浅色 / 深色各一套） ---------- */
+.ctx-tone-system {
+  --tone: #3f3fbd;
+}
+
+.ctx-tone-retrieval {
+  --tone: #d64545;
+}
+
+.ctx-tone-tools {
+  --tone: #9cc3f2;
+}
+
+.ctx-tone-conversation {
+  --tone: #747b87;
+}
+
+html[data-theme='dark'] .ctx-tone-system {
+  --tone: #7070e6;
+}
+
+html[data-theme='dark'] .ctx-tone-retrieval {
+  --tone: #e06060;
+}
+
+html[data-theme='dark'] .ctx-tone-tools {
+  --tone: #90b9ea;
+}
+
+html[data-theme='dark'] .ctx-tone-conversation {
+  --tone: #98a1b0;
+}
+
+/* ---------- 窄屏 ---------- */
+@media (max-width: 720px) {
+  .ctx-modal-mask {
+    padding: 14px;
+  }
+
+  .ctx-modal {
+    max-height: 92vh;
+  }
+
+  .ctx-modal-body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+    padding: 4px 16px 14px;
+  }
+
+  .ctx-ring {
+    width: 196px;
+  }
+
+  .ctx-modal-rank {
+    padding-left: 0;
+    padding-top: 14px;
+    border-left: 0;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .ctx-rank-item {
+    grid-template-columns: 7px minmax(0, 1fr) minmax(40px, 0.8fr) 40px 38px;
+  }
+
+  .ctx-modal-head {
+    padding: 16px 16px 6px;
+  }
+
+  .ctx-modal-meta {
+    padding: 2px 16px 10px;
+  }
+
+  .ctx-modal-foot {
+    flex-wrap: wrap;
+    padding: 12px 16px 14px;
+  }
+
+  .ctx-modal-foot > span {
+    flex-basis: 100%;
   }
 }
