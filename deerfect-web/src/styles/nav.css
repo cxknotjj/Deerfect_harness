@@ -25,8 +25,7 @@
   border-bottom: 1px solid var(--grid-line);
 }
 
-/* logo 源图是蓝鹿剪影 + 透明底：套一层主色圆角方块，滤镜把剪影反相为白色，
-   与参考图的「色块 + 白图标」一致，同时不新增图片资源 */
+/* 主色圆角方块 + 白色鹿形（SVG 反白版），与设计稿的「色块 + 白图标」一致 */
 .nav-logo-wrap {
   width: 34px;
   height: 34px;
@@ -38,9 +37,8 @@
 }
 
 .nav-logo {
-  width: 26px;
-  height: 26px;
-  filter: brightness(0) invert(1);
+  height: 28px;
+  width: auto;
 }
 
 .nav-brand {
@@ -537,9 +535,8 @@
   }
 
   .mobile-logo {
-    width: 18px;
-    height: 18px;
-    filter: brightness(0) invert(1);
+    height: 20px;
+    width: auto;
   }
 
   .mobile-title {

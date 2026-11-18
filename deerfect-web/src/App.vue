@@ -603,7 +603,7 @@ function downloadSessionLog(): void {
       <div v-if="isNarrow" class="mobile-bar">
         <button class="icon-btn" type="button" aria-label="打开导航" @click="navOpen = true">☰</button>
         <span class="mobile-logo-wrap" aria-hidden="true">
-          <img class="mobile-logo" src="/deer_logo.png" alt="" />
+          <img class="mobile-logo" src="/deerfect-mark-white.svg" alt="" />
         </span>
         <span class="mobile-title">{{ pageTitle }}</span>
         <button

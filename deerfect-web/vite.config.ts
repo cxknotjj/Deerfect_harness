@@ -29,6 +29,7 @@ export default defineConfig({
         background_color: '#0d1219',
         theme_color: '#0d1219',
         icons: [
+          { src: '/deerfect-mark.svg', sizes: 'any', type: 'image/svg+xml' },
           { src: '/icons/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
           { src: '/icons/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
           {

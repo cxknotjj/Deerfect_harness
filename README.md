@@ -6,7 +6,7 @@
 
 <div align="center">
 
-<img src="deerfect-web/public/deer_logo.png" width="88" alt="Deerfect Harness" />
+<img src="deerfect-web/public/deerfect-mark.png" width="88" alt="Deerfect Harness" />
 
 # Deerfect Harness
 

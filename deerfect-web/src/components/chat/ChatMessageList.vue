@@ -16,7 +16,7 @@ const emit = defineEmits<{
 }>()
 
 /** 空态 logo（动态绑定 URL，避免构建期把 public 资源解析成文件路径） */
-const LOGO_URL = '/deer_logo.png'
+const LOGO_URL = '/deerfect-mark.svg'
 
 const scrollEl = ref<HTMLDivElement | null>(null)
 /** 用户是否停在底部附近:是才自动跟随滚动;上翻阅读时不再强拉回底 */

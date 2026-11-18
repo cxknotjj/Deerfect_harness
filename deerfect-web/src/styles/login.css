@@ -25,7 +25,7 @@
   align-items: center;
   text-align: center;
 }
-.login-logo { width: 56px; height: 56px; }
+.login-logo { height: 56px; width: auto; }
 .login-title { font-size: 18px; color: var(--ink); margin: 0; letter-spacing: 1px; }
 .login-sub { font-size: 13px; color: var(--ink-dim); margin: 0; }
 .login-input {

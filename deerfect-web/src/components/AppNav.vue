@@ -165,7 +165,7 @@ const healthText = computed(() => {
   <aside class="app-nav" aria-label="主导航">
     <header class="app-nav-head">
       <span class="nav-logo-wrap" aria-hidden="true">
-        <img class="nav-logo" src="/deer_logo.png" alt="" />
+        <img class="nav-logo" src="/deerfect-mark-white.svg" alt="" />
       </span>
       <div class="nav-brand">
         <div class="nav-brand-row">

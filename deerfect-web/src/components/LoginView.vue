@@ -21,7 +21,7 @@ function submit(): void {
 <template>
   <main class="login-view">
     <form class="login-card" @submit.prevent="submit">
-      <img class="login-logo" src="/deer_logo.png" alt="" />
+      <img class="login-logo" src="/deerfect-mark.svg" alt="" />
       <h1 class="login-title">DeerFect HARNESS</h1>
       <p class="login-sub">访问需要口令</p>
       <input

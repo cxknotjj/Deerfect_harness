@@ -106,7 +106,7 @@
 .chat-empty { margin: auto; text-align: center; color: var(--ink-dim); }
 .chat-empty-title { font-size: 15px; font-weight: 600; letter-spacing: 0.12em; margin-bottom: 8px; }
 .chat-empty-sub { font-size: 13px; }
-.chat-empty-logo { width: 100px; height: 100px; margin-bottom: 12px; }
+.chat-empty-logo { height: 100px; width: auto; margin-bottom: 12px; }
 .chat-empty-suggest {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -9,7 +9,7 @@ defineEmits<{ retry: [] }>()
 <template>
   <main class="offline-view">
     <div class="offline-card">
-      <img class="offline-logo" src="/deer_logo.png" alt="" />
+      <img class="offline-logo" src="/deerfect-mark.svg" alt="" />
       <h1 class="offline-title">当前离线</h1>
       <p class="offline-sub">网络不可用，正在使用本地缓存的应用外壳</p>
       <button class="offline-btn" type="button" @click="$emit('retry')">重新连接</button>
