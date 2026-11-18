@@ -43,17 +43,76 @@
   /* 抽屉展开时锁定聊天区滚动,防止背景跟着滚 */
   .app-shell.drawer-open .chat-scroll { overflow: hidden; }
 
+  /* 手机用动态视口高度：地址栏收起/键盘弹出时输入区不被顶出屏幕 */
+  .app-shell { height: 100dvh; }
+
+  /* 消息操作图标在触屏上放大命中区，否则复制/赞踩很难点中 */
+  .msg-actions { gap: 4px; margin-top: 6px; }
+  .msg-action-btn { width: 32px; height: 32px; opacity: 0.75; }
+  .msg-action-btn svg { width: 17px; height: 17px; }
+
+  /* 刘海屏：顶部条让出状态栏安全区 */
+  .mobile-bar {
+    height: calc(52px + env(safe-area-inset-top, 0px));
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
   /* 窄屏顶部空间有限:隐藏会话日志（下载入口仅桌面提供），tab 行收紧 */
   .session-log { display: none; }
   .chat-tabs { gap: 16px; height: 44px; padding: 0 12px; }
 
-  /* Composer 控制行窄屏收缩:🛡 行隐藏文案只留图标位,右侧组收紧,
-     容器两侧让出 8px,防左右两块在小屏上互相重叠 */
-  .composer-wrap { padding-left: 12px; padding-right: 12px; }
-  .composer-controls { gap: 6px; }
-  .composer-controls-left { flex-shrink: 1; overflow: hidden; }
-  .composer-controls-right { flex-shrink: 0; gap: 6px; }
-  .composer-shield { padding: 4px 6px; font-size: 0; gap: 0; } /* 仅剩 🛡 字符宽度 */
-  .composer-shield-chevron { display: none; }
-  .composer-shield .shield-glyph { font-size: 14px; }
+  /* 手机阅读区：两侧 16px，消息不被挤成窄条 */
+  .chat-scroll { padding: 16px; gap: 16px; }
+
+  /* Composer：控件必须收在一行内，发送键不能溢出卡片。
+     🛡 是占位入口，手机上直接隐藏；两个选择器允许按值截断，圆环+发送键固定在右侧。 */
+  .composer-wrap { padding: 6px 10px 0; }
+  .composer { padding: 10px 12px 8px; border-radius: 14px; }
+  .composer-attach { top: 10px; left: 12px; }
+  .composer-input {
+    height: 54px;
+    min-height: 54px;
+    padding: 2px 2px 6px 28px;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  .composer-controls { justify-content: flex-end; gap: 6px; }
+  .composer-controls-left { display: none; }
+  .composer-controls-right {
+    flex: 1;
+    min-width: 0;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+  .composer-controls-right .agent-select { min-width: 0; flex: 0 1 auto; }
+  .composer-controls-right .agent-trigger { min-width: 0; padding: 4px 8px; gap: 4px; }
+  .composer-controls-right .agent-select-label { font-size: 11px; }
+  .composer-controls-right .agent-trigger-value {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 88px;
+    font-size: 11.5px;
+  }
+  .composer-controls-right .agent-chevron { width: 8px; height: 5px; flex-shrink: 0; }
+  .composer-controls-right .status-dot { flex-shrink: 0; }
+  .composer-controls-right .usage { margin-left: auto; flex-shrink: 0; }
+  .composer-send { width: 34px; height: 34px; }
+  .composer-send svg { width: 16px; height: 16px; }
+
+  /* 底部状态栏：安全区留白，窄到放不下时可横向滑动而不是压字 */
+  .chat-statusbar {
+    gap: 8px;
+    padding: 6px 2px calc(8px + env(safe-area-inset-bottom, 0px));
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: none;
+  }
+  .chat-statusbar::-webkit-scrollbar { display: none; }
+}
+
+/* 超窄屏（320/旧机型）：两个选择器只留值，避免「路径」被压成两行 */
+@media (max-width: 360px) {
+  .composer-controls-right .agent-select-label {
+    display: none;
+  }
 }

@@ -21,7 +21,7 @@
 .agent-trigger:hover:not(:disabled) { border-color: var(--accent); }
 .agent-trigger:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .agent-trigger:disabled { cursor: not-allowed; opacity: 0.55; }
-.agent-select-label { font-size: 13px; color: var(--ink-dim); }
+.agent-select-label { font-size: 13px; color: var(--ink-dim); white-space: nowrap; }
 .agent-trigger-value { font-size: 13px; font-weight: 500; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-trigger-placeholder { color: var(--ink-dim); font-weight: 400; }
 .agent-chevron { color: var(--ink-dim); transition: transform 0.18s ease; }

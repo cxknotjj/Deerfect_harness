@@ -616,7 +616,8 @@ function downloadSessionLog(): void {
           @click="onSidebarExpand"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" />
+            <path d="M21 12a8 8 0 0 1-8 8H7l-4 3v-6.5A8 8 0 0 1 13 4h0a8 8 0 0 1 8 8z" />
+            <path d="M8.5 10.5h7M8.5 14h4.5" />
           </svg>
         </button>
       </div>

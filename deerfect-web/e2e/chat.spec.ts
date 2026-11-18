@@ -156,4 +156,28 @@ test.describe('mock 模式冒烟', () => {
     await page.locator('.ctx-modal-mask').click({ position: { x: 8, y: 8 } })
     await expect(page.locator('.ctx-modal')).toHaveCount(0)
   })
+
+  test('手机端对话：输入区收在卡片内、控件单行', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/chat')
+    await page.getByRole('button', { name: '打开会话列表' }).click()
+    await page.getByRole('button', { name: '会话 Qwen 接入排查' }).click()
+
+    // 发送键右边缘不得越过输入卡片（手机上曾溢出到卡片外）
+    const composer = await page.locator('.composer').boundingBox()
+    const send = await page.locator('.composer-send').boundingBox()
+    expect(composer).not.toBeNull()
+    expect(send).not.toBeNull()
+    expect(send!.x + send!.width).toBeLessThanOrEqual(composer!.x + composer!.width + 0.5)
+
+    // 控件行没有横向滚动，输入框高度已收敛（桌面 rows=3 的高度是 75）
+    expect(
+      await page.locator('.composer-controls').evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
+    ).toBe(true)
+    const input = await page.locator('.composer-input').boundingBox()
+    expect(input!.height).toBeLessThan(70)
+
+    // 底部状态栏仍在
+    await expect(page.locator('.chat-statusbar')).toBeVisible()
+  })
 })
