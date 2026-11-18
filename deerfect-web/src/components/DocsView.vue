@@ -7,8 +7,11 @@
  *
  * 目录、搜索、相对链接跳转都在本地完成；「新建文档」只能生成模板下载
  * （浏览器无写盘权限），页面里已注明落盘位置。
+ *
+ * 右上「本项目的」浮层：h2 章节大纲 + 点击平滑滚动 + 滚动时高亮当前段；
+ * 支持点外收起、Esc 关闭、方向键在列表内移动焦点（Enter 跳转）。
  */
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import {
@@ -47,19 +50,178 @@ function stripLeadingH1(markdown: string): string {
   return markdown.replace(/^\uFEFF/, '').replace(/^\s*#\s+[^\r\n]*\r?\n/, '')
 }
 
-const bodyHtml = computed(() => {
-  if (!selected.value) return ''
-  const parsed = marked.parse(stripLeadingH1(selected.value.markdown ?? ''), {
+interface DocSection {
+  /** 正文里补的 h2 id（doc-sec-N），目录高亮与跳转共用 */
+  id: string
+  text: string
+}
+
+/**
+ * 正文 HTML + 章节索引（二级标题）。
+ * 先经 DOMPurify 净化，再在 DOM 上补 id：标题 id 由我们自己生成，不依赖 Markdown 原文。
+ */
+const rendered = computed<{ html: string; sections: DocSection[] }>(() => {
+  if (!selected.value) return { html: '', sections: [] }
+  const parsed = marked.parse(stripLeadingH1(selected.value.markdown), {
     gfm: true,
     breaks: false,
   })
-  return DOMPurify.sanitize(typeof parsed === 'string' ? parsed : '')
+  const clean = DOMPurify.sanitize(typeof parsed === 'string' ? parsed : '')
+  const dom = new DOMParser().parseFromString(clean, 'text/html')
+  const sections: DocSection[] = []
+  dom.querySelectorAll('h2').forEach((heading, index) => {
+    const id = `doc-sec-${index}`
+    heading.id = id
+    const text = (heading.textContent ?? '')
+      .replace(/^[\p{Extended_Pictographic}\uFE0F\u200D\s]+/u, '')
+      .trim()
+    if (text) sections.push({ id, text })
+  })
+  return { html: dom.body.innerHTML, sections }
 })
+
+const bodyHtml = computed(() => rendered.value.html)
+const sections = computed(() => rendered.value.sections)
 
 function docSize(path: string): string {
   const item = findDoc(path)
   return item ? fmtBytes(item.size) : '—'
 }
+
+/* ---------- 章节浮层：本项目的 ---------- */
+const menuOpen = ref(false)
+const menuEl = ref<HTMLElement | null>(null)
+const pillEl = ref<HTMLButtonElement | null>(null)
+const activeSection = ref('')
+let spyRaf = 0
+
+function toggleMenu(): void {
+  if (sections.value.length === 0) return
+  menuOpen.value = !menuOpen.value
+  if (!menuOpen.value) return
+  void nextTick(() => {
+    const active = menuEl.value?.querySelector<HTMLButtonElement>('.docs-menu-item.is-active')
+    const first = menuEl.value?.querySelector<HTMLButtonElement>('.docs-menu-item')
+    ;(active ?? first)?.focus()
+  })
+}
+
+function closeMenu(returnFocus = false): void {
+  if (!menuOpen.value) return
+  menuOpen.value = false
+  if (returnFocus) pillEl.value?.focus()
+}
+
+/** 跳转到章节：先收起浮层，再平滑滚动；高亮立即切换，避免平滑滚动途中“高亮落后” */
+function jumpTo(section: DocSection): void {
+  closeMenu(true)
+  const target = articleEl.value?.querySelector<HTMLElement>(`#${section.id}`)
+  if (!target) return
+  activeSection.value = section.id
+  target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+/** 方向键在浮层内上下移动焦点（循环） */
+function focusMenuItem(step: number): void {
+  const items = Array.from(
+    menuEl.value?.querySelectorAll<HTMLButtonElement>('.docs-menu-item') ?? [],
+  )
+  if (items.length === 0) return
+  const current = items.findIndex((item) => item === document.activeElement)
+  if (current < 0) {
+    const active = items.findIndex((item) => item.classList.contains('is-active'))
+    items[Math.max(0, active)]?.focus()
+    return
+  }
+  items[(current + step + items.length) % items.length]?.focus()
+}
+
+function onMenuKeydown(event: KeyboardEvent): void {
+  if (!menuOpen.value) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeMenu(true)
+    return
+  }
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault()
+    focusMenuItem(event.key === 'ArrowDown' ? 1 : -1)
+  }
+}
+
+/** 点浮层外任意处收起（胶囊在 root 内，点它走 toggle，不会被这里误关） */
+function onOutsidePointer(event: PointerEvent): void {
+  if (!menuOpen.value) return
+  const root = menuEl.value
+  if (root && !root.contains(event.target as Node)) closeMenu()
+}
+
+/* ---------- 滚动高亮：高亮项 = 当前读到的那一段 ---------- */
+function scheduleSpy(): void {
+  if (spyRaf) return
+  spyRaf = requestAnimationFrame(() => {
+    spyRaf = 0
+    updateActiveSection()
+  })
+}
+
+/** 找到真正滚动的祖先：桌面是正文面板；≤900px 是整页（.docs-view）；都没有则视为窗口滚动 */
+function activeScroller(): HTMLElement | null {
+  const article = articleEl.value
+  if (!article) return null
+  const own = getComputedStyle(article)
+  if (
+    (own.overflowY === 'auto' || own.overflowY === 'scroll')
+    && article.scrollHeight > article.clientHeight + 1
+  ) {
+    return article
+  }
+  let node = article.parentElement
+  while (node) {
+    const style = getComputedStyle(node)
+    if (
+      (style.overflowY === 'auto' || style.overflowY === 'scroll')
+      && node.scrollHeight > node.clientHeight + 1
+    ) {
+      return node
+    }
+    node = node.parentElement
+  }
+  return null
+}
+
+function updateActiveSection(): void {
+  const article = articleEl.value
+  const list = sections.value
+  if (!article || list.length === 0) {
+    activeSection.value = ''
+    return
+  }
+  const scroller = activeScroller()
+  const baseTop = scroller?.getBoundingClientRect().top ?? 0
+  // 判定线要让「刚滚到吸顶栏下方」的章节也算当前段：面板内 84px，整页（吸顶栏更高）140px
+  const threshold = scroller === article ? baseTop + 84 : baseTop + 140
+  let current = list[0].id
+  for (const section of list) {
+    const heading = article.querySelector<HTMLElement>(`#${section.id}`)
+    if (!heading) continue
+    if (heading.getBoundingClientRect().top <= threshold) current = section.id
+    else break
+  }
+  // 滚动到底时最后一节可能永远越不过判定线，直接归到最后一节
+  const atBottom = scroller
+    ? scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 4
+    : window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 4
+  if (atBottom) current = list[list.length - 1].id
+  activeSection.value = current
+}
+
+/** 切文档：收浮层、重置高亮，等 DOM 更新后重新定位 */
+watch(bodyHtml, () => {
+  menuOpen.value = false
+  activeSection.value = ''
+  void nextTick(() => updateActiveSection())
+})
 
 /* ---------- 选择文档 ---------- */
 
@@ -105,6 +267,12 @@ function initialDocPath(): string {
 }
 
 onMounted(() => {
+  document.addEventListener('pointerdown', onOutsidePointer, true)
+  document.addEventListener('keydown', onMenuKeydown)
+  // scroll 不冒泡，用捕获统一接住「正文面板滚动」与「整页滚动」
+  document.addEventListener('scroll', scheduleSpy, true)
+  window.addEventListener('resize', scheduleSpy)
+
   const fromUrl = props.initialPath.trim()
   const path = initialDocPath()
   if (!path) return
@@ -114,6 +282,14 @@ onMounted(() => {
     emit('select', path)
     note.value = `地址中的文档不在目录内：${fromUrl}，已打开「${findDoc(path)?.title ?? path}」`
   }
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onOutsidePointer, true)
+  document.removeEventListener('keydown', onMenuKeydown)
+  document.removeEventListener('scroll', scheduleSpy, true)
+  window.removeEventListener('resize', scheduleSpy)
+  if (spyRaf) cancelAnimationFrame(spyRaf)
 })
 
 watch(
@@ -336,22 +512,63 @@ function submitCreate(): void {
         </template>
       </aside>
 
-      <article v-if="selected" ref="articleEl" class="docs-article" @click="onArticleClick">
-        <div class="docs-crumb">
-          <span>{{ docGroupLabel(selected.path) }}</span>
-          <span class="docs-crumb-sep">/</span>
-          <span class="docs-crumb-title">{{ selected.title }}</span>
-          <span class="docs-scope" title="当前文档范围：本仓库 docs/">本项目的</span>
+      <div v-if="selected" class="docs-main">
+        <div class="docs-main-head">
+          <div class="docs-crumb">
+            <span>{{ docGroupLabel(selected.path) }}</span>
+            <span class="docs-crumb-sep">/</span>
+            <span class="docs-crumb-title">{{ selected.title }}</span>
+          </div>
+          <div v-if="sections.length > 0" ref="menuEl" class="docs-menu">
+            <button
+              ref="pillEl"
+              class="docs-menu-pill"
+              :class="{ 'is-open': menuOpen }"
+              type="button"
+              aria-haspopup="menu"
+              :aria-expanded="menuOpen"
+              aria-controls="docs-section-menu"
+              @click="toggleMenu"
+            >
+              <span>本项目的</span>
+              <span class="docs-menu-count">{{ sections.length }}</span>
+              <svg class="docs-menu-chevron" :class="{ 'is-open': menuOpen }" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+            <div
+              v-if="menuOpen"
+              id="docs-section-menu"
+              class="docs-menu-panel"
+              role="menu"
+              aria-label="文档章节"
+            >
+              <button
+                v-for="section in sections"
+                :key="section.id"
+                class="docs-menu-item"
+                :class="{ 'is-active': section.id === activeSection }"
+                type="button"
+                role="menuitem"
+                :data-section="section.id"
+                :aria-current="section.id === activeSection ? 'true' : undefined"
+                @click="jumpTo(section)"
+              >{{ section.text }}</button>
+            </div>
         </div>
-        <h1 class="docs-doc-title">{{ selected.title }}</h1>
-        <!-- 正文已由 DOMPurify.sanitize 净化（bodyHtml），此处 v-html 安全 -->
-        <!-- eslint-disable-next-line vue/no-v-html -->
-        <div class="docs-md" v-html="bodyHtml"></div>
-        <footer class="docs-foot">
-          <span class="res-mono">{{ selected.path }}</span>
-          <span>{{ docSize(selected.path) }} · 随前端构建打包，不经过后端</span>
-        </footer>
-      </article>
+        </div>
+
+        <article ref="articleEl" class="docs-article" @click="onArticleClick">
+          <h1 class="docs-doc-title">{{ selected.title }}</h1>
+          <!-- 正文已由 DOMPurify.sanitize 净化（bodyHtml），此处 v-html 安全 -->
+          <!-- eslint-disable-next-line vue/no-v-html -->
+          <div class="docs-md" v-html="bodyHtml"></div>
+          <footer class="docs-foot">
+            <span class="res-mono">{{ selected.path }}</span>
+            <span>{{ docSize(selected.path) }} · 随前端构建打包，不经过后端</span>
+          </footer>
+        </article>
+      </div>
 
       <div v-else class="docs-empty">左侧选择一篇文档</div>
     </div>

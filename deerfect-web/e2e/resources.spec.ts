@@ -133,6 +133,39 @@ test.describe('资源面导航', () => {
     await expect(page.locator('.docs-doc-title')).toHaveText('本地部署详解')
   })
 
+  test('文档章节浮层：展开、跳转高亮、Esc 与方向键', async ({ page }) => {
+    await page.goto('/docs')
+    const pill = page.locator('.docs-menu-pill')
+    await expect(pill).toContainText('6')
+
+    // 展开：当前章节 = 顶部第一节
+    await pill.click()
+    await expect(page.locator('.docs-menu-panel')).toBeVisible()
+    await expect(page.locator('.docs-menu-item')).toHaveCount(6)
+    await expect(page.locator('.docs-menu-item.is-active')).toHaveText('项目约束')
+
+    // 方向键在列表内移动焦点
+    await page.keyboard.press('ArrowDown')
+    await expect(page.locator('.docs-menu-item').nth(1)).toBeFocused()
+
+    // 点某项：浮层收起，正文滚动，高亮切到该项
+    await page.locator('.docs-menu-item').filter({ hasText: '架构与设计' }).click()
+    await expect(page.locator('.docs-menu-panel')).toHaveCount(0)
+    expect(await page.locator('.docs-article').evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+    await pill.click()
+    await expect(page.locator('.docs-menu-item.is-active')).toHaveText('架构与设计')
+
+    // Esc 关闭并回到胶囊
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.docs-menu-panel')).toHaveCount(0)
+    await expect(pill).toBeFocused()
+
+    // 点浮层外收起
+    await pill.click()
+    await page.locator('.docs-doc-title').click()
+    await expect(page.locator('.docs-menu-panel')).toHaveCount(0)
+  })
+
   test('系统分组：设置页模型管理/外观/实例与安全页状态', async ({ page }) => {
     await page.goto('/')
 
