@@ -1,4 +1,4 @@
-# Harness 功能测试说明
+# 功能测试说明
 
 > 本文档介绍 Harness 各模块的功能测试内容：每个模块测什么、怎么测、边界在哪。
 > 测试代码位于 `src/test/java`，与业务代码同步演进；本文以实际编码为准。
@@ -198,13 +198,13 @@
 ## 二、运行方式
 
 ```bash
-# 全量
+# 功能测试说明
 mvn -s .mvn/settings.xml test
 
-# 单个测试类
+# 功能测试说明
 mvn -s .mvn/settings.xml test -Dtest=MultiAgentGraphAgentTest
 
-# 单个用例
+# 功能测试说明
 mvn -s .mvn/settings.xml test -Dtest=ChatServiceImplTest#streamReactive_shouldMapProgressRowToProgressEvent
 ```
 

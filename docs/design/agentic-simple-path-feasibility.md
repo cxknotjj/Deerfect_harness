@@ -382,7 +382,7 @@ AGENT_START → MODEL_CALL_START → TOOL_CALL_START → TOOL_CALL_DELTA → TOO
 - [AgentChatCaller.java](../../deerfect-server/src/main/java/com/dark/javaHarness/agent/AgentChatCaller.java)
 - [ParallelOrchestrationEngine.java](../../deerfect-server/src/main/java/com/dark/javaHarness/graph/engine/ParallelOrchestrationEngine.java)
 - [server/pom.xml](../../deerfect-server/pom.xml#L41-L48)
-- [TECH_STACK.md](../TECH_STACK.md)
+- [tech-stack.md](../tech-stack.md)
 
 **AgentScope Java 文档**
 - [Quickstart](https://java.agentscope.io/v2/zh/docs/quickstart.html)

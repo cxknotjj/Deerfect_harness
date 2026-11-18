@@ -1,4 +1,10 @@
-# javaHarness 文档导航
+---
+title: "文档导航"
+order: 1
+updated: 2026-11-14
+---
+
+# 文档导航
 
 > 项目主入口在仓库根 [README](../README.md)；本页是 `docs/` 全量索引。
 > 目录约定：核心架构文档在根层；使用/部署/协议类在 `guides/`；设计文档在 `design/`（按日期存档）；报告在 `reports/`；历史实现计划与设计 spec 在 `archive/specs/`，一次性开发/运维历史在 `archive/`。
@@ -30,10 +36,10 @@
 | [design/agentic-simple-path-feasibility.md](./design/agentic-simple-path-feasibility.md) | Agentic 路径可行性（AgentScope 评估、落地结果与依赖冲突） |
 | [architecture.md](./architecture.md) | 架构总览（两路径数据流 + 架构图） |
 | [data-flow.md](./data-flow.md) | 数据流详解（路由 / 组装 / 调用 / 记账 / 观测） |
-| [project-structure.md](./project-structure.md) | 服务端目录树（[EN](./project-structure_EN.md)） |
-| [TECH_STACK.md](./TECH_STACK.md) | 技术栈明细与扩展方向 |
+| [project-structure.md](./project-structure.md) | 服务端目录树（[EN](./project-structure.en.md)） |
+| [tech-stack.md](./tech-stack.md) | 技术栈明细与扩展方向 |
 | [design/super-agent-ideas-adopted.md](./design/super-agent-ideas-adopted.md) | Super-agent 文章中已在本项目落地的思想对照（Fast/Slow Path / 投机执行 / Inline & Spill / 链式召回 / 状态分离 / 多信道 / 事件入口 / Watchdog） |
-| [HARNESS_TODO.md](./HARNESS_TODO.md) | 落地 TODO / 路线图（未完成 + 已完成存档） |
+| [roadmap.md](./roadmap.md) | 落地 TODO / 路线图（未完成 + 已完成存档） |
 | [design/2026-11-08-delivery-reliability-feishu-email-plan.md](./design/2026-11-08-delivery-reliability-feishu-email-plan.md) | 主动投递可靠性规划书（outbox 重投 + 通道降级链 + 探活告警 + 飞书/邮件渠道；待实施） |
 | [design/2026-11-11-feishu-channel-design.md](./design/2026-11-11-feishu-channel-design.md) | 飞书渠道设计决策（长连接 / 入站 / 指令 / 表情 / 回复形态 / 语音 / 文件下发） |
 | [design/2026-11-11-session-serialization.md](./design/2026-11-11-session-serialization.md) | 渠道侧按会话串行：锁为什么必须加在读上下文之前 |
@@ -48,7 +54,7 @@
 |---|---|
 | [guides/api.md](./guides/api.md) | REST 接口全表与知识库管理页 |
 | [guides/cli.md](./guides/cli.md) | CLI 命令（/agent、/goal、/resume 等） |
-| [guides/knowledge-rag.md](./guides/knowledge-rag.md) | RAG 知识库配置（[EN](./guides/knowledge-rag_EN.md)） |
+| [guides/knowledge-rag.md](./guides/knowledge-rag.md) | RAG 知识库配置（[EN](./guides/knowledge-rag.en.md)） |
 | [guides/mcp-tools.md](./guides/mcp-tools.md) | MCP 工具接入（多 server、mcp-config.json） |
 | [guides/wms-mcp.md](./guides/wms-mcp.md) | WMS 仓储查询 MCP 适配（独立 adapter、只读工具集、双侧鉴权） |
 | [guides/qq-channel.md](./guides/qq-channel.md) | QQ 机器人接入（NapCat HTTP 模式） |
@@ -58,7 +64,7 @@
 
 | 文档 | 内容 |
 |---|---|
-| [guides/sse-protocol.md](./guides/sse-protocol.md) | SSE 流式协议（事件名 / 转义 / [DONE] / meta）（[EN](./guides/sse-protocol_EN.md)） |
+| [guides/sse-protocol.md](./guides/sse-protocol.md) | SSE 流式协议（事件名 / 转义 / [DONE] / meta）（[EN](./guides/sse-protocol.en.md)） |
 | [guides/commit-convention.md](./guides/commit-convention.md) | 提交规范（Conventional Commits 中文适配） |
 | [guides/context-optimization.md](./guides/context-optimization.md) | 上下文优化与 Token 预算策略 |
 

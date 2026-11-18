@@ -1,9 +1,14 @@
-# javaHarness Roadmap & TODO
+---
+title: "路线图与待办"
+order: 10
+---
 
-> 由原 `ROADMAP.md` 与 `HARNESS_TODO.md` 合并而成；2026-09-11 结构重构：未完成区只保留 `- [ ]` 条目（P0→P3），已完成全部归档（按主题分节），拆出遗留尾巴立条。
+# 路线图与待办
+
+> 由原 `ROADMAP.md` 与 `roadmap.md` 合并而成；2026-09-11 结构重构：未完成区只保留 `- [ ]` 条目（P0→P3），已完成全部归档（按主题分节），拆出遗留尾巴立条。
 > 约定：`- [ ]` 未开始，`- [x]` 已完成。**未完成在前（按优先级），已完成在后（存档备查）**。
 > 术语说明：历史条目中的「路径 A / SIMPLE」对应 **Agentic 路径**，「路径 B / COMPLEX」对应 **Graph 编排路径**。
-> 版本基线：Spring Boot 4.1.2 / Spring AI 2.0.2 / Java 25（以根 `pom.xml` 与 [TECH\_STACK.md](./TECH_STACK.md) 为准）；升级任何 AI 相关依赖前先验证兼容性。
+> 版本基线：Spring Boot 4.1.2 / Spring AI 2.0.2 / Java 25（以根 `pom.xml` 与 [tech-stack.md](./tech-stack.md) 为准）；升级任何 AI 相关依赖前先验证兼容性。
 > 首次可用性约定：新增功能/入口合入前按 `docs/guides/first-run-audit.md`「五、首次使用流程规则」复查，走查结论追加至该报告「六、走查记录」。
 > 产品视角的能力补齐进度（主动性 / 记忆 / 触达）见 [task-checklist/personal-agent-gap.md](task-checklist/personal-agent-gap.md)：2026-11-07 为 10/14，P0 / P1 全完成，P2 完成 4/4。
 
@@ -142,7 +147,7 @@
   - 验收：一次多 Agent 任务完成后可导出排版正常的中文 PDF（标题/列表/代码块/表格不乱码、不缺字）
 - [ ] **消息队列**：RabbitMQ / Kafka 异步派发 Goal，长任务解耦
   - 验收：提交 Goal 后立即返回，执行与消费异步解耦
-- [ ] **安全**：Spring Security + JWT 接口鉴权；API Key 走 KMS/Vault 管理（现有双通道鉴权已落地：`X-API-Token` 机器通道 + HttpOnly Cookie 登录通道，见 [TECH\_STACK.md](./TECH_STACK.md)；本条指更高阶的 JWT/KMS 方案）
+- [ ] **安全**：Spring Security + JWT 接口鉴权；API Key 走 KMS/Vault 管理（现有双通道鉴权已落地：`X-API-Token` 机器通道 + HttpOnly Cookie 登录通道，见 [tech-stack.md](./tech-stack.md)；本条指更高阶的 JWT/KMS 方案）
   - 验收：未带 token 的请求被拒绝
 - [ ] **WebSocket**：如需全双工交互（如任务进度推送）可扩展
 - [ ] **多实例水平扩展**：解除单实例假设——`failAllRunning` 启动清理、本地 `goalExecutor`、GRAPH\_CHECKPOINT 单写者；分布式锁（如 ShedLock）或消息队列派发二选一，与「消息队列」条目同批评估
@@ -173,7 +178,7 @@
 
 > 本节按完成时点记录，保留当时的实现描述；部分技术选型已被后续重构替换
 > （StateGraph → 自研 `ParallelOrchestrationEngine`、Spring AI 1.1 → 2.0、Boot 3.5 → 4.1），
-> 现状以 [TECH\_STACK.md](./TECH_STACK.md) 与 [features.md](./features.md) 为准。
+> 现状以 [tech-stack.md](./tech-stack.md) 与 [features.md](./features.md) 为准。
 
 ## 两路径架构（2026-08 完成）
 
@@ -319,6 +324,6 @@
 
 ## 备注
 
-- 测试全景见 [docs/guides/functional-testing.md](./guides/functional-testing.md)，数据流详解见 [docs/data-flow.md](./data-flow.md)，技术栈对照见 [TECH\_STACK.md](./TECH_STACK.md)。
+- 测试全景见 [docs/guides/functional-testing.md](./guides/functional-testing.md)，数据流详解见 [docs/data-flow.md](./data-flow.md)，技术栈对照见 [tech-stack.md](./tech-stack.md)。
 - 每项完成后按对应"验收"标准验证后再勾选；完成的条目连同落地与验收记录移入本文件「二、已完成（存档）」对应主题节，若留有后续尾巴（余项/端点/优化）须拆出为未完成条目，避免尾巴被埋进存档。
 

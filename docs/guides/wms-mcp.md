@@ -1,4 +1,4 @@
-# 🏭 WMS 仓储查询 MCP 适配
+# WMS 仓储查询适配
 
 > 独立部署的 MCP server（`wms-mcp-adapter` 模块）：把 WMS 仓储系统的只读 OpenAPI 包装为 10 个中文语义查询工具，harness 以自然语言查库存/查单据。harness 侧零代码改动——`mcp-config.json` 加一个 server 条目 + agent 表 `wms` 行（V25 迁移自动落库）。
 

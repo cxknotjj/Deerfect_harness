@@ -1,4 +1,9 @@
-# 项目约束（Principal）
+---
+title: "项目约束"
+order: 7
+---
+
+# 项目约束
 
 > 本文件只写**约束**，不解释原理。原理见 [architecture.md](./architecture.md)、[data-flow.md](./data-flow.md)；目录树见 [project-structure.md](./project-structure.md)；环境与命令见 [dev.md](./dev.md)。
 >

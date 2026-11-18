@@ -1,7 +1,12 @@
-# 🧭 项目功能介绍
+---
+title: "项目功能介绍"
+order: 2
+---
+
+# 项目功能介绍
 
 > 面向首次接触项目的读者，一页说明「现在能做什么、还没做什么」。
-> 本文按 2026-11-06 的代码与配置核对；技术基线为 **Java 25 / Spring Boot 4.1.2 / Spring AI 2.0.2**（详见 [TECH_STACK.md](./TECH_STACK.md)）。
+> 本文按 2026-11-06 的代码与配置核对；技术基线为 **Java 25 / Spring Boot 4.1.2 / Spring AI 2.0.2**（详见 [tech-stack.md](./tech-stack.md)）。
 
 ---
 
@@ -17,7 +22,7 @@ Deerfect Harness 是一个基于 Spring AI 的双路径 Agent 平台：**Agentic
 | 终端 CLI | 多轮聊天、新建会话、切换 Agent、断点续跑、流式 Markdown 渲染 | [cli.md](./guides/cli.md) |
 | Web 控制台 | 会话列表、流式打字机、思考折叠、Trace 观测、知识库管理页 | [README](../README.md) |
 | QQ 机器人 | NapCat/OneBot 11、群聊 @/回复触发、指令交互（/new /reset /history /agent /recall）、引用回复、表情包、防刷 | [qq-channel.md](./guides/qq-channel.md) |
-| MCP Server | 主服务内置 Streamable HTTP MCP 端点，可对外暴露内置工具 | [TECH_STACK.md](./TECH_STACK.md) |
+| MCP Server | 主服务内置 Streamable HTTP MCP 端点，可对外暴露内置工具 | [tech-stack.md](./tech-stack.md) |
 
 ## 三、双路径执行：Agentic 与 Graph 编排
 
@@ -100,7 +105,7 @@ Deerfect Harness 是一个基于 Spring AI 的双路径 Agent 平台：**Agentic
 
 接口级限流防刷、CD 自动部署与分支保护强制校验、OpenTelemetry 分布式链路追踪、Testcontainers 集成测试、Swagger/OpenAPI、Redis 会话缓存、消息队列、多实例水平扩展、子任务依赖编排、子任务失败重规划、对话历史向量化召回（跨会话关键词召回已支持，向量检索未做）、PDF 导出、多模态输入、Web 端分页与独立域名部署。
 
-> 完整清单与验收口径见 [HARNESS_TODO.md](./HARNESS_TODO.md)。
+> 完整清单与验收口径见 [roadmap.md](./roadmap.md)。
 
 ## 十一、延伸阅读
 
@@ -109,11 +114,11 @@ Deerfect Harness 是一个基于 Spring AI 的双路径 Agent 平台：**Agentic
 | [README](../README.md) | 项目速览与快速开始 |
 | [architecture.md](./architecture.md) | 架构总览与两路径数据流 |
 | [data-flow.md](./data-flow.md) | 请求生命周期、预算记账、观测落库 |
-| [TECH_STACK.md](./TECH_STACK.md) | 技术栈明细与当前版本 |
+| [tech-stack.md](./tech-stack.md) | 技术栈明细与当前版本 |
 | [guides/api.md](./guides/api.md) | REST 接口全表 |
 | [guides/functional-testing.md](./guides/functional-testing.md) | 测试全景 |
-| [HARNESS_TODO.md](./HARNESS_TODO.md) | 路线图（未完成 / 已完成存档） |
+| [roadmap.md](./roadmap.md) | 路线图（未完成 / 已完成存档） |
 
 ---
 
-[⬅ 返回文档索引](./README.md)
+[⬅ 返回文档索引](./index.md)

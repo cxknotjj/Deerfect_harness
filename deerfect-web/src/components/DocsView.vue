@@ -88,6 +88,22 @@ function docSize(path: string): string {
   return item ? fmtBytes(item.size) : '—'
 }
 
+/** 概览组序号：front-matter order 补成两位（01–10），其他组不展示 */
+function orderLabel(item: DocItem): string {
+  return item.order == null ? '' : String(item.order).padStart(2, '0')
+}
+
+function isActiveDoc(item: DocItem): boolean {
+  return item.path === selectedPath.value
+    || (item.enPath !== undefined && item.enPath === selectedPath.value)
+}
+
+/** EN 徽标：默认打开英文变体；正在看英文时徽标变「中」，点击切回中文 */
+function toggleLang(item: DocItem): void {
+  if (!item.enPath) return
+  openDoc(selectedPath.value === item.enPath ? item.path : item.enPath)
+}
+
 /* ---------- 章节浮层：本项目的 ---------- */
 const menuOpen = ref(false)
 const menuEl = ref<HTMLElement | null>(null)
@@ -497,15 +513,30 @@ function submitCreate(): void {
                 <span class="docs-group-count">{{ group.count }}</span>
               </button>
               <div v-show="!collapsed.has(group.key)" class="docs-group-items">
-                <button
+                <div
                   v-for="item in group.docs"
                   :key="item.path"
                   class="docs-item"
-                  :class="{ 'is-active': item.path === selectedPath }"
-                  type="button"
-                  :title="item.path"
-                  @click="openDoc(item.path)"
-                >{{ item.title }}</button>
+                  :class="{ 'is-active': isActiveDoc(item) }"
+                >
+                  <button
+                    class="docs-item-main"
+                    type="button"
+                    :title="item.path"
+                    @click="openDoc(item.path)"
+                  >
+                    <span class="docs-item-order">{{ orderLabel(item) }}</span>
+                    <span class="docs-item-title">{{ item.title }}</span>
+                  </button>
+                  <button
+                    v-if="item.enPath"
+                    class="docs-item-lang"
+                    :class="{ 'is-on': selectedPath === item.enPath }"
+                    type="button"
+                    :title="selectedPath === item.enPath ? '切换到中文版' : '打开英文版'"
+                    @click="toggleLang(item)"
+                  >{{ selectedPath === item.enPath ? '中' : 'EN' }}</button>
+                </div>
               </div>
             </div>
           </div>
@@ -530,8 +561,7 @@ function submitCreate(): void {
               aria-controls="docs-section-menu"
               @click="toggleMenu"
             >
-              <span>本项目的</span>
-              <span class="docs-menu-count">{{ sections.length }}</span>
+              <span>本页目录</span>
               <svg class="docs-menu-chevron" :class="{ 'is-open': menuOpen }" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="m6 9 6 6 6-6" />
               </svg>
@@ -555,11 +585,26 @@ function submitCreate(): void {
                 @click="jumpTo(section)"
               >{{ section.text }}</button>
             </div>
-        </div>
+          </div>
         </div>
 
         <article ref="articleEl" class="docs-article" @click="onArticleClick">
           <h1 class="docs-doc-title">{{ selected.title }}</h1>
+          <div class="docs-doc-meta" aria-label="文档元信息">
+            <span class="docs-doc-meta-strong">docs/{{ selected.path }}</span>
+            <span class="docs-doc-meta-sep">|</span>
+            <span>group {{ docGroupLabel(selected.path) }}</span>
+            <template v-if="selected.order != null">
+              <span class="docs-doc-meta-sep">|</span>
+              <span>order {{ orderLabel(selected) }}</span>
+            </template>
+            <span class="docs-doc-meta-sep">|</span>
+            <span>lang {{ selected.lang }}</span>
+            <template v-if="selected.updated">
+              <span class="docs-doc-meta-sep">|</span>
+              <span>更新 {{ selected.updated }}</span>
+            </template>
+          </div>
           <!-- 正文已由 DOMPurify.sanitize 净化（bodyHtml），此处 v-html 安全 -->
           <!-- eslint-disable-next-line vue/no-v-html -->
           <div class="docs-md" v-html="bodyHtml"></div>

@@ -1,4 +1,4 @@
-# 🐳 Docker 部署
+# Docker 部署
 
 > README「Docker 部署」一节的完整版：镜像构建、三件套启动、`.env` 配置、ACR 免构建拉取与离线 tar 部署。
 
@@ -10,16 +10,16 @@
 **1️⃣ 构建镜像**
 
 ```bash
-# 推荐：构建脚本自动取 git 短 sha 与 pom 版本，镜像 tag = sha-<短sha>（版本信息写入 OCI labels）
+# Docker 部署
 ./docker/build-image.sh            # Linux / WSL
 .\docker\build-image.ps1          # Windows PowerShell
-# 正式发布：用语义化版本号打 tag，并额外打 latest
+# Docker 部署
 ALIAS_LATEST=1 ./docker/build-image.sh 0.1.0
 
-# 手动构建（基础镜像可直连 Docker Hub 时）：
+# Docker 部署
 docker build -f docker/Dockerfile -t deerfect-harness:local .
 
-# Docker Hub 不可达（国内常见）时，经加速通道覆盖基础镜像：
+# Docker 部署
 docker build \
   --build-arg BUILD_BASE=docker.m.daocloud.io/library/maven:3.9-eclipse-temurin-25 \
   --build-arg RUN_BASE=docker.m.daocloud.io/library/ubuntu:24.04 \
@@ -35,14 +35,14 @@ Maven 默认走中央仓库；国内构建可加 `--build-arg MAVEN_MIRROR=https
 **2️⃣ 启动三件套**
 
 ```bash
-# ① 启动三件套（项目根执行；首次使用先配好 docker/.env，见下方说明）
+# Docker 部署
 docker compose -f docker/docker-compose.yml up -d
 
-# 指定版本（默认 IMAGE_TAG=local）：镜像必须已存在（构建/拉取/load 过），--no-build 确保不重建
+# Docker 部署
 IMAGE_TAG=sha-1c59846 docker compose -f docker/docker-compose.yml up -d --no-build
 
-# ② 看应用日志确认就绪：Flyway 建表 → 出现 Started JavaHarnessApplication 即成功
-#    （logs 是"看日志"不是再启动一次；Ctrl+C 只是退出滚动，容器照常运行）
+# Docker 部署
+# Docker 部署
 docker compose -f docker/docker-compose.yml logs -f app
 ```
 
@@ -98,12 +98,12 @@ curl -X POST http://localhost:8080/api/knowledge/sync   # 需真实 QWEN_API_KEY
 REG=crpi-udfqmnkb69y8dx8r.cn-hangzhou.personal.cr.aliyuncs.com/java-harness/harness
 TAG=sha-$(git rev-parse --short=8 HEAD)     # 与本地构建出的 tag 一致
 
-# 构建机：推版本 tag（正式发布再补推 latest）
+# Docker 部署
 docker tag deerfect-harness:$TAG $REG:$TAG
 docker push $REG:$TAG
-# docker tag deerfect-harness:$TAG $REG:latest && docker push $REG:latest
+# Docker 部署
 
-# 部署机：按 tag 拉取并启动
+# Docker 部署
 docker pull $REG:$TAG
 docker tag $REG:$TAG deerfect-harness:$TAG
 IMAGE_TAG=$TAG docker compose -f docker/docker-compose.yml up -d --no-build
@@ -117,17 +117,17 @@ IMAGE_TAG=$TAG docker compose -f docker/docker-compose.yml up -d --no-build
 构建机与运行机不同（如构建在 Windows Docker Desktop、运行在 Linux 服务器）时，镜像包内含完整镜像层，目标机无需源码/Maven/JDK：
 
 ```bash
-# 构建机：按版本 tag 导出为单文件镜像包（Windows PowerShell / Linux 通用）
+# Docker 部署
 TAG=sha-$(git rev-parse --short=8 HEAD)
 docker save deerfect-harness:$TAG -o deerfect-harness-$TAG.tar
 scp deerfect-harness-$TAG.tar user@服务器IP:/opt/java-harness/
 ```
 
 ```bash
-# 目标机：导入镜像（.tar / .tar.gz 通用，无需解压）
+# Docker 部署
 TAG=sha-xxxxxxxx                      # 与构建机导出的版本一致
 docker load -i deerfect-harness-$TAG.tar
-# 看到 Loaded image: deerfect-harness:sha-xxxxxxxx 即成功
+# Docker 部署
 QWEN_API_KEY=sk-你的key \
 IMAGE_TAG=$TAG docker compose -f docker/docker-compose.yml up -d --no-build
 ```
@@ -157,12 +157,12 @@ IMAGE_TAG=$TAG docker compose -f docker/docker-compose.yml up -d --no-build
 ## 升级与回滚
 
 ```bash
-# 升级：拉新版本 → 改 IMAGE_TAG → 不重新构建
+# Docker 部署
 docker pull ghcr.io/cxknotjj/deerfect-harness:sha-1c59846
 IMAGE_REPO=ghcr.io/cxknotjj/deerfect-harness IMAGE_TAG=sha-1c59846 \
   docker compose -f docker/docker-compose.yml up -d --no-build
 
-# 回滚：镜像层回退，数据层不回退
+# Docker 部署
 IMAGE_REPO=ghcr.io/cxknotjj/deerfect-harness IMAGE_TAG=sha-<旧版本> \
   docker compose -f docker/docker-compose.yml up -d --no-build
 ```

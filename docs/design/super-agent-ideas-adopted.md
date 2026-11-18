@@ -88,7 +88,7 @@
 - 复杂编排按 `LEAD_DONE / SUBTASKS_DONE / DONE` 三阶段落检查点，`/api/chat/resume` 从最近检查点续跑，已完成阶段不重跑（[OrchestrationCheckpointStore.java](../../deerfect-server/src/main/java/com/dark/javaHarness/state/persistence/OrchestrationCheckpointStore.java)、[resume.md](../guides/resume.md)）；
 - 计算通过受管线程池承载：后台 Goal 走 `goalExecutor`（8 线程 + 50 队列，满则显式落 FAILED），MVC 异步派发走独立槽位（[GoalExecutorConfig.java](../../deerfect-server/src/main/java/com/dark/javaHarness/config/GoalExecutorConfig.java#L27-L43)、[AgentServiceImpl.java](../../deerfect-server/src/main/java/com/dark/javaHarness/service/impl/AgentServiceImpl.java#L56-L69)）。
 
-**边界**：只完成了「计算与状态」的分离，没有完成「计算与执行环境」的分离——工具执行仍在同机 Docker 沙箱内，调度仍是进程内线程池，`failAllRunning` 与本地队列都基于单实例假设（见 [HARNESS_TODO.md](../HARNESS_TODO.md) 的「多实例水平扩展」）。
+**边界**：只完成了「计算与状态」的分离，没有完成「计算与执行环境」的分离——工具执行仍在同机 Docker 沙箱内，调度仍是进程内线程池，`failAllRunning` 与本地队列都基于单实例假设（见 [roadmap.md](../roadmap.md) 的「多实例水平扩展」）。
 
 ### 2.5 外部控制回路（Watchdog 的轻量形态）
 
@@ -169,4 +169,4 @@
 - [guides/context-optimization.md](../guides/context-optimization.md)：Token 预算与上下文优化口径
 - [guides/resume.md](../guides/resume.md)：检查点与断点续跑
 - [guides/qq-channel.md](../guides/qq-channel.md)：QQ 渠道接入与触发规则
-- [HARNESS_TODO.md](../HARNESS_TODO.md)：未完成能力与优先级
+- [roadmap.md](../roadmap.md)：未完成能力与优先级

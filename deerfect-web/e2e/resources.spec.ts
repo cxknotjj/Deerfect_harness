@@ -109,17 +109,46 @@ test.describe('资源面导航', () => {
 
   test('文档页：前端打包 docs、目录/搜索/内链与深链', async ({ page }) => {
     await page.goto('/docs')
-    await expect(page.locator('.docs-doc-title')).toHaveText('javaHarness 文档导航')
+    await expect(page.locator('.docs-doc-title')).toHaveText('文档导航')
     await expect(page.locator('.docs-group-row')).toHaveCount(5)
     await expect(page.locator('.docs-group-row').first()).toContainText('概览')
-    // 正文来自打包的 README：表格与「项目约束」段落
+    // 组计数按折叠英文变体后的真实目录重算
+    await expect(page.locator('.docs-group-count')).toHaveText(['10', '15', '15', '13', '4'])
+
+    // 所有分组都带两位序号：概览 01–10 来自 front-matter order，指南 01–15 按展示顺序
+    const treeGroups = page.locator('.docs-group')
+    await expect(treeGroups.first().locator('.docs-item-order')).toHaveCount(10)
+    await expect(treeGroups.first().locator('.docs-item-order').first()).toHaveText('01')
+    await expect(treeGroups.nth(1).locator('.docs-item-order')).toHaveCount(15)
+    await expect(treeGroups.nth(1).locator('.docs-item-order').first()).toHaveText('01')
+    const metaBar = page.locator('.docs-doc-meta')
+    await expect(metaBar).toContainText('docs/index.md')
+    await expect(metaBar).toContainText('group 概览')
+    await expect(metaBar).toContainText('order 01')
+    await expect(metaBar).toContainText('lang zh')
+    await expect(metaBar).toContainText('更新 2026-11-14')
+
+    // 正文来自打包的 index.md：表格与「项目约束」段落
     await expect(page.locator('.docs-md table').first()).toBeVisible()
     await expect(page.locator('.docs-md')).toContainText('项目约束')
 
-    // 内链跳转：README → principal.md，地址栏同步到可刷新路径
+    // 英文变体折叠：项目结构行只有一条，EN 徽标可切英文 / 切回中文
+    const structureRow = page.locator('.docs-item').filter({ hasText: '项目结构' }).first()
+    await expect(structureRow.locator('.docs-item-lang')).toHaveText('EN')
+    await structureRow.locator('.docs-item-lang').click()
+    await expect(page).toHaveURL(/\/docs\/project-structure\.en\.md$/)
+    await expect(metaBar).toContainText('lang en')
+    await expect(structureRow.locator('.docs-item-lang')).toHaveText('中')
+    await structureRow.locator('.docs-item-lang').click()
+    await expect(metaBar).toContainText('lang zh')
+
+    // 内链跳转：index → principal.md，地址栏同步到可刷新路径
+    await page.locator('.docs-item').filter({ hasText: '文档导航' }).first().click()
     await page.locator('.docs-md a').filter({ hasText: 'principal.md' }).click()
     await expect(page).toHaveURL(/\/docs\/principal\.md$/)
-    await expect(page.locator('.docs-doc-title')).toHaveText('项目约束（Principal）')
+    await expect(page.locator('.docs-doc-title')).toHaveText('项目约束')
+    // 没有 front-matter 的文档也显示文件更新日期
+    await expect(metaBar).toContainText(/更新 \d{4}-\d{2}-\d{2}/)
 
     // 搜索在本地扫描正文
     await page.locator('.docs-search input').fill('飞书')
@@ -136,7 +165,7 @@ test.describe('资源面导航', () => {
   test('文档章节浮层：展开、跳转高亮、Esc 与方向键', async ({ page }) => {
     await page.goto('/docs')
     const pill = page.locator('.docs-menu-pill')
-    await expect(pill).toContainText('6')
+    await expect(pill).toContainText('本页目录')
 
     // 展开：当前章节 = 顶部第一节
     await pill.click()

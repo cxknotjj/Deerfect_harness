@@ -1,4 +1,4 @@
-# 📚 Knowledge Base QA (RAG)
+# Knowledge Base QA (RAG)
 
 > Deep dive behind the README "REST API" section: gating conditions, multi-KB & agent binding, directory watching / BM25 hybrid retrieval.
 

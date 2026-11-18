@@ -275,7 +275,7 @@
   - 做法：更新"新增模型/供应商"步骤、路由配置说明、观测字段与目录树；删除按名配置示例
   - 验收：按文档从零加一个供应商 + 模型 + 路由可跑通；文档内无旧表名与旧配置键
   - 依赖：F1、G1
-  - 结果（2026-11-12）：models.md 重写为三层模型 + 管理接口流程；features/TECH_STACK/data-flow/project-structure（中英）/api/setup/wms-mcp/functional-testing 同步更新；历史设计与报告保留原貌
+  - 结果（2026-11-12）：models.md 重写为三层模型 + 管理接口流程；features/tech-stack/data-flow/project-structure（中英）/api/setup/wms-mcp/functional-testing 同步更新；历史设计与报告保留原貌
 
 - [x] H4 全量测试与故障注入
   - 作用：确认替换没有回归

@@ -1,4 +1,4 @@
-# 🚀 本地部署详解
+# 本地部署详解
 
 > README「快速开始」的完整版：数据库准备、一键启动脚本、API Key 三种配置方式、agent 服务商核对。
 
@@ -28,11 +28,11 @@ CREATE DATABASE IF NOT EXISTS harness DEFAULT CHARACTER SET utf8mb4;
 **1️⃣ 启动主服务**
 
 ```bash
-# 打包后启动（推荐）：根聚合 install，fat jar 在 deerfect-server/target/
+# 本地部署详解
 mvn -DskipTests install
 java -jar deerfect-server/target/deerfect-server-0.0.1-SNAPSHOT.jar
 
-# 或开发模式直接运行（需先把契约/渠道模块装进本地仓库）
+# 本地部署详解
 mvn -pl deerfect-api,channel-qq -DskipTests install
 mvn -pl deerfect-server spring-boot:run
 ```
@@ -59,16 +59,16 @@ curl -s -X POST http://localhost:8080/api/chat \
 按优先级任选其一，重启服务后即可真实对话（不配置也能启动，调用模型返回 401 占位 key 错误）：
 
 ```powershell
-# 方式一：系统级环境变量（推荐，新开窗口全局生效；WSL 会话需 WSLENV 透传）
+# 本地部署详解
 setx QWEN_API_KEY "sk-你的key"      # DashScope（通义千问）
 setx DEEPSEEK_API_KEY "sk-你的key"  # DeepSeek
 setx WSLENV "QWEN_API_KEY/u:DEEPSEEK_API_KEY/u"   # 透传进 WSL（Linux 侧运行时需要）
 
-# 方式二：仓库根 .env.local（run-wsl.sh 启动时自动加载，已被 gitignore 不入库）
-#   QWEN_API_KEY=sk-你的key
-#   DEEPSEEK_API_KEY=sk-你的key
+# 本地部署详解
+# 本地部署详解
+# 本地部署详解
 
-# 方式三：仅当前终端会话临时生效
+# 本地部署详解
 $env:QWEN_API_KEY = "sk-你的key"    # Windows PowerShell；WSL 用 export QWEN_API_KEY=...
 ```
 

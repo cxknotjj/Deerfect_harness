@@ -1,4 +1,4 @@
-# 📡 SSE Streaming Protocol
+# SSE Streaming Protocol
 
 > Full version of the README "SSE Streaming Protocol" section: event stream example, event types and consumption notes.
 

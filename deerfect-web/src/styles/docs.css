@@ -268,26 +268,93 @@ html[data-theme='dark'] .docs-view {
   padding: 2px 0 4px;
 }
 
+/* 目录条目：序号 / 标题 / EN 徽标同一行，点击整行打开中文版 */
 .docs-item {
-  width: 100%;
-  padding: 6px 10px 6px 24px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 7px;
+  transition: background 0.15s;
+}
+
+.docs-item:hover {
+  background: var(--hover-veil);
+}
+
+.docs-item.is-active {
+  background: var(--accent-lift);
+}
+
+.docs-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px 6px 12px;
   border-radius: 7px;
   font-size: 12px;
   line-height: 1.45;
   color: var(--ink-dim);
   text-align: left;
-  transition: background 0.15s, color 0.15s;
+  transition: color 0.15s;
 }
 
-.docs-item:hover {
-  background: var(--hover-veil);
+.docs-item:hover .docs-item-main {
   color: var(--ink);
 }
 
-.docs-item.is-active {
-  background: var(--accent-lift);
+.docs-item.is-active .docs-item-main {
   color: var(--accent);
   font-weight: 600;
+}
+
+/* 概览的 01–10：视图层序号，不参与文件名 */
+.docs-item-order {
+  width: 16px;
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--ink-dim);
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.docs-item.is-active .docs-item-order {
+  color: var(--accent);
+  opacity: 0.65;
+}
+
+.docs-item-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* EN 徽标：点开英文变体；正在看英文时显示「中」切回中文 */
+.docs-item-lang {
+  flex-shrink: 0;
+  height: 18px;
+  padding: 0 5px;
+  margin-right: 6px;
+  border: 1px solid var(--line-soft);
+  border-radius: 5px;
+  font-size: 9.5px;
+  line-height: 1;
+  color: var(--ink-dim);
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.docs-item-lang:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.docs-item-lang.is-on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--bg-card);
 }
 
 /* ---------- 搜索结果 ---------- */
@@ -416,19 +483,6 @@ html[data-theme='dark'] .docs-view {
   outline-offset: 1px;
 }
 
-.docs-menu-count {
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  display: inline-grid;
-  place-items: center;
-  border-radius: 5px;
-  background: var(--hover-veil);
-  color: var(--ink-dim);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-}
-
 .docs-menu-chevron {
   width: 12px;
   height: 12px;
@@ -506,10 +560,34 @@ html[data-theme='dark'] .docs-menu-panel {
 }
 
 .docs-doc-title {
-  margin: 10px 0 14px;
+  margin: 10px 0 12px;
   font-size: 27px;
   font-weight: 700;
   letter-spacing: -0.01em;
+}
+
+/* 标题下的元信息条：路径 / 分组 / 序号 / 语言 / 更新时间 */
+.docs-doc-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0 0 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--bg-inset);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-dim);
+}
+
+.docs-doc-meta-strong {
+  color: var(--ink);
+}
+
+.docs-doc-meta-sep {
+  color: var(--grid-line);
 }
 
 .docs-md {
@@ -717,6 +795,12 @@ html[data-theme='dark'] .docs-menu-panel {
   .docs-article {
     overflow: visible;
     padding: 14px 16px 26px;
+  }
+
+  .docs-doc-meta {
+    gap: 3px 8px;
+    padding: 7px 10px;
+    font-size: 10px;
   }
 
   /* 窄屏整页滚动时，把面包屑 + 章节胶囊粘在顶部，往下读也能直接跳章节 */

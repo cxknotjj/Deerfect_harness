@@ -1,4 +1,4 @@
-# 🔌 MCP 工具接入
+# MCP 工具接入
 
 > README「MCP 工具接入」一节的完整版：配置模板、按 agent 分配工具与 general 最小权限对齐。
 

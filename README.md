@@ -133,7 +133,7 @@ curl -s -X POST http://localhost:8080/api/chat \
 
 **QQ 机器人 · 指令交互、表情包与语音（NapCat 接入）**
 
-![QQ 机器人](./docs/images/qq机器人.jpg)
+![QQ 机器人](./docs/images/qq-channel.jpg)
 
 ## 📖 文档
 
@@ -147,26 +147,26 @@ curl -s -X POST http://localhost:8080/api/chat \
 | **架构**                                                                         | <br />                                             |
 | [`docs/features.md`](./docs/features.md)                                       | 项目功能介绍（已落地能力全景 / 未实现清单）                            |
 | [`docs/architecture.md`](./docs/architecture.md)                               | 架构总览与数据流                                           |
-| [`docs/project-structure.md`](./docs/project-structure.md)                     | 服务端目录树（[EN](./docs/project-structure_EN.md)）       |
+| [`docs/project-structure.md`](./docs/project-structure.md)                     | 服务端目录树（[EN](./docs/project-structure.en.md)）       |
 | [`docs/data-flow.md`](./docs/data-flow.md)                                     | 数据流详解                                              |
-| [`docs/TECH_STACK.md`](./docs/TECH_STACK.md)                                   | 技术栈明细与扩展方向                                         |
+| [`docs/tech-stack.md`](./docs/tech-stack.md)                                   | 技术栈明细与扩展方向                                         |
 | **功能指南**                                                                       | <br />                                             |
 | [`docs/guides/api.md`](./docs/guides/api.md)                                   | REST 接口全表与知识库管理页                                   |
 | [`docs/guides/cli.md`](./docs/guides/cli.md)                                   | CLI 命令                                             |
-| [`docs/guides/knowledge-rag.md`](./docs/guides/knowledge-rag.md)               | RAG 知识库配置（[EN](./docs/guides/knowledge-rag_EN.md)） |
+| [`docs/guides/knowledge-rag.md`](./docs/guides/knowledge-rag.md)               | RAG 知识库配置（[EN](./docs/guides/knowledge-rag.en.md)） |
 | [`docs/guides/mcp-tools.md`](./docs/guides/mcp-tools.md)                       | MCP 工具接入                                           |
 | [`docs/guides/wms-mcp.md`](./docs/guides/wms-mcp.md)                           | WMS 仓储查询 MCP 适配（独立 adapter、只读工具集）                  |
 | [`docs/guides/qq-channel.md`](./docs/guides/qq-channel.md)                     | QQ 机器人接入                                           |
 | [`docs/guides/resume.md`](./docs/guides/resume.md)                             | 断点续跑                                               |
 | **协议与规范**                                                                      | <br />                                             |
-| [`docs/guides/sse-protocol.md`](./docs/guides/sse-protocol.md)                 | SSE 流式协议（[EN](./docs/guides/sse-protocol_EN.md)）   |
+| [`docs/guides/sse-protocol.md`](./docs/guides/sse-protocol.md)                 | SSE 流式协议（[EN](./docs/guides/sse-protocol.en.md)）   |
 | [`docs/guides/commit-convention.md`](./docs/guides/commit-convention.md)       | 提交规范（Conventional Commits）                         |
 | [`docs/guides/context-optimization.md`](./docs/guides/context-optimization.md) | 上下文优化与 Token 预算策略                                  |
 | **测试与演进**                                                                      | <br />                                             |
 | [`docs/guides/functional-testing.md`](./docs/guides/functional-testing.md)     | 测试全景                                               |
-| [`docs/HARNESS_TODO.md`](./docs/HARNESS_TODO.md)                               | 落地 TODO / 路线图                                      |
+| [`docs/roadmap.md`](./docs/roadmap.md)                               | 落地 TODO / 路线图                                      |
 
-> 完整文档索引与存档目录（设计文档 design/、报告 reports/、历史 spec archive/specs/）见 **[`docs/README.md`](./docs/README.md)**。
+> 完整文档索引与存档目录（设计文档 design/、报告 reports/、历史 spec archive/specs/）见 **[`docs/index.md`](./docs/index.md)**。
 
 ## 技术架构
 

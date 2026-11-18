@@ -79,7 +79,7 @@ flowchart TD
 ```
 
 > [!TIP]
-> For a full feature inventory see [`docs/features.md`](./docs/features.md) (Chinese); for data-flow details see [`docs/data-flow.md`](./docs/data-flow.md) (Chinese), for the roadmap see [`docs/HARNESS_TODO.md`](./docs/HARNESS_TODO.md) (Chinese), and for the full test landscape see [`docs/guides/functional-testing.md`](./docs/guides/functional-testing.md) (Chinese).
+> For a full feature inventory see [`docs/features.md`](./docs/features.md) (Chinese); for data-flow details see [`docs/data-flow.md`](./docs/data-flow.md) (Chinese), for the roadmap see [`docs/roadmap.md`](./docs/roadmap.md) (Chinese), and for the full test landscape see [`docs/guides/functional-testing.md`](./docs/guides/functional-testing.md) (Chinese).
 
 ## 🧰 Tech Stack
 
@@ -107,7 +107,7 @@ flowchart TD
 | 🛠️ Maven | ✅ | 3.8+ (in-project settings; no global configuration needed) |
 | 🗄️ MySQL | ✅ | `harness` database; Flyway creates all tables at startup |
 | 🟢 Node.js | ⚠️ For the web console | 20.19+ (required by Vite 7) |
-| 🐳 Docker Desktop | ⚠️ For sandbox | Container isolation for Python/Shell/browser tools; without Docker only sandbox-class tools are unavailable, everything else works (pre-pull images, see `docs/TECH_STACK.md`) |
+| 🐳 Docker Desktop | ⚠️ For sandbox | Container isolation for Python/Shell/browser tools; without Docker only sandbox-class tools are unavailable, everything else works (pre-pull images, see `docs/tech-stack.md`) |
 | 🔑 API Key | 🔄 Optional | DashScope (Qwen) / DeepSeek; the app starts without keys — model calls return `invalid_api_key` |
 
 ### ⚡ One-Click Start
@@ -219,14 +219,14 @@ The CLI is a pure HTTP client (**listens on no port**) and talks to the main ser
 Drop documents into the `knowledge/` directory (`.md` / `.txt`, optional front-matter `title:`); after ingestion both paths automatically retrieve & inject before answering, with inline `【Source N】` citations and a source footnote. Retrieval runs as a side check before prompt assembly — if any of the five gating conditions fails it silently degrades with zero impact on the main path.
 
 > [!TIP]
-> Multi-KB & agent binding, directory watching / BM25 hybrid retrieval and other enhanced settings: **[`docs/guides/knowledge-rag_EN.md`](./docs/guides/knowledge-rag_EN.md)**; decision flow & sequence diagram: [`docs/data-flow.md` section 5i](./docs/data-flow.md#5i-rag-知识检索注入数据流prompt-组装前旁路).
+> Multi-KB & agent binding, directory watching / BM25 hybrid retrieval and other enhanced settings: **[`docs/guides/knowledge-rag.en.md`](./docs/guides/knowledge-rag.en.md)**; decision flow & sequence diagram: [`docs/data-flow.md` section 5i](./docs/data-flow.md#5i-rag-知识检索注入数据流prompt-组装前旁路).
 
 ## 📡 SSE Streaming Protocol
 
 Streaming responses use an SSE-style line protocol (one element per line, `event:` + `data:` pairs): `token` for incremental text, `progress` for orchestration stages (not stored in session memory), `meta` for end-of-turn session info & knowledge sources, `error` for in-stream errors — terminated by `[DONE]`.
 
 > [!TIP]
-> Full event stream example & field reference: **[`docs/guides/sse-protocol_EN.md`](./docs/guides/sse-protocol_EN.md)**; resume responses share the same format as `/stream`.
+> Full event stream example & field reference: **[`docs/guides/sse-protocol.en.md`](./docs/guides/sse-protocol.en.md)**; resume responses share the same format as `/stream`.
 
 ## 🔁 Resume from Checkpoint
 
@@ -318,7 +318,7 @@ A multi-module Maven project plus a standalone frontend. Each module documents i
 | [`wms-mcp-adapter`](./wms-mcp-adapter/README.md) | WMS read-only MCP adapter example, separate process | standalone | `deerfect-server` wires `channel-*` with **runtime** scope, so core cannot see any channel code at compile time (guarded by `maven-enforcer-plugin`); channel output controls go through the generic `ReplyPostProcessor` SPI. The server follows the classic layered architecture (Controller → Service → Mapper/Entity) with domain models grouped under the `domain` parent package.
 
 > [!TIP]
-> Full server-side directory tree with per-file notes: **[`docs/project-structure_EN.md`](./docs/project-structure_EN.md)**.
+> Full server-side directory tree with per-file notes: **[`docs/project-structure.en.md`](./docs/project-structure.en.md)**.
 
 ## 🧪 Running Tests
 

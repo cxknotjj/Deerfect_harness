@@ -1,7 +1,7 @@
 # Super-agent 思想落地清单（链式召回 / 事件过滤 / Goal 心跳）
 
 - 范围：`server`、`channel-qq`、`harness-api`、`server/src/main/resources/db/migration`
-- 背景：[super-agent-ideas-adopted.md](../design/super-agent-ideas-adopted.md)（已落地部分对照）、[HARNESS_TODO.md](../HARNESS_TODO.md)（P2 长期记忆 / Goal 失败重投）
+- 背景：[super-agent-ideas-adopted.md](../design/super-agent-ideas-adopted.md)（已落地部分对照）、[roadmap.md](../roadmap.md)（P2 长期记忆 / Goal 失败重投）
 - 创建：2026-11-03
 - 状态：共 14 项，已完成 14 项，待办 0 项
 
@@ -113,7 +113,7 @@
 
 - [x] C4 Watchdog 测试与文档
   - 作用：锁定阈值、条件更新与开关语义，并与 P2 重投划清边界
-  - 位置：`GoalServiceImplTest`、新增 `StaleGoalWatchdogTest`、`docs/data-flow.md` 5h 节、`docs/HARNESS_TODO.md` P2「Goal 失败重投」
+  - 位置：`GoalServiceImplTest`、新增 `StaleGoalWatchdogTest`、`docs/data-flow.md` 5h 节、`docs/roadmap.md` P2「Goal 失败重投」
   - 做法：覆盖阈值边界、非 RUNNING 不更新、开关关闭；文档写明「Watchdog 只标失败、不自动重投，重投由 P2 另立」
   - 验收：用例全绿；`mvn -s .mvn/settings.xml -pl server -am test` 通过；文档口径一致
 

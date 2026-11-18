@@ -2,7 +2,7 @@
 
 > 状态：已完成（代码迁移 2026-10-25；2026-10-27 本机真机启动、Flyway 迁移与真实模型对话冒烟均通过）　|　硬性目标：Spring AI 2.0（取最新稳定 2.0.2）　|　日期：2026-10-25
 >
-> 本文为迁移设计存档；当前技术基线以 [TECH_STACK.md](../TECH_STACK.md) 为准（Spring Boot 4.1.2 / Spring AI 2.0.2 / Java 25）。
+> 本文为迁移设计存档；当前技术基线以 [tech-stack.md](../tech-stack.md) 为准（Spring Boot 4.1.2 / Spring AI 2.0.2 / Java 25）。
 
 ## 1. 目标与边界
 
@@ -132,7 +132,7 @@
 3. CLI：单聊 + `/resume`。
 4. 沙箱：有 Docker 时 python/shell/文件工具可用；无 Docker 时降级不阻断。
 5. `mvn dependency:tree | grep alibaba` 必须为空（除无关传递项，需逐项确认）。
-6. 更新 README / TECH_STACK / docs 的版本矩阵与启动说明。
+6. 更新 README / tech-stack / docs 的版本矩阵与启动说明。
 
 ## 5. 验收标准
 

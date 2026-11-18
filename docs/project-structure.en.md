@@ -1,4 +1,4 @@
-# 📁 Project Structure
+# Project Structure
 
 > Full version of the README "Project Structure" section: multi-module layout plus the complete `server` module directory tree with per-file notes.
 

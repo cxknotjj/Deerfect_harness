@@ -1,4 +1,9 @@
-# javaHarness 技术栈整理
+---
+title: "技术栈"
+order: 5
+---
+
+# 技术栈
 
 > 基于 Spring AI 的 Agent 编排框架 Demo。本文档梳理项目现有技术栈，并给出可扩展方向。
 

@@ -1,7 +1,7 @@
 # 多 Agent 编排器设计：MultiAgentGraphAgent（路径 B）
 
 > 日期：2026-08-26
-> 范围：HARNESS_TODO ④（路径 B — 多 Agent 任务编排，Spring-AI Graph）。仅做「复杂路径」的编排执行器，并接入主 Agent 路由的 `COMPLEX` 分支。
+> 范围：roadmap ④（路径 B — 多 Agent 任务编排，Spring-AI Graph）。仅做「复杂路径」的编排执行器，并接入主 Agent 路由的 `COMPLEX` 分支。
 
 ## 背景与目标
 

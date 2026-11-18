@@ -1,4 +1,4 @@
-# 🔁 断点续跑
+# 断点续跑
 
 > 复杂编排基于自研引擎阶段检查点的断点续跑：断开时机与续跑行为、API 与 CLI 用法。
 
@@ -14,11 +14,11 @@ Graph 编排路径（内部枚举 `COMPLEX`）按阶段落检查点到 `orchestr
 | 🚫 无任何检查点 | 快速失败：提示该 goal 未走过复杂路径 |
 
 ```bash
-# API 方式
+# 断点续跑
 curl -N -X POST "http://localhost:8080/api/chat/resume?goalId=<goalId>"
 curl "http://localhost:8080/api/chat/goal-status?goalId=<goalId>"   # 只查状态，不重跑
 
-# CLI 方式（不传 goalId 时恢复当前会话最近一次编排任务）
+# 断点续跑
 /resume
 /resume <goalId>
 ```
