@@ -65,6 +65,7 @@ export function useChat(hooks: ChatHooks) {
   const messages = ref<MessageItem[]>([])
   /** 视图当前指向的桶 key(与 hooks.getSessionId() 保持同步) */
   let viewKey = DRAFT_KEY
+  let historyVersion = 0
   /** 是否正在流式接收(streaming 中禁止再次发送) */
   const streaming = ref(false)
   /** 当前流的取消控制器(同一时刻至多一个流) */
@@ -165,10 +166,11 @@ export function useChat(hooks: ChatHooks) {
 
   /** 拉取服务端历史并就地覆盖当前桶(本地缓存负责即时渲染,服务端为准;期间已切走则丢弃结果) */
   async function loadHistory(key: string): Promise<void> {
+    const version = ++historyVersion
     if (key === DRAFT_KEY) return
     try {
       const resp = await api.listMessages(key)
-      if (viewKey !== key) return
+      if (viewKey !== key || version !== historyVersion) return
       const view = messages.value
       view.splice(0, view.length, ...resp.messages.map(toItem))
       persistCurrent()
@@ -197,6 +199,7 @@ export function useChat(hooks: ChatHooks) {
 
   /** 流式接收文本并写入指定 assistant 消息(发送与重新生成共用);收尾统一落盘 */
   async function streamText(assistant: MessageItem, text: string): Promise<void> {
+    ++historyVersion
     streaming.value = true
     controller = new AbortController()
     // 流发起时的会话 id 快照:收尾回调(改名)以发起时归属为准,用户中途切会话不串;
@@ -285,6 +288,7 @@ export function useChat(hooks: ChatHooks) {
     const list = messages.value
     const i = list.findIndex((m) => m.id === id)
     if (i === -1) return
+    ++historyVersion
     list.splice(i, list[i + 1]?.role === 'assistant' ? 2 : 1)
     persistCurrent()
   }
