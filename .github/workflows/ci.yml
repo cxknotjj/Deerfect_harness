@@ -67,7 +67,7 @@ jobs:
       # 拿到报告——用来判断是「覆盖率下降」还是「测试失败」，两者的修法完全不同。
       - name: Upload coverage reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: jacoco-reports
           path: '**/target/site/jacoco/'
@@ -121,7 +121,7 @@ jobs:
         run: npm run test:e2e
       - name: Upload report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: |
