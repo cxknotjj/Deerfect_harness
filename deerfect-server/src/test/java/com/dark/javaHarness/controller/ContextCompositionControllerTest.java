@@ -1,49 +1,69 @@
 package com.dark.javaHarness.controller;
 
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.domain.dto.ContextComposition;
+import com.dark.javaHarness.prompt.ContextCompositionQueryService;
 import com.dark.javaHarness.prompt.ContextCompositionStore;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.http.HttpStatus;
 
-/**
- * 上下文快照查询接口单测：命中 200、无快照/空 sessionId 404。
- */
+/** 快照查询接口：内存优先、DB 回退、双空 404、历史委托。 */
 class ContextCompositionControllerTest {
 
-    @Test
-    void get_existingSnapshot_returns200() throws Exception {
-        ContextCompositionStore store = new ContextCompositionStore();
-        store.put(new ContextComposition("s1", "general", "m1", "t1", 0, 10,
-                List.of(new ContextComposition.Part("system.role", "角色提示词", "system",
-                        10, 100.0))));
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(new ContextCompositionController(store)).build();
+    private final ContextCompositionStore store = mock(ContextCompositionStore.class);
+    private final ContextCompositionQueryService query = mock(ContextCompositionQueryService.class);
+    private final ContextCompositionController controller = new ContextCompositionController(store, query);
 
-        mvc.perform(get("/api/monitor/context").param("sessionId", "s1"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.sessionId").value("s1"))
-                .andExpect(jsonPath("$.agentName").value("general"))
-                .andExpect(jsonPath("$.turnId").value("t1"))
-                .andExpect(jsonPath("$.estimatedTotalTokens").value(10))
-                .andExpect(jsonPath("$.parts[0].key").value("system.role"))
-                .andExpect(jsonPath("$.parts[0].percent").value(100.0));
+    private ContextComposition snapshot(String sessionId) {
+        return new ContextComposition(sessionId, "general", "m", "t", 1L, 10,
+                List.of(new ContextComposition.Part("user", "用户输入", "input", 10, 100.0)));
     }
 
     @Test
-    void get_missingOrBlankSession_returns404() throws Exception {
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(
-                new ContextCompositionController(new ContextCompositionStore())).build();
+    void get_memoryHit_doesNotQueryDb() {
+        when(store.get("s1")).thenReturn(Optional.of(snapshot("s1")));
 
-        mvc.perform(get("/api/monitor/context").param("sessionId", "missing"))
-                .andExpect(status().isNotFound());
-        mvc.perform(get("/api/monitor/context").param("sessionId", "  "))
-                .andExpect(status().isNotFound());
-        mvc.perform(get("/api/monitor/context"))
-                .andExpect(status().isNotFound());
+        var response = controller.get("s1");
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        verifyNoInteractions(query);
+    }
+
+    @Test
+    void get_memoryMiss_fallsBackToDb() {
+        when(store.get("s1")).thenReturn(Optional.empty());
+        when(query.latest("s1")).thenReturn(Optional.of(snapshot("s1")));
+
+        var response = controller.get("s1");
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("s1", response.getBody().sessionId());
+    }
+
+    @Test
+    void get_bothEmpty_notFound() {
+        when(store.get("s1")).thenReturn(Optional.empty());
+        when(query.latest("s1")).thenReturn(Optional.empty());
+
+        assertEquals(HttpStatus.NOT_FOUND, controller.get("s1").getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND, controller.get(null).getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND, controller.get(" ").getStatusCode());
+    }
+
+    @Test
+    void history_delegatesAndBlankReturnsEmpty() {
+        when(query.history("s1", 20)).thenReturn(List.of(snapshot("s1")));
+
+        assertEquals(1, controller.history("s1", 20).size());
+        assertTrue(controller.history(" ", 20).isEmpty());
+        verify(query).history("s1", 20);
     }
 }
