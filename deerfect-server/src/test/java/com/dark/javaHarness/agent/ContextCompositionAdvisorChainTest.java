@@ -62,7 +62,9 @@ class ContextCompositionAdvisorChainTest {
                 .thenReturn(List.of(new PromptAssembler.RenderedSection("角色", "SYS", 1)));
 
         ContextCompositionStore store = new ContextCompositionStore();
-        ContextCompositionRecorder recorder = new ContextCompositionRecorder(store);
+        ContextCompositionRecorder recorder = new ContextCompositionRecorder(store,
+                mock(com.dark.javaHarness.mapper.ContextCompositionLogMapper.class),
+                new tools.jackson.databind.ObjectMapper());
         AgentRequestSpecFactory factory = new AgentRequestSpecFactory(assembler,
                 null, null, null, null, new ContextBudgetProperties(), null, null, List.of(), recorder,
                 modelResolver, agentCatalog, registry);
