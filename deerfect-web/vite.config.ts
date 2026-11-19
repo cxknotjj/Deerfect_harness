@@ -1,5 +1,8 @@
+import { copyFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
+import type { Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { VitePWA } from 'vite-plugin-pwa'
 import { docsMetaPlugin } from './vite.docs-meta'
@@ -18,6 +21,24 @@ const docsRoot = fileURLToPath(new URL('../docs', import.meta.url))
 // 为避免影响本地开发与 E2E,只有 `--mode pages`(npm run build:pages)才切到子路径。
 const PAGES_BASE = '/Deerfect_harness/'
 
+const distDir = fileURLToPath(new URL('./dist', import.meta.url))
+
+/**
+ * GitHub Pages 没有 SPA 回退：直接访问/刷新 /Deerfect_harness/chat 这类深链会返回 404。
+ * pages 模式构建后把 index.html 复制为 404.html，Pages 对未命中路径回该壳，
+ * 应用启动后再按 pathname 还原页面（App.vue 的 parseRoute）。
+ */
+function pagesSpaFallback(mode: string): Plugin {
+  return {
+    name: 'pages-spa-fallback',
+    apply: 'build',
+    closeBundle() {
+      if (mode !== 'pages') return
+      copyFileSync(resolve(distDir, 'index.html'), resolve(distDir, '404.html'))
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => {
   const base = mode === 'pages' ? PAGES_BASE : '/'
 
@@ -26,6 +47,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       vue(),
       docsMetaPlugin(docsRoot),
+      pagesSpaFallback(mode),
       VitePWA({
         registerType: 'autoUpdate',
         manifest: {
