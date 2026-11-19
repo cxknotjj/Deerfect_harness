@@ -92,7 +92,7 @@ HTTPS 或 localhost 才能注册 SW，局域网 `http://IP:端口` 无法「添�
 | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `backend` | temurin 25 + MySQL 8.4 service；`mvn -Dmaven.repo.local=$HOME/.m2/repository -B verify`（不依赖 `.mvn/settings.xml`）。上下文测试启动时会跑全量 Flyway 迁移，迁移校验失败即红；`verify` 同时跑覆盖率门禁，日志出现 `Rule violated` 即覆盖率跌破模块阈值，报告作为 `jacoco-reports` 产物上传（失败也传） |
 | `web`     | Node 22；`npm ci` → `npm run lint`（ESLint flat config）→ `npm run build`（含 vue-tsc 类型检查）→ `npm test`（vitest）                                                                                                                         |
-| `e2e`     | Node 22 + Chromium；`npm run test:e2e`（mock 模式，不需要后端与数据库，失败上传 `playwright-report`）                                                                                                                                                  |
+| `e2e`     | Node 22 + Chromium；`npm run test:e2e` + Pages/PWA 构建产物冒烟（mock 模式，不需要后端与数据库；验证静态深链与离线重载，失败上传 `playwright-report`）                                                                                                                                                  |
 
 前端 lint 同样是硬门禁：`npm run lint` 0 error 才放行。规则取向是「只拦会出错或会腐化的」——  
 8 条纯排版规则（属性换行、自闭合空格等）已关闭，避免每次改动都产生无关 diff。
@@ -176,7 +176,9 @@ npm run build:pages # 子路径产物（base=/Deerfect_harness/，自带 mock，
 npx vite preview --mode pages  # 本地预览子路径产物，地址带 /Deerfect_harness/
 npm test           # vitest run（Node ≥ 22.12）
 npx playwright install chromium   # 首次跑 E2E 前装浏览器
-npm run test:e2e   # Playwright 冒烟（mock 模式，不需要后端）
+npm run test:e2e   # Playwright 开发服务器冒烟（mock 模式，不需要后端）
+E2E_BUILD_MODE=pages npx playwright test --config playwright.build.config.ts # 构建并模拟 Pages 404 回退
+E2E_BUILD_MODE=pwa npx playwright test --config playwright.build.config.ts   # 启用 SW 构建，验证离线刷新/新开页面
 ```
 
 本地不想下载 Playwright 的 Chromium 时，可复用系统浏览器（CI 不设该变量，仍用自带 Chromium）：

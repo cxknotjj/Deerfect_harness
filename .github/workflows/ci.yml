@@ -121,6 +121,14 @@ jobs:
       # mock 模式（VITE_USE_MOCK=true 由 playwright.config.ts 的 webServer 注入），无需后端与数据库
       - name: Smoke tests
         run: npm run test:e2e
+      - name: Pages artifact smoke tests
+        run: npx playwright test --config playwright.build.config.ts
+        env:
+          E2E_BUILD_MODE: pages
+      - name: PWA offline artifact smoke tests
+        run: npx playwright test --config playwright.build.config.ts
+        env:
+          E2E_BUILD_MODE: pwa
       - name: Upload report
         if: failure()
         uses: actions/upload-artifact@v7
