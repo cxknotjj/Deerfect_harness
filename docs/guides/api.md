@@ -53,7 +53,8 @@
 | `GET` | `/api/llm-calls?sessionId=&limit=` | 🧮 LLM 调用观测：耗时 / token / 成败（默认 50 条） |
 | `GET` | `/api/tool-calls?sessionId=&limit=` | 🔧 工具调用观测 |
 | `GET` | `/api/kb-retrievals?sessionId=&limit=` | 📚 RAG 检索观测 |
-| `GET` | `/api/monitor/context?sessionId=` | 📊 最近一次请求的上下文构成快照（分段占比；无快照 404） |
+| `GET` | `/api/monitor/context?sessionId=` | 📊 最近一次请求的上下文构成快照（内存 30 分钟 TTL 优先，未命中回退 `context_composition_log` 最近一条；均无 404） |
+| `GET` | `/api/monitor/context/history?sessionId=&limit=20` | 🗂️ 会话快照历史（新→旧，limit 收敛 [1,100]；坏行跳过） |
 | `GET` | `/api/monitor` | 📈 运行时指标快照（与 `/actuator/prometheus` 同源） |
 
 **配置、鉴权与渠道**

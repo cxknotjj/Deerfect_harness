@@ -97,11 +97,13 @@ deerfect-server/src/main/java/com/dark/javaHarness/
 │   ├── ActiveGoalSectionProvider.java  # 活跃目标段扩展点（按会话取跨轮目标，无则空段）
 │   ├── SkillManager.java / SkillRepository.java  # Markdown 技能库动态装配（按需注入 system）
 │   ├── ToolLazyManager.java      # 工具 Schema 两段式延迟加载（轻量索引 → expand_tool 展开）
-│   ├── ContextCompositionCalculator.java / ContextCompositionRecorder.java / ContextCompositionStore.java  # 上下文构成快照：占比计算 / 写入 / 短 TTL 存储
+│   ├── ContextCompositionCalculator.java / ContextCompositionRecorder.java / ContextCompositionStore.java  # 上下文构成快照：占比计算 / 写入（内存 + V26 异步落库） / 短 TTL 存储
+│   ├── ContextCompositionQueryService.java  # 快照冷读：内存未命中回退最近一条 / 会话历史列表
 │   └── PromptSection.java / SkillSectionProvider.java  # 段模型与 skill 扩展点
 ├── mapper/                       # 数据访问层：MyBatis-Plus Mapper
 │   └── AgentMapper / GoalMapper / SessionMapper / SessionMessageMapper / SessionMessageArchiveMapper / ModelProviderMapper
 │       / LlmCallLogMapper / ToolCallLogMapper / KbRetrievalLogMapper / McpServerLogMapper / KbDocumentMapper
+│       / ContextCompositionLogMapper
 │       / OrchestrationCheckpointMapper / ScheduleMapper
 │       （OneBot 会话绑定 Mapper 在 channel-qq 模块）
 ├── domain/                       # 领域模型（父包）
@@ -112,6 +114,7 @@ deerfect-server/src/main/java/com/dark/javaHarness/
 │   └── entity/                   # 数据库实体：AgentEntity / GoalEntity / SessionEntity / SessionMessageEntity
 │                                 #   / SessionMessageArchiveEntity / ModelProviderEntity / KbDocumentEntity
 │                                 #   / LlmCallLogEntity / ToolCallLogEntity / KbRetrievalLogEntity / McpServerLogEntity
+│                                 #   / ContextCompositionLogEntity
 │                                 #   / ScheduleEntity
 │   └── dto/                      # 服务端内部视图 DTO：MonitorSnapshot / RuntimeMetrics / ComponentStatus / ContextComposition
 │                                 #   （对外契约 DTO 在 deerfect-api 的 view/ 包）

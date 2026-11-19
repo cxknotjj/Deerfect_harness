@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.dark.javaHarness.mapper.ContextCompositionLogMapper;
 import com.dark.javaHarness.mapper.KbRetrievalLogMapper;
 import com.dark.javaHarness.mapper.LlmCallLogMapper;
 import com.dark.javaHarness.mapper.McpServerLogMapper;
@@ -32,10 +33,12 @@ class ObservabilityLogCleanerTest {
     private KbRetrievalLogMapper kbRetrievalLogMapper;
     @Mock
     private McpServerLogMapper mcpServerLogMapper;
+    @Mock
+    private ContextCompositionLogMapper contextCompositionLogMapper;
 
     private ObservabilityLogCleaner cleaner(int retentionDays) {
         return new ObservabilityLogCleaner(llmCallLogMapper, toolCallLogMapper, kbRetrievalLogMapper,
-                mcpServerLogMapper, retentionDays);
+                mcpServerLogMapper, contextCompositionLogMapper, retentionDays);
     }
 
     /** retention-days=0：禁用清理，三个 mapper 均不被触碰 */
@@ -46,6 +49,7 @@ class ObservabilityLogCleanerTest {
         verify(toolCallLogMapper, never()).delete(any());
         verify(kbRetrievalLogMapper, never()).delete(any());
         verify(mcpServerLogMapper, never()).delete(any());
+        verify(contextCompositionLogMapper, never()).delete(any());
     }
 
     /** 正常清理：四张表各删一批（返回量 < 单批上限即收尾） */
@@ -55,6 +59,7 @@ class ObservabilityLogCleanerTest {
         when(toolCallLogMapper.delete(any())).thenReturn(0);
         when(kbRetrievalLogMapper.delete(any())).thenReturn(5);
         when(mcpServerLogMapper.delete(any())).thenReturn(7);
+        when(contextCompositionLogMapper.delete(any())).thenReturn(2);
 
         cleaner(90).cleanOnce();
 
@@ -63,6 +68,8 @@ class ObservabilityLogCleanerTest {
         verify(kbRetrievalLogMapper, times(1)).delete(any());
         // mcp_server_log 此前漏在清理清单外，与其余观测表同一保留期
         verify(mcpServerLogMapper, times(1)).delete(any());
+        // 上下文构成快照（V26）同 retention 口径
+        verify(contextCompositionLogMapper, times(1)).delete(any());
     }
 
     /** 分批循环：单批满 1000 行则继续删下一批，直到不足量收尾；总数累计正确 */
@@ -112,5 +119,6 @@ class ObservabilityLogCleanerTest {
         verify(toolCallLogMapper, times(1)).delete(any());
         verify(kbRetrievalLogMapper, times(1)).delete(any());
         verify(mcpServerLogMapper, times(1)).delete(any());
+        verify(contextCompositionLogMapper, times(1)).delete(any());
     }
 }

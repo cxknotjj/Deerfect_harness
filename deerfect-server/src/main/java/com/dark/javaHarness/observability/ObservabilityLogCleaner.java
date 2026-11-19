@@ -2,6 +2,7 @@ package com.dark.javaHarness.observability;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.dark.javaHarness.mapper.ContextCompositionLogMapper;
 import com.dark.javaHarness.mapper.KbRetrievalLogMapper;
 import com.dark.javaHarness.mapper.LlmCallLogMapper;
 import com.dark.javaHarness.mapper.McpServerLogMapper;
@@ -14,7 +15,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 观测表保留期清理（llm_call_log / tool_call_log / kb_retrieval_log / mcp_server_log）。
+ * 观测表保留期清理（llm_call_log / tool_call_log / kb_retrieval_log / mcp_server_log / context_composition_log）。
  *
  * <p>背景：观测表只写不删，行数无界增长（优化审查 2026-09-25 高危项）。本任务按保留期
  * 定时分批删除过期行——分批（单批 {@link #BATCH_LIMIT}）避免单语句长事务与 binlog 尖峰；
@@ -36,6 +37,7 @@ public class ObservabilityLogCleaner {
     private final ToolCallLogMapper toolCallLogMapper;
     private final KbRetrievalLogMapper kbRetrievalLogMapper;
     private final McpServerLogMapper mcpServerLogMapper;
+    private final ContextCompositionLogMapper contextCompositionLogMapper;
     /** 保留天数（0 = 禁用清理） */
     private final int retentionDays;
 
@@ -43,11 +45,13 @@ public class ObservabilityLogCleaner {
                                    ToolCallLogMapper toolCallLogMapper,
                                    KbRetrievalLogMapper kbRetrievalLogMapper,
                                    McpServerLogMapper mcpServerLogMapper,
+                                   ContextCompositionLogMapper contextCompositionLogMapper,
                                    @Value("${app.observability.retention-days:90}") int retentionDays) {
         this.llmCallLogMapper = llmCallLogMapper;
         this.toolCallLogMapper = toolCallLogMapper;
         this.kbRetrievalLogMapper = kbRetrievalLogMapper;
         this.mcpServerLogMapper = mcpServerLogMapper;
+        this.contextCompositionLogMapper = contextCompositionLogMapper;
         this.retentionDays = retentionDays;
         log.info("[observability-clean] 观测表清理已装配：保留期 {} 天（0 = 禁用）", retentionDays);
     }
@@ -64,10 +68,12 @@ public class ObservabilityLogCleaner {
         long kb = deleteInBatches("kb_retrieval_log", kbRetrievalLogMapper, threshold);
         // MCP 连接事件同样只写不删（此前漏在此清单外，表持续增长）
         long mcp = deleteInBatches("mcp_server_log", mcpServerLogMapper, threshold);
-        if (llm > 0 || tool > 0 || kb > 0 || mcp > 0) {
+        // 上下文构成快照（V26）同样只写不删，与观测表同一保留期
+        long composition = deleteInBatches("context_composition_log", contextCompositionLogMapper, threshold);
+        if (llm > 0 || tool > 0 || kb > 0 || mcp > 0 || composition > 0) {
             log.info("[observability-clean] 保留期 {} 天：清理 llm_call_log {} 行、tool_call_log {} 行、"
-                            + "kb_retrieval_log {} 行、mcp_server_log {} 行",
-                    retentionDays, llm, tool, kb, mcp);
+                            + "kb_retrieval_log {} 行、mcp_server_log {} 行、context_composition_log {} 行",
+                    retentionDays, llm, tool, kb, mcp, composition);
         }
     }
 
