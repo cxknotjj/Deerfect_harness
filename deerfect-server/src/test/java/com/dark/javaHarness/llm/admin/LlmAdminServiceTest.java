@@ -342,4 +342,76 @@ class LlmAdminServiceTest {
         assertEquals("5xx", results.get(0).errorClass());
         assertEquals(502, results.get(0).httpStatus());
     }
+
+    /* ---------------- 上下文窗口 ---------------- */
+
+    private LlmModelEntity modelWithCaps(Long id, String caps) {
+        LlmModelEntity m = modelRow(id, 1L);
+        m.setCapabilities(caps);
+        return m;
+    }
+
+    @Test
+    void updateContextWindow_preservesOtherCapabilityKeys() {
+        when(modelMapper.selectById(10L)).thenReturn(modelWithCaps(10L,
+                "{\"tool_calling\":true,\"vision\":true,\"thinking\":false,\"json_mode\":true,\"context_window\":65536}"));
+        when(providerMapper.selectById(1L)).thenReturn(providerRow(1L));
+
+        service.updateModelContextWindow(10L, new LlmAdminModels.ContextWindowUpdate(600000));
+
+        ArgumentCaptor<LlmModelEntity> captor = ArgumentCaptor.forClass(LlmModelEntity.class);
+        verify(modelMapper).updateById(captor.capture());
+        var caps = com.dark.javaHarness.llm.model.ModelCapabilities.parseObject(captor.getValue().getCapabilities());
+        assertEquals(600000, caps.path("context_window").asInt());
+        assertTrue(caps.path("tool_calling").asBoolean());
+        assertTrue(caps.path("vision").asBoolean());
+        assertTrue(caps.path("json_mode").asBoolean());
+        assertEquals(false, caps.path("thinking").asBoolean());
+        verify(refresher).refresh();
+    }
+
+    @Test
+    void updateContextWindow_nullCapabilities_createsObject() {
+        when(modelMapper.selectById(10L)).thenReturn(modelWithCaps(10L, null));
+        when(providerMapper.selectById(1L)).thenReturn(providerRow(1L));
+
+        service.updateModelContextWindow(10L, new LlmAdminModels.ContextWindowUpdate(128000));
+
+        ArgumentCaptor<LlmModelEntity> captor = ArgumentCaptor.forClass(LlmModelEntity.class);
+        verify(modelMapper).updateById(captor.capture());
+        assertEquals(128000, com.dark.javaHarness.llm.model.ModelCapabilities
+                .parse(captor.getValue().getCapabilities()).contextWindow());
+    }
+
+    @Test
+    void updateContextWindow_zeroAllowedAsUndeclared() {
+        when(modelMapper.selectById(10L)).thenReturn(modelWithCaps(10L, "{\"context_window\":65536}"));
+        when(providerMapper.selectById(1L)).thenReturn(providerRow(1L));
+
+        service.updateModelContextWindow(10L, new LlmAdminModels.ContextWindowUpdate(0));
+
+        ArgumentCaptor<LlmModelEntity> captor = ArgumentCaptor.forClass(LlmModelEntity.class);
+        verify(modelMapper).updateById(captor.capture());
+        assertEquals(0, com.dark.javaHarness.llm.model.ModelCapabilities
+                .parse(captor.getValue().getCapabilities()).contextWindow());
+    }
+
+    @Test
+    void updateContextWindow_outOfRange_rejectedBeforeWrite() {
+        when(modelMapper.selectById(10L)).thenReturn(modelWithCaps(10L, "{}"));
+        for (Integer bad : new Integer[]{1000, 3_000_000, null}) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> service.updateModelContextWindow(10L, new LlmAdminModels.ContextWindowUpdate(bad)));
+        }
+        assertThrows(IllegalArgumentException.class, () -> service.updateModelContextWindow(10L, null));
+        verify(modelMapper, never()).updateById(any(LlmModelEntity.class));
+    }
+
+    @Test
+    void updateContextWindow_unknownModel_rejected() {
+        when(modelMapper.selectById(99L)).thenReturn(null);
+        assertThrows(IllegalArgumentException.class,
+                () -> service.updateModelContextWindow(99L, new LlmAdminModels.ContextWindowUpdate(600000)));
+        verify(modelMapper, never()).updateById(any(LlmModelEntity.class));
+    }
 }

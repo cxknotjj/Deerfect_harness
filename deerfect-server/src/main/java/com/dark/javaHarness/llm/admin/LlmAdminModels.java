@@ -34,6 +34,10 @@ public final class LlmAdminModels {
                               String capabilities, String defaultParams, Integer enabled) {
     }
 
+    /** 仅更新上下文窗口：其余 capability 键由服务端保留，避免整段回传误删 */
+    public record ContextWindowUpdate(Integer contextWindow) {
+    }
+
     // ---------------- 路由 ----------------
 
     public record RouteMemberView(Long modelId, String upstreamName, String providerCode,

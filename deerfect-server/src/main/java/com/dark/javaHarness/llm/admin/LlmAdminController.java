@@ -59,6 +59,12 @@ public class LlmAdminController {
         return service.updateModel(id, request);
     }
 
+    @PutMapping("/models/{id}/context-window")
+    public LlmAdminModels.ModelView updateModelContextWindow(
+            @PathVariable Long id, @RequestBody LlmAdminModels.ContextWindowUpdate request) {
+        return service.updateModelContextWindow(id, request);
+    }
+
     @GetMapping("/routes")
     public List<LlmAdminModels.RouteView> listRoutes() {
         return service.listRoutes();

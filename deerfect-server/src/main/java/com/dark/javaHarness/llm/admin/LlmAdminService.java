@@ -32,6 +32,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 
 /**
@@ -49,6 +50,11 @@ public class LlmAdminService {
 
     /** 连通性测试的读超时（秒）：只验证端点可达，不等待长回答 */
     static final int ROUTE_TEST_TIMEOUT_SECONDS = 15;
+
+    /** 上下文窗口声明下限（token）：低于此值的窗口对带工具/系统提示的请求无实际意义 */
+    static final int CONTEXT_WINDOW_MIN = 4096;
+    /** 上下文窗口声明上限（token）：防止误填把守卫公式算出负预算或天文数字 */
+    static final int CONTEXT_WINDOW_MAX = 2_000_000;
 
     private final LlmProviderMapper providerMapper;
     private final LlmModelMapper modelMapper;
@@ -159,6 +165,24 @@ public class LlmAdminService {
         if (req.enabled() != null) {
             row.setEnabled(req.enabled());
         }
+        row.setUpdatedAt(LocalDateTime.now());
+        modelMapper.updateById(row);
+        refreshAfterWrite();
+        return modelView(row, requireProvider(row.getProviderId()).getCode());
+    }
+
+    /** 仅替换 capabilities.context_window，保留 tool_calling/vision/thinking/json_mode 等其余键 */
+    @Transactional
+    public LlmAdminModels.ModelView updateModelContextWindow(Long id, LlmAdminModels.ContextWindowUpdate req) {
+        LlmModelEntity row = requireModel(id);
+        int window = req == null || req.contextWindow() == null ? -1 : req.contextWindow();
+        if (window != 0 && (window < CONTEXT_WINDOW_MIN || window > CONTEXT_WINDOW_MAX)) {
+            throw new IllegalArgumentException("contextWindow 必须为 0（未声明）或 ["
+                    + CONTEXT_WINDOW_MIN + ", " + CONTEXT_WINDOW_MAX + "]，实际 " + window);
+        }
+        ObjectNode caps = ModelCapabilities.parseObject(row.getCapabilities());
+        caps.put("context_window", window);
+        row.setCapabilities(caps.toString());
         row.setUpdatedAt(LocalDateTime.now());
         modelMapper.updateById(row);
         refreshAfterWrite();
