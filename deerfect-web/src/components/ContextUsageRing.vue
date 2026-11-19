@@ -226,9 +226,67 @@ function nearestTierIndex(value: number): number {
   return best
 }
 
-/** 刻度点横向位置：扣掉滑块半径（12px），与原生 range 拇指轨迹对齐 */
+/** 刻度点横向位置：扣掉滑块半径（12px），与拇指轨迹对齐 */
 function tickLeft(index: number): string {
   return `calc(12px + (100% - 24px) * ${index} / ${WINDOW_TIERS.length - 1})`
+}
+
+/** 拖动中拇指跟手（连续比例），松手吸附到最近档位（离散索引） */
+const dragging = ref(false)
+const dragRatio = ref(0)
+const sliderRatio = computed(() => dragging.value
+  ? dragRatio.value
+  : windowIndex.value / (WINDOW_TIERS.length - 1))
+
+function ratioFromEvent(event: PointerEvent, el: HTMLElement): number {
+  const rect = el.getBoundingClientRect()
+  const usable = rect.width - 24
+  if (usable <= 0) return 0
+  return Math.min(1, Math.max(0, (event.clientX - rect.left - 12) / usable))
+}
+
+function previewIndex(ratio: number): number {
+  return Math.min(WINDOW_TIERS.length - 1, Math.max(0, Math.round(ratio * (WINDOW_TIERS.length - 1))))
+}
+
+function onPointerDown(event: PointerEvent): void {
+  const el = event.currentTarget as HTMLElement
+  dragging.value = true
+  dragRatio.value = ratioFromEvent(event, el)
+  windowValue.value = WINDOW_TIERS[previewIndex(dragRatio.value)].value
+  windowSaved.value = false
+  el.setPointerCapture(event.pointerId)
+}
+
+function onPointerMove(event: PointerEvent): void {
+  if (!dragging.value) return
+  const el = event.currentTarget as HTMLElement
+  dragRatio.value = ratioFromEvent(event, el)
+  windowValue.value = WINDOW_TIERS[previewIndex(dragRatio.value)].value
+}
+
+function onPointerUp(event: PointerEvent): void {
+  if (!dragging.value) return
+  const el = event.currentTarget as HTMLElement
+  const ratio = ratioFromEvent(event, el)
+  windowIndex.value = previewIndex(ratio)
+  dragging.value = false
+  el.releasePointerCapture(event.pointerId)
+  onWindowInput()
+}
+
+function onSliderKeydown(event: KeyboardEvent): void {
+  let next = windowIndex.value
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') next -= 1
+  else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') next += 1
+  else if (event.key === 'Home') next = 0
+  else if (event.key === 'End') next = WINDOW_TIERS.length - 1
+  else return
+  event.preventDefault()
+  next = Math.min(WINDOW_TIERS.length - 1, Math.max(0, next))
+  if (next === windowIndex.value) return
+  windowIndex.value = next
+  onWindowInput()
 }
 
 /** 快照里的 model 是上游/展示名：匹配模型列表后取其 context_window；不匹配则隐藏滑杆 */
@@ -362,7 +420,10 @@ onBeforeUnmount(() => {
             v-for="segment in groupSegments"
             :key="segment.key"
             class="usage-seg"
-            :style="{ width: `${segment.percent}%`, background: segment.color }"
+            :style="{
+              width: `${windowResolved ? Math.min(100, (segment.tokens / windowValue) * 100) : segment.percent}%`,
+              background: segment.color,
+            }"
             :title="`${segment.label} · ${fmtNumber(segment.tokens)} tok · ${fmtPercent(segment.percent)}`"
           ></span>
         </div>
@@ -380,27 +441,45 @@ onBeforeUnmount(() => {
             <p class="usage-limit-title">
               上下文上限 {{ fmtNumber(windowValue) }} tok · {{ tierLabel(windowValue) }}
             </p>
-            <div class="usage-limit-scale">
-              <input
-                v-model.number="windowIndex"
-                class="usage-limit-input"
-                type="range"
-                :min="0"
-                :max="WINDOW_TIERS.length - 1"
-                step="1"
-                aria-label="模型上下文上限"
-                :aria-valuetext="`${fmtNumber(windowValue)} tok，${tierLabel(windowValue)}`"
-                @input="onWindowInput"
-              />
-              <span
-                v-for="(tier, i) in WINDOW_TIERS"
-                :key="tier.value"
-                class="usage-limit-tick"
-                :class="{ 'is-active': i <= windowIndex }"
-                :style="{ left: tickLeft(i) }"
-                :title="tier.display"
-                aria-hidden="true"
-              ></span>
+            <div
+              class="usage-limit-scale"
+              role="slider"
+              tabindex="0"
+              aria-label="模型上下文上限"
+              :aria-valuemin="WINDOW_TIERS[0].value"
+              :aria-valuemax="WINDOW_TIERS[WINDOW_TIERS.length - 1].value"
+              :aria-valuenow="windowValue"
+              :aria-valuetext="`${fmtNumber(windowValue)} tok，${tierLabel(windowValue)}`"
+              @keydown="onSliderKeydown"
+            >
+              <div
+                class="usage-limit-track"
+                @pointerdown="onPointerDown"
+                @pointermove="onPointerMove"
+                @pointerup="onPointerUp"
+                @pointercancel="onPointerUp"
+              >
+                <div
+                  class="usage-limit-fill"
+                  :class="{ dragging }"
+                  :style="{ '--ratio': sliderRatio }"
+                ></div>
+                <span
+                  v-for="(tier, i) in WINDOW_TIERS"
+                  :key="tier.value"
+                  class="usage-limit-tick"
+                  :class="{ 'is-active': i <= windowIndex }"
+                  :style="{ left: tickLeft(i) }"
+                  :title="tier.display"
+                  aria-hidden="true"
+                ></span>
+                <span
+                  class="usage-limit-thumb"
+                  :class="{ dragging }"
+                  :style="{ '--ratio': sliderRatio }"
+                  aria-hidden="true"
+                ></span>
+              </div>
             </div>
             <p class="usage-limit-hint" :class="{ 'is-err': !!windowError }">
               <template v-if="windowSaving">保存中…</template>
@@ -496,6 +575,7 @@ onBeforeUnmount(() => {
   background: var(--bg-panel);
   color: var(--ink);
   box-shadow: var(--menu-shadow);
+  animation: usage-pop-in 0.16s var(--ease-out-quart) both;
 }
 
 .usage-head {
@@ -599,6 +679,7 @@ onBeforeUnmount(() => {
 .usage-seg {
   height: 100%;
   flex-shrink: 0;
+  transition: width 0.3s var(--ease-out-quart);
 }
 
 .usage-legend {
@@ -660,11 +741,41 @@ onBeforeUnmount(() => {
 .usage-limit-scale {
   position: relative;
   width: 100%;
+  outline: none;
+}
+
+.usage-limit-scale:focus-visible .usage-limit-track {
+  box-shadow: 0 0 0 3px rgb(47 214 168 / 0.35);
+}
+
+.usage-limit-track {
+  position: relative;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--usage-bar-track);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.usage-limit-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 12px;
+  width: calc((100% - 24px) * var(--ratio, 0));
+  border-radius: 999px;
+  background: linear-gradient(90deg, #17b890, #35d7a9);
+  transition: width 0.18s var(--ease-out-quart);
+}
+
+.usage-limit-fill.dragging {
+  transition: none;
 }
 
 .usage-limit-tick {
   position: absolute;
   top: 50%;
+  z-index: 1;
   width: 7px;
   height: 7px;
   border-radius: 50%;
@@ -677,39 +788,22 @@ onBeforeUnmount(() => {
   background: rgb(255 255 255 / 0.7);
 }
 
-.usage-limit-input {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 12px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #17b890, #35d7a9);
-  outline: none;
-  cursor: pointer;
-}
-
-.usage-limit-input::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
+.usage-limit-thumb {
+  position: absolute;
+  top: 50%;
+  left: calc(12px + (100% - 24px) * var(--ratio, 0));
   width: 24px;
   height: 24px;
   border-radius: 50%;
   background: #fff;
-  border: none;
+  transform: translate(-50%, -50%);
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
+  transition: left 0.18s var(--ease-out-quart);
+  pointer-events: none;
 }
 
-.usage-limit-input::-moz-range-thumb {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: #fff;
-  border: none;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
-}
-
-.usage-limit-input:focus-visible {
-  box-shadow: 0 0 0 3px rgb(47 214 168 / 0.35);
+.usage-limit-thumb.dragging {
+  transition: none;
 }
 
 .usage-limit-hint {
@@ -743,6 +837,17 @@ onBeforeUnmount(() => {
   }
 }
 
+@keyframes usage-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 @keyframes usage-breathe {
   0%,
   100% {
@@ -770,8 +875,15 @@ onBeforeUnmount(() => {
 
 @media (prefers-reduced-motion: reduce) {
   .usage-ring-arc,
-  .usage-trigger.live .usage-ring {
+  .usage-trigger.live .usage-ring,
+  .usage-popover {
     animation: none;
+  }
+
+  .usage-limit-fill,
+  .usage-limit-thumb,
+  .usage-seg {
+    transition: none;
   }
 }
 </style>

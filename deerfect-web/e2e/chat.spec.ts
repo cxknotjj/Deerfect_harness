@@ -226,22 +226,40 @@ test.describe('mock 模式冒烟', () => {
     await expect(popover.locator('.usage-legend li')).toHaveCount(11)
     await expect(popover.locator('.usage-limit-title')).toContainText('262,144 tok')
 
-    const slider = popover.locator('.usage-limit-input')
+    const slider = popover.locator('.usage-limit-scale')
     // 档位吸附：索引 0..3，对应 30K/128K/512K/1M；轨道上 4 个刻度点
-    await expect(slider).toHaveAttribute('min', '0')
-    await expect(slider).toHaveAttribute('max', '3')
+    await expect(slider).toHaveAttribute('aria-valuemin', '30000')
+    await expect(slider).toHaveAttribute('aria-valuemax', '1000000')
     await expect(popover.locator('.usage-limit-tick')).toHaveCount(4)
-    await slider.fill('2')
+
+    // 键盘吸附：End=1M，左一档=512K；统计分母同步
+    await slider.focus()
+    await slider.press('End')
+    await expect(popover.locator('.usage-limit-title')).toContainText('1,000,000 tok')
+    await slider.press('ArrowLeft')
     await expect(popover.locator('.usage-limit-title')).toContainText('512,000 tok')
-    // 统计同步跟手：分母切到新上限，占用率随之下降
     await expect(popover.locator('.usage-summary')).toContainText('已用 2,602 / 512,000 tok')
     await expect(popover.locator('.usage-summary strong')).toHaveText('0.5%')
+
+    // 拖动跟手：按住后拇指随指针连续移动，松手吸附最近档（0.9 → 1M）
+    const track = popover.locator('.usage-limit-track')
+    const box = await track.boundingBox()
+    expect(box).not.toBeNull()
+    const inner = box!.width - 24
+    const y = box!.y + box!.height / 2
+    await page.mouse.move(box!.x + 12 + inner * 0.1, y)
+    await page.mouse.down()
+    await page.mouse.move(box!.x + 12 + inner * 0.9, y, { steps: 6 })
+    const dragged = await popover.locator('.usage-limit-thumb').boundingBox()
+    expect(dragged!.x).toBeGreaterThan(box!.x + box!.width * 0.5)
+    await page.mouse.up()
+    await expect(popover.locator('.usage-limit-title')).toContainText('1,000,000 tok')
     await expect(popover.locator('.usage-limit-hint')).toHaveText('已保存')
 
     // 关闭重开：上限写回模型列表后保持
     await popover.locator('.usage-close').click()
     await page.locator('.usage-trigger').click()
-    await expect(page.locator('.usage-limit-title')).toContainText('512,000 tok')
+    await expect(page.locator('.usage-limit-title')).toContainText('1,000,000 tok')
   })
 
   test('手机端对话：输入区收在卡片内、控件单行', async ({ page }) => {
