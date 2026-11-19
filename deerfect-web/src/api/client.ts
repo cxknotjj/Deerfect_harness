@@ -43,7 +43,6 @@ import {
   listLlmModels,
   listLlmProviders,
   updateLlmProvider,
-  updateModelContextWindow,
 } from './admin'
 import type { LlmModelView, LlmProviderUpsert, LlmProviderView } from './admin'
 import {
@@ -94,7 +93,6 @@ export interface Api {
   listLlmModels(): Promise<LlmModelView[]>
   createLlmProvider(body: LlmProviderUpsert): Promise<LlmProviderView>
   updateLlmProvider(id: number, body: LlmProviderUpsert): Promise<LlmProviderView>
-  updateModelContextWindow(id: number, contextWindow: number): Promise<LlmModelView>
 }
 
 /** 真实 HTTP 实现 */
@@ -129,7 +127,6 @@ export const realApi: Api = {
   listLlmModels,
   createLlmProvider,
   updateLlmProvider,
-  updateModelContextWindow,
 }
 
 // 兼容既有调用方的具名导出（实现已下沉到领域模块）

@@ -69,24 +69,3 @@ export function updateLlmProvider(id: number, body: LlmProviderUpsert): Promise<
     body: JSON.stringify(body),
   })
 }
-
-/** 仅更新模型上下文窗口；其余 capability 键由后端保留，避免整段回传误删 */
-export function updateModelContextWindow(id: number, contextWindow: number): Promise<LlmModelView> {
-  return request(`/api/admin/models/${id}/context-window`, {
-    method: 'PUT',
-    headers: JSON_HEADERS,
-    body: JSON.stringify({ contextWindow }),
-  })
-}
-
-/** 从 capabilities JSON 读上下文窗口（仅展示用）；缺失/损坏/非正数返回 0 = 未声明 */
-export function parseContextWindow(capabilities: string | null): number {
-  if (!capabilities) return 0
-  try {
-    const node = JSON.parse(capabilities) as { context_window?: unknown } | null
-    const value = node?.context_window
-    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0
-  } catch {
-    return 0
-  }
-}

@@ -740,24 +740,6 @@ async function updateLlmProvider(id: number, body: LlmProviderUpsert): Promise<L
   return { ...row }
 }
 
-async function updateModelContextWindow(id: number, contextWindow: number): Promise<LlmModelView> {
-  const index = llmModels.findIndex((m) => m.id === id)
-  if (index < 0) throw new Error(`模型不存在: ${id}`)
-  if (contextWindow !== 0 && (contextWindow < 4096 || contextWindow > 2000000)) {
-    throw new Error(`contextWindow 必须为 0 或 [4096, 2000000]，实际 ${contextWindow}`)
-  }
-  let caps: Record<string, unknown>
-  try {
-    caps = llmModels[index].capabilities ? JSON.parse(llmModels[index].capabilities!) : {}
-  } catch {
-    caps = {}
-  }
-  caps.context_window = contextWindow
-  const row: LlmModelView = { ...llmModels[index], capabilities: JSON.stringify(caps) }
-  llmModels[index] = row
-  return { ...row }
-}
-
 /** mock API 实现(与 realApi 同签名) */
 export const mockApi: Api = {
   listAgents,
@@ -791,5 +773,4 @@ export const mockApi: Api = {
   listLlmModels,
   createLlmProvider,
   updateLlmProvider,
-  updateModelContextWindow,
 }

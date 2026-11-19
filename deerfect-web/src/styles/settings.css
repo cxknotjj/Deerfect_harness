@@ -1384,33 +1384,3 @@ html[data-theme='dark'] .settings-page {
     flex-basis: 100%;
   }
 }
-
-/* ---------- 模型上下文窗口滑块面板 ---------- */
-.provider-model-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-}
-.provider-ctx-btn {
-  margin-left: auto;
-  flex-shrink: 0;
-}
-.provider-ctx {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.provider-ctx-note {
-  font-size: 11px;
-  opacity: 0.65;
-}
-.provider-ctx-status {
-  font-size: 11.5px;
-}
-.provider-ctx-status.is-ok {
-  color: var(--ok);
-}
-.provider-ctx-status.is-err {
-  color: var(--err, #e5484d);
-}
