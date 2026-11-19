@@ -177,6 +177,10 @@ final class AgentRequestSpecFactory {
         LlmCallOptions llmOptions = LlmCallOptions.merge(member.upstreamName(), member.defaultParams(),
                 agentParams(forAgent));
         String model = llmOptions.model();
+        // 守卫的输出预留取「实际生效」的输出封顶：Agent 级 max_tokens 覆盖角色档位（与下方 options 装配同口径）
+        int maxOutput = llmOptions.maxTokens() != null && llmOptions.maxTokens() > 0
+                ? llmOptions.maxTokens()
+                : assembly.maxTokens();
         // system 经 PromptAssembler 按段组装，RAG 命中时追加知识段（与 AgentScope 路径共用）
         SystemAssembly system = assembleSystem(config, sessionId, forAgent, fallbackSystem, user, trace);
         ChatClient.ChatClientRequestSpec spec = client.prompt()
@@ -193,7 +197,7 @@ final class AgentRequestSpecFactory {
                 spec.messages(history);
             }
             spec.advisors(new ContextAssemblingAdvisor(
-                    ContextWindowGuard.effective(budgets.getHistoryBudget(), window, assembly.maxTokens()),
+                    ContextWindowGuard.effective(budgets.getHistoryBudget(), window, maxOutput),
                     sessionId, memoryStore));
         }
         // 请求级 advisor 挂载（如 lead/聚合的 PromptBudgetAdvisor）：
@@ -201,7 +205,7 @@ final class AgentRequestSpecFactory {
         // PromptBudgetAdvisor 的 yaml 预算再经窗口守卫封顶（lead/聚合与直出共用同一公式）
         for (Advisor advisor : extraAdvisors) {
             Advisor effective = advisor instanceof PromptBudgetAdvisor budget
-                    ? budget.capped(ContextWindowGuard.effective(budget.budget(), window, assembly.maxTokens()))
+                    ? budget.capped(ContextWindowGuard.effective(budget.budget(), window, maxOutput))
                     : advisor;
             spec.advisors(effective);
         }
@@ -259,7 +263,7 @@ final class AgentRequestSpecFactory {
         List<ToolCallback> tools = assembly.disableTools()
                 ? List.of()
                 : resolveTools(forAgent, sessionId, assembly.toolEmitter(), false,
-                        assembly.extraToolNames(), assembly.maxTokens());
+                        assembly.extraToolNames(), window, maxOutput);
         // 上下文构成快照（Path A）：挂在 advisor 链最内层，看到 ContextAssembling/PromptBudget
         // 裁剪后的最终消息；无 sessionId（route-judge 等）不注册
         if (compositionRecorder != null && sessionId != null && !sessionId.isBlank()) {
@@ -353,7 +357,8 @@ final class AgentRequestSpecFactory {
      * AgentScope 路径逐项桥接为 ToolBase。disableTools=true 返回空表。
      */
     List<ToolCallback> resolveTools(String forAgent, String sessionId, Consumer<String> toolEmitter,
-                                    boolean disableTools, List<String> extraToolNames, int maxOutput) {
+                                    boolean disableTools, List<String> extraToolNames,
+                                    int contextWindow, int maxOutput) {
         if (disableTools) {
             return List.of();
         }
@@ -395,7 +400,7 @@ final class AgentRequestSpecFactory {
         // 装饰链应用（可插拔）：按 Order 升序逐层装饰——观测(100)→预算(200)→懒加载(300)→
         // 元工具(400)；各装饰器自判适用条件（不适用原样直通）。顺序契约见 ToolCallbackDecorator。
         ToolDecorationContext ctx = new ToolDecorationContext(forAgent, sessionId, toolEmitter,
-                windowFor(forAgent), maxOutput);
+                contextWindow, maxOutput);
         for (ToolCallbackDecorator decorator : decorators) {
             tools = Objects.requireNonNull(decorator.decorate(ctx, tools),
                     decorator.getClass().getSimpleName() + " 返回 null（禁止，组装期编程错误）");

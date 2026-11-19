@@ -231,7 +231,7 @@ public class AgentScopeGeneralAgent implements Agent {
         Sinks.Many<String> progress = Sinks.many().unicast().onBackpressureBuffer();
         List<ToolCallback> tools = specFactory.resolveTools(agentName, sessionId,
                 row -> BranchProgressListener.tryEmitSerialized(progress, row), false, null,
-                budgets.getMaxTokensFinal());
+                specFactory.windowFor(agentName), budgets.getMaxTokensFinal());
         Toolkit toolkit = new Toolkit();
         for (ToolCallback tool : tools) {
             toolkit.registerTool(new SpringAiToolBridge(tool));
