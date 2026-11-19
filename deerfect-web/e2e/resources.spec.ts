@@ -113,7 +113,7 @@ test.describe('资源面导航', () => {
     await expect(page.locator('.docs-group-row')).toHaveCount(5)
     await expect(page.locator('.docs-group-row').first()).toContainText('概览')
     // 组计数按折叠英文变体后的真实目录重算
-    await expect(page.locator('.docs-group-count')).toHaveText(['10', '15', '15', '13', '4'])
+    await expect(page.locator('.docs-group-count')).toHaveText(['10', '15', '17', '13', '4'])
 
     // 所有分组都带两位序号：概览 01–10 来自 front-matter order，指南 01–15 按展示顺序
     const treeGroups = page.locator('.docs-group')
@@ -228,6 +228,27 @@ test.describe('资源面导航', () => {
     await expect(page.locator('.res-title')).toHaveText('安全')
     await expect(page.locator('.settings-stats .res-stat').first()).toContainText('登录通道')
     await expect(page.locator('.settings-row').filter({ hasText: 'APP_PASSWORD' })).toBeVisible()
+  })
+
+  test('模型上下文：滑块设置窗口、保存回显与重开保持', async ({ page }) => {
+    await page.goto('/settings')
+    const firstCard = page.locator('.provider-card').first()
+    await firstCard.getByRole('button', { name: '管理模型' }).click()
+    const firstModel = firstCard.locator('.provider-model-wrap').first()
+    await firstModel.getByRole('button', { name: '上下文' }).click()
+
+    const slider = firstModel.locator('.ctx-slider-input')
+    await expect(slider).toBeVisible()
+    await expect(firstModel.locator('.ctx-slider-readout')).toContainText('未声明上下文')
+    await slider.fill('5') // 600K 档
+    await expect(firstModel.locator('.ctx-slider-readout')).toContainText('600K 上下文 · 加大')
+    await expect(firstModel.locator('.provider-ctx-status')).toHaveText('已保存')
+
+    // 收起再重开：窗口值来自已更新的模型列表，保持 600K
+    await firstModel.getByRole('button', { name: '上下文' }).click()
+    await expect(firstModel.locator('.ctx-slider')).toHaveCount(0)
+    await firstModel.getByRole('button', { name: '上下文' }).click()
+    await expect(firstModel.locator('.ctx-slider-readout')).toContainText('600K 上下文 · 加大')
   })
 
   test('系统设置：主题/字号/密度即时生效并保存', async ({ page }) => {

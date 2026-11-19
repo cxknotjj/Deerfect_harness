@@ -15,6 +15,8 @@ import type { LlmModelView, LlmProviderUpsert, LlmProviderView, SessionView } fr
 import SystemSettingsPanel from './settings/SystemSettingsPanel.vue'
 import TtsSettingsPanel from './settings/TtsSettingsPanel.vue'
 import WorkspaceSettingsPanel from './settings/WorkspaceSettingsPanel.vue'
+import ContextWindowSlider from './ContextWindowSlider.vue'
+import { parseContextWindow } from '../api/admin'
 
 defineProps<{
   theme: 'dark' | 'light'
@@ -139,6 +141,33 @@ const busyId = ref<number | null>(null)
 const expandedId = ref<number | null>(null)
 const editingId = ref<number | null>(null)
 const creating = ref(false)
+
+/* 上下文窗口滑块：行内编辑面板 + 保存状态（失败回滚由滑块 prop 复位承担） */
+const ctxEditingId = ref<number | null>(null)
+const ctxStatus = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
+const ctxError = ref('')
+const ctxReset = ref(0)
+
+function toggleCtxEditor(id: number): void {
+  ctxEditingId.value = ctxEditingId.value === id ? null : id
+  ctxStatus.value = 'idle'
+  ctxError.value = ''
+}
+
+async function saveContextWindow(model: LlmModelView, value: number): Promise<void> {
+  ctxStatus.value = 'saving'
+  ctxError.value = ''
+  try {
+    const updated = await api.updateModelContextWindow(model.id, value)
+    models.value = models.value.map((m) => (m.id === updated.id ? updated : m))
+    ctxStatus.value = 'saved'
+  } catch (e) {
+    ctxStatus.value = 'error'
+    ctxError.value = e instanceof Error ? e.message : String(e)
+    // 回滚滑块显示：重挂载组件使其回到 prop（服务端未变的）窗口值
+    ctxReset.value++
+  }
+}
 
 interface ProviderDraft {
   code: string
@@ -478,10 +507,26 @@ onMounted(() => {
             </div>
 
             <div v-if="expandedId === p.id" class="provider-models">
-              <div v-for="m in modelsOf(p)" :key="m.id" class="provider-model">
-                <span class="provider-model-dot" :class="{ 'is-off': m.enabled !== 1 }" aria-hidden="true"></span>
-                <span class="res-mono">{{ m.displayName }}</span>
-                <span v-if="m.upstreamName !== m.displayName" class="provider-model-up">{{ m.upstreamName }}</span>
+              <div v-for="m in modelsOf(p)" :key="m.id" class="provider-model-wrap">
+                <div class="provider-model">
+                  <span class="provider-model-dot" :class="{ 'is-off': m.enabled !== 1 }" aria-hidden="true"></span>
+                  <span class="res-mono">{{ m.displayName }}</span>
+                  <span v-if="m.upstreamName !== m.displayName" class="provider-model-up">{{ m.upstreamName }}</span>
+                  <button class="res-btn res-btn-sm provider-ctx-btn" type="button" @click="toggleCtxEditor(m.id)">
+                    上下文
+                  </button>
+                </div>
+                <div v-if="ctxEditingId === m.id" class="provider-ctx">
+                  <ContextWindowSlider
+                    :key="`${m.id}-${ctxReset}`"
+                    :model-value="parseContextWindow(m.capabilities)"
+                    @save="(v) => saveContextWindow(m, v)"
+                  />
+                  <p class="provider-ctx-note">仅影响该模型的输入上限；实际请求仍受全局预算约束。</p>
+                  <p v-if="ctxStatus === 'saving'" class="provider-ctx-status">保存中…</p>
+                  <p v-else-if="ctxStatus === 'saved'" class="provider-ctx-status is-ok">已保存</p>
+                  <p v-else-if="ctxStatus === 'error'" class="provider-ctx-status is-err">保存失败：{{ ctxError }}</p>
+                </div>
               </div>
               <p v-if="modelsOf(p).length === 0" class="provider-empty">该提供商下还没有模型</p>
             </div>
