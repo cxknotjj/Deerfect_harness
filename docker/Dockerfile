@@ -43,14 +43,9 @@ COPY deerfect-server/pom.xml ./deerfect-server/pom.xml
 COPY deerfect-cli/pom.xml ./deerfect-cli/pom.xml
 COPY wms-mcp-adapter/pom.xml ./wms-mcp-adapter/pom.xml
 
-COPY deerfect-api/src ./deerfect-api/src
-COPY channel-qq/src ./channel-qq/src
-COPY channel-email/src ./channel-email/src
-COPY channel-feishu/src ./channel-feishu/src
-COPY deerfect-server/src ./deerfect-server/src
-
-# 依赖层与源码层分离：go-offline 单独一层，只要 pom 不变，CI 的 gha 层缓存
-# （workflow 里的 cache-from/to: type=gha）就能直接命中，不用重新下载。
+# 依赖层与源码层分离：go-offline 必须排在源码 COPY 之前——源码一进来该层就失效，
+# 改代码时依赖仍能命中缓存。只要 pom 不变，CI 的 gha 层缓存（cache-from/to: type=gha）
+# 就能直接用，不用重新下载。
 # 注意：不能用 RUN --mount=type=cache 替代——缓存卷内容不会被 gha 缓存导出，
 # GitHub 的临时 runner 上等于每次全量重下，比层缓存更慢。
 # MAVEN_MIRROR 非空时写一份临时 settings.xml（只镜像 central），用于国内加速。
@@ -61,6 +56,13 @@ RUN if [ -n "$MAVEN_MIRROR" ]; then \
             > /root/.m2/settings.xml; \
     fi && \
     (mvn -B -q dependency:go-offline || true)
+
+COPY deerfect-api/src ./deerfect-api/src
+COPY channel-qq/src ./channel-qq/src
+COPY channel-email/src ./channel-email/src
+COPY channel-feishu/src ./channel-feishu/src
+COPY deerfect-server/src ./deerfect-server/src
+
 # 仅构建 deerfect-server（-am 连带 deerfect-api 与 channel-qq / email / feishu；
 # deerfect-cli/wms 不进服务端镜像）；测试需真实数据库，镜像构建跳过
 RUN mvn -B -q -DskipTests -pl deerfect-server -am package

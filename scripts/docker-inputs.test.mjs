@@ -9,6 +9,19 @@ const workflow = readFileSync(new URL('.github/workflows/docker-image.yml', root
 const inputs = [...dockerfile.matchAll(/^COPY (?!--)(\S+) /gm)].map((match) => match[1])
 const lines = workflow.split(/\r?\n/)
 
+test('dependency prefetch layer stays ahead of every source copy', () => {
+  const lines = dockerfile.split(/\r?\n/)
+  const prefetch = lines.findIndex((line) => line.includes('dependency:go-offline'))
+  assert.notEqual(prefetch, -1)
+  const sources = lines.flatMap((line, index) =>
+    line.startsWith('COPY ') && /\b\S+\/src\b/.test(line) ? [index] : [])
+  assert.ok(sources.length > 0)
+  assert.ok(Math.min(...sources) > prefetch, 'source COPY defeats the dependency cache layer')
+  const poms = lines.flatMap((line, index) =>
+    line.startsWith('COPY ') && line.split(' ')[1].endsWith('.xml') ? [index] : [])
+  assert.ok(Math.max(...poms) < prefetch, 'pom COPYs must precede the dependency prefetch')
+})
+
 for (const event of ['push', 'pull_request']) {
   test(`${event} covers every local Docker COPY input`, () => {
     const start = lines.findIndex((line) => line === `  ${event}:`)
