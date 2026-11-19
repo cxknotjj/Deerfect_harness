@@ -172,7 +172,7 @@ npm install
 npm run dev        # 80，proxy 到 8080
 npm run typecheck  # vue-tsc --noEmit
 npm run build      # typecheck + vite build
-npm run build:pages # 子路径产物（base=/Deerfect_harness/），供 GitHub Pages 项目页部署
+npm run build:pages # 子路径产物（base=/Deerfect_harness/，自带 mock，见 .env.pages），供 GitHub Pages 项目页部署
 npx vite preview --mode pages  # 本地预览子路径产物，地址带 /Deerfect_harness/
 npm test           # vitest run（Node ≥ 22.12）
 npx playwright install chromium   # 首次跑 E2E 前装浏览器
