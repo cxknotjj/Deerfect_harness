@@ -212,6 +212,32 @@ test.describe('mock 模式冒烟', () => {
     await expect(page.locator('.ctx-modal')).toHaveCount(0)
   })
 
+  test('上下文构成弹窗：图1 布局与 30K–1M 上限滑杆', async ({ page }) => {
+    await page.goto('/chat')
+    await page.getByRole('button', { name: '会话 Qwen 接入排查' }).click()
+    await page.locator('.usage-trigger').click()
+
+    const popover = page.locator('.usage-popover')
+    await expect(popover).toBeVisible()
+    await expect(popover.locator('.usage-summary strong')).toContainText('%')
+    await expect(popover.locator('.usage-summary')).toContainText('系统上下文')
+    await expect(popover.locator('.usage-meta-row')).toHaveCount(2)
+    await expect(popover.locator('.usage-legend li')).toHaveCount(11)
+    await expect(popover.locator('.usage-limit-title')).toContainText('262,144 tok')
+
+    const slider = popover.locator('.usage-limit-input')
+    await expect(slider).toHaveAttribute('min', '30000')
+    await expect(slider).toHaveAttribute('max', '1000000')
+    await slider.fill('512000')
+    await expect(popover.locator('.usage-limit-title')).toContainText('512,000 tok')
+    await expect(popover.locator('.usage-limit-hint')).toHaveText('已保存')
+
+    // 关闭重开：上限写回模型列表后保持
+    await popover.locator('.usage-close').click()
+    await page.locator('.usage-trigger').click()
+    await expect(page.locator('.usage-limit-title')).toContainText('512,000 tok')
+  })
+
   test('手机端对话：输入区收在卡片内、控件单行', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/chat')

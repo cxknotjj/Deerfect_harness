@@ -709,7 +709,7 @@ let llmProviders: LlmProviderView[] = [
 const llmModels: LlmModelView[] = [
   { id: 1, providerId: 1, providerCode: 'dashscope', upstreamName: 'qwen-plus', displayName: 'qwen-plus', capabilities: null, defaultParams: null, enabled: 1 },
   { id: 2, providerId: 1, providerCode: 'dashscope', upstreamName: 'qwen-max', displayName: 'qwen-max', capabilities: null, defaultParams: null, enabled: 1 },
-  { id: 3, providerId: 1, providerCode: 'dashscope', upstreamName: 'deepseek-v4.1-flash-1017', displayName: 'deepseek-v4.1-flash-1017', capabilities: null, defaultParams: null, enabled: 1 },
+  { id: 3, providerId: 1, providerCode: 'dashscope', upstreamName: 'deepseek-v4.1-flash-1017', displayName: 'deepseek-v4.1-flash-1017', capabilities: '{"context_window":262144}', defaultParams: null, enabled: 1 },
   { id: 4, providerId: 2, providerCode: 'deepseek', upstreamName: 'deepseek-chat', displayName: 'deepseek-chat', capabilities: null, defaultParams: null, enabled: 1 },
   { id: 5, providerId: 2, providerCode: 'deepseek', upstreamName: 'deepseek-reasoner', displayName: 'deepseek-reasoner', capabilities: null, defaultParams: null, enabled: 1 },
   { id: 6, providerId: 3, providerCode: 'tecent', upstreamName: 'Deepseek-v4-flash', displayName: 'Deepseek-v4-flash', capabilities: null, defaultParams: null, enabled: 1 },
@@ -737,6 +737,24 @@ async function updateLlmProvider(id: number, body: LlmProviderUpsert): Promise<L
   if (index < 0) throw new Error(`供应商不存在: ${id}`)
   const row: LlmProviderView = { id, ...body }
   llmProviders = llmProviders.map((p) => (p.id === id ? row : p))
+  return { ...row }
+}
+
+async function updateModelContextWindow(id: number, contextWindow: number): Promise<LlmModelView> {
+  const index = llmModels.findIndex((m) => m.id === id)
+  if (index < 0) throw new Error(`模型不存在: ${id}`)
+  if (contextWindow !== 0 && (contextWindow < 4096 || contextWindow > 2000000)) {
+    throw new Error(`contextWindow 必须为 0 或 [4096, 2000000]，实际 ${contextWindow}`)
+  }
+  let caps: Record<string, unknown>
+  try {
+    caps = llmModels[index].capabilities ? JSON.parse(llmModels[index].capabilities!) : {}
+  } catch {
+    caps = {}
+  }
+  caps.context_window = contextWindow
+  const row: LlmModelView = { ...llmModels[index], capabilities: JSON.stringify(caps) }
+  llmModels[index] = row
   return { ...row }
 }
 
@@ -773,4 +791,5 @@ export const mockApi: Api = {
   listLlmModels,
   createLlmProvider,
   updateLlmProvider,
+  updateModelContextWindow,
 }

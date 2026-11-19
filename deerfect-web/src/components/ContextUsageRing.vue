@@ -3,12 +3,13 @@
  * 上下文构成圆环（输入区右下角）：
  * 视觉复刻参考图——浅灰圆形底、细环、上下接缝留白、圆角端点、slate 渐变弧；
  * 环内深色弧表示 system 组上下文占比，浅灰轨道表示其余部分。
- * 点击展开的方框直接展示 GET /api/monitor/context 返回的 parts（label/tokens/percent），
- * 不引入参考图的分类文案或上下文上限。
+ * 弹窗按参考图重排：大号占比 + 系统/总量、模型与轮次元信息、分段条与逐项明细，
+ * 底部「上下文上限」滑杆按快照模型定位并写回 capabilities.context_window（30K–1M）。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { api } from '../api'
 import type { MonitorContextComposition } from '../api'
+import { parseContextWindow } from '../api/admin'
 
 const props = defineProps<{ sessionId: string; streaming: boolean }>()
 
@@ -180,6 +181,82 @@ function fmtClock(ms: number): string {
   const pad = (v: number): string => String(v).padStart(2, '0')
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
+
+/* ---------- 上下文上限滑杆（写回该模型的 capabilities.context_window） ---------- */
+const WINDOW_MIN = 30_000
+const WINDOW_MAX = 1_000_000
+const WINDOW_STEP = 1_000
+
+const windowModelId = ref<number | null>(null)
+const windowValue = ref(WINDOW_MIN)
+const windowSavedValue = ref(WINDOW_MIN)
+const windowSaving = ref(false)
+const windowSaved = ref(false)
+const windowError = ref('')
+let windowTimer: ReturnType<typeof setTimeout> | undefined
+let windowFlashTimer: ReturnType<typeof setTimeout> | undefined
+
+/** 口径词：按 30K–1M 区间分档，仅作展示 */
+function tierLabel(value: number): string {
+  if (value < 64_000) return '精简'
+  if (value < 128_000) return '标准'
+  if (value < 300_000) return '适中'
+  if (value < 600_000) return '充裕'
+  return '超长'
+}
+
+/** 快照里的 model 是上游/展示名：匹配模型列表后取其 context_window；不匹配则隐藏滑杆 */
+async function resolveModelWindow(model: string | null | undefined): Promise<void> {
+  windowModelId.value = null
+  windowError.value = ''
+  if (!model) return
+  try {
+    const list = await api.listLlmModels()
+    const row = list.find((m) => m.upstreamName === model || m.displayName === model)
+    if (!row) return
+    const raw = parseContextWindow(row.capabilities)
+    const value = raw > 0 ? Math.min(WINDOW_MAX, Math.max(WINDOW_MIN, raw)) : WINDOW_MIN
+    windowModelId.value = row.id
+    windowValue.value = value
+    windowSavedValue.value = value
+  } catch {
+    /* 模型列表不可用：保持滑杆隐藏，不打断快照展示 */
+  }
+}
+
+function onWindowInput(): void {
+  windowSaved.value = false
+  clearTimeout(windowTimer)
+  windowTimer = setTimeout(() => void saveWindow(), 500)
+}
+
+async function saveWindow(): Promise<void> {
+  const id = windowModelId.value
+  if (id === null || windowSaving.value) return
+  const next = windowValue.value
+  if (next === windowSavedValue.value) return
+  windowSaving.value = true
+  windowError.value = ''
+  try {
+    await api.updateModelContextWindow(id, next)
+    windowSavedValue.value = next
+    windowSaved.value = true
+    clearTimeout(windowFlashTimer)
+    windowFlashTimer = setTimeout(() => { windowSaved.value = false }, 2000)
+  } catch (e) {
+    windowValue.value = windowSavedValue.value
+    windowError.value = `保存失败：${e instanceof Error ? e.message : String(e)}`
+  } finally {
+    windowSaving.value = false
+  }
+}
+
+watch(composition, (value) => void resolveModelWindow(value?.model))
+
+onBeforeUnmount(() => {
+  clearTimeout(windowTimer)
+  clearTimeout(windowFlashTimer)
+})
 </script>
 
 <template>
@@ -232,10 +309,14 @@ function fmtClock(ms: number): string {
           <span>系统上下文 {{ fmtNumber(systemTokens) }} / {{ fmtNumber(totalTokens) }} tok</span>
         </div>
         <div class="usage-meta">
-          <span>{{ composition.agentName ?? '—' }}</span>
-          <span>{{ composition.model ?? '—' }}</span>
-          <span>轮次 {{ composition.turnId ?? '—' }}</span>
-          <span>{{ fmtClock(composition.capturedAt) }}</span>
+          <div class="usage-meta-row">
+            <span>{{ composition.agentName ?? '—' }}</span>
+            <span>{{ composition.model ?? '—' }}</span>
+          </div>
+          <div class="usage-meta-row">
+            <span class="usage-turn" :title="composition.turnId ?? ''">轮次 {{ composition.turnId ?? '—' }}</span>
+            <span>{{ fmtClock(composition.capturedAt) }}</span>
+          </div>
         </div>
         <div class="usage-bar" role="img" :aria-label="`上下文构成 ${fmtNumber(totalTokens)} tokens`">
           <span
@@ -253,6 +334,32 @@ function fmtClock(ms: number): string {
             <span class="usage-value">{{ fmtNumber(part.tokens) }} tok · {{ fmtPercent(part.percent) }}</span>
           </li>
         </ul>
+
+        <template v-if="windowModelId !== null">
+          <div class="usage-divider"></div>
+          <div class="usage-limit">
+            <p class="usage-limit-title">
+              上下文上限 {{ fmtNumber(windowValue) }} tok · {{ tierLabel(windowValue) }}
+            </p>
+            <input
+              v-model.number="windowValue"
+              class="usage-limit-input"
+              type="range"
+              :min="WINDOW_MIN"
+              :max="WINDOW_MAX"
+              :step="WINDOW_STEP"
+              aria-label="模型上下文上限"
+              :aria-valuetext="`${fmtNumber(windowValue)} tok，${tierLabel(windowValue)}`"
+              @input="onWindowInput"
+            />
+            <p class="usage-limit-hint" :class="{ 'is-err': !!windowError }">
+              <template v-if="windowSaving">保存中…</template>
+              <template v-else-if="windowError">{{ windowError }}</template>
+              <template v-else-if="windowSaved">已保存</template>
+              <template v-else>仅影响该模型；实际请求仍受全局预算约束</template>
+            </p>
+          </div>
+        </template>
       </template>
     </section>
   </div>
@@ -331,7 +438,7 @@ function fmtClock(ms: number): string {
   z-index: 60;
   width: 392px;
   max-width: calc(100vw - 32px);
-  max-height: min(560px, calc(100vh - 260px));
+  max-height: min(660px, calc(100vh - 220px));
   overflow-y: auto;
   padding: 20px 24px 18px;
   border: 1px solid var(--grid-line);
@@ -390,7 +497,7 @@ function fmtClock(ms: number): string {
 }
 
 .usage-summary strong {
-  font-size: 30px;
+  font-size: 34px;
   font-weight: 700;
   letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
@@ -404,18 +511,30 @@ function fmtClock(ms: number): string {
 
 .usage-meta {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  margin: 4px 0 2px;
-  font-size: 11px;
+  flex-direction: column;
+  gap: 3px;
+  margin: 6px 0 2px;
+  font-size: 11.5px;
   color: var(--ink-dim);
 }
 
-.usage-meta span {
+.usage-meta-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.usage-meta-row span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 100%;
+}
+
+.usage-turn {
+  min-width: 0;
+  flex: 1;
 }
 
 .usage-bar {
@@ -441,8 +560,8 @@ function fmtClock(ms: number): string {
 .usage-legend li {
   display: flex;
   align-items: center;
-  gap: 9px;
-  min-height: 30px;
+  gap: 10px;
+  min-height: 34px;
   font-size: 13px;
 }
 
@@ -466,6 +585,71 @@ function fmtClock(ms: number): string {
   font-size: 12px;
   color: var(--ink-dim);
   font-variant-numeric: tabular-nums;
+}
+
+.usage-divider {
+  margin: 12px 0 14px;
+  border-top: 1px solid var(--grid-line);
+}
+
+.usage-limit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 2px;
+}
+
+.usage-limit-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-limit-input {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 12px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #17b890, #35d7a9);
+  outline: none;
+  cursor: pointer;
+}
+
+.usage-limit-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  border: none;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
+}
+
+.usage-limit-input::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  border: none;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
+}
+
+.usage-limit-input:focus-visible {
+  box-shadow: 0 0 0 3px rgb(47 214 168 / 0.35);
+}
+
+.usage-limit-hint {
+  font-size: 11px;
+  text-align: center;
+  color: var(--ink-dim);
+}
+
+.usage-limit-hint.is-err {
+  color: var(--accent-warm);
 }
 
 .usage-state {
