@@ -98,6 +98,8 @@ jobs:
         run: npm run build
       - name: Unit tests
         run: npm test
+      - name: Validate Docker build inputs
+        run: node --test ../scripts/docker-inputs.test.mjs
 
   e2e:
     name: e2e
