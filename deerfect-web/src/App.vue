@@ -275,7 +275,7 @@ onMounted(async () => {
   void loadFirst().then(() => {
     if (!readBool(UI_KEYS.restoreSession, true)) return
     const saved = localStorage.getItem(UI_KEYS.lastSession)
-    if (saved && sessions.value.some((s) => s.id === saved)) selectSession(saved)
+    if (saved && sessions.value.some((s) => s.id === saved)) activateSession(saved)
   })
   void loadAgents()
   void loadNavCounts()
@@ -323,13 +323,17 @@ function setChatTab(tab: 'chat' | 'trace'): void {
   syncRoute('chat', tab, true)
 }
 
+function activateSession(id: string): void {
+  selectSession(id)
+  showChat(id)
+  selectedAgentId.value = null
+}
+
 /** 选中会话:聊天视图切到该会话(消息按会话保留),重置 agent 选择;窄屏自动收抽屉 */
 function onSelect(id: string): void {
   if (isNarrow.value) drawerOpen.value = false
   if (id === currentSessionId.value) return
-  selectSession(id)
-  showChat(id)
-  selectedAgentId.value = null
+  activateSession(id)
   setChatTab('chat') // 切会话回对话视图（轨迹按会话惰性加载，切回即看）
   clearTip()
 }
@@ -362,8 +366,7 @@ async function onCreate(): Promise<void> {
     page.value = 'chat'
     chatTab.value = 'chat'
     syncRoute('chat', 'chat')
-    showChat(currentSessionId.value)
-    selectedAgentId.value = null
+    activateSession(currentSessionId.value)
     if (isNarrow.value) drawerOpen.value = false
   } catch (e) {
     showTip(`新建会话失败:${errText(e)}`, true)

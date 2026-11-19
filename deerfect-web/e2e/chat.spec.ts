@@ -15,6 +15,45 @@ test.describe('mock 模式冒烟', () => {
     await expect(page.locator('.period-card')).toHaveCount(3)
   })
 
+  for (const path of ['/chat', '/chat/trace']) {
+    test(`恢复会话：${path} 刷新后加载历史并保留视图`, async ({ page }) => {
+      await page.addInitScript(() => {
+        localStorage.setItem('ui-last-session', '1')
+        localStorage.setItem('ui-restore-session', '1')
+      })
+      await page.goto(path)
+      await page.reload()
+      await expect(page.locator('.session-item-active')).toContainText('Qwen 接入排查')
+      await expect(page).toHaveURL(new RegExp(`${path}$`))
+      if (path.endsWith('/trace')) {
+        await expect(page.getByRole('tab', { name: '轨迹' })).toHaveAttribute('aria-selected', 'true')
+        await expect(page.locator('.trace-row')).toHaveCount(6)
+        await page.getByRole('tab', { name: '对话', exact: true }).click()
+      }
+      await expect(page.locator('.msg-bubble-assistant').last()).toContainText('401 排查思路')
+      await page.getByRole('button', { name: '会话 Qwen 接入排查' }).click()
+      await expect(page.locator('.msg-bubble-user')).toHaveCount(2)
+      await expect(page.locator('.msg-bubble-assistant')).toHaveCount(2)
+    })
+  }
+
+  for (const scenario of [
+    { name: '关闭恢复', id: '1', enabled: '0' },
+    { name: '已删除会话', id: 'missing', enabled: '1' },
+  ]) {
+    test(`恢复会话：${scenario.name} 保持草稿视图`, async ({ page }) => {
+      await page.addInitScript(({ id, enabled }) => {
+        localStorage.setItem('ui-last-session', id)
+        localStorage.setItem('ui-restore-session', enabled)
+      }, scenario)
+      await page.goto('/chat')
+      await expect(page.getByRole('button', { name: '会话 Qwen 接入排查' })).toBeVisible()
+      await expect(page.locator('.session-item-active')).toHaveCount(0)
+      await expect(page.locator('.msg-bubble-assistant')).toHaveCount(0)
+      await expect(page.getByRole('button', { name: '介绍一下这个项目的架构' })).toBeVisible()
+    })
+  }
+
   test('聊天流式：进度行 → token 渲染 → meta 收尾', async ({ page }) => {
     await page.goto('/')
     await page.getByTestId('nav-chat').click()
