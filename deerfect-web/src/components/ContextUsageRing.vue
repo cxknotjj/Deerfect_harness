@@ -776,8 +776,9 @@ onBeforeUnmount(() => {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 12px;
-  width: calc((100% - 24px) * var(--ratio, 0));
+  left: 0;
+  /* 从轨道最左端起算并补偿 thumb 半径，避免左端露出灰色缺口 */
+  width: calc(12px + (100% - 24px) * var(--ratio, 0));
   border-radius: 999px;
   background: linear-gradient(90deg, #17b890, #35d7a9);
   transition: width 0.18s var(--ease-out-quart);

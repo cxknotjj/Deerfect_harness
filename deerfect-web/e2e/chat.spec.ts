@@ -254,6 +254,9 @@ test.describe('mock 模式冒烟', () => {
     expect(dragged!.x).toBeGreaterThan(box!.x + box!.width * 0.5)
     await page.mouse.up()
     await expect(popover.locator('.usage-limit-title')).toContainText('1,000,000 tok')
+    // 满格时填充条必须从轨道最左端开始，左端不得残留灰色缺口
+    const fill = await popover.locator('.usage-limit-fill').boundingBox()
+    expect(fill!.x).toBeLessThanOrEqual(box!.x + 1)
     await expect(popover.locator('.usage-limit-hint')).toHaveText('已保存')
 
     // 关闭重开：上限写回模型列表后保持
