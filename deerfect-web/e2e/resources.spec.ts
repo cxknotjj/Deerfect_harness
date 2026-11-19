@@ -177,10 +177,10 @@ test.describe('资源面导航', () => {
     await page.keyboard.press('ArrowDown')
     await expect(page.locator('.docs-menu-item').nth(1)).toBeFocused()
 
-    // 点某项：浮层收起，正文滚动，高亮切到该项
+    // 点某项：浮层收起，正文滚动，高亮切到该项（滚动为 smooth 动画，需轮询等待生效）
     await page.locator('.docs-menu-item').filter({ hasText: '架构与设计' }).click()
     await expect(page.locator('.docs-menu-panel')).toHaveCount(0)
-    expect(await page.locator('.docs-article').evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+    await expect.poll(() => page.locator('.docs-article').evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
     await pill.click()
     await expect(page.locator('.docs-menu-item.is-active')).toHaveText('架构与设计')
 
