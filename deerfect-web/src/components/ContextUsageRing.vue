@@ -187,11 +187,8 @@ function fmtClock(ms: number): string {
  * 后端接口接受 4096–2,000,000 任意整数，这里只收窄到 UI 常用档。 */
 const WINDOW_TIERS = [
   { value: 30_000, display: '30K' },
-  { value: 64_000, display: '64K' },
   { value: 128_000, display: '128K' },
-  { value: 256_000, display: '256K' },
   { value: 512_000, display: '512K' },
-  { value: 600_000, display: '600K' },
   { value: 1_000_000, display: '1M' },
 ] as const
 
