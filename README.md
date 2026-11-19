@@ -119,13 +119,21 @@ curl -s -X POST http://localhost:8080/api/chat \
 
 ## 效果展示
 
-**首页 · 会话与对话（会话列表 / 流式回答 / 卡片式输入区）**
+**仪表盘 · 运行概览（活跃会话 / 调用与 token 用量趋势 / 周期对比）**
 
-![首页](./docs/images/ui-home.png)
+![仪表盘](./docs/images/ui-dashboard.png)
 
-**轨迹视图 · 调用链可观测（route-judge 与直答两段 LLM 调用、耗时与 token 记账）**
+**对话 · 流式回答与 Markdown 渲染（分组导航 / 会话列表 / 路由与 Agent 选择）**
+
+![对话](./docs/images/ui-chat.png)
+
+**轨迹视图 · 调用链可观测（LLM 与工具调用耗时、token 记账、耗时分布）**
 
 ![轨迹视图](./docs/images/ui-trace.png)
+
+**运行监控 · 指标看板（调用量 / 首 token P95 / 资源占用 / 渠道分布）**
+
+![运行监控](./docs/images/ui-monitor.png)
 
 **终端 CLI · Claude Code 风格（命令帮助着色 / 回合小结 / 流式 Markdown）**
 
