@@ -201,6 +201,10 @@ const windowSaved = ref(false)
 const windowError = ref('')
 let windowTimer: ReturnType<typeof setTimeout> | undefined
 let windowFlashTimer: ReturnType<typeof setTimeout> | undefined
+/** 保存请求相互覆盖保护：在途时记录「还有更新」，完成后补存最后一次值 */
+let windowSaveQueued = false
+/** 模型窗口解析序号：快速切会话时丢弃过期响应 */
+let windowSeq = 0
 
 /** 口径词：按 30K–1M 区间分档，仅作展示 */
 function tierLabel(value: number): string {
@@ -250,6 +254,7 @@ function previewIndex(ratio: number): number {
 }
 
 function onPointerDown(event: PointerEvent): void {
+  event.preventDefault()
   const el = event.currentTarget as HTMLElement
   dragging.value = true
   dragRatio.value = ratioFromEvent(event, el)
@@ -291,11 +296,13 @@ function onSliderKeydown(event: KeyboardEvent): void {
 
 /** 快照里的 model 是上游/展示名：匹配模型列表后取其 context_window；不匹配则隐藏滑杆 */
 async function resolveModelWindow(model: string | null | undefined): Promise<void> {
+  const seq = ++windowSeq
   windowModelId.value = null
   windowError.value = ''
   if (!model) return
   try {
     const list = await api.listLlmModels()
+    if (seq !== windowSeq) return
     const row = list.find((m) => m.upstreamName === model || m.displayName === model)
     if (!row) return
     const raw = parseContextWindow(row.capabilities)
@@ -320,7 +327,11 @@ function onWindowInput(): void {
 
 async function saveWindow(): Promise<void> {
   const id = windowModelId.value
-  if (id === null || windowSaving.value) return
+  if (id === null) return
+  if (windowSaving.value) {
+    windowSaveQueued = true
+    return
+  }
   const next = windowValue.value
   if (next === windowSavedValue.value) return
   windowSaving.value = true
@@ -336,6 +347,10 @@ async function saveWindow(): Promise<void> {
     windowError.value = `保存失败：${e instanceof Error ? e.message : String(e)}`
   } finally {
     windowSaving.value = false
+    if (windowSaveQueued) {
+      windowSaveQueued = false
+      if (windowValue.value !== windowSavedValue.value) void saveWindow()
+    }
   }
 }
 
