@@ -4,6 +4,7 @@ import { api } from '../api'
 import type { SessionMessagesView } from '../api'
 import type { StreamHandlers } from '../api/chatStream'
 import { useChat } from './useChat'
+import { loadCache } from './chatCache'
 
 vi.mock('../api', () => ({
   api: { listMessages: vi.fn(), streamChat: vi.fn() },
@@ -20,14 +21,81 @@ function history(content: string): SessionMessagesView {
   return { sessionId: '1', messages: [{ role: 'assistant', content, ts: 1 }] }
 }
 
-function createChat() {
-  let sessionId = '1'
+function createChat(initialSessionId = '1') {
+  let sessionId = initialSessionId
   return useChat({ getSessionId: () => sessionId, setSessionId: (id) => { sessionId = id } })
 }
 
 beforeEach(() => {
   localStorage.clear()
   vi.resetAllMocks()
+})
+
+describe('聊天缓存持久化', () => {
+  it('历史落盘后，新实例在历史请求完成前即可显示缓存', async () => {
+    vi.mocked(api.listMessages).mockResolvedValueOnce(history('缓存回答'))
+    const chat = createChat()
+    chat.show('1')
+    await flushPromises()
+    expect(loadCache('1').map((m) => m.content)).toEqual(['缓存回答'])
+    vi.mocked(api.listMessages).mockReturnValue(pending<SessionMessagesView>().promise)
+    const restored = createChat()
+    restored.show('1')
+    expect(restored.messages.value.map((m) => m.content)).toEqual(['缓存回答'])
+  })
+
+  it('发送、重新生成和删除都保存到当前会话', async () => {
+    vi.mocked(api.listMessages).mockResolvedValue({ sessionId: '1', messages: [] })
+    vi.mocked(api.streamChat).mockImplementation(async (_request, handlers) => {
+      handlers.onToken?.('回答')
+    })
+    const chat = createChat()
+    chat.show('1')
+    await flushPromises()
+    await chat.send('问题')
+    expect(loadCache('1').map((m) => m.content)).toEqual(['问题', '回答'])
+    expect(Object.keys(loadCache('1')[1]).sort()).toEqual(['content', 'id', 'role', 'ts'])
+    vi.mocked(api.streamChat).mockImplementation(async (_request, handlers) => {
+      handlers.onToken?.('重新回答')
+    })
+    await chat.regenerate(chat.messages.value[1].id)
+    expect(loadCache('1').map((m) => m.content)).toEqual(['问题', '重新回答'])
+    chat.remove(chat.messages.value[0].id)
+    expect(loadCache('1')).toEqual([])
+  })
+
+  it('草稿收到新会话 ID 后保存到真实会话', async () => {
+    vi.mocked(api.streamChat).mockImplementation(async (_request, handlers) => {
+      handlers.onToken?.('新会话回答')
+      handlers.onMeta?.({
+        sessionId: 'new', newSession: true, goalId: null, status: 'SUCCEEDED',
+        error: null, sources: null, route: null,
+      })
+    })
+    const chat = createChat('')
+    await chat.send('新会话问题')
+    expect(loadCache('new').map((m) => m.content)).toEqual(['新会话问题', '新会话回答'])
+    expect(loadCache('__draft__')).toEqual([])
+  })
+
+  it('切走后旧流收尾仍保存到原会话', async () => {
+    const stream = pending<void>()
+    vi.mocked(api.listMessages).mockResolvedValue({ sessionId: '1', messages: [] })
+    vi.mocked(api.streamChat).mockImplementation((_request, handlers) => {
+      handlers.onToken?.('原会话回答')
+      return stream.promise
+    })
+    const chat = createChat()
+    chat.show('1')
+    await flushPromises()
+    const sending = chat.send('原会话问题')
+    chat.show('2')
+    await flushPromises()
+    stream.resolve()
+    await sending
+    expect(loadCache('1').map((m) => m.content)).toEqual(['原会话问题', '原会话回答'])
+    expect(loadCache('2')).toEqual([])
+  })
 })
 
 describe('聊天历史同步', () => {

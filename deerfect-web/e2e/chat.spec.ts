@@ -69,6 +69,22 @@ test.describe('mock 模式冒烟', () => {
     await expect(page.locator('.chat-statusbar')).toContainText('空闲')
   })
 
+  test('聊天缓存：历史加载和流式回答都会写入本机会话缓存', async ({ page }) => {
+    await page.goto('/chat')
+    await page.getByRole('button', { name: '会话 Qwen 接入排查' }).click()
+    await expect(page.locator('.msg-bubble-assistant').last()).toContainText('401 排查思路')
+    const cache = () => page.evaluate(() => localStorage.getItem('harness-chat-cache'))
+    await expect.poll(cache).toContain('401 排查思路')
+    const input = page.locator('.composer-input')
+    await input.fill('缓存回归测试')
+    await input.press('Enter')
+    await expect(page.locator('.msg-bubble-assistant').last()).toContainText('需要真实回答时')
+    await expect.poll(cache).toContain('关于「缓存回归测试」的回答')
+    await page.reload()
+    await expect(page.locator('.session-item-active')).toContainText('Qwen 接入排查')
+    await expect(page.locator('.msg-bubble-assistant').first()).toContainText('接入新服务商')
+  })
+
   test('路由徽标：流末 meta 回显路径与置信度', async ({ page }) => {
     await page.goto('/')
     await page.getByTestId('nav-chat').click()

@@ -7,7 +7,7 @@
  * 历史与持久化:切回旧会话先用 localStorage 缓存即时渲染,再拉服务端历史覆盖
  * (以服务端为准,见 chatCache.ts);消息进出后把当前会话落盘。
  */
-import { ref } from 'vue'
+import { ref, toRaw } from 'vue'
 import { api, isAbort } from '../api'
 import type { KnowledgeSource, ProgressPayload, RouteInfo, SessionMessageView } from '../api'
 import { loadCache, saveCache } from './chatCache'
@@ -102,7 +102,7 @@ export function useChat(hooks: ChatHooks) {
   function persist(bucket: MessageItem[]): void {
     let key: string | null = null
     for (const [k, v] of store) {
-      if (v === bucket) {
+      if (v === toRaw(bucket)) {
         key = k === DRAFT_KEY ? '' : k
         break
       }
@@ -110,7 +110,8 @@ export function useChat(hooks: ChatHooks) {
     if (key === null || key === '') return
     saveCache(
       key,
-      bucket.filter((m) => m.content !== '' && !m.error),
+      bucket.filter((m) => m.content !== '' && !m.error)
+        .map(({ id, role, content, ts }) => ({ id, role, content, ts })),
     )
   }
 
