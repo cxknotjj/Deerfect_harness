@@ -219,8 +219,9 @@ test.describe('mock 模式冒烟', () => {
 
     const popover = page.locator('.usage-popover')
     await expect(popover).toBeVisible()
+    // 顶部统计按窗口口径：已用 / 上限，分母随滑块变化
     await expect(popover.locator('.usage-summary strong')).toContainText('%')
-    await expect(popover.locator('.usage-summary')).toContainText('系统上下文')
+    await expect(popover.locator('.usage-summary')).toContainText('已用 2,602 / 262,144 tok')
     await expect(popover.locator('.usage-meta-row')).toHaveCount(2)
     await expect(popover.locator('.usage-legend li')).toHaveCount(11)
     await expect(popover.locator('.usage-limit-title')).toContainText('262,144 tok')
@@ -232,6 +233,9 @@ test.describe('mock 模式冒烟', () => {
     await expect(popover.locator('.usage-limit-tick')).toHaveCount(7)
     await slider.fill('4')
     await expect(popover.locator('.usage-limit-title')).toContainText('512,000 tok')
+    // 统计同步跟手：分母切到新上限，占用率随之下降
+    await expect(popover.locator('.usage-summary')).toContainText('已用 2,602 / 512,000 tok')
+    await expect(popover.locator('.usage-summary strong')).toHaveText('0.5%')
     await expect(popover.locator('.usage-limit-hint')).toHaveText('已保存')
 
     // 关闭重开：上限写回模型列表后保持

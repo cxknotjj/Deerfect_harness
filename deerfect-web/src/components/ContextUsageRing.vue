@@ -286,6 +286,12 @@ async function saveWindow(): Promise<void> {
 
 watch(composition, (value) => void resolveModelWindow(value?.model))
 
+/** 命中模型窗口后：顶部统计切换为「窗口占用」口径，分母随滑块实时变化 */
+const windowResolved = computed(() => windowModelId.value !== null && windowValue.value > 0)
+const windowUsagePercent = computed(() => windowResolved.value && totalTokens.value > 0
+  ? Math.min(100, (totalTokens.value / windowValue.value) * 100)
+  : 0)
+
 onBeforeUnmount(() => {
   clearTimeout(windowTimer)
   clearTimeout(windowFlashTimer)
@@ -338,8 +344,11 @@ onBeforeUnmount(() => {
 
       <template v-else>
         <div class="usage-summary">
-          <strong>{{ ringPercent.toFixed(1) }}%</strong>
-          <span>系统上下文 {{ fmtNumber(systemTokens) }} / {{ fmtNumber(totalTokens) }} tok</span>
+          <strong>{{ (windowResolved ? windowUsagePercent : ringPercent).toFixed(1) }}%</strong>
+          <span v-if="windowResolved">
+            已用 {{ fmtNumber(totalTokens) }} / {{ fmtNumber(windowValue) }} tok · 系统 {{ fmtNumber(systemTokens) }} tok
+          </span>
+          <span v-else>系统上下文 {{ fmtNumber(systemTokens) }} / {{ fmtNumber(totalTokens) }} tok</span>
         </div>
         <div class="usage-meta">
           <div class="usage-meta-row">
