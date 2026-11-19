@@ -226,9 +226,11 @@ test.describe('mock 模式冒烟', () => {
     await expect(popover.locator('.usage-limit-title')).toContainText('262,144 tok')
 
     const slider = popover.locator('.usage-limit-input')
-    await expect(slider).toHaveAttribute('min', '30000')
-    await expect(slider).toHaveAttribute('max', '1000000')
-    await slider.fill('512000')
+    // 档位吸附：索引 0..6，对应 30K/64K/128K/256K/512K/600K/1M；轨道上 7 个刻度点
+    await expect(slider).toHaveAttribute('min', '0')
+    await expect(slider).toHaveAttribute('max', '6')
+    await expect(popover.locator('.usage-limit-tick')).toHaveCount(7)
+    await slider.fill('4')
     await expect(popover.locator('.usage-limit-title')).toContainText('512,000 tok')
     await expect(popover.locator('.usage-limit-hint')).toHaveText('已保存')
 

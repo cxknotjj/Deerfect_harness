@@ -182,14 +182,23 @@ function fmtClock(ms: number): string {
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-/* ---------- 上下文上限滑杆（写回该模型的 capabilities.context_window） ---------- */
-const WINDOW_MIN = 30_000
-const WINDOW_MAX = 1_000_000
-const WINDOW_STEP = 1_000
+/* ---------- 上下文上限滑杆（写回该模型的 capabilities.context_window） ----------
+ * 离散档位吸附：滑块按索引定位、保存档位值；档位取常用窗口预算，值不必等距。
+ * 后端接口接受 4096–2,000,000 任意整数，这里只收窄到 UI 常用档。 */
+const WINDOW_TIERS = [
+  { value: 30_000, display: '30K' },
+  { value: 64_000, display: '64K' },
+  { value: 128_000, display: '128K' },
+  { value: 256_000, display: '256K' },
+  { value: 512_000, display: '512K' },
+  { value: 600_000, display: '600K' },
+  { value: 1_000_000, display: '1M' },
+] as const
 
 const windowModelId = ref<number | null>(null)
-const windowValue = ref(WINDOW_MIN)
-const windowSavedValue = ref(WINDOW_MIN)
+const windowIndex = ref(0)
+const windowValue = ref<number>(WINDOW_TIERS[0].value)
+const windowSavedValue = ref<number>(WINDOW_TIERS[0].value)
 const windowSaving = ref(false)
 const windowSaved = ref(false)
 const windowError = ref('')
@@ -205,6 +214,26 @@ function tierLabel(value: number): string {
   return '超长'
 }
 
+/** 就近档位：非档位的历史值（如 262,144）落到最近刻度，标题仍先展示真实值 */
+function nearestTierIndex(value: number): number {
+  if (value <= 0) return 0
+  let best = 0
+  let bestDist = Number.POSITIVE_INFINITY
+  WINDOW_TIERS.forEach((tier, i) => {
+    const dist = Math.abs(tier.value - value)
+    if (dist < bestDist) {
+      bestDist = dist
+      best = i
+    }
+  })
+  return best
+}
+
+/** 刻度点横向位置：扣掉滑块半径（12px），与原生 range 拇指轨迹对齐 */
+function tickLeft(index: number): string {
+  return `calc(12px + (100% - 24px) * ${index} / ${WINDOW_TIERS.length - 1})`
+}
+
 /** 快照里的 model 是上游/展示名：匹配模型列表后取其 context_window；不匹配则隐藏滑杆 */
 async function resolveModelWindow(model: string | null | undefined): Promise<void> {
   windowModelId.value = null
@@ -215,8 +244,10 @@ async function resolveModelWindow(model: string | null | undefined): Promise<voi
     const row = list.find((m) => m.upstreamName === model || m.displayName === model)
     if (!row) return
     const raw = parseContextWindow(row.capabilities)
-    const value = raw > 0 ? Math.min(WINDOW_MAX, Math.max(WINDOW_MIN, raw)) : WINDOW_MIN
+    const index = nearestTierIndex(raw)
     windowModelId.value = row.id
+    windowIndex.value = index
+    const value = raw > 0 ? raw : WINDOW_TIERS[index].value
     windowValue.value = value
     windowSavedValue.value = value
   } catch {
@@ -225,6 +256,8 @@ async function resolveModelWindow(model: string | null | undefined): Promise<voi
 }
 
 function onWindowInput(): void {
+  // 吸附：索引变化立即落到该档位值（提交时也只保存档位值）
+  windowValue.value = WINDOW_TIERS[windowIndex.value].value
   windowSaved.value = false
   clearTimeout(windowTimer)
   windowTimer = setTimeout(() => void saveWindow(), 500)
@@ -341,17 +374,28 @@ onBeforeUnmount(() => {
             <p class="usage-limit-title">
               上下文上限 {{ fmtNumber(windowValue) }} tok · {{ tierLabel(windowValue) }}
             </p>
-            <input
-              v-model.number="windowValue"
-              class="usage-limit-input"
-              type="range"
-              :min="WINDOW_MIN"
-              :max="WINDOW_MAX"
-              :step="WINDOW_STEP"
-              aria-label="模型上下文上限"
-              :aria-valuetext="`${fmtNumber(windowValue)} tok，${tierLabel(windowValue)}`"
-              @input="onWindowInput"
-            />
+            <div class="usage-limit-scale">
+              <input
+                v-model.number="windowIndex"
+                class="usage-limit-input"
+                type="range"
+                :min="0"
+                :max="WINDOW_TIERS.length - 1"
+                step="1"
+                aria-label="模型上下文上限"
+                :aria-valuetext="`${fmtNumber(windowValue)} tok，${tierLabel(windowValue)}`"
+                @input="onWindowInput"
+              />
+              <span
+                v-for="(tier, i) in WINDOW_TIERS"
+                :key="tier.value"
+                class="usage-limit-tick"
+                :class="{ 'is-active': i <= windowIndex }"
+                :style="{ left: tickLeft(i) }"
+                :title="tier.display"
+                aria-hidden="true"
+              ></span>
+            </div>
             <p class="usage-limit-hint" :class="{ 'is-err': !!windowError }">
               <template v-if="windowSaving">保存中…</template>
               <template v-else-if="windowError">{{ windowError }}</template>
@@ -605,6 +649,26 @@ onBeforeUnmount(() => {
   font-weight: 500;
   text-align: center;
   font-variant-numeric: tabular-nums;
+}
+
+.usage-limit-scale {
+  position: relative;
+  width: 100%;
+}
+
+.usage-limit-tick {
+  position: absolute;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: rgb(255 255 255 / 0.4);
+  pointer-events: none;
+}
+
+.usage-limit-tick.is-active {
+  background: rgb(255 255 255 / 0.7);
 }
 
 .usage-limit-input {
