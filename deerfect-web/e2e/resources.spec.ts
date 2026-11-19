@@ -1,10 +1,35 @@
 import { expect, test } from '@playwright/test'
+import { readdirSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 /**
  * 资源面导航冒烟（mock 模式）：侧栏分组/徽标/系统诊断、五个新页面的真实 mock 数据、
  * 记忆写入后徽标联动、外观分段控件、通栏「新会话」入口。
  * 不依赖后端：VITE_USE_MOCK=true 由 playwright.config.ts 的 webServer 注入。
  */
+
+/**
+ * 按磁盘实际文件数计算五个分组的条目数，口径与 src/docs/registry.ts 同源：
+ * 分组目录白名单 + `*.en.md` 折叠为同名中文稿 + 排除报告导出稿。
+ * 新增/删除文档不再需要手改硬编码计数。
+ */
+function docGroupCounts(): number[] {
+  const root = resolve(process.cwd(), '../docs')
+  const excluded = ['reports/project-intro.md']
+  return ['', 'guides', 'design', 'task-checklist', 'reports'].map((dir) => {
+    const base = new Set(
+      readdirSync(resolve(root, dir))
+        .filter((f) => f.endsWith('.md'))
+        .map((f) => f.replace(/\.en\.md$/, '.md')),
+    )
+    for (const ex of excluded) {
+      const slash = ex.lastIndexOf('/')
+      const exDir = slash < 0 ? '' : ex.slice(0, slash)
+      if (exDir === dir) base.delete(ex.slice(slash + 1))
+    }
+    return base.size
+  })
+}
 test.describe('资源面导航', () => {
   test('侧边栏：分组条目、徽标与系统诊断', async ({ page }) => {
     await page.goto('/')
@@ -112,14 +137,15 @@ test.describe('资源面导航', () => {
     await expect(page.locator('.docs-doc-title')).toHaveText('文档导航')
     await expect(page.locator('.docs-group-row')).toHaveCount(5)
     await expect(page.locator('.docs-group-row').first()).toContainText('概览')
-    // 组计数按折叠英文变体后的真实目录重算
-    await expect(page.locator('.docs-group-count')).toHaveText(['10', '15', '15', '13', '4'])
+    // 组计数按磁盘实际文件数（折叠英文变体、排除导出稿）动态计算，新增文档不需手改
+    const counts = docGroupCounts()
+    await expect(page.locator('.docs-group-count')).toHaveText(counts.map(String))
 
-    // 所有分组都带两位序号：概览 01–10 来自 front-matter order，指南 01–15 按展示顺序
+    // 所有分组都带两位序号：概览来自 front-matter order，其余组按展示顺序 01..N
     const treeGroups = page.locator('.docs-group')
-    await expect(treeGroups.first().locator('.docs-item-order')).toHaveCount(10)
+    await expect(treeGroups.first().locator('.docs-item-order')).toHaveCount(counts[0])
     await expect(treeGroups.first().locator('.docs-item-order').first()).toHaveText('01')
-    await expect(treeGroups.nth(1).locator('.docs-item-order')).toHaveCount(15)
+    await expect(treeGroups.nth(1).locator('.docs-item-order')).toHaveCount(counts[1])
     await expect(treeGroups.nth(1).locator('.docs-item-order').first()).toHaveText('01')
     const metaBar = page.locator('.docs-doc-meta')
     await expect(metaBar).toContainText('docs/index.md')
