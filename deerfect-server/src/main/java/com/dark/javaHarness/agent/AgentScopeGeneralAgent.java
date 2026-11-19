@@ -224,13 +224,14 @@ public class AgentScopeGeneralAgent implements Agent {
         SystemAssembly system = specFactory.assembleSystem(config, sessionId, agentName,
                 DEFAULT_SYSTEM_PROMPT, goal.objective(), trace);
         List<Message> history = specFactory.loadHistory(sessionId);
-        List<Message> trimmed = specFactory.trimHistory(sessionId, history);
+        List<Message> trimmed = specFactory.trimHistory(sessionId, history, agentName);
 
         // 2) 工具：装饰后的 Spring AI ToolCallback → AgentScope ToolBase（进度行仍由装饰链发射）
         Sinks.Many<String> content = Sinks.many().unicast().onBackpressureBuffer();
         Sinks.Many<String> progress = Sinks.many().unicast().onBackpressureBuffer();
         List<ToolCallback> tools = specFactory.resolveTools(agentName, sessionId,
-                row -> BranchProgressListener.tryEmitSerialized(progress, row), false, null);
+                row -> BranchProgressListener.tryEmitSerialized(progress, row), false, null,
+                budgets.getMaxTokensFinal());
         Toolkit toolkit = new Toolkit();
         for (ToolCallback tool : tools) {
             toolkit.registerTool(new SpringAiToolBridge(tool));

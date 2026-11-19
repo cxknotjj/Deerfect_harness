@@ -157,4 +157,13 @@ class PromptBudgetAdvisorTest {
         assertEquals("", PromptBudgetAdvisor.fitSuffix(text, -1), "limit≤0 应返回空串");
         assertFalse(PromptBudgetAdvisor.fitSuffix(text, 20).isEmpty());
     }
+
+    @Test
+    void capped_derivesSameTruncatorWithLowerBudget() {
+        PromptBudgetAdvisor original = PromptBudgetAdvisor.tail(5000);
+        assertSame(original, original.capped(5000), "预算未变应返回自身");
+        PromptBudgetAdvisor capped = original.capped(100);
+        assertEquals(100, capped.budget());
+        assertEquals(5000, original.budget(), "派生不应改动原 advisor");
+    }
 }

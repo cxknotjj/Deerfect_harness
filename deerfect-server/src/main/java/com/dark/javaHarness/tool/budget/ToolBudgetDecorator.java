@@ -4,6 +4,7 @@ import java.util.List;
 import org.springframework.ai.tool.ToolCallback;
 
 import com.dark.javaHarness.config.ContextBudgetProperties;
+import com.dark.javaHarness.llm.model.ContextWindowGuard;
 import com.dark.javaHarness.tool.ToolCallbackDecorator;
 import com.dark.javaHarness.tool.ToolDecorationContext;
 
@@ -37,6 +38,8 @@ public class ToolBudgetDecorator implements ToolCallbackDecorator {
 
     @Override
     public List<ToolCallback> decorate(ToolDecorationContext ctx, List<ToolCallback> tools) {
-        return ToolCallBudget.limit(tools, budgets.getToolCallLimit(), budgets.getToolResultBudget());
+        int resultBudget = ContextWindowGuard.effective(
+                budgets.getToolResultBudget(), ctx.contextWindow(), ctx.maxOutput());
+        return ToolCallBudget.limit(tools, budgets.getToolCallLimit(), resultBudget);
     }
 }

@@ -56,6 +56,16 @@ public final class PromptBudgetAdvisor implements CallAdvisor, StreamAdvisor {
         this.truncator = truncator;
     }
 
+    /** 当前预算（供窗口守卫读取后派生封顶变体） */
+    public int budget() {
+        return maxTokens;
+    }
+
+    /** 派生一个预算被窗口封顶的同策略 advisor；预算未变时返回自身 */
+    public PromptBudgetAdvisor capped(int effective) {
+        return effective == maxTokens ? this : new PromptBudgetAdvisor(effective, truncator);
+    }
+
     /** 通用尾截策略工厂（单段内容，如 lead 目标） */
     public static PromptBudgetAdvisor tail(int maxTokens) {
         return new PromptBudgetAdvisor(maxTokens, new TailTruncator());

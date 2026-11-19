@@ -2,6 +2,7 @@ package com.dark.javaHarness.agent;
 
 import com.dark.javaHarness.advisor.ContextAssemblingAdvisor;
 import com.dark.javaHarness.advisor.ContextCompositionAdvisor;
+import com.dark.javaHarness.advisor.PromptBudgetAdvisor;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.contract.model.AgentConfig;
 import com.dark.javaHarness.domain.entity.AgentEntity;
@@ -9,6 +10,8 @@ import com.dark.javaHarness.knowledge.KnowledgeRetriever;
 import com.dark.javaHarness.llm.call.LlmCallOptions;
 import com.dark.javaHarness.llm.catalog.AgentCatalog;
 import com.dark.javaHarness.llm.client.LlmClientRegistry;
+import com.dark.javaHarness.llm.model.ContextWindowGuard;
+import com.dark.javaHarness.llm.model.ModelCapabilities;
 import com.dark.javaHarness.llm.routing.ModelResolver;
 import com.dark.javaHarness.llm.routing.RoutePlan;
 import com.dark.javaHarness.observability.LlmCallRecorder;
@@ -169,6 +172,8 @@ final class AgentRequestSpecFactory {
                                            Assembly assembly, CallTrace trace,
                                            RoutePlan.Member member, Advisor... extraAdvisors) {
         ChatClient client = llmClientRegistry.get(member.modelId());
+        // 本次调用命中模型的窗口：per-call 守卫据此封顶历史/lead/聚合/工具结果预算
+        int window = ModelCapabilities.parse(member.capabilities()).contextWindow();
         LlmCallOptions llmOptions = LlmCallOptions.merge(member.upstreamName(), member.defaultParams(),
                 agentParams(forAgent));
         String model = llmOptions.model();
@@ -187,12 +192,18 @@ final class AgentRequestSpecFactory {
             if (history != null && !history.isEmpty()) {
                 spec.messages(history);
             }
-            spec.advisors(new ContextAssemblingAdvisor(budgets.getHistoryBudget(), sessionId, memoryStore));
+            spec.advisors(new ContextAssemblingAdvisor(
+                    ContextWindowGuard.effective(budgets.getHistoryBudget(), window, assembly.maxTokens()),
+                    sessionId, memoryStore));
         }
         // 请求级 advisor 挂载（如 lead/聚合的 PromptBudgetAdvisor）：
-        // 不用 default advisor——聚合与子任务共用同一客户端，default 挂载会连坐到无关调用
+        // 不用 default advisor——聚合与子任务共用同一客户端，default 挂载会连坐到无关调用；
+        // PromptBudgetAdvisor 的 yaml 预算再经窗口守卫封顶（lead/聚合与直出共用同一公式）
         for (Advisor advisor : extraAdvisors) {
-            spec.advisors(advisor);
+            Advisor effective = advisor instanceof PromptBudgetAdvisor budget
+                    ? budget.capped(ContextWindowGuard.effective(budget.budget(), window, assembly.maxTokens()))
+                    : advisor;
+            spec.advisors(effective);
         }
         // 请求发起观测（innermost，见类注释）：每次真实模型请求（含重试）记一条
         // 专家类型/模型/上下文条数与字符量——llm_call_log 只在结束时落行，在途请求
@@ -248,7 +259,7 @@ final class AgentRequestSpecFactory {
         List<ToolCallback> tools = assembly.disableTools()
                 ? List.of()
                 : resolveTools(forAgent, sessionId, assembly.toolEmitter(), false,
-                        assembly.extraToolNames());
+                        assembly.extraToolNames(), assembly.maxTokens());
         // 上下文构成快照（Path A）：挂在 advisor 链最内层，看到 ContextAssembling/PromptBudget
         // 裁剪后的最终消息；无 sessionId（route-judge 等）不注册
         if (compositionRecorder != null && sessionId != null && !sessionId.isBlank()) {
@@ -316,12 +327,25 @@ final class AgentRequestSpecFactory {
      * AgentScope 路径的历史裁剪入口：与 ChatClient 路径共用同一组装口径
      * （预算裁剪 + 归档引用 + 长期记忆摘要注入/投递）。
      */
-    List<Message> trimHistory(String sessionId, List<Message> history) {
+    List<Message> trimHistory(String sessionId, List<Message> history, String forAgent) {
         if (history == null || history.isEmpty()) {
             return List.of();
         }
-        return new ContextAssemblingAdvisor(budgets.getHistoryBudget(), sessionId, memoryStore)
+        // AgentScope 路径与 ChatClient 路径共用同一窗口守卫公式（直出 = final 输出档）
+        int budget = ContextWindowGuard.effective(budgets.getHistoryBudget(),
+                windowFor(forAgent), budgets.getMaxTokensFinal());
+        return new ContextAssemblingAdvisor(budget, sessionId, memoryStore)
                 .assemble(history);
+    }
+
+    /** 解析角色绑定路由首选成员的上下文窗口；目录/解析器缺席（单测）时返回 0 = 不封顶 */
+    int windowFor(String forAgent) {
+        if (llmAgentCatalog == null || modelResolver == null) {
+            return 0;
+        }
+        AgentEntity agent = llmAgentCatalog.require(forAgent);
+        RoutePlan plan = modelResolver.resolve(agent.getRouteId());
+        return ModelCapabilities.parse(plan.members().get(0).capabilities()).contextWindow();
     }
 
     /**
@@ -329,7 +353,7 @@ final class AgentRequestSpecFactory {
      * AgentScope 路径逐项桥接为 ToolBase。disableTools=true 返回空表。
      */
     List<ToolCallback> resolveTools(String forAgent, String sessionId, Consumer<String> toolEmitter,
-                                    boolean disableTools, List<String> extraToolNames) {
+                                    boolean disableTools, List<String> extraToolNames, int maxOutput) {
         if (disableTools) {
             return List.of();
         }
@@ -370,7 +394,8 @@ final class AgentRequestSpecFactory {
         }
         // 装饰链应用（可插拔）：按 Order 升序逐层装饰——观测(100)→预算(200)→懒加载(300)→
         // 元工具(400)；各装饰器自判适用条件（不适用原样直通）。顺序契约见 ToolCallbackDecorator。
-        ToolDecorationContext ctx = new ToolDecorationContext(forAgent, sessionId, toolEmitter);
+        ToolDecorationContext ctx = new ToolDecorationContext(forAgent, sessionId, toolEmitter,
+                windowFor(forAgent), maxOutput);
         for (ToolCallbackDecorator decorator : decorators) {
             tools = Objects.requireNonNull(decorator.decorate(ctx, tools),
                     decorator.getClass().getSimpleName() + " 返回 null（禁止，组装期编程错误）");

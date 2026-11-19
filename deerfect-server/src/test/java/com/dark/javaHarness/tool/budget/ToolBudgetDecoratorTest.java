@@ -96,4 +96,22 @@ class ToolBudgetDecoratorTest {
         assertThat(ToolBudgetDecorator.ORDER).isEqualTo(200);
         assertThat(decoratorWithBudgets(0, 0).getOrder()).isEqualTo(200);
     }
+
+    @Test
+    void decorate_小窗口把结果预算封顶到窗口之内() {
+        ToolBudgetDecorator decorator = decoratorWithBudgets(8, 5000);
+        ToolCallback real = mock(ToolCallback.class);
+        when(real.call("q")).thenReturn("x".repeat(8000)); // ≈2000 token
+        List<ToolCallback> tools = List.of(real);
+
+        // 未声明窗口：yaml 5000 > 2000，不截断
+        String unbounded = decorator.decorate(new ToolDecorationContext("a", "s", null), tools)
+                .get(0).call("q");
+        // 窗口 4096、输出档 8000 → 守卫 floor 1024 < 2000，截断
+        String windowed = decorator.decorate(
+                new ToolDecorationContext("a", "s", null, 4096, 8000), tools).get(0).call("q");
+
+        assertThat(unbounded).hasSize(8000);
+        assertThat(windowed.length()).isLessThan(8000);
+    }
 }

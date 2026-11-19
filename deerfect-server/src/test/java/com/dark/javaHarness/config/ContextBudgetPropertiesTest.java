@@ -46,7 +46,7 @@ class ContextBudgetPropertiesTest {
         assertEquals(4000, budgets.getMaxTokensLead());
         assertEquals(8000, budgets.getMaxTokensFinal());
         assertEquals(4000, budgets.getMaxTokensExpert());
-        assertEquals(60000, budgets.getOrchestrationBudget());
+        assertEquals(100000, budgets.getOrchestrationBudget());
         assertEquals(2, budgets.getSubtaskConcurrency());
     }
 
