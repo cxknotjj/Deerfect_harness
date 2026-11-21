@@ -11,11 +11,12 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
-import type { LlmModelView, LlmProviderUpsert, LlmProviderView, SessionView } from '../api'
+import type { SessionView } from '../api'
 import SystemSettingsPanel from './settings/SystemSettingsPanel.vue'
 import TtsSettingsPanel from './settings/TtsSettingsPanel.vue'
 import WorkspaceSettingsPanel from './settings/WorkspaceSettingsPanel.vue'
 import RouteAgentPanel from './settings/RouteAgentPanel.vue'
+import ModelManagementPanel from './settings/ModelManagementPanel.vue'
 
 defineProps<{
   theme: 'dark' | 'light'
@@ -128,6 +129,8 @@ const ttsPanel = ref<InstanceType<typeof TtsSettingsPanel> | null>(null)
 const workspacePanel = ref<InstanceType<typeof WorkspaceSettingsPanel> | null>(null)
 /** 路由与 Agent 的刷新、新建入口同样在页头右侧 */
 const routeAgentPanel = ref<InstanceType<typeof RouteAgentPanel> | null>(null)
+/** 模型管理的刷新入口在页头右侧，卡片与弹窗都在面板内 */
+const modelPanel = ref<InstanceType<typeof ModelManagementPanel> | null>(null)
 
 function onNav(item: NavItem): void {
   if (item.link) {
@@ -137,134 +140,8 @@ function onNav(item: NavItem): void {
   tab.value = item.key as TabKey
 }
 
-/* ---------- 模型管理 ---------- */
-const providers = ref<LlmProviderView[]>([])
-const models = ref<LlmModelView[]>([])
-const llmLoading = ref(false)
-const llmError = ref('')
+/* ---------- 本机偏好重置反馈 ---------- */
 const actionNote = ref('')
-const actionError = ref('')
-const busyId = ref<number | null>(null)
-const expandedId = ref<number | null>(null)
-const editingId = ref<number | null>(null)
-const creating = ref(false)
-
-interface ProviderDraft {
-  code: string
-  baseUrl: string
-  credentialRef: string
-  protocol: string
-  enabled: number
-}
-function emptyDraft(): ProviderDraft {
-  return { code: '', baseUrl: '', credentialRef: '', protocol: 'openai', enabled: 1 }
-}
-const draft = ref<ProviderDraft>(emptyDraft())
-const editDraft = ref<ProviderDraft>(emptyDraft())
-
-/** providerId → 模型列表（一次分组，避免模板里反复 filter） */
-const modelsByProvider = computed(() => {
-  const map = new Map<number, LlmModelView[]>()
-  for (const m of models.value) {
-    const list = map.get(m.providerId)
-    if (list) list.push(m)
-    else map.set(m.providerId, [m])
-  }
-  return map
-})
-
-function modelsOf(p: LlmProviderView): LlmModelView[] {
-  return modelsByProvider.value.get(p.id) ?? []
-}
-
-function enabledModelCount(p: LlmProviderView): number {
-  return modelsOf(p).filter((m) => m.enabled === 1).length
-}
-
-async function loadLlm(): Promise<void> {
-  llmLoading.value = true
-  llmError.value = ''
-  try {
-    const [p, m] = await Promise.all([api.listLlmProviders(), api.listLlmModels()])
-    providers.value = p
-    models.value = m
-  } catch (e) {
-    llmError.value = `模型配置读取失败：${e instanceof Error ? e.message : String(e)}`
-  } finally {
-    llmLoading.value = false
-  }
-}
-
-function startCreate(): void {
-  creating.value = true
-  editingId.value = null
-  actionError.value = ''
-  draft.value = emptyDraft()
-}
-
-function startEdit(p: LlmProviderView): void {
-  editingId.value = editingId.value === p.id ? null : p.id
-  creating.value = false
-  actionError.value = ''
-  editDraft.value = {
-    code: p.code,
-    baseUrl: p.baseUrl,
-    credentialRef: p.credentialRef,
-    protocol: p.protocol,
-    enabled: p.enabled,
-  }
-}
-
-async function submitCreate(): Promise<void> {
-  const body = draft.value
-  if (!body.code.trim() || !body.baseUrl.trim() || !body.credentialRef.trim()) {
-    actionError.value = 'code / Base URL / 凭证引用名都不能为空'
-    return
-  }
-  actionError.value = ''
-  try {
-    const created = await api.createLlmProvider({ ...body, code: body.code.trim() })
-    providers.value = [...providers.value, created]
-    creating.value = false
-    actionNote.value = `已创建提供商 ${created.code}`
-  } catch (e) {
-    actionError.value = `创建失败：${e instanceof Error ? e.message : String(e)}`
-  }
-}
-
-async function submitEdit(p: LlmProviderView): Promise<void> {
-  actionError.value = ''
-  try {
-    const updated = await api.updateLlmProvider(p.id, { ...editDraft.value })
-    providers.value = providers.value.map((item) => (item.id === p.id ? updated : item))
-    editingId.value = null
-    actionNote.value = `已保存 ${updated.code} 的配置`
-  } catch (e) {
-    actionError.value = `保存失败：${e instanceof Error ? e.message : String(e)}`
-  }
-}
-
-async function toggleProvider(p: LlmProviderView): Promise<void> {
-  if (busyId.value !== null) return
-  busyId.value = p.id
-  actionError.value = ''
-  const body: LlmProviderUpsert = {
-    code: p.code,
-    baseUrl: p.baseUrl,
-    credentialRef: p.credentialRef,
-    protocol: p.protocol,
-    enabled: p.enabled === 1 ? 0 : 1,
-  }
-  try {
-    const updated = await api.updateLlmProvider(p.id, body)
-    providers.value = providers.value.map((item) => (item.id === p.id ? updated : item))
-    actionNote.value = `${updated.code} 已${updated.enabled === 1 ? '启用' : '禁用'}`
-  } catch (e) {
-    actionError.value = `切换状态失败：${e instanceof Error ? e.message : String(e)}`
-  } finally {
-    busyId.value = null
-  }
-}
 
 /* ---------- 外观 / 本机偏好 / 实例信息 ---------- */
 const DETAILS_KEY = 'monitor-details-open'
@@ -329,7 +206,6 @@ function resetPrefs(): void {
 
 onMounted(() => {
   readDetailPref()
-  void loadLlm()
   void loadInstance()
 })
 </script>
@@ -373,12 +249,7 @@ onMounted(() => {
             <button class="res-btn res-btn-primary" type="button" @click="workspacePanel?.startCreate('create')">+ 新建工作区</button>
           </template>
           <template v-else-if="tab === 'models'">
-            <button
-              class="res-btn"
-              type="button"
-              :disabled="llmLoading"
-              @click="loadLlm"
-            >{{ llmLoading ? '读取中…' : '刷新' }}</button>
+            <button class="res-btn" type="button" @click="modelPanel?.reload()">刷新</button>
           </template>
           <template v-else-if="tab === 'routing'">
             <button class="res-btn" type="button" @click="routeAgentPanel?.reload()">刷新</button>
@@ -394,9 +265,7 @@ onMounted(() => {
         </div>
       </header>
 
-      <p v-if="tab === 'models' && llmError" class="res-alert" role="alert">{{ llmError }}</p>
-      <p v-else-if="actionError" class="res-alert" role="alert">{{ actionError }}</p>
-      <p v-else-if="actionNote" class="res-note" role="status">{{ actionNote }}</p>
+      <p v-if="actionNote" class="res-note" role="status">{{ actionNote }}</p>
 
       <!-- 工作区：本地目录登记 + 会话归属 + 协作成员 -->
       <WorkspaceSettingsPanel
@@ -409,132 +278,8 @@ onMounted(() => {
       <!-- 路由与 Agent：路由卡片 + Agent 卡片 + 配置弹窗 -->
       <RouteAgentPanel v-else-if="tab === 'routing'" ref="routeAgentPanel" />
 
-      <!-- 模型管理 -->
-      <template v-else-if="tab === 'models'">
-        <div class="provider-head">
-          <div>
-            <h3>云端模型</h3>
-            <p>{{ providers.length }} 个提供商 · {{ models.length }} 个模型</p>
-          </div>
-          <div class="provider-head-actions">
-            <button class="res-btn" type="button" @click="startCreate">+ 自定义提供商</button>
-          </div>
-        </div>
-
-        <form v-if="creating" class="provider-form provider-form-create" @submit.prevent="submitCreate">
-          <div class="provider-form-grid">
-            <label class="provider-field">
-              <span>code</span>
-              <input v-model="draft.code" class="res-input" placeholder="唯一标识，如 moonshot" required />
-            </label>
-            <label class="provider-field">
-              <span>Base URL</span>
-              <input v-model="draft.baseUrl" class="res-input" placeholder="https://api.example.com/v1" required />
-            </label>
-            <label class="provider-field">
-              <span>凭证引用（环境变量名）</span>
-              <input v-model="draft.credentialRef" class="res-input" placeholder="MOONSHOT_API_KEY" required />
-            </label>
-            <label class="provider-field">
-              <span>协议</span>
-              <select v-model="draft.protocol" class="res-input">
-                <option value="openai">openai</option>
-                <option value="anthropic">anthropic</option>
-              </select>
-            </label>
-          </div>
-          <div class="provider-form-foot">
-            <span class="provider-form-hint">密钥只从该环境变量读取，不落库、不回传</span>
-            <button class="res-btn" type="button" @click="creating = false">取消</button>
-            <button class="res-btn res-btn-primary" type="submit">创建提供商</button>
-          </div>
-        </form>
-
-        <p v-if="llmLoading && providers.length === 0" class="res-loading">正在读取模型提供商…</p>
-        <div v-else class="provider-grid">
-          <article v-for="p in providers" :key="p.id" class="provider-card">
-            <header class="provider-card-head">
-              <span class="provider-mark" aria-hidden="true">{{ p.code.slice(0, 1).toUpperCase() }}</span>
-              <div class="provider-title">
-                <span class="provider-name">{{ p.code }}</span>
-                <span class="provider-code">{{ p.protocol }} · #{{ p.id }}</span>
-              </div>
-              <span class="res-chip" :class="p.enabled === 1 ? 'res-chip-ok' : ''">
-                {{ p.enabled === 1 ? '已启用' : '已禁用' }}
-              </span>
-            </header>
-
-            <p class="provider-count">
-              可用 {{ enabledModelCount(p) }} 个模型
-              <span class="provider-count-total">/ 共 {{ modelsOf(p).length }} 个</span>
-            </p>
-
-            <div class="provider-cred">
-              <span class="provider-cred-label">凭证引用</span>
-              <code class="provider-cred-value">{{ p.credentialRef }}</code>
-              <span class="provider-cred-note">密钥由环境变量提供，仅存服务端</span>
-            </div>
-
-            <div class="provider-meta">
-              <span class="provider-meta-key">Base URL</span>
-              <span class="res-mono" :title="p.baseUrl">{{ p.baseUrl }}</span>
-            </div>
-
-            <div class="provider-actions">
-              <button class="res-btn res-btn-sm" type="button" @click="expandedId = expandedId === p.id ? null : p.id">
-                {{ expandedId === p.id ? '收起模型' : '管理模型' }}
-              </button>
-              <button class="res-btn res-btn-sm" type="button" @click="startEdit(p)">配置</button>
-              <button
-                class="res-btn res-btn-sm"
-                type="button"
-                :disabled="busyId === p.id"
-                @click="toggleProvider(p)"
-              >{{ p.enabled === 1 ? '禁用' : '启用' }}</button>
-            </div>
-
-            <div v-if="expandedId === p.id" class="provider-models">
-              <div v-for="m in modelsOf(p)" :key="m.id" class="provider-model">
-                <span class="provider-model-dot" :class="{ 'is-off': m.enabled !== 1 }" aria-hidden="true"></span>
-                <span class="res-mono">{{ m.displayName }}</span>
-                <span v-if="m.upstreamName !== m.displayName" class="provider-model-up">{{ m.upstreamName }}</span>
-              </div>
-              <p v-if="modelsOf(p).length === 0" class="provider-empty">该提供商下还没有模型</p>
-            </div>
-
-            <form v-if="editingId === p.id" class="provider-form" @submit.prevent="submitEdit(p)">
-              <div class="provider-form-grid">
-                <label class="provider-field">
-                  <span>Base URL</span>
-                  <input v-model="editDraft.baseUrl" class="res-input" required />
-                </label>
-                <label class="provider-field">
-                  <span>凭证引用</span>
-                  <input v-model="editDraft.credentialRef" class="res-input" required />
-                </label>
-                <label class="provider-field">
-                  <span>协议</span>
-                  <select v-model="editDraft.protocol" class="res-input">
-                    <option value="openai">openai</option>
-                    <option value="anthropic">anthropic</option>
-                  </select>
-                </label>
-                <label class="provider-field">
-                  <span>状态</span>
-                  <select v-model.number="editDraft.enabled" class="res-input">
-                    <option :value="1">启用</option>
-                    <option :value="0">禁用</option>
-                  </select>
-                </label>
-              </div>
-              <div class="provider-form-foot">
-                <button class="res-btn" type="button" @click="editingId = null">取消</button>
-                <button class="res-btn res-btn-primary" type="submit">保存</button>
-              </div>
-            </form>
-          </article>
-        </div>
-      </template>
+      <!-- 模型管理：提供商卡片 + 配置/模型弹窗 -->
+      <ModelManagementPanel v-else-if="tab === 'models'" ref="modelPanel" />
 
       <!-- 系统设置：界面 / 运行时 / 本地数据 -->
       <SystemSettingsPanel

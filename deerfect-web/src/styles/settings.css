@@ -314,99 +314,72 @@ html[data-theme='dark'] .settings-page {
   font-size: 11.5px;
 }
 
-.provider-models {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding-top: 8px;
-  border-top: 1px solid var(--line-soft);
-}
-
-.provider-model {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 11.5px;
-  min-width: 0;
-}
-
-.provider-model-dot {
-  width: 6px;
-  height: 6px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: var(--ok);
-}
-
-.provider-model-dot.is-off {
-  background: var(--ink-dim);
-  opacity: 0.5;
-}
-
-.provider-model-up {
-  font-size: 10.5px;
-  color: var(--ink-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .provider-empty {
   font-size: 11px;
   color: var(--ink-dim);
 }
 
-/* ---------- 模型管理：新增 / 编辑表单 ---------- */
-.provider-form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line-soft);
-}
-
-.provider-form-create {
-  padding: 14px;
+/* 模型管理弹窗：只读注册表，行内展示上游标识与上下文窗口 */
+.provider-model-table-wrap {
+  max-height: min(380px, 52vh);
+  overflow: auto;
   border: 1px solid var(--line-soft);
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--bg-card);
 }
 
-.provider-form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-/* 卡片内的配置表单用单列：三列网格时字段只剩 ~100px，Base URL 根本看不全 */
-.provider-card .provider-form-grid {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.provider-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--ink-dim);
-}
-
-.provider-field .res-input {
-  height: 32px;
-  padding: 0 9px;
+.provider-model-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
   font-size: 12px;
 }
 
-.provider-form-foot {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.provider-model-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--bg-inset);
+  color: var(--ink-dim);
+  font-size: 10.5px;
+  font-weight: 500;
+  text-align: left;
 }
 
-.provider-form-hint {
-  flex: 1;
+.provider-model-table th:nth-child(1) { width: 40%; }
+.provider-model-table th:nth-child(2) { width: 34%; }
+.provider-model-table th:nth-child(3) { width: 12%; }
+.provider-model-table th:nth-child(4) { width: 14%; }
+
+.provider-model-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: middle;
+}
+
+.provider-model-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.provider-model-name {
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+
+.provider-model-upstream,
+.provider-model-context {
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--ink-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ---------- 主题选择 ---------- */
@@ -942,10 +915,6 @@ html[data-theme='dark'] .settings-page {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .provider-form-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   /* 单列时参数面板恢复普通行分隔，不再画网格线 */
   .setting-card-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -982,14 +951,6 @@ html[data-theme='dark'] .settings-page {
     flex-direction: column;
     align-items: stretch;
     gap: 10px;
-  }
-
-  .provider-form-foot {
-    flex-wrap: wrap;
-  }
-
-  .provider-form-hint {
-    flex-basis: 100%;
   }
 }
 
@@ -1732,6 +1693,14 @@ html[data-theme='dark'] .ra-avatar.is-teal { background: rgba(28, 139, 139, 0.22
 
 .ra-modal-agent {
   width: min(620px, calc(100vw - 32px));
+}
+
+.provider-modal {
+  width: min(620px, calc(100vw - 32px));
+}
+
+.provider-models-modal {
+  width: min(720px, calc(100vw - 32px));
 }
 
 .ra-modal-head {
