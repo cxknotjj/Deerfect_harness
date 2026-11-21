@@ -69,9 +69,11 @@ function onRetry(): void {
 <template>
   <div ref="scrollEl" class="chat-scroll" @scroll="onScroll">
     <div v-if="messages.length === 0" class="chat-empty">
-      <img class="chat-empty-logo" :src="BRAND_MARK" alt="" />
-      <p class="chat-empty-title">开始新的对话</p>
-      <p class="chat-empty-sub">在下方输入消息,或试试这些问题</p>
+      <div class="chat-empty-mark" aria-hidden="true">
+        <img class="chat-empty-logo" :src="BRAND_MARK" alt="" />
+      </div>
+      <h2 class="chat-empty-title">开始新的对话</h2>
+      <p class="chat-empty-sub">向 Agent 描述任务，或从下面选一个问题开始</p>
       <div class="chat-empty-suggest">
         <button
           v-for="(q, i) in SUGGESTIONS"

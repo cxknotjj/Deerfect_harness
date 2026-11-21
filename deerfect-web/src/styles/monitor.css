@@ -22,6 +22,11 @@
   background-color: var(--bg-canvas);
 }
 
+/* 日间顶部一层极淡的品牌光晕，与仪表盘/资源面共用同一种环境光 */
+html[data-theme='light'] .monitor {
+  background-image: radial-gradient(900px 430px at 82% -12%, rgba(77, 107, 254, 0.07), transparent 66%);
+}
+
 /* 夜间保留全站图纸网格（与 .dashboard 一致） */
 html[data-theme='dark'] .monitor {
   background-image:
@@ -46,9 +51,9 @@ html[data-theme='dark'] .monitor {
 }
 
 .monitor .monitor-title h1 {
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
 }
 
 .monitor .monitor-sub {

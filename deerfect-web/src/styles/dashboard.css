@@ -10,6 +10,11 @@
   background-color: var(--bg-canvas);
 }
 
+/* 日间顶部一层极淡的品牌光晕，与资源面共用同一种环境光 */
+html[data-theme='light'] .dashboard {
+  background-image: radial-gradient(900px 430px at 82% -12%, rgba(77, 107, 254, 0.07), transparent 66%);
+}
+
 /* 夜间保留全站图纸网格：画布换色后网格需一并下移，否则会丢失既有识别度 */
 html[data-theme='dark'] .dashboard {
   background-image:
@@ -49,8 +54,8 @@ html[data-theme='dark'] .dashboard {
 }
 
 .dash-title {
-  margin-top: 10px;
-  font-size: clamp(34px, 3.4vw, 48px);
+  margin-top: 9px;
+  font-size: clamp(34px, 3vw, 44px);
   font-weight: 700;
   line-height: 1.12;
   letter-spacing: 0;
@@ -108,7 +113,7 @@ html[data-theme='dark'] .dashboard {
   padding: 16px;
   background: var(--bg-card);
   border: 1px solid var(--line-soft);
-  border-radius: 14px;
+  border-radius: 16px;
   transition: border-color 0.18s var(--ease-out-quart), transform 0.18s var(--ease-out-quart);
 }
 

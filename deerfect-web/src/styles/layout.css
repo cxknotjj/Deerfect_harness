@@ -61,8 +61,8 @@
   transition: background 0.15s, color 0.15s;
 }
 .icon-btn:hover { background: var(--hover-veil); color: var(--ink); }
-/* 通栏「新会话」:侧栏主行动,accent 微底 + accent 字,可点性一目了然 */
-.session-new { margin: 2px 14px 4px; }
+/* 桌面端全局侧栏已有「新会话」主行动，这里不再重复；窄屏会话抽屉内保留入口 */
+.session-new { display: none; margin: 2px 14px 4px; }
 .btn-new {
   width: 100%;
   display: flex;
@@ -194,4 +194,8 @@
   font-weight: 600;
   letter-spacing: 0.08em;
   color: var(--ink-dim);
+}
+
+@media (max-width: 768px) {
+  .session-new { display: block; }
 }

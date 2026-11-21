@@ -11,6 +11,11 @@
   background-color: var(--bg-canvas);
 }
 
+/* 日间顶部一层极淡的品牌光晕，给纯色画布一点纵深；不改卡片表面 */
+html[data-theme='light'] .res-page {
+  background-image: radial-gradient(900px 430px at 82% -12%, rgba(77, 107, 254, 0.07), transparent 66%);
+}
+
 /* 夜间保留全站图纸网格，日间为纯色画布 */
 html[data-theme='dark'] .res-page {
   background-image:
@@ -50,8 +55,8 @@ html[data-theme='dark'] .res-page {
 }
 
 .res-title {
-  margin-top: 10px;
-  font-size: clamp(30px, 3vw, 42px);
+  margin-top: 9px;
+  font-size: clamp(30px, 2.8vw, 40px);
   font-weight: 700;
   line-height: 1.12;
   letter-spacing: 0;
@@ -142,33 +147,58 @@ html[data-theme='dark'] .res-page {
 }
 
 /* ---------- 统计条 ---------- */
+/* 单一指标轨：三段共享一张卡面，用竖分隔线组织，比三张孤立大卡更紧凑 */
 .res-stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0;
+  overflow: hidden;
+  background: var(--bg-card);
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
 }
 
 .res-stat {
-  padding: 14px 16px;
+  min-height: 66px;
+  padding: 15px 20px;
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  background: var(--bg-card);
-  border: 1px solid var(--line-soft);
-  border-radius: 14px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.res-stat + .res-stat {
+  border-left: 1px solid var(--line-soft);
 }
 
 .res-stat-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
   color: var(--ink-dim);
+  white-space: nowrap;
+}
+
+/* 标签前的淡蓝圆点替代图标：三段同构，不与仪表盘的四张图标卡抢层级 */
+.res-stat-label::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.55;
 }
 
 .res-stat-value {
   font-size: 24px;
   font-weight: 700;
   line-height: 1.1;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* ---------- 面板与列表 ---------- */
@@ -634,6 +664,15 @@ html[data-theme='dark'] .res-page {
 
   .res-head-actions {
     padding-top: 0;
+  }
+
+  .res-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .res-stat + .res-stat {
+    border-left: 0;
+    border-top: 1px solid var(--line-soft);
   }
 
   .res-panel-head {

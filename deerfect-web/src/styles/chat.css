@@ -103,45 +103,86 @@
   flex-direction: column;
   gap: 20px;
 }
-.chat-empty { margin: auto; text-align: center; color: var(--ink-dim); }
-.chat-empty-title { font-size: 15px; font-weight: 600; letter-spacing: 0.12em; margin-bottom: 8px; }
-.chat-empty-sub { font-size: 13px; }
-.chat-empty-logo { height: 100px; width: auto; margin-bottom: 12px; }
+.chat-empty { margin: auto; max-width: 680px; text-align: center; color: var(--ink-dim); }
+/* 空态品牌位：白色圆角「应用图标」托住蓝色鹿，外圈两圈极淡光晕，避免 logo 直接漂在白底上 */
+.chat-empty-mark {
+  width: 96px;
+  height: 96px;
+  margin: 0 auto 20px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(77, 107, 254, 0.16);
+  border-radius: 26px;
+  background: linear-gradient(145deg, #ffffff, #f4f7ff);
+  box-shadow:
+    0 0 0 10px rgba(77, 107, 254, 0.04),
+    0 0 0 22px rgba(77, 107, 254, 0.022),
+    0 24px 54px -34px rgba(31, 42, 64, 0.4);
+}
+html[data-theme='dark'] .chat-empty-mark {
+  border-color: rgba(108, 133, 255, 0.2);
+  background: linear-gradient(145deg, #1a2433, #121a25);
+  box-shadow:
+    0 0 0 10px rgba(108, 133, 255, 0.045),
+    0 0 0 22px rgba(108, 133, 255, 0.022),
+    0 24px 54px -36px rgba(0, 0, 0, 0.8);
+}
+.chat-empty-title {
+  margin-bottom: 8px;
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+.chat-empty-sub { max-width: 430px; margin: 0 auto; font-size: 13px; line-height: 1.65; }
+.chat-empty-logo { height: 52px; width: auto; }
 .chat-empty-suggest {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
   max-width: 620px;
-  margin: 22px auto 0;
+  margin: 26px auto 0;
   text-align: left;
 }
 .suggest-card {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px 14px;
+  align-items: center;
+  gap: 11px;
+  padding: 13px 15px;
   border: 1px solid var(--grid-line);
-  border-radius: 12px;
+  border-radius: 14px;
+  background: var(--bg-panel);
+  color: var(--ink);
   font-size: 13.5px;
   line-height: 1.55;
-  color: var(--ink-dim);
-  transition: color 0.15s, border-color 0.15s, background 0.15s, transform 0.12s var(--ease-out-quart);
+  transition:
+    color 0.15s,
+    border-color 0.15s,
+    background 0.15s,
+    transform 0.16s var(--ease-out-quart),
+    box-shadow 0.16s var(--ease-out-quart);
 }
-.suggest-card:hover { color: var(--ink); border-color: var(--accent); background: var(--accent-lift); }
+.suggest-card:hover {
+  border-color: var(--accent);
+  background: var(--bg-card);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 26px -22px rgba(31, 42, 64, 0.45);
+}
 .suggest-card:active { transform: scale(0.985); }
 .suggest-icon {
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   flex-shrink: 0;
   display: grid;
   place-items: center;
-  border-radius: 7px;
+  border-radius: 9px;
   background: var(--accent-lift);
   color: var(--accent);
 }
 .suggest-icon svg {
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.7;
@@ -150,5 +191,8 @@
 }
 
 @media (max-width: 640px) {
+  .chat-empty-mark { width: 86px; height: 86px; margin-bottom: 18px; }
+  .chat-empty-logo { height: 46px; }
+  .chat-empty-title { font-size: 20px; }
   .chat-empty-suggest { grid-template-columns: 1fr; }
 }
