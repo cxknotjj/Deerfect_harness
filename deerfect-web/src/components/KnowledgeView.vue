@@ -1,16 +1,40 @@
 <script setup lang="ts">
 /**
- * 知识库：RAG 文档台账（GET /api/knowledge/documents）+ 增量摄取 + 删除。
- * 只做管理动作，不伪造命中数据；检索调试仍在 CLI/接口侧。
+ * 知识库：RAG 文档台账（GET /api/knowledge/documents）+ 增量摄取 + 删除，
+ * 以及独立的检索调试面板（查询命中 chunk / 相关度 / topK / 阈值）。
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { api } from '../api'
 import type { KbDocument } from '../api'
 import { fmtDateTime } from '../utils/resourceFormat'
 import PageHeader from './resource/PageHeader.vue'
 import EmptyState from './resource/EmptyState.vue'
+import KnowledgeSearchPanel from './KnowledgeSearchPanel.vue'
 
 const emit = defineEmits<{ changed: [] }>()
+
+const tab = ref<'docs' | 'search'>('docs')
+const tabOrder = ['docs', 'search'] as const
+
+function selectTab(next: typeof tabOrder[number]): void {
+  tab.value = next
+  nextTick(() => document.getElementById(`kb-tab-${next}`)?.focus())
+}
+
+/** tablist 键盘语义：左右箭头循环切换，Home / End 跳到首尾 */
+function onTabKeydown(event: KeyboardEvent): void {
+  const reverse = event.key === 'ArrowLeft'
+  const forward = event.key === 'ArrowRight'
+  if (!reverse && !forward && event.key !== 'Home' && event.key !== 'End') return
+  event.preventDefault()
+  const next = event.key === 'Home'
+    ? 'docs'
+    : event.key === 'End'
+      ? 'search'
+      : tabOrder[(tabOrder.indexOf(tab.value) + (reverse ? -1 : 1) + tabOrder.length)
+        % tabOrder.length]
+  selectTab(next)
+}
 
 const docs = ref<KbDocument[]>([])
 const loading = ref(false)
@@ -92,7 +116,7 @@ async function remove(doc: KbDocument): Promise<void> {
 <template>
   <section class="res-page" aria-label="知识库">
     <div class="res-inner">
-      <PageHeader eyebrow="知识面" title="知识库" sub="RAG 文档台账与增量摄取">
+      <PageHeader eyebrow="知识面" title="知识库" sub="文档台账、增量摄取与检索调试">
         <template #actions>
           <button class="res-btn" type="button" :disabled="busy === 'sync'" @click="sync">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -116,7 +140,45 @@ async function remove(doc: KbDocument): Promise<void> {
         </div>
       </div>
 
-      <section class="res-panel" aria-label="文档台账">
+      <div class="kn-tabs" role="tablist" aria-label="知识库视图">
+        <button
+          id="kb-tab-docs"
+          class="kn-tab"
+          :class="{ 'is-active': tab === 'docs' }"
+          type="button"
+          role="tab"
+          :aria-selected="tab === 'docs'"
+          :tabindex="tab === 'docs' ? 0 : -1"
+          aria-controls="kb-docs-panel"
+          @click="tab = 'docs'"
+          @keydown="onTabKeydown"
+        >
+          文档台账
+          <span class="kn-tab-count">{{ docs.length }}</span>
+        </button>
+        <button
+          id="kb-tab-search"
+          class="kn-tab"
+          :class="{ 'is-active': tab === 'search' }"
+          type="button"
+          role="tab"
+          :aria-selected="tab === 'search'"
+          :tabindex="tab === 'search' ? 0 : -1"
+          aria-controls="kb-search-panel"
+          @click="tab = 'search'"
+          @keydown="onTabKeydown"
+        >
+          检索调试
+        </button>
+      </div>
+
+      <section
+        v-show="tab === 'docs'"
+        id="kb-docs-panel"
+        class="res-panel"
+        aria-labelledby="kb-tab-docs"
+        role="tabpanel"
+      >
         <div class="res-panel-head">
           <div>
             <h2 class="res-panel-title">文档台账</h2>
@@ -173,6 +235,8 @@ async function remove(doc: KbDocument): Promise<void> {
           </li>
         </ul>
       </section>
+
+      <KnowledgeSearchPanel v-show="tab === 'search'" :docs="docs" />
     </div>
   </section>
 </template>

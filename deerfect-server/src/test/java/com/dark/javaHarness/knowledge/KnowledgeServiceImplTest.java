@@ -468,6 +468,38 @@ class KnowledgeServiceImplTest {
         assertNull(reqCaptor.getValue().getFilterExpression(), "未绑定 = 不限，不应携带 filter");
     }
 
+    @Test
+    void search_explicitOptions_applyToVectorRequestWithoutMutatingConfig() {
+        when(storeProvider.getIfAvailable()).thenReturn(store);
+        when(store.similaritySearch(any(SearchRequest.class))).thenReturn(List.of());
+        ArgumentCaptor<SearchRequest> reqCaptor = ArgumentCaptor.forClass(SearchRequest.class);
+
+        service.search("问题", null, new KnowledgeService.SearchOptions(8, 0.72, 0.81));
+
+        verify(store).similaritySearch(reqCaptor.capture());
+        assertEquals(8, reqCaptor.getValue().getTopK(), "topK 按本次调试参数下发");
+        assertEquals(0.72, reqCaptor.getValue().getSimilarityThreshold(), 1e-9, "向量阈值按本次调试参数下发");
+        assertEquals(0, service.search("  ", null,
+                new KnowledgeService.SearchOptions(8, 0.72, 0.81)).size(), "空白 query 不受调试参数影响");
+    }
+
+    @Test
+    void search_explicitOptions_hybridUsesDebugTopKAndFusionFloor() {
+        KnowledgeServiceImpl hybrid = hybridService();
+        when(bm25Provider.getIfAvailable()).thenReturn(bm25);
+        when(storeProvider.getIfAvailable()).thenReturn(store);
+        when(store.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(
+                vectorDoc("a.md#0", "a.md", "片段a")));
+        when(bm25.search(any(), any(), anyInt())).thenReturn(List.of(
+                new KnowledgeBm25Index.Bm25Hit("a.md#0", "a.md", "标题-a.md", 2.0, "片段a")));
+
+        List<KnowledgeService.KnowledgeHit> hits = hybrid.search("问题", null,
+                new KnowledgeService.SearchOptions(1, 0.9, 0.9));
+
+        assertEquals(1, hits.size(), "调试 topK=1 截断融合输出");
+        assertEquals("a.md", hits.get(0).docName(), "融合分 1.0 的双路命中保留，单路 0.5 低于融合下限");
+    }
+
     /* ---------------- 混合检索（hybrid-enabled=true） ---------------- */
 
     /** 混合检索专用服务：hybrid 开启的独立 props（不影响其余用例的默认关闭语义） */
@@ -657,7 +689,8 @@ class KnowledgeServiceImplTest {
                 new Document("b", "B 文本", Map.of("source", "b.md", "title", "B")));
         List<KnowledgeBm25Index.Bm25Hit> bm25 = List.of(
                 new KnowledgeBm25Index.Bm25Hit("a", "a.md", "A", 5.0, "A 文本"));
-        return svc.rrfFuse(vec, bm25);
+        return svc.rrfFuse(vec, bm25,
+                new KnowledgeService.SearchOptions(props.getTopK(), props.getMinScore(), props.getFusionMinScore()));
     }
 
     @Test

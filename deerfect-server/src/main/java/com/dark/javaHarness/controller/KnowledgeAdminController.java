@@ -1,6 +1,6 @@
 package com.dark.javaHarness.controller;
 
-import com.dark.javaHarness.view.KnowledgeSource;
+import com.dark.javaHarness.config.knowledge.KnowledgeProperties;
 import com.dark.javaHarness.view.PageResult;
 import com.dark.javaHarness.domain.entity.KbDocumentEntity;
 import com.dark.javaHarness.knowledge.KnowledgeDocumentScanner;
@@ -26,7 +26,9 @@ import org.springframework.web.multipart.MultipartFile;
  *
  * <p>POST   /api/knowledge/sync            增量摄取 knowledge/ 目录（扫描→比对 mtime→切分→嵌入→入向量库）
  * <p>GET    /api/knowledge/documents       摄取台账分页（doc_name/title/mtime/chunk_count/status）
- * <p>GET    /api/knowledge/search?q=       调试用检索（full=true 额外返回片段原文 text，默认向后兼容不返回）
+ * <p>GET    /api/knowledge/search?q=       调试用检索（full=true 额外返回片段原文 text；可传
+ *          topK/minScore/fusionMinScore 按请求覆盖本次检索参数）
+ * <p>GET    /api/knowledge/search-config   调试检索当前生效参数（topK/minScore/fusionMinScore/hybridEnabled）
  * <p>POST   /api/knowledge/upload          multipart 上传 .md/.txt（≤1MB）到指定 kb 子目录，只落盘不摄取
  * <p>DELETE /api/knowledge/documents/{name} 删除指定文档（向量 chunk + 台账行）
  *
@@ -41,11 +43,14 @@ public class KnowledgeAdminController {
 
     private final ObjectProvider<KnowledgeService> knowledgeService;
     private final KnowledgeDocumentScanner scanner;
+    private final KnowledgeProperties props;
 
     public KnowledgeAdminController(ObjectProvider<KnowledgeService> knowledgeService,
-                                    KnowledgeDocumentScanner scanner) {
+                                    KnowledgeDocumentScanner scanner,
+                                    KnowledgeProperties props) {
         this.knowledgeService = knowledgeService;
         this.scanner = scanner;
+        this.props = props;
     }
 
     /** 增量摄取：knowledge/ 目录 .md/.txt 全量扫描，仅 mtime 变更的文档重嵌入 */
@@ -63,16 +68,45 @@ public class KnowledgeAdminController {
 
     /**
      * 调试检索：直接检索（不走 prompt 注入），观察命中与相关度；可选按 kb 过滤（重复参数）。
-     * full=true 额外返回片段原文 text（静态管理页展示用）；默认 false 保持 KnowledgeSource
-     * 三字段现状（向后兼容）。
+     * full=true 额外返回片段原文 text（管理页展示用）；默认 false 只返回 KnowledgeSource。
+     *
+     * <p>topK/minScore/fusionMinScore 均为可选：不传时保持生产配置语义；传任一参数时，
+     * 未传项从当前配置补齐，按本次显式参数执行，不修改全局配置。topK 0 = 不限条数，
+     * 阈值范围 0~1，越界由 HTTP 边界拒绝（400）。
      */
     @GetMapping("/search")
     public List<?> search(@RequestParam("q") String query,
                           @RequestParam(value = "kb", required = false) List<String> kb,
-                          @RequestParam(value = "full", required = false, defaultValue = "false") boolean full) {
-        List<KnowledgeService.KnowledgeHit> hits = requireService().search(query, kb);
+                          @RequestParam(value = "full", required = false, defaultValue = "false") boolean full,
+                          @RequestParam(value = "topK", required = false) Integer topK,
+                          @RequestParam(value = "minScore", required = false) Double minScore,
+                          @RequestParam(value = "fusionMinScore", required = false) Double fusionMinScore) {
+        KnowledgeService.SearchOptions options = null;
+        if (topK != null || minScore != null || fusionMinScore != null) {
+            options = new KnowledgeService.SearchOptions(
+                    topK == null ? props.getTopK() : requireTopK(topK),
+                    minScore == null ? props.getMinScore() : requireScore(minScore, "minScore"),
+                    fusionMinScore == null ? props.getFusionMinScore()
+                            : requireScore(fusionMinScore, "fusionMinScore"));
+        }
+        KnowledgeService service = requireService();
+        List<KnowledgeService.KnowledgeHit> hits = options == null
+                ? service.search(query, kb)
+                : service.search(query, kb, options);
         return full ? hits
                 : hits.stream().map(KnowledgeService.KnowledgeHit::toSource).toList();
+    }
+
+    /** 调试检索当前生效参数：前端据此渲染默认 topK / 阈值，不在页面里复制一份配置数字 */
+    @GetMapping("/search-config")
+    public SearchConfigView searchConfig() {
+        requireService();
+        return new SearchConfigView(props.getTopK(), props.getMinScore(),
+                props.getFusionMinScore(), props.isHybridEnabled());
+    }
+
+    /** 调试检索配置视图（只读，来自 application-knowledge.yaml 的 app.knowledge.*） */
+    public record SearchConfigView(int topK, double minScore, double fusionMinScore, boolean hybridEnabled) {
     }
 
     /**
@@ -114,6 +148,22 @@ public class KnowledgeAdminController {
         return normalizedKb == null
                 ? knowledgeDir.resolve(filename)
                 : knowledgeDir.resolve(normalizedKb).resolve(filename);
+    }
+
+    /** topK 合法区间：0（不限）~50；调试点防止一次拉回过多 chunk */
+    private static int requireTopK(int topK) {
+        if (topK < 0 || topK > 50) {
+            throw new IllegalArgumentException("topK 取值范围 0~50（0 = 不限）");
+        }
+        return topK;
+    }
+
+    /** 阈值合法区间：0~1 的有限小数（NaN/Infinity 拒绝） */
+    private static double requireScore(double score, String name) {
+        if (!Double.isFinite(score) || score < 0 || score > 1) {
+            throw new IllegalArgumentException(name + " 取值范围 0~1");
+        }
+        return score;
     }
 
     /** 知识库服务解析：未启用时 503（服务不可用），文案含开启方式 */

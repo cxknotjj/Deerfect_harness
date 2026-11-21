@@ -8,6 +8,8 @@ import type {
   CapabilityReloadResult,
   CapabilityReport,
   KbDocument,
+  KnowledgeSearchConfig,
+  KnowledgeSearchHit,
   KnowledgeSyncResult,
   MemoryItem,
   PageResult,
@@ -23,6 +25,33 @@ const JSON_HEADERS = { 'Content-Type': 'application/json' }
 /** 文档台账分页（GET /api/knowledge/documents；page 从 1 起，size 上限 200） */
 export function listKbDocuments(page = 1, size = 200): Promise<PageResult<KbDocument>> {
   return request(`/api/knowledge/documents?page=${page}&size=${size}`)
+}
+
+/** 调试检索当前生效参数（GET /api/knowledge/search-config） */
+export function knowledgeSearchConfig(): Promise<KnowledgeSearchConfig> {
+  return request('/api/knowledge/search-config')
+}
+
+/**
+ * 调试检索（GET /api/knowledge/search?full=true）：
+ * 直接观察命中 chunk 与相关度，不注入 prompt；topK / 向量阈值 / 融合下限按本次请求覆盖。
+ */
+export function searchKnowledge(
+  query: string,
+  kbs: string[],
+  topK: number,
+  minScore: number,
+  fusionMinScore: number,
+): Promise<KnowledgeSearchHit[]> {
+  const params = new URLSearchParams({
+    q: query,
+    full: 'true',
+    topK: String(topK),
+    minScore: String(minScore),
+    fusionMinScore: String(fusionMinScore),
+  })
+  kbs.forEach((kb) => params.append('kb', kb))
+  return request(`/api/knowledge/search?${params.toString()}`)
 }
 
 /**

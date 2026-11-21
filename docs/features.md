@@ -60,7 +60,7 @@ Deerfect Harness 是一个基于 Spring AI 的双路径 Agent 平台：**Agentic
 
 - **RAG 知识库**：pgvector 向量库 + DashScope text-embedding-v4，`knowledge/` 目录增量摄取，多知识库按 Agent 绑定。
 - **混合检索**：向量召回 + BM25 关键词召回，RRF 融合排序；回答带【出处N】内联引用与来源尾注。
-- **知识库增强**：目录监听自动摄取、上传 / 删除 / 同步 / 调试检索、单文件管理页 `/knowledge.html`（[knowledge-rag.md](./guides/knowledge-rag.md)）。
+- **知识库增强**：目录监听自动摄取、上传 / 删除 / 同步 / 调试检索（Web 知识库页可实时调整 topK、向量阈值与融合下限）、单文件管理页 `/knowledge.html`（[knowledge-rag.md](./guides/knowledge-rag.md)）。
 - **会话记忆**：多轮上下文自动组装并按 token 预算裁剪，超长历史从最旧丢弃。
 - **会话滚动摘要**：裁剪丢弃的旧轮次异步压缩为一段摘要（消息游标增量合并、失败不推进游标），下一轮作为 system 段注入——长会话问「开头说过的约束」仍能答上。
 - **用户画像**：空闲会话按消息游标**增量**提炼偏好（LLM 只输出新增/变更补丁、代码按 `[key]` 合并，既有条目不靠提示词自觉保留），写盘前备份 `.bak`；全局 Markdown 注入 `general` / `lead` 的 system prompt（默认关闭，`app.memory.profile-enabled` 开启）。

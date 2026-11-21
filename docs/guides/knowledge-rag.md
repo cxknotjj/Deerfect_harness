@@ -15,6 +15,12 @@ curl 'http://localhost:8080/api/knowledge/search?q=部署步骤'     # 调试检
 
 回答中出现 `【出处N】` 内联引用时，CLI 回合末尾会打印「来源:」尾注；`meta.sources` / `ChatResponse.sources` 携带结构化出处（文档名/标题/相关度）。
 
+#### 🔎 检索调试（Web / HTTP）
+
+知识库页的「检索调试」分栏直接调用 `GET /api/knowledge/search?full=true`：输入 query、按 kb 过滤，查看命中的 chunk 原文、来源文档与相关度；`topK`、向量阈值 `minScore`、混合检索融合下限 `fusionMinScore` 都只覆盖本次请求，不写回 `application-knowledge.yaml`。默认值由 `GET /api/knowledge/search-config` 读取，页面不复制一份配置数字。
+
+混合检索开启时，页面展示的「相关度」是向量 + BM25 的 RRF 融合分；`minScore` 只作用于向量召回，`fusionMinScore` 作用于最终融合结果，两者语义不同。
+
 #### 🗂️ 多知识库与 agent 绑定
 
 `knowledge/` 的一级子目录即独立知识库（kb 标识），根目录散文档归公共库 `default`：

@@ -3,6 +3,7 @@ import { baseHeaders, request, requestVoid, setUnauthorizedHandler } from './htt
 import { authState, login, logout } from './auth'
 import { bindAgent, createSession, deleteSession, listAgents, listMessages, listSessions } from './sessions'
 import { listKbRetrievals, listLlmCalls, listToolCalls, monitor, monitorContext } from './observability'
+import { knowledgeSearchConfig, searchKnowledge } from './resources'
 
 /** 最小 Response 替身（只实现被测代码用到的字段） */
 function response(body: unknown, status = 200): {
@@ -133,8 +134,7 @@ describe('sessions 端点', () => {
   })
 })
 
-describe('observability 端点', () => {
-  it('三张观测台账按 sessionId 编码并带 limit', async () => {
+describe('observability 端点', () => {  it('三张观测台账按 sessionId 编码并带 limit', async () => {
     fetchMock.mockResolvedValue(response([]))
 
     await listToolCalls('s 1')
@@ -169,5 +169,48 @@ describe('observability 端点', () => {
     fetchMock.mockResolvedValueOnce(response({ segments: [] }))
     await expect(monitorContext('s1')).resolves.toEqual({ segments: [] })
     expect(fetchMock.mock.calls.at(-1)?.[0]).toBe('/api/monitor/context?sessionId=s1')
+  })
+})
+
+describe('知识库检索调试端点', () => {
+  it('search-config 走只读配置端点', async () => {
+    fetchMock.mockResolvedValue(response({ topK: 4, minScore: 0.5, fusionMinScore: 0.6, hybridEnabled: true }))
+
+    await expect(knowledgeSearchConfig()).resolves.toEqual({
+      topK: 4, minScore: 0.5, fusionMinScore: 0.6, hybridEnabled: true,
+    })
+    expect(fetchMock.mock.calls.at(-1)?.[0]).toBe('/api/knowledge/search-config')
+  })
+
+  it('searchKnowledge 带 full/topK/阈值与重复 kb 参数', async () => {
+    fetchMock.mockResolvedValue(response([]))
+    const params = new URLSearchParams({
+      q: '事务 传播',
+      full: 'true',
+      topK: '6',
+      minScore: '0.55',
+      fusionMinScore: '0.65',
+    })
+    params.append('kb', 'java')
+    params.append('kb', 'frontend')
+
+    await searchKnowledge('事务 传播', ['java', 'frontend'], 6, 0.55, 0.65)
+
+    expect(fetchMock.mock.calls.at(-1)?.[0]).toBe(`/api/knowledge/search?${params.toString()}`)
+  })
+
+  it('searchKnowledge 未选知识库时不带 kb 参数', async () => {
+    fetchMock.mockResolvedValue(response([]))
+    const params = new URLSearchParams({
+      q: 'ERR-4021',
+      full: 'true',
+      topK: '4',
+      minScore: '0',
+      fusionMinScore: '0.6',
+    })
+
+    await searchKnowledge('ERR-4021', [], 4, 0, 0.6)
+
+    expect(fetchMock.mock.calls.at(-1)?.[0]).toBe(`/api/knowledge/search?${params.toString()}`)
   })
 })

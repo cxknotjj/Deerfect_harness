@@ -12,6 +12,8 @@ import type {
   CapabilityReloadResult,
   CapabilityReport,
   KbDocument,
+  KnowledgeSearchConfig,
+  KnowledgeSearchHit,
   KnowledgeSyncResult,
   MemoryItem,
   PageResult,
@@ -65,11 +67,13 @@ import {
   deleteKbDocument,
   deleteMemory,
   deleteSchedule,
+  knowledgeSearchConfig,
   listKbDocuments,
   listMemories,
   listSchedules,
   listSkills,
   reloadCapabilities,
+  searchKnowledge,
   syncKnowledge,
 } from './resources'
 
@@ -92,6 +96,14 @@ export interface Api {
   logout(): Promise<void>
   /* 资源面：知识库 / 记忆 / 技能 / 定时排期 / MCP 能力清单 */
   listKbDocuments(page?: number, size?: number): Promise<PageResult<KbDocument>>
+  knowledgeSearchConfig(): Promise<KnowledgeSearchConfig>
+  searchKnowledge(
+    query: string,
+    kbs: string[],
+    topK: number,
+    minScore: number,
+    fusionMinScore: number,
+  ): Promise<KnowledgeSearchHit[]>
   syncKnowledge(): Promise<KnowledgeSyncResult>
   deleteKbDocument(docName: string): Promise<boolean>
   listMemories(status?: string, limit?: number): Promise<MemoryItem[]>
@@ -134,6 +146,8 @@ export const realApi: Api = {
   login,
   logout,
   listKbDocuments,
+  knowledgeSearchConfig,
+  searchKnowledge,
   syncKnowledge,
   deleteKbDocument,
   listMemories,

@@ -51,8 +51,15 @@ final class HybridKnowledgeRetriever {
         this.props = props;
     }
 
-    /** 检索（空白 query 直接空表；任何异常降级空表） */
+    /** 检索（生产链路：参数取自配置；空白 query 直接空表；任何异常降级空表） */
     List<KnowledgeService.KnowledgeHit> search(String query, List<String> kbs) {
+        return search(query, kbs,
+                new KnowledgeService.SearchOptions(props.getTopK(), props.getMinScore(), props.getFusionMinScore()));
+    }
+
+    /** 检索（显式参数：调试页按请求覆盖 top-k / 向量阈值 / 融合下限） */
+    List<KnowledgeService.KnowledgeHit> search(String query, List<String> kbs,
+                                               KnowledgeService.SearchOptions options) {
         if (query == null || query.isBlank()) {
             return List.of();
         }
@@ -62,14 +69,14 @@ final class HybridKnowledgeRetriever {
             if (props.isHybridEnabled()) {
                 KnowledgeBm25Index bm25 = bm25Provider.getIfAvailable();
                 if (bm25 != null) {
-                    return searchHybrid(query, kbs, bm25);
+                    return searchHybrid(query, kbs, bm25, options);
                 }
             }
             VectorStore store = resolveStore();
             if (store == null) {
                 return List.of();
             }
-            return store.similaritySearch(searchRequest(query, kbs)).stream()
+            return store.similaritySearch(searchRequest(query, kbs, options)).stream()
                     .map(this::toHit)
                     .toList();
         } catch (Exception e) {
@@ -88,18 +95,19 @@ final class HybridKnowledgeRetriever {
      * <p>降级口径：向量 leg 抛异常走外层 catch 降级空表；BM25 leg 内部自降级空表
      * （护栏触发/PG 抖动），效果等价纯向量排序，融合是增强不是义务。
      */
-    private List<KnowledgeService.KnowledgeHit> searchHybrid(String query, List<String> kbs, KnowledgeBm25Index bm25) {
+    private List<KnowledgeService.KnowledgeHit> searchHybrid(String query, List<String> kbs, KnowledgeBm25Index bm25,
+                                                             KnowledgeService.SearchOptions options) {
         VectorStore store = resolveStore();
         if (store == null) {
             return List.of();
         }
-        List<Document> vectorDocs = store.similaritySearch(searchRequest(query, kbs));
+        List<Document> vectorDocs = store.similaritySearch(searchRequest(query, kbs, options));
         // BM25 leg 候选窗：比 top-k 宽（融合需要候选余量），最终输出条数仍受 top-k 约束
-        int bm25Limit = props.getTopK() > 0
-                ? Math.max(props.getTopK() * BM25_CANDIDATE_FACTOR, 20)
+        int bm25Limit = options.topK() > 0
+                ? Math.max(options.topK() * BM25_CANDIDATE_FACTOR, 20)
                 : 0;
         List<KnowledgeBm25Index.Bm25Hit> bm25Hits = bm25.search(query, kbs, bm25Limit);
-        return rrfFuse(vectorDocs, bm25Hits);
+        return rrfFuse(vectorDocs, bm25Hits, options);
     }
 
     /**
@@ -111,7 +119,8 @@ final class HybridKnowledgeRetriever {
      * 纯 BM25 单路弱匹配（中文 bigram 虚高）稳定落在 ~0.48，真命中实测 ≥0.94。
      */
     List<KnowledgeService.KnowledgeHit> rrfFuse(List<Document> vectorDocs,
-                                                List<KnowledgeBm25Index.Bm25Hit> bm25Hits) {
+                                                List<KnowledgeBm25Index.Bm25Hit> bm25Hits,
+                                                KnowledgeService.SearchOptions options) {
         record Fused(String docName, String title, String text, double rrf) {
         }
         Map<String, Fused> fused = new HashMap<>();
@@ -146,11 +155,11 @@ final class HybridKnowledgeRetriever {
         }
         // 归一化基准 = 双路 rank1 叠加的理论最大 2/(k+1)；rankWeightSum 兜底空表场景
         double maxScore = 2.0 / (RRF_K + 1);
-        double floor = props.getFusionMinScore();
+        double floor = options.fusionMinScore();
         return fused.values().stream()
                 .sorted(java.util.Comparator.<Fused>comparingDouble(Fused::rrf).reversed()
                         .thenComparing(Fused::docName))
-                .limit(props.getTopK() > 0 ? props.getTopK() : Long.MAX_VALUE)
+                .limit(options.topK() > 0 ? options.topK() : Long.MAX_VALUE)
                 .map(f -> new KnowledgeService.KnowledgeHit(f.docName(), f.title(),
                         Math.min(1.0, f.rrf() / maxScore), f.text()))
                 .filter(hit -> floor <= 0 || hit.score() >= floor)
@@ -172,12 +181,12 @@ final class HybridKnowledgeRetriever {
     }
 
     /** 相似度检索请求（top-k 0 = 不限条数；min-score 直接映射相似度阈值；kbs 非空时按 metadata.kb 过滤） */
-    SearchRequest searchRequest(String query, List<String> kbs) {
+    SearchRequest searchRequest(String query, List<String> kbs, KnowledgeService.SearchOptions options) {
         SearchRequest.Builder builder = SearchRequest.builder().query(query);
-        if (props.getTopK() > 0) {
-            builder.topK(props.getTopK());
+        if (options.topK() > 0) {
+            builder.topK(options.topK());
         }
-        builder.similarityThreshold(props.getMinScore());
+        builder.similarityThreshold(options.minScore());
         String kbFilter = kbFilterExpression(kbs);
         if (kbFilter != null) {
             builder.filterExpression(kbFilter);

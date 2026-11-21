@@ -84,7 +84,8 @@
 |---|---|---|
 | `POST` | `/api/knowledge/sync` | 📚 知识库增量摄取：扫描 knowledge/ 目录，mtime 变更文档重嵌入，并清理磁盘已删文档的孤儿向量 |
 | `GET` | `/api/knowledge/documents?page=&size=` | 📚 知识库摄取台账分页 |
-| `GET` | `/api/knowledge/search?q=&kb=&full=` | 📚 调试检索：检索命中片段与相关度（不注入 prompt）；`full=true` 额外返回片段原文 |
+| `GET` | `/api/knowledge/search?q=&kb=&full=&topK=&minScore=&fusionMinScore=` | 📚 调试检索：检索命中片段与相关度（不注入 prompt）；`full=true` 额外返回片段原文；`topK`/`minScore`/`fusionMinScore` 可选，按本次请求覆盖检索参数 |
+| `GET` | `/api/knowledge/search-config` | 📚 调试检索当前生效参数（`topK`/`minScore`/`fusionMinScore`/`hybridEnabled`） |
 | `POST` | `/api/knowledge/upload` | 📚 multipart 上传 .md/.txt（≤1MB，可选 `kb` 表单字段归库），只落盘不摄取，重名覆盖 |
 | `DELETE` | `/api/knowledge/documents/{name}` | 📚 删除指定知识文档（向量 chunk + 台账） |
 

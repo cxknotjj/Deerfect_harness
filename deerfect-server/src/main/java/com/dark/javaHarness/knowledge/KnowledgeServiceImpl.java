@@ -67,6 +67,11 @@ public class KnowledgeServiceImpl implements KnowledgeService, ApplicationRunner
         return retriever.search(query, kbs);
     }
 
+    @Override
+    public List<KnowledgeHit> search(String query, List<String> kbs, SearchOptions options) {
+        return retriever.search(query, kbs, options);
+    }
+
     /** 启动自动增量摄取（app.knowledge.auto-sync-on-startup，默认关）：失败仅告警不影响启动 */
     @Override
     public void run(ApplicationArguments args) {

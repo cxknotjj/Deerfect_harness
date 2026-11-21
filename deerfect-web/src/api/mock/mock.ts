@@ -12,6 +12,8 @@ import type {
   ChatRequest,
   KbDocument,
   KbRetrievalItem,
+  KnowledgeSearchConfig,
+  KnowledgeSearchHit,
   KnowledgeSyncResult,
   LlmCallItem,
   MemoryItem,
@@ -528,6 +530,65 @@ const kbDocuments: KbDocument[] = [
   },
 ]
 
+const mockKnowledgeConfig: KnowledgeSearchConfig = {
+  topK: 4,
+  minScore: 0.5,
+  fusionMinScore: 0.6,
+  hybridEnabled: true,
+}
+
+/** mock 检索 chunk：数量与 syncKnowledge 返回的 8 个 chunk 对齐，覆盖 4 个知识库 */
+const mockKbChunks = [
+  {
+    docName: 'java/SpringBoot常见问题.md',
+    kb: 'java',
+    title: 'Spring Boot 常见问题',
+    text: '### 事务传播为什么不生效\n\n同类内部方法调用不经过 Spring 代理，@Transactional 不会生效。把方法拆到另一个 Bean，或确认调用方拿到的是代理对象。',
+  },
+  {
+    docName: 'frontend/Vue3组件模式.md',
+    kb: 'frontend',
+    title: 'Vue3 组件模式',
+    text: '### 组合式 API\n\nsetup 内用 ref / computed 组织状态，模板只消费返回值；跨组件共享优先用 provide/inject，不要滥用全局单例。',
+  },
+  {
+    docName: 'frontend/Vue3组件模式.md',
+    kb: 'frontend',
+    title: 'Vue3 组件模式',
+    text: '### 响应式更新\n\n直接替换 reactive 对象会丢失代理引用；需要整体重置时用 Object.assign 合并，或改用 ref 持有新对象。',
+  },
+  {
+    docName: 'ops/推理服务运维手册.md',
+    kb: 'ops',
+    title: '智算云推理服务运维手册',
+    text: '### 部署步骤\n\n1. 校验 GPU 驱动与 CUDA 版本；2. 拉取推理镜像并挂载模型目录；3. 启动服务后检查 /healthz；4. 用压测脚本确认首 token 延迟。',
+  },
+  {
+    docName: 'ops/推理服务运维手册.md',
+    kb: 'ops',
+    title: '智算云推理服务运维手册',
+    text: '### ERR-4021\n\nERR-4021 表示显存不足以容纳当前 batch。先降低 max_batch_size，再检查是否有残留进程占用显存；不要直接重启节点。',
+  },
+  {
+    docName: 'ops/推理服务运维手册.md',
+    kb: 'ops',
+    title: '智算云推理服务运维手册',
+    text: '### GPU 监控\n\nnvidia-smi 只适合现场排查；持续观测看 DCGM 指标：显存占用、SM 利用率、NVLink 带宽和 ECC 错误计数。',
+  },
+  {
+    docName: 'ops/推理服务运维手册.md',
+    kb: 'ops',
+    title: '智算云推理服务运维手册',
+    text: '### 滚动升级\n\n先摘流量再升级副本，健康检查通过后逐步放量；升级窗口内保留旧副本，出现 5xx 立即回滚。',
+  },
+  {
+    docName: 'default/术语表.md',
+    kb: 'default',
+    title: '术语表',
+    text: '### RAG\n\nRAG（Retrieval-Augmented Generation）先检索外部知识，再把命中的片段注入上下文。相关度阈值、topK 与分块粒度共同决定召回质量。',
+  },
+]
+
 let memoryRows: MemoryItem[] = [
   {
     id: 1,
@@ -643,6 +704,38 @@ async function deleteKbDocument(docName: string): Promise<boolean> {
   if (index < 0) return false
   kbDocuments.splice(index, 1)
   return true
+}
+
+async function knowledgeSearchConfig(): Promise<KnowledgeSearchConfig> {
+  return { ...mockKnowledgeConfig }
+}
+
+async function searchKnowledge(
+  query: string,
+  kbs: string[],
+  topK: number,
+  minScore: number,
+  fusionMinScore: number,
+): Promise<KnowledgeSearchHit[]> {
+  const terms = query.trim().toLowerCase().split(/[\s,，]+/).filter(Boolean)
+  if (terms.length === 0) return []
+  const floor = mockKnowledgeConfig.hybridEnabled ? Math.max(minScore, fusionMinScore) : minScore
+  return mockKbChunks
+    .filter((chunk) => kbs.length === 0 || kbs.includes(chunk.kb))
+    .map((chunk) => {
+      const title = chunk.title.toLowerCase()
+      const body = chunk.text.toLowerCase()
+      const matched = terms.filter((term) => title.includes(term) || body.includes(term))
+      if (matched.length === 0) return null
+      const coverage = matched.length / terms.length
+      const titleHit = matched.some((term) => title.includes(term))
+      const score = Math.min(0.99, 0.52 + coverage * 0.25 + (titleHit ? 0.08 : 0)
+        + (body.includes(query.trim().toLowerCase()) ? 0.08 : 0))
+      return { docName: chunk.docName, title: chunk.title, score, text: chunk.text }
+    })
+    .filter((hit): hit is KnowledgeSearchHit => hit !== null && hit.score >= floor)
+    .sort((a, b) => b.score - a.score || a.docName.localeCompare(b.docName))
+    .slice(0, topK > 0 ? topK : undefined)
 }
 
 async function listMemories(status = 'active', limit = 100): Promise<MemoryItem[]> {
@@ -932,6 +1025,8 @@ export const mockApi: Api = {
   login: async () => {},
   logout: async () => {},
   listKbDocuments,
+  knowledgeSearchConfig,
+  searchKnowledge,
   syncKnowledge,
   deleteKbDocument,
   listMemories,

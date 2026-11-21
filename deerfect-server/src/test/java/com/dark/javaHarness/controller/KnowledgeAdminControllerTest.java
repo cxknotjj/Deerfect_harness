@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
+import com.dark.javaHarness.config.knowledge.KnowledgeProperties;
 import com.dark.javaHarness.knowledge.KnowledgeDocumentScanner;
 import com.dark.javaHarness.knowledge.KnowledgeService;
 import java.nio.file.Files;
@@ -21,9 +22,9 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.mock.web.MockMultipartFile;
 
 /**
- * KnowledgeAdminController 单测：/search 的 full 参数（默认三字段向后兼容 / true 带片段原文）、
- * /upload 的合法落盘（根目录/kb 子目录/重名覆盖）与非法输入拒绝（扩展名/大小/kb 白名单/
- * 路径穿越/隐藏文件）、知识库未启用 503 语义。
+ * KnowledgeAdminController 单测：/search 的 full 参数（默认三字段 / true 带片段原文）与
+ * topK/阈值覆盖边界、/search-config 当前生效参数、/upload 的合法落盘（根目录/kb 子目录/
+ * 重名覆盖）与非法输入拒绝（扩展名/大小/kb 白名单/路径穿越/隐藏文件）、知识库未启用 503 语义。
  */
 @ExtendWith(MockitoExtension.class)
 class KnowledgeAdminControllerTest {
@@ -37,12 +38,18 @@ class KnowledgeAdminControllerTest {
     private KnowledgeService knowledgeService;
 
     private KnowledgeAdminController controller;
+    private KnowledgeProperties props;
 
     @BeforeEach
     void setUp() {
+        props = new KnowledgeProperties();
+        props.setTopK(4);
+        props.setMinScore(0.5);
+        props.setFusionMinScore(0.6);
+        props.setHybridEnabled(true);
         // 真实 Scanner 指向临时目录：上传落盘路径断言不依赖 mock
         controller = new KnowledgeAdminController(knowledgeServiceProvider,
-                new KnowledgeDocumentScanner(tempDir.toString()));
+                new KnowledgeDocumentScanner(tempDir.toString()), props);
     }
 
     private void enableService() {
@@ -60,7 +67,7 @@ class KnowledgeAdminControllerTest {
         enableService();
         when(knowledgeService.search("问题", null)).thenReturn(List.of(hit("a.md", "片段")));
 
-        List<?> result = controller.search("问题", null, false);
+        List<?> result = controller.search("问题", null, false, null, null, null);
 
         assertEquals(1, result.size());
         assertInstanceOf(com.dark.javaHarness.view.KnowledgeSource.class, result.get(0),
@@ -73,7 +80,7 @@ class KnowledgeAdminControllerTest {
         enableService();
         when(knowledgeService.search("问题", null)).thenReturn(List.of(hit("a.md", "片段原文")));
 
-        List<?> result = controller.search("问题", null, true);
+        List<?> result = controller.search("问题", null, true, null, null, null);
 
         assertEquals(1, result.size());
         KnowledgeService.KnowledgeHit full = assertInstanceOf(KnowledgeService.KnowledgeHit.class, result.get(0));
@@ -85,7 +92,62 @@ class KnowledgeAdminControllerTest {
         when(knowledgeServiceProvider.getIfAvailable()).thenReturn(null);
 
         assertThrows(KnowledgeAdminController.KnowledgeDisabledException.class,
-                () -> controller.search("问题", null, false));
+                () -> controller.search("问题", null, false, null, null, null));
+    }
+
+    @Test
+    void search_explicitOptions_overrideConfigWithoutMutatingIt() {
+        enableService();
+        when(knowledgeService.search("问题", null, new KnowledgeService.SearchOptions(8, 0.72, 0.81)))
+                .thenReturn(List.of(hit("a.md", "片段")));
+
+        controller.search("问题", null, false, 8, 0.72, 0.81);
+
+        assertEquals(4, props.getTopK(), "调试检索只影响本次请求，不回写全局配置");
+        assertEquals(0.5, props.getMinScore());
+        assertEquals(0.6, props.getFusionMinScore());
+    }
+
+    @Test
+    void search_partialOptions_fillMissingFromConfig() {
+        enableService();
+        when(knowledgeService.search("问题", null, new KnowledgeService.SearchOptions(8, 0.5, 0.6)))
+                .thenReturn(List.of(hit("a.md", "片段")));
+
+        List<?> result = controller.search("问题", null, true, 8, null, null);
+
+        assertEquals(1, result.size(), "只覆盖 topK，阈值仍取当前配置");
+    }
+
+    @Test
+    void search_invalidOptions_rejectedAtHttpBoundary() {
+        enableService();
+
+        assertThrows(IllegalArgumentException.class,
+                () -> controller.search("问题", null, false, -1, null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> controller.search("问题", null, false, null, 1.2, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> controller.search("问题", null, false, null, null, Double.NaN));
+    }
+
+    @Test
+    void searchConfig_returnsCurrentEffectiveValues() {
+        enableService();
+
+        KnowledgeAdminController.SearchConfigView view = controller.searchConfig();
+
+        assertEquals(4, view.topK());
+        assertEquals(0.5, view.minScore());
+        assertEquals(0.6, view.fusionMinScore());
+        assertTrue(view.hybridEnabled());
+    }
+
+    @Test
+    void searchConfig_serviceDisabled_throws503() {
+        when(knowledgeServiceProvider.getIfAvailable()).thenReturn(null);
+
+        assertThrows(KnowledgeAdminController.KnowledgeDisabledException.class, controller::searchConfig);
     }
 
     /* ---------------- /upload 合法上传 ---------------- */

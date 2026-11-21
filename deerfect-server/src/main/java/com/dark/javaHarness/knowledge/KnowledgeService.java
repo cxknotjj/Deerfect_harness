@@ -36,6 +36,18 @@ public interface KnowledgeService {
      */
     List<KnowledgeHit> search(String query, List<String> kbs);
 
+    /**
+     * 检索：按显式检索参数执行，供检索调试按请求覆盖配置；生产注入链路仍走
+     * {@link #search(String, List)}（参数取自 application-knowledge.yaml）。
+     *
+     * @param options top-k / 向量相似度阈值 / 融合分下限；数值语义与 KnowledgeProperties 一致
+     */
+    List<KnowledgeHit> search(String query, List<String> kbs, SearchOptions options);
+
+    /** 单次检索参数（调试页显式下发；0 = 不限制语义与配置口径一致） */
+    record SearchOptions(int topK, double minScore, double fusionMinScore) {
+    }
+
     /** 调试检索命中：出处 + 相似度 + chunk 原文 */
     record KnowledgeHit(String docName, String title, double score, String text) {
 

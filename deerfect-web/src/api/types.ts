@@ -384,6 +384,26 @@ export interface KbDocument {
   updatedAt: string
 }
 
+/** 调试检索命中（GET /api/knowledge/search?full=true；text 为 chunk 原文） */
+export interface KnowledgeSearchHit {
+  docName: string
+  title: string
+  score: number
+  text: string
+}
+
+/** 调试检索当前生效参数（GET /api/knowledge/search-config） */
+export interface KnowledgeSearchConfig {
+  /** 返回条数；0 = 不限 */
+  topK: number
+  /** 向量相似度阈值（0~1） */
+  minScore: number
+  /** 混合检索融合分下限（0~1，0 = 不启用） */
+  fusionMinScore: number
+  /** true = 向量 + BM25 RRF 融合，false = 纯向量 */
+  hybridEnabled: boolean
+}
+
 /** 通用分页响应（对齐后端 PageResult） */
 export interface PageResult<T> {
   list: T[]
