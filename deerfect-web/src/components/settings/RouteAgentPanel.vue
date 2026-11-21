@@ -17,6 +17,7 @@ import type {
 } from '../../api/admin'
 import { agentTone, routeMark, routeSummary } from '../../utils/routeAgent'
 import AgentConfigModal from './AgentConfigModal.vue'
+import AgentGlyph from './AgentGlyph.vue'
 import RouteConfigModal from './RouteConfigModal.vue'
 import RouteMembersModal from './RouteMembersModal.vue'
 
@@ -241,8 +242,8 @@ defineExpose({ reload: loadAll, startCreateRoute: openCreateRoute })
       <div v-if="agents.length" class="ra-grid ra-grid-agents">
         <article v-for="agent in sortedAgents" :key="agent.id" class="ra-card ra-agent-card">
           <header class="ra-card-head">
-            <span class="ra-avatar" :class="`is-${agentTone(agent.name)}`" aria-hidden="true">
-              {{ agent.name.charAt(0).toUpperCase() }}
+            <span class="ra-avatar" :class="`is-${agentTone(agent.name)}`">
+              <AgentGlyph :name="agent.name" />
             </span>
             <div class="ra-card-title">
               <span class="ra-name">{{ agent.name }}</span>

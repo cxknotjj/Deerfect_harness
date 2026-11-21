@@ -1474,6 +1474,16 @@ html[data-theme='dark'] .settings-page {
   font-weight: 700;
 }
 
+.agent-glyph {
+  display: block;
+  width: 19px;
+  height: 19px;
+}
+
+.agent-glyph-fallback {
+  line-height: 1;
+}
+
 .ra-avatar.is-blue,
 .ra-mark.is-blue {
   background: #e7efff;
