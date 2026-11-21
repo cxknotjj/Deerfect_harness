@@ -40,12 +40,25 @@ import {
 } from './observability'
 import {
   createLlmProvider,
+  createLlmRoute,
+  listAdminAgents,
   listLlmModels,
   listLlmProviders,
+  listLlmRoutes,
+  updateAdminAgent,
   updateLlmProvider,
+  updateLlmRoute,
   updateModelContextWindow,
 } from './admin'
-import type { LlmModelView, LlmProviderUpsert, LlmProviderView } from './admin'
+import type {
+  AdminAgentUpsert,
+  AdminAgentView,
+  LlmModelView,
+  LlmProviderUpsert,
+  LlmProviderView,
+  LlmRouteUpsert,
+  LlmRouteView,
+} from './admin'
 import {
   capabilities,
   createMemory,
@@ -95,6 +108,12 @@ export interface Api {
   createLlmProvider(body: LlmProviderUpsert): Promise<LlmProviderView>
   updateLlmProvider(id: number, body: LlmProviderUpsert): Promise<LlmProviderView>
   updateModelContextWindow(id: number, contextWindow: number): Promise<LlmModelView>
+  /* 路由与 Agent 管理 */
+  listLlmRoutes(): Promise<LlmRouteView[]>
+  createLlmRoute(body: LlmRouteUpsert): Promise<LlmRouteView>
+  updateLlmRoute(id: number, body: LlmRouteUpsert): Promise<LlmRouteView>
+  listAdminAgents(): Promise<AdminAgentView[]>
+  updateAdminAgent(id: number, body: AdminAgentUpsert): Promise<AdminAgentView>
 }
 
 /** 真实 HTTP 实现 */
@@ -130,6 +149,11 @@ export const realApi: Api = {
   createLlmProvider,
   updateLlmProvider,
   updateModelContextWindow,
+  listLlmRoutes,
+  createLlmRoute,
+  updateLlmRoute,
+  listAdminAgents,
+  updateAdminAgent,
 }
 
 // 兼容既有调用方的具名导出（实现已下沉到领域模块）

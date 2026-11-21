@@ -55,7 +55,17 @@ public final class LlmAdminModels {
                               List<RouteMemberUpsert> members) {
     }
 
-    // ---------------- Agent 绑定 ----------------
+    // ---------------- Agent 管理 ----------------
+
+    public record AgentView(Long id, String name, String description, Long routeId,
+                            String routeCode, String tools, String knowledge, Integer thinking,
+                            Integer status, Integer isInternal) {
+    }
+
+    /** Agent 名称是注册标识，不可改；配置只提交可运行时生效的行字段 */
+    public record AgentUpsert(String description, Long routeId, String tools, String knowledge,
+                              Integer thinking, Integer status, Integer isInternal) {
+    }
 
     public record AgentRouteUpdate(Long routeId) {
     }

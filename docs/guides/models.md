@@ -16,6 +16,7 @@ flowchart LR
 
 - 🧩 **Agent**（`agent` 表）：每行一个 Agent（`agent_name`/`route_id`/`prompt`）。种子行：`general`/`deepseek`（聊天）、`multi-agent`（编排器）、`lead`（拆解器）、`aggregator`（聚合器）、`researcher`/`coder`/`analyst`/`writer`（专家）、`wms`（领域专员，工具绑定见 [wms-mcp.md](wms-mcp.md)）
 - 🗺️ **路由**（`llm_route` + `llm_route_member`）：Agent 只认路由 id；成员按 `priority` 升序构成失败链，仅首个 token 前允许切换；`capabilities` 声明工具/视觉/思考/上下文窗口，启动与热更新时校验
+- 🛠️ **管理界面**：设置 → 路由与 Agent 把路由卡与 Agent 卡合并在一页；路由描述/策略/状态、成员优先级、Agent 描述/路由/工具/思考与内部标志都经 `/api/admin` 写回并热更新（Agent 名称是注册标识，不提供改名）
 - 🪟 **上下文窗口**（`capabilities.context_window`）：模型**能力声明**（单次请求上限），不是请求预算。设置 → 模型管理 → 模型行「上下文」滑块按离散档位（8K/32K/64K/128K/256K/600K/1M）设置，走 `PUT /api/admin/models/{id}/context-window`（仅替换该键、保留其余能力字段；边界 0=未声明 或 [4096, 2000000]；写后热刷新）。运行时由 `ContextWindowGuard` 以 per-call 公式 `cap = max(窗口 − 输出档 − 预留, 1024)` 封顶历史 / lead / 聚合 / 工具结果预算，agentic 直出与 graph 各节点共用同一公式、互不挤占；窗口 0 时不封顶（行为同引入前）。与编排全程总额 `orchestration-budget` 正交，见 [context-optimization.md](context-optimization.md)
 - 🧭 **调用链**：Agent → `route_id` → 首选成员 `model_id` → `llm_provider` 端点与凭证；代码只按 id 查找，不按模型名解析
 - 📈 **观测**：`llm_call_log` 记录 `route_id`/`model_id`/`provider_code`/`upstream_name`/`fallback_from_model_id`/`error_class`，可还原失败切换路径。其中 `model` 列写**实际应答成员**的上游模型名（fallback 后不再是首选成员），按 `model` 聚合与 `upstream_name` 同口径；请求侧的原始模型名不再单独落库

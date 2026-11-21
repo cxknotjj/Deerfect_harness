@@ -30,7 +30,16 @@ import type {
   SseMeta,
   ToolCallItem,
 } from '../types'
-import type { LlmModelView, LlmProviderUpsert, LlmProviderView } from '../admin'
+import type {
+  AdminAgentUpsert,
+  AdminAgentView,
+  LlmModelView,
+  LlmProviderUpsert,
+  LlmProviderView,
+  LlmRouteMemberView,
+  LlmRouteUpsert,
+  LlmRouteView,
+} from '../admin'
 import { initialSessions, initialTraces, mockAgents } from './data'
 import type { MockMessage } from './data'
 
@@ -708,11 +717,59 @@ let llmProviders: LlmProviderView[] = [
 
 const llmModels: LlmModelView[] = [
   { id: 1, providerId: 1, providerCode: 'dashscope', upstreamName: 'qwen-plus', displayName: 'qwen-plus', capabilities: null, defaultParams: null, enabled: 1 },
-  { id: 2, providerId: 1, providerCode: 'dashscope', upstreamName: 'qwen-max', displayName: 'qwen-max', capabilities: null, defaultParams: null, enabled: 1 },
-  { id: 3, providerId: 1, providerCode: 'dashscope', upstreamName: 'deepseek-v4.1-flash-1017', displayName: 'deepseek-v4.1-flash-1017', capabilities: '{"context_window":262144}', defaultParams: null, enabled: 1 },
-  { id: 4, providerId: 2, providerCode: 'deepseek', upstreamName: 'deepseek-chat', displayName: 'deepseek-chat', capabilities: null, defaultParams: null, enabled: 1 },
-  { id: 5, providerId: 2, providerCode: 'deepseek', upstreamName: 'deepseek-reasoner', displayName: 'deepseek-reasoner', capabilities: null, defaultParams: null, enabled: 1 },
-  { id: 6, providerId: 3, providerCode: 'tecent', upstreamName: 'Deepseek-v4-flash', displayName: 'Deepseek-v4-flash', capabilities: null, defaultParams: null, enabled: 1 },
+  { id: 2, providerId: 1, providerCode: 'dashscope', upstreamName: 'qwen-turbo', displayName: 'qwen-turbo', capabilities: null, defaultParams: null, enabled: 1 },
+  { id: 3, providerId: 1, providerCode: 'dashscope', upstreamName: 'qwen-max', displayName: 'qwen-max', capabilities: null, defaultParams: null, enabled: 1 },
+  { id: 4, providerId: 1, providerCode: 'dashscope', upstreamName: 'qwen3.7-flash', displayName: 'qwen3.7-flash', capabilities: null, defaultParams: null, enabled: 1 },
+  { id: 5, providerId: 1, providerCode: 'dashscope', upstreamName: 'qwen3.8-27b', displayName: 'qwen3.8-27b', capabilities: null, defaultParams: null, enabled: 1 },
+  { id: 6, providerId: 2, providerCode: 'deepseek', upstreamName: 'deepseek-chat', displayName: 'deepseek-chat', capabilities: null, defaultParams: null, enabled: 1 },
+  { id: 7, providerId: 2, providerCode: 'deepseek', upstreamName: 'deepseek-reasoner', displayName: 'deepseek-reasoner', capabilities: null, defaultParams: null, enabled: 1 },
+  { id: 8, providerId: 2, providerCode: 'deepseek', upstreamName: 'deepseek-v4-flash', displayName: 'deepseek-v4-flash', capabilities: null, defaultParams: null, enabled: 1 },
+  { id: 9, providerId: 3, providerCode: 'tecent', upstreamName: 'Deepseek-v4-flash', displayName: 'Deepseek-v4-flash', capabilities: null, defaultParams: null, enabled: 1 },
+  { id: 10, providerId: 1, providerCode: 'dashscope', upstreamName: 'deepseek-v4-pro-0813', displayName: 'deepseek-v4-pro-0813', capabilities: null, defaultParams: null, enabled: 1 },
+  { id: 11, providerId: 1, providerCode: 'dashscope', upstreamName: 'qwen3.8-flash', displayName: 'qwen3.8-flash', capabilities: null, defaultParams: null, enabled: 1 },
+  { id: 12, providerId: 1, providerCode: 'dashscope', upstreamName: 'deepseek-v4.1-flash-1017', displayName: 'deepseek-v4.1-flash-1017', capabilities: '{"context_window":262144}', defaultParams: null, enabled: 1 },
+]
+
+let llmRoutes: LlmRouteView[] = [
+  {
+    id: 1, code: 'main', description: '主对话模型：当前绑定 deepseek-v4.1-flash-1017',
+    strategy: 'priority', enabled: 1,
+    members: [{ modelId: 12, upstreamName: 'deepseek-v4.1-flash-1017', providerCode: 'dashscope', priority: 10, enabled: 1 }],
+  },
+  {
+    id: 2, code: 'fast', description: '轻量内部调用：当前绑定 qwen3.8-flash',
+    strategy: 'priority', enabled: 1,
+    members: [{ modelId: 11, upstreamName: 'qwen3.8-flash', providerCode: 'dashscope', priority: 10, enabled: 1 }],
+  },
+  {
+    id: 3, code: 'judge', description: '路由判定：当前绑定 qwen3.8-27b',
+    strategy: 'priority', enabled: 1,
+    members: [{ modelId: 5, upstreamName: 'qwen3.8-27b', providerCode: 'dashscope', priority: 10, enabled: 1 }],
+  },
+  {
+    id: 4, code: 'multi', description: '多 Agent 编排：当前绑定 qwen3.7-flash',
+    strategy: 'priority', enabled: 1,
+    members: [{ modelId: 4, upstreamName: 'qwen3.7-flash', providerCode: 'dashscope', priority: 10, enabled: 1 }],
+  },
+]
+
+let adminAgents: AdminAgentView[] = [
+  { id: 1, name: 'general', description: '通用 AI 助手（默认）', routeId: 1, routeCode: 'main', tools: 'web, sandbox.read, sandbox.browser, browser_click, browser_type, browser_press_key, tavily_search, history, memory,play_music', knowledge: null, thinking: 1, status: 1, isInternal: 0 },
+  { id: 2, name: 'deepseek', description: '深度推理助手（独立端点 DeepSeek）', routeId: 1, routeCode: 'main', tools: null, knowledge: null, thinking: null, status: 1, isInternal: 0 },
+  { id: 3, name: 'multi-agent', description: '复杂路径编排器（调度 lead 拆解 / 子任务执行 / 聚合汇总）', routeId: 4, routeCode: 'multi', tools: null, knowledge: null, thinking: null, status: 1, isInternal: 1 },
+  { id: 4, name: 'lead', description: '子任务拆解器（Lead）：复杂目标 → 带专家指派的子任务清单', routeId: 1, routeCode: 'main', tools: 'history, memory', knowledge: null, thinking: 1, status: 1, isInternal: 1 },
+  { id: 5, name: 'aggregator', description: '结果聚合器：汇总各子任务结果为最终回答', routeId: 1, routeCode: 'main', tools: null, knowledge: null, thinking: 1, status: 1, isInternal: 1 },
+  { id: 6, name: 'researcher', description: '专家：资料调研', routeId: 1, routeCode: 'main', tools: 'web, sandbox.read, sandbox.browser, browser_click, browser_type, browser_press_key, browser_scroll, tavily_search', knowledge: null, thinking: 1, status: 1, isInternal: 0 },
+  { id: 7, name: 'coder', description: '专家：代码编写与修复', routeId: 1, routeCode: 'main', tools: 'sandbox.base, sandbox.write', knowledge: null, thinking: 1, status: 1, isInternal: 0 },
+  { id: 8, name: 'analyst', description: '专家：数据分析', routeId: 1, routeCode: 'main', tools: 'sandbox.base, sandbox.read', knowledge: null, thinking: 1, status: 1, isInternal: 0 },
+  { id: 9, name: 'writer', description: '专家：汇总撰写', routeId: 1, routeCode: 'main', tools: null, knowledge: null, thinking: 1, status: 1, isInternal: 0 },
+  { id: 10, name: 'nailong', description: '奶龙(动画角色)', routeId: 2, routeCode: 'fast', tools: 'text_to_speech,play_music', knowledge: null, thinking: null, status: 1, isInternal: 0 },
+  { id: 11, name: 'java-tutor', description: '精通java的导师', routeId: 2, routeCode: 'fast', tools: null, knowledge: null, thinking: null, status: 1, isInternal: 0 },
+  { id: 12, name: 'route-judge', description: '主路径判断器：按「可并行工作流 / 多交付物」判定 Agentic（单 Agent 直答）或 Graph（并行编排）路径', routeId: 3, routeCode: 'judge', tools: null, knowledge: null, thinking: null, status: 1, isInternal: 1 },
+  { id: 13, name: 'wms', description: '仓储专员：库存 / 商品 / 入库单 / 出库单 / 包裹发运 / 仓储网络 / 作业任务查询（WMS 只读）', routeId: 3, routeCode: 'judge', tools: 'wms_query', knowledge: null, thinking: null, status: 1, isInternal: 0 },
+  { id: 14, name: 'profile', description: '用户画像提炼（内部）', routeId: 2, routeCode: 'fast', tools: null, knowledge: null, thinking: 0, status: 1, isInternal: 1 },
+  { id: 15, name: 'summary', description: '会话摘要（内部）', routeId: 2, routeCode: 'fast', tools: null, knowledge: null, thinking: 0, status: 1, isInternal: 1 },
+  { id: 16, name: 'trigger-judge', description: '渠道语义触发判断（内部）', routeId: 3, routeCode: 'judge', tools: null, knowledge: null, thinking: 0, status: 1, isInternal: 1 },
 ]
 
 async function listLlmProviders(): Promise<LlmProviderView[]> {
@@ -758,6 +815,104 @@ async function updateModelContextWindow(id: number, contextWindow: number): Prom
   return { ...row }
 }
 
+/** 把成员入参解析成视图：同路由 priority 唯一、启用成员只能引用启用模型（与后端校验一致） */
+function resolveRouteMembers(members: LlmRouteUpsert['members']): LlmRouteMemberView[] {
+  if (members.length === 0) throw new Error('路由至少需要一个成员')
+  const priorities = new Set<number>()
+  const modelIds = new Set<number>()
+  const views: LlmRouteMemberView[] = []
+  for (const member of members) {
+    const model = llmModels.find((m) => m.id === member.modelId)
+    if (!model) throw new Error(`模型不存在: ${member.modelId}`)
+    if (modelIds.has(member.modelId)) throw new Error(`成员模型重复: ${member.modelId}`)
+    modelIds.add(member.modelId)
+    if (member.priority <= 0) throw new Error('成员优先级必须为正整数')
+    if (priorities.has(member.priority)) throw new Error(`同一路由内优先级不能重复: ${member.priority}`)
+    priorities.add(member.priority)
+    if (member.enabled !== 0 && model.enabled !== 1) {
+      throw new Error(`启用的成员不能引用禁用模型: ${model.upstreamName}`)
+    }
+    views.push({
+      modelId: member.modelId,
+      upstreamName: model.upstreamName,
+      providerCode: model.providerCode,
+      priority: member.priority,
+      enabled: member.enabled,
+    })
+  }
+  return views.sort((a, b) => a.priority - b.priority)
+}
+
+function assertRouteCodeFree(code: string, selfId?: number): void {
+  const duplicate = llmRoutes.find((route) => route.code === code && route.id !== selfId)
+  if (duplicate) throw new Error(`路由代码已存在: ${code}`)
+}
+
+async function listLlmRoutes(): Promise<LlmRouteView[]> {
+  return llmRoutes.map((route) => ({ ...route, members: route.members.map((m) => ({ ...m })) }))
+}
+
+async function createLlmRoute(body: LlmRouteUpsert): Promise<LlmRouteView> {
+  assertRouteCodeFree(body.code)
+  const row: LlmRouteView = {
+    id: Math.max(0, ...llmRoutes.map((route) => route.id)) + 1,
+    code: body.code,
+    description: body.description,
+    strategy: body.strategy,
+    enabled: body.enabled,
+    members: resolveRouteMembers(body.members),
+  }
+  llmRoutes = [...llmRoutes, row]
+  return { ...row, members: row.members.map((m) => ({ ...m })) }
+}
+
+async function updateLlmRoute(id: number, body: LlmRouteUpsert): Promise<LlmRouteView> {
+  const index = llmRoutes.findIndex((route) => route.id === id)
+  if (index < 0) throw new Error(`路由不存在: ${id}`)
+  assertRouteCodeFree(body.code, id)
+  const row: LlmRouteView = {
+    id,
+    code: body.code,
+    description: body.description,
+    strategy: body.strategy,
+    enabled: body.enabled,
+    members: resolveRouteMembers(body.members),
+  }
+  llmRoutes = llmRoutes.map((route) => (route.id === id ? row : route))
+  return { ...row, members: row.members.map((m) => ({ ...m })) }
+}
+
+async function listAdminAgents(): Promise<AdminAgentView[]> {
+  return adminAgents.map((agent) => ({ ...agent }))
+}
+
+function assertAgentFlag(value: number, field: string): void {
+  if (value !== 0 && value !== 1) throw new Error(`${field} 只能是 0 或 1，实际 ${value}`)
+}
+
+async function updateAdminAgent(id: number, body: AdminAgentUpsert): Promise<AdminAgentView> {
+  const index = adminAgents.findIndex((agent) => agent.id === id)
+  if (index < 0) throw new Error(`Agent 不存在: ${id}`)
+  const route = llmRoutes.find((item) => item.id === body.routeId)
+  if (!route || route.enabled !== 1) throw new Error(`路由不存在或未启用: ${body.routeId}`)
+  assertAgentFlag(body.thinking, 'thinking')
+  assertAgentFlag(body.status, 'status')
+  assertAgentFlag(body.isInternal, 'isInternal')
+  const row: AdminAgentView = {
+    ...adminAgents[index],
+    description: body.description,
+    routeId: body.routeId,
+    routeCode: route.code,
+    tools: body.tools,
+    knowledge: body.knowledge,
+    thinking: body.thinking,
+    status: body.status,
+    isInternal: body.isInternal,
+  }
+  adminAgents = adminAgents.map((agent) => (agent.id === id ? row : agent))
+  return { ...row }
+}
+
 /** mock API 实现(与 realApi 同签名) */
 export const mockApi: Api = {
   listAgents,
@@ -792,4 +947,9 @@ export const mockApi: Api = {
   createLlmProvider,
   updateLlmProvider,
   updateModelContextWindow,
+  listLlmRoutes,
+  createLlmRoute,
+  updateLlmRoute,
+  listAdminAgents,
+  updateAdminAgent,
 }

@@ -5,10 +5,17 @@
  */
 import type { LlmCallItem, SessionView, ToolCallItem } from '../types'
 
-/** mock Agent 名单(id 与「下标 + 1」约定一致;结构对齐真模式的 AgentItemView) */
+/** mock Agent 名单(id 对齐 agent 表；只列 is_internal=0 的对话 Agent) */
 export const mockAgents = [
   { id: 1, name: 'general' },
-  { id: 2, name: 'coder' },
+  { id: 2, name: 'deepseek' },
+  { id: 6, name: 'researcher' },
+  { id: 7, name: 'coder' },
+  { id: 8, name: 'analyst' },
+  { id: 9, name: 'writer' },
+  { id: 10, name: 'nailong' },
+  { id: 11, name: 'java-tutor' },
+  { id: 13, name: 'wms' },
 ]
 
 /** mock 会话消息(role/content 与聊天上下文形状一致) */

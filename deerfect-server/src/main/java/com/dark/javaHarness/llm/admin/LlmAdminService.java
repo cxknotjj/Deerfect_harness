@@ -36,7 +36,7 @@ import tools.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 
 /**
- * LLM 管理面业务实现：供应商 / 模型 / 路由 / Agent 绑定的 CRUD 与路由连通性测试。
+ * LLM 管理面业务实现：供应商 / 模型 / 路由 / Agent 配置与绑定的 CRUD 与路由连通性测试。
  *
  * <p>所有写操作遵循同一顺序：校验入参 → 落库 → 热更新（重读 + 全量绑定校验）。
  * 热更新失败时抛出 {@link IllegalArgumentException}，事务回滚到写前状态，
@@ -253,6 +253,68 @@ public class LlmAdminService {
         return routeView(row, modelMap(), providerCodeMap());
     }
 
+    // ---------------- Agent 配置 ----------------
+
+    public List<LlmAdminModels.AgentView> listAgents() {
+        Map<Long, String> routeCodes = new HashMap<>();
+        List<LlmRouteEntity> routes = routeMapper.selectList(null);
+        if (routes != null) {
+            for (LlmRouteEntity route : routes) {
+                routeCodes.put(route.getId(), route.getCode());
+            }
+        }
+        List<LlmAdminModels.AgentView> views = new ArrayList<>();
+        List<AgentEntity> rows = agentMapper.selectList(null);
+        if (rows != null) {
+            for (AgentEntity row : rows) {
+                views.add(agentView(row, routeCodes.get(row.getRouteId())));
+            }
+        }
+        return views;
+    }
+
+    /**
+     * 整行保存 Agent 可运行时生效的配置。agent_name 是注册标识（会话与路由按名查找），
+     * 不在可编辑字段内；改路由必须先通过 {@link ModelResolver} 校验路由可用。
+     */
+    @Transactional
+    public LlmAdminModels.AgentView updateAgent(Long agentId, LlmAdminModels.AgentUpsert req) {
+        if (req == null) {
+            throw new IllegalArgumentException("请求体不能为空");
+        }
+        AgentEntity row = requireAgent(agentId);
+        if (req.routeId() == null) {
+            throw new IllegalArgumentException("routeId 不能为空");
+        }
+        modelResolver.invalidate();
+        RoutePlan plan = modelResolver.resolve(req.routeId());
+        Integer thinking = flag(req.thinking(), "thinking");
+        Integer status = flag(req.status(), "status");
+        Integer isInternal = flag(req.isInternal(), "isInternal");
+        String description = blankToNull(req.description());
+        String tools = blankToNull(req.tools());
+        String knowledge = blankToNull(req.knowledge());
+        agentMapper.update(null, new UpdateWrapper<AgentEntity>()
+                .eq("agent_id", agentId)
+                .set("description", description)
+                .set("route_id", plan.routeId())
+                .set("tools", tools)
+                .set("knowledge", knowledge)
+                .set("thinking", thinking)
+                .set("status", status)
+                .set("is_internal", isInternal)
+                .set("updated_at", LocalDateTime.now()));
+        refreshAfterWrite();
+        row.setDescription(description);
+        row.setRouteId(plan.routeId());
+        row.setTools(tools);
+        row.setKnowledge(knowledge);
+        row.setThinking(thinking);
+        row.setStatus(status);
+        row.setIsInternal(isInternal);
+        return agentView(row, plan.routeCode());
+    }
+
     // ---------------- Agent 绑定 ----------------
 
     @Transactional
@@ -260,10 +322,7 @@ public class LlmAdminService {
         if (req == null || req.routeId() == null) {
             throw new IllegalArgumentException("routeId 不能为空");
         }
-        AgentEntity agent = agentMapper.selectById(agentId);
-        if (agent == null) {
-            throw new IllegalArgumentException("Agent 不存在: id=" + agentId);
-        }
+        AgentEntity agent = requireAgent(agentId);
         modelResolver.invalidate();
         RoutePlan plan = modelResolver.resolve(req.routeId());
         agentMapper.update(null, new UpdateWrapper<AgentEntity>()
@@ -501,6 +560,14 @@ public class LlmAdminService {
         return row;
     }
 
+    private AgentEntity requireAgent(Long id) {
+        AgentEntity row = id == null ? null : agentMapper.selectById(id);
+        if (row == null) {
+            throw new IllegalArgumentException("Agent 不存在: id=" + id);
+        }
+        return row;
+    }
+
     private Map<Long, LlmModelEntity> modelMap() {
         Map<Long, LlmModelEntity> models = new HashMap<>();
         List<LlmModelEntity> rows = modelMapper.selectList(null);
@@ -553,6 +620,19 @@ public class LlmAdminService {
         return new LlmAdminModels.ModelView(row.getId(), row.getProviderId(), providerCode,
                 row.getUpstreamName(), row.getDisplayName(), row.getCapabilities(),
                 row.getDefaultParams(), row.getEnabled());
+    }
+
+    private static LlmAdminModels.AgentView agentView(AgentEntity row, String routeCode) {
+        return new LlmAdminModels.AgentView(row.getAgentId(), row.getAgentName(),
+                row.getDescription(), row.getRouteId(), routeCode, row.getTools(),
+                row.getKnowledge(), row.getThinking(), row.getStatus(), row.getIsInternal());
+    }
+
+    private static Integer flag(Integer value, String field) {
+        if (value == null || (value != 0 && value != 1)) {
+            throw new IllegalArgumentException(field + " 只能是 0 或 1，实际 " + value);
+        }
+        return value;
     }
 
     private static void requireText(String value, String field) {

@@ -252,6 +252,110 @@ class LlmAdminServiceTest {
         verify(refresher).refresh();
     }
 
+    /* ---------------- Agent 配置 ---------------- */
+
+    private AgentEntity agentRow(Long id, String name) {
+        AgentEntity a = new AgentEntity();
+        a.setAgentId(id);
+        a.setAgentName(name);
+        a.setDescription("通用 AI 助手（默认）");
+        a.setRouteId(7L);
+        a.setTools("web, memory");
+        a.setThinking(1);
+        a.setStatus(1);
+        a.setIsInternal(0);
+        return a;
+    }
+
+    private LlmRouteEntity routeRow(Long id, String code) {
+        LlmRouteEntity r = new LlmRouteEntity();
+        r.setId(id);
+        r.setCode(code);
+        r.setDescription("主对话模型");
+        r.setStrategy("priority");
+        r.setEnabled(1);
+        return r;
+    }
+
+    @Test
+    void listAgents_includesRouteCodeAndRuntimeFlags() {
+        when(routeMapper.selectList(any())).thenReturn(List.of(routeRow(7L, "main")));
+        when(agentMapper.selectList(any())).thenReturn(List.of(agentRow(3L, "general")));
+
+        List<LlmAdminModels.AgentView> views = service.listAgents();
+
+        assertEquals(1, views.size());
+        assertEquals("general", views.get(0).name());
+        assertEquals("main", views.get(0).routeCode());
+        assertEquals("web, memory", views.get(0).tools());
+        assertEquals(1, views.get(0).thinking());
+        assertEquals(0, views.get(0).isInternal());
+    }
+
+    @Test
+    void updateAgent_unknownAgent_rejected() {
+        when(agentMapper.selectById(99L)).thenReturn(null);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.updateAgent(99L, new LlmAdminModels.AgentUpsert(
+                        "描述", 7L, null, null, 1, 1, 0)));
+
+        verify(agentMapper, never()).update(any(), any());
+        verifyNoInteractions(refresher);
+        verifyNoInteractions(modelResolver);
+    }
+
+    @Test
+    void updateAgent_nullRoute_rejected() {
+        when(agentMapper.selectById(3L)).thenReturn(agentRow(3L, "general"));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.updateAgent(3L, new LlmAdminModels.AgentUpsert(
+                        null, null, null, null, 1, 1, 0)));
+
+        verify(agentMapper, never()).update(any(), any());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void updateAgent_success_writesAllEditableFieldsAndRefreshes() {
+        when(agentMapper.selectById(3L)).thenReturn(agentRow(3L, "general"));
+        when(modelResolver.resolve(7L)).thenReturn(new RoutePlan(7L, "main", List.of()));
+
+        LlmAdminModels.AgentView view = service.updateAgent(3L,
+                new LlmAdminModels.AgentUpsert("新描述", 7L, "web, memory, history", null,
+                        0, 1, 1));
+
+        ArgumentCaptor<Wrapper<AgentEntity>> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(agentMapper).update(any(), captor.capture());
+        UpdateWrapper<AgentEntity> uw = (UpdateWrapper<AgentEntity>) captor.getValue();
+        assertTrue(uw.getSqlSet().contains("route_id"), uw.getSqlSet());
+        assertTrue(uw.getSqlSet().contains("description"), uw.getSqlSet());
+        assertTrue(uw.getSqlSet().contains("tools"), uw.getSqlSet());
+        assertTrue(uw.getSqlSet().contains("thinking"), uw.getSqlSet());
+        assertTrue(uw.getSqlSet().contains("status"), uw.getSqlSet());
+        assertTrue(uw.getSqlSet().contains("is_internal"), uw.getSqlSet());
+        assertEquals("main", view.routeCode());
+        assertEquals("新描述", view.description());
+        assertEquals(0, view.thinking());
+        assertEquals(1, view.isInternal());
+        verify(refresher).refresh();
+    }
+
+    @Test
+    void updateAgent_invalidFlag_rejectedBeforeWrite() {
+        when(agentMapper.selectById(3L)).thenReturn(agentRow(3L, "general"));
+        when(modelResolver.resolve(7L)).thenReturn(new RoutePlan(7L, "main", List.of()));
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.updateAgent(3L, new LlmAdminModels.AgentUpsert(
+                        "描述", 7L, null, null, 2, 1, 0)));
+
+        assertTrue(error.getMessage().contains("thinking"));
+        verify(agentMapper, never()).update(any(), any());
+        verifyNoInteractions(refresher);
+    }
+
     /* ---------------- Agent 绑定 ---------------- */
 
     @Test

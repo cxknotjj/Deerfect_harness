@@ -88,6 +88,17 @@ public class LlmAdminController {
         return service.testRoute(id);
     }
 
+    @GetMapping("/agents")
+    public List<LlmAdminModels.AgentView> listAgents() {
+        return service.listAgents();
+    }
+
+    @PutMapping("/agents/{id}")
+    public LlmAdminModels.AgentView updateAgent(
+            @PathVariable Long id, @RequestBody LlmAdminModels.AgentUpsert request) {
+        return service.updateAgent(id, request);
+    }
+
     @PutMapping("/agents/{id}/route")
     public void updateAgentRoute(@PathVariable Long id,
                                  @RequestBody LlmAdminModels.AgentRouteUpdate request) {

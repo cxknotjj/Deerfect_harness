@@ -15,6 +15,7 @@ import type { LlmModelView, LlmProviderUpsert, LlmProviderView, SessionView } fr
 import SystemSettingsPanel from './settings/SystemSettingsPanel.vue'
 import TtsSettingsPanel from './settings/TtsSettingsPanel.vue'
 import WorkspaceSettingsPanel from './settings/WorkspaceSettingsPanel.vue'
+import RouteAgentPanel from './settings/RouteAgentPanel.vue'
 
 defineProps<{
   theme: 'dark' | 'light'
@@ -29,7 +30,7 @@ const emit = defineEmits<{
   navigate: [page: 'security' | 'monitor' | 'skills']
 }>()
 
-type TabKey = 'workspace' | 'models' | 'tts' | 'system' | 'appearance' | 'prefs' | 'instance'
+type TabKey = 'workspace' | 'models' | 'routing' | 'tts' | 'system' | 'appearance' | 'prefs' | 'instance'
 type NavKey = TabKey | 'security' | 'monitor' | 'skills'
 interface NavItem {
   key: NavKey
@@ -46,6 +47,11 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
         key: 'models',
         label: '模型管理',
         icon: ['M12 3 3 8l9 5 9-5-9-5z', 'M3 8v8l9 5 9-5V8', 'M12 13v8'],
+      },
+      {
+        key: 'routing',
+        label: '路由与 Agent',
+        icon: ['M5 5h4l3 7h7', 'M5 19h4l3-7', 'M19 12h2'],
       },
       {
         key: 'workspace',
@@ -105,6 +111,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
 const TABS: Record<TabKey, { title: string; sub: string }> = {
   workspace: { title: '工作区', sub: '本地工作目录、会话归属与成员访问' },
   models: { title: '模型管理', sub: '配置模型提供商、凭证引用和模型列表' },
+  routing: { title: '路由与 Agent', sub: '模型路由配置与 Agent 绑定关系' },
   tts: { title: '语音合成', sub: '文本转语音服务与默认语音参数' },
   system: { title: '系统设置', sub: '界面偏好、运行时行为与本地数据管理' },
   appearance: { title: '外观', sub: '主题保存在本机 localStorage，不随账号同步' },
@@ -119,6 +126,8 @@ const systemPanel = ref<InstanceType<typeof SystemSettingsPanel> | null>(null)
 const ttsPanel = ref<InstanceType<typeof TtsSettingsPanel> | null>(null)
 /** 工作区的新建 / 导入按钮同样在页头右侧 */
 const workspacePanel = ref<InstanceType<typeof WorkspaceSettingsPanel> | null>(null)
+/** 路由与 Agent 的刷新、新建入口同样在页头右侧 */
+const routeAgentPanel = ref<InstanceType<typeof RouteAgentPanel> | null>(null)
 
 function onNav(item: NavItem): void {
   if (item.link) {
@@ -371,6 +380,10 @@ onMounted(() => {
               @click="loadLlm"
             >{{ llmLoading ? '读取中…' : '刷新' }}</button>
           </template>
+          <template v-else-if="tab === 'routing'">
+            <button class="res-btn" type="button" @click="routeAgentPanel?.reload()">刷新</button>
+            <button class="res-btn" type="button" @click="routeAgentPanel?.startCreateRoute()">+ 新建路由</button>
+          </template>
           <template v-else-if="tab === 'system'">
             <button class="res-btn" type="button" @click="systemPanel?.restoreDefaults()">恢复默认</button>
             <button class="res-btn res-btn-primary" type="button" @click="systemPanel?.save()">保存设置</button>
@@ -392,6 +405,9 @@ onMounted(() => {
         :sessions="sessions"
         @navigate="emit('navigate', 'security')"
       />
+
+      <!-- 路由与 Agent：路由卡片 + Agent 卡片 + 配置弹窗 -->
+      <RouteAgentPanel v-else-if="tab === 'routing'" ref="routeAgentPanel" />
 
       <!-- 模型管理 -->
       <template v-else-if="tab === 'models'">

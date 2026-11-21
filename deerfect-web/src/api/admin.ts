@@ -1,5 +1,5 @@
 /**
- * LLM 管理端点：供应商 / 模型（只读列表 + 供应商新增/编辑 + 启停）。
+ * LLM 管理端点：供应商 / 模型 / 路由 / Agent 配置。
  *
  * 与 `/api/admin` 对齐：响应体直接暴露表字段（含禁用行），**凭证值不落库也不返回**，
  * 只给 credentialRef（环境变量名）。密钥仍由部署侧环境变量提供，web 端不写密钥。
@@ -40,6 +40,66 @@ export interface LlmProviderUpsert {
   enabled: number
 }
 
+/** 路由成员视图（GET /api/admin/routes） */
+export interface LlmRouteMemberView {
+  modelId: number
+  upstreamName: string
+  providerCode: string
+  priority: number
+  enabled: number
+}
+
+/** 路由视图（GET /api/admin/routes） */
+export interface LlmRouteView {
+  id: number
+  code: string
+  description: string | null
+  strategy: string
+  enabled: number
+  members: LlmRouteMemberView[]
+}
+
+/** 路由成员入参；priority 在同一路由内必须唯一 */
+export interface LlmRouteMemberUpsert {
+  modelId: number
+  priority: number
+  enabled: number
+}
+
+/** 路由新增/编辑入参（POST|PUT /api/admin/routes） */
+export interface LlmRouteUpsert {
+  code: string
+  description: string | null
+  strategy: string
+  enabled: number
+  members: LlmRouteMemberUpsert[]
+}
+
+/** Agent 管理视图（GET /api/admin/agents）；name 是注册标识，不含在可写字段内 */
+export interface AdminAgentView {
+  id: number
+  name: string
+  description: string | null
+  routeId: number
+  routeCode: string | null
+  tools: string | null
+  knowledge: string | null
+  thinking: number | null
+  status: number
+  isInternal: number
+}
+
+/** Agent 配置入参（PUT /api/admin/agents/{id}） */
+export interface AdminAgentUpsert {
+  description: string | null
+  routeId: number
+  tools: string | null
+  knowledge: string | null
+  thinking: number
+  status: number
+  isInternal: number
+}
+
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
 /** 全部供应商（含禁用的） */
@@ -76,6 +136,43 @@ export function updateModelContextWindow(id: number, contextWindow: number): Pro
     method: 'PUT',
     headers: JSON_HEADERS,
     body: JSON.stringify({ contextWindow }),
+  })
+}
+
+/** 全部路由（含禁用的），成员按 priority 升序 */
+export function listLlmRoutes(): Promise<LlmRouteView[]> {
+  return request('/api/admin/routes')
+}
+
+/** 新增路由；至少一个成员，且同一路由内 priority 唯一 */
+export function createLlmRoute(body: LlmRouteUpsert): Promise<LlmRouteView> {
+  return request('/api/admin/routes', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  })
+}
+
+/** 编辑路由（整行提交；成员列表整体替换） */
+export function updateLlmRoute(id: number, body: LlmRouteUpsert): Promise<LlmRouteView> {
+  return request(`/api/admin/routes/${id}`, {
+    method: 'PUT',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  })
+}
+
+/** 全部 Agent（含内部角色）；routeCode 为 null 表示未绑定 */
+export function listAdminAgents(): Promise<AdminAgentView[]> {
+  return request('/api/admin/agents')
+}
+
+/** 保存 Agent 配置；agent_name 不可改，routeId 必须指向可用路由 */
+export function updateAdminAgent(id: number, body: AdminAgentUpsert): Promise<AdminAgentView> {
+  return request(`/api/admin/agents/${id}`, {
+    method: 'PUT',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
   })
 }
 
