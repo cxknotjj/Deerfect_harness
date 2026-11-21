@@ -5,6 +5,7 @@
  */
 <script setup lang="ts">
 import { ref } from 'vue'
+import { BRAND_MARK } from '../utils/brand'
 
 defineProps<{ busy?: boolean; error?: string }>()
 const emit = defineEmits<{ submit: [password: string] }>()
@@ -21,7 +22,7 @@ function submit(): void {
 <template>
   <main class="login-view">
     <form class="login-card" @submit.prevent="submit">
-      <img class="login-logo" src="/deerfect-mark.svg" alt="" />
+      <img class="login-logo" :src="BRAND_MARK" alt="" />
       <h1 class="login-title">DeerFect HARNESS</h1>
       <p class="login-sub">访问需要口令</p>
       <input

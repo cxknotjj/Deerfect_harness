@@ -6,6 +6,7 @@
 import { nextTick, ref, watch } from 'vue'
 import MessageBubble from '../MessageBubble.vue'
 import type { MessageItem } from '../../composables/useChat'
+import { BRAND_MARK } from '../../utils/brand'
 
 const props = defineProps<{ messages: MessageItem[]; streaming: boolean }>()
 const emit = defineEmits<{
@@ -15,8 +16,7 @@ const emit = defineEmits<{
   feedback: [type: string]
 }>()
 
-/** 空态 logo（动态绑定 URL，避免构建期把 public 资源解析成文件路径） */
-const LOGO_URL = '/deerfect-mark.svg'
+/** 空态 logo：public 资源要带 BASE_URL，Pages 子路径下才能加载 */
 
 const scrollEl = ref<HTMLDivElement | null>(null)
 /** 用户是否停在底部附近:是才自动跟随滚动;上翻阅读时不再强拉回底 */
@@ -69,7 +69,7 @@ function onRetry(): void {
 <template>
   <div ref="scrollEl" class="chat-scroll" @scroll="onScroll">
     <div v-if="messages.length === 0" class="chat-empty">
-      <img class="chat-empty-logo" :src="LOGO_URL" alt="" />
+      <img class="chat-empty-logo" :src="BRAND_MARK" alt="" />
       <p class="chat-empty-title">开始新的对话</p>
       <p class="chat-empty-sub">在下方输入消息,或试试这些问题</p>
       <div class="chat-empty-suggest">

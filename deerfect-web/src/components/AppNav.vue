@@ -12,6 +12,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useSystemHealth } from '../composables/systemHealth'
 import { WORKSPACES_EVENT, activeWorkspaceName } from '../utils/workspaces'
+import { BRAND_MARK_WHITE } from '../utils/brand'
 
 type PageId =
   | 'dashboard'
@@ -165,7 +166,7 @@ const healthText = computed(() => {
   <aside class="app-nav" aria-label="主导航">
     <header class="app-nav-head">
       <span class="nav-logo-wrap" aria-hidden="true">
-        <img class="nav-logo" src="/deerfect-mark-white.svg" alt="" />
+        <img class="nav-logo" :src="BRAND_MARK_WHITE" alt="" />
       </span>
       <div class="nav-brand">
         <div class="nav-brand-row">

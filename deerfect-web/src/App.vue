@@ -38,6 +38,7 @@ import { useOfflineGate, useUnreadBadge } from './composables/pwa'
 import { reportGlobalError, useGlobalError } from './composables/globalError'
 import { UI_KEYS, readBool, type ThemeMode } from './utils/uiPrefs'
 import { assignSessionToWorkspace } from './utils/workspaces'
+import { BRAND_MARK_WHITE } from './utils/brand'
 
 type PageId =
   | 'dashboard'
@@ -606,7 +607,7 @@ function downloadSessionLog(): void {
       <div v-if="isNarrow" class="mobile-bar">
         <button class="icon-btn" type="button" aria-label="打开导航" @click="navOpen = true">☰</button>
         <span class="mobile-logo-wrap" aria-hidden="true">
-          <img class="mobile-logo" src="/deerfect-mark-white.svg" alt="" />
+          <img class="mobile-logo" :src="BRAND_MARK_WHITE" alt="" />
         </span>
         <span class="mobile-title">{{ pageTitle }}</span>
         <button

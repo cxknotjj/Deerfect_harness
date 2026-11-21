@@ -26,6 +26,7 @@ describe('ChatMessageList', () => {
     })
 
     expect(wrapper.find('.chat-empty-title').text()).toBe('开始新的对话')
+    expect(wrapper.find('.chat-empty-logo').attributes('src')).toContain('deerfect-mark.svg')
     const chips = wrapper.findAll('.suggest-card')
     expect(chips).toHaveLength(4)
 
