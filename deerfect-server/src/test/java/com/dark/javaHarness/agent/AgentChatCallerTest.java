@@ -13,10 +13,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.agent.BudgetLedger;
+import com.dark.javaHarness.config.ChatTimeoutProperties;
 import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.llm.catalog.AgentCatalog;
 import com.dark.javaHarness.llm.client.LlmClientRegistry;
 import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RouteExecutor;
 import com.dark.javaHarness.llm.routing.RoutePlan;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.contract.model.AgentConfig;
@@ -123,9 +125,7 @@ class AgentChatCallerTest {
 
     @BeforeEach
     void setUp() {
-        caller = new AgentChatCaller(agentService, null, null, new LlmRetry(), null,
-                new PromptAssembler(agentService, null), null, null, null, null, null, null,
-                modelResolver, agentCatalog, llmClientRegistry, null);
+        caller = newCaller(null, null);
         // lenient：invokeOnce_disableTools 用例直接调 invokeAndRecord，不查表
         org.mockito.Mockito.lenient().when(agentService.getAgentConfig("researcher"))
                 .thenReturn(Optional.of(new AgentConfig(1L, "m1", "系统提示词", null)));
@@ -143,6 +143,21 @@ class AgentChatCallerTest {
         when(spec.options(any(OpenAiChatOptions.Builder.class))).thenReturn(spec);
         // call() 底层统一走流式通道收集完整内容（阻塞调用不可中断，流式是唯一可中止通道）
         when(spec.stream()).thenReturn(streamSpec);
+    }
+
+    /** 共享执行器测试装配：specFactory 与 caller 共用同一 PromptAssembler / 预算。 */
+    private AgentChatCaller newCaller(ContextBudgetProperties requestedBudgets,
+                                      ChatTimeoutProperties requestedTimeouts) {
+        ContextBudgetProperties budgets = requestedBudgets != null
+                ? requestedBudgets : new ContextBudgetProperties();
+        PromptAssembler assembler = new PromptAssembler(agentService, null);
+        AgentRequestSpecFactory specFactory = new AgentRequestSpecFactory(assembler, null, null,
+                budgets, null, List.of(), null, modelResolver, agentCatalog, llmClientRegistry);
+        ChatTimeoutProperties timeouts = requestedTimeouts != null
+                ? requestedTimeouts : new ChatTimeoutProperties();
+        return new AgentChatCaller(agentService, specFactory, null, new LlmRetry(), budgets,
+                assembler, null, timeouts, llmClientRegistry,
+                new RouteExecutor(RouteExecutor.DEFAULT_MAX_SAME_MEMBER_RETRIES));
     }
 
     @Test
@@ -260,9 +275,7 @@ class AgentChatCallerTest {
         budgets.setMaxTokensLead(1000);
         budgets.setMaxTokensFinal(3000);
         budgets.setMaxTokensExpert(2000);
-        AgentChatCaller tiered = new AgentChatCaller(agentService, null, null,
-                new LlmRetry(), budgets, new PromptAssembler(agentService, null), null, null, null,
-                null, null, null, modelResolver, agentCatalog, llmClientRegistry, null);
+        AgentChatCaller tiered = newCaller(budgets, null);
         when(agentService.getAgentConfig("lead"))
                 .thenReturn(Optional.of(new AgentConfig(1L, "m1", "系统提示词", null)));
         when(agentService.getAgentConfig("aggregator"))
@@ -423,9 +436,7 @@ class AgentChatCallerTest {
         com.dark.javaHarness.config.ChatTimeoutProperties timeouts =
                 new com.dark.javaHarness.config.ChatTimeoutProperties();
         timeouts.setStreamIdleTimeoutSeconds(1);
-        AgentChatCaller guarded = new AgentChatCaller(agentService, null, null,
-                new LlmRetry(), new ContextBudgetProperties(), new PromptAssembler(agentService, null),
-                null, null, null, null, timeouts, null, modelResolver, agentCatalog, llmClientRegistry, null);
+        AgentChatCaller guarded = newCaller(new ContextBudgetProperties(), timeouts);
         when(spec.stream()).thenReturn(streamSpec);
         when(streamSpec.chatResponse()).thenReturn(Flux.never());
 
@@ -449,9 +460,7 @@ class AgentChatCallerTest {
         com.dark.javaHarness.config.ChatTimeoutProperties timeouts =
                 new com.dark.javaHarness.config.ChatTimeoutProperties();
         timeouts.setStreamIdleTimeoutSeconds(30);
-        AgentChatCaller guarded = new AgentChatCaller(agentService, null, null,
-                new LlmRetry(), new ContextBudgetProperties(), new PromptAssembler(agentService, null),
-                null, null, null, null, timeouts, null, modelResolver, agentCatalog, llmClientRegistry, null);
+        AgentChatCaller guarded = newCaller(new ContextBudgetProperties(), timeouts);
         when(spec.stream()).thenReturn(streamSpec);
         when(streamSpec.chatResponse()).thenReturn(fluxOf("a", "b", "c"));
 

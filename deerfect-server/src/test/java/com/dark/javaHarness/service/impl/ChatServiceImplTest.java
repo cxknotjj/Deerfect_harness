@@ -111,7 +111,7 @@ class ChatServiceImplTest {
     }
 
     private Goal succeededGoal(String sessionId, String summary) {
-        Goal g = new Goal("goal-1", "hi", sessionId);
+        Goal g = Goal.newGoal("goal-1", "hi", sessionId);
         g.succeed(summary);
         return g;
     }
@@ -172,7 +172,7 @@ class ChatServiceImplTest {
     @Test
     void chat_failure_shouldNotWriteBackContext() {
         ChatRequest req = new ChatRequest("hi", "1", null);
-        Goal failed = new Goal("goal-2", "hi", "1");
+        Goal failed = Goal.newGoal("goal-2", "hi", "1");
         failed.fail("invalid_api_key");
         when(agentService.executeSync(anyString(), anyString(), anyString(), any(), any(), any(), any())).thenReturn(failed);
 
@@ -207,9 +207,9 @@ class ChatServiceImplTest {
     void chat_complexFallback_shouldPostProcessRetryReplyAndWriteBackCleanedText() {
         ChatRequest req = new ChatRequest("调研竞品", "50", null);
         when(routeJudge.plan(eq("调研竞品"), any(), any())).thenReturn(graphPlan());
-        Goal orchestration = new Goal("g-orch", "调研竞品", "50");
+        Goal orchestration = Goal.newGoal("g-orch", "调研竞品", "50");
         orchestration.fail("子任务 LLM 调用超时");
-        Goal retry = new Goal("g-retry", "调研竞品", "50");
+        Goal retry = Goal.newGoal("g-retry", "调研竞品", "50");
         retry.succeed("RAW-[[x]]重答结果");
         when(agentService.executeSync(eq("multi-agent"), eq("调研竞品"), eq("50"), any(), any(), any(), any())).thenReturn(orchestration);
         when(agentService.executeSync(eq("general"), eq("调研竞品"), eq("50"), any(), any(), any(), any())).thenReturn(retry);
@@ -257,7 +257,7 @@ class ChatServiceImplTest {
     @Test
     void chat_failed_doesNotAddVoiceFlag() {
         ChatRequest req = new ChatRequest("用语音说", "50", null);
-        Goal failed = new Goal("goal-voice", "用语音说", "50");
+        Goal failed = Goal.newGoal("goal-voice", "用语音说", "50");
         failed.fail("boom");
         when(agentService.executeSync(anyString(), anyString(), anyString(), any(), any(), any(), any())).thenReturn(failed);
 
@@ -520,9 +520,9 @@ class ChatServiceImplTest {
     void chat_complexOrchestrationFailed_shouldFallbackToSessionAgentRetry() {
         ChatRequest req = new ChatRequest("调研竞品", "50", null);
         when(routeJudge.plan(eq("调研竞品"), any(), any())).thenReturn(graphPlan());
-        Goal orchestration = new Goal("g-orch", "调研竞品", "50");
+        Goal orchestration = Goal.newGoal("g-orch", "调研竞品", "50");
         orchestration.fail("子任务 LLM 调用超时");
-        Goal retry = new Goal("g-retry", "调研竞品", "50");
+        Goal retry = Goal.newGoal("g-retry", "调研竞品", "50");
         retry.succeed("重答结果");
         when(agentService.executeSync(eq("multi-agent"), eq("调研竞品"), eq("50"), any(), any(), any(), any())).thenReturn(orchestration);
         when(agentService.executeSync(eq("general"), eq("调研竞品"), eq("50"), any(), any(), any(), any())).thenReturn(retry);
@@ -542,9 +542,9 @@ class ChatServiceImplTest {
     void chat_complexOrchestrationFailed_retryAlsoFails_shouldKeepBothErrors() {
         ChatRequest req = new ChatRequest("调研竞品", "50", null);
         when(routeJudge.plan(eq("调研竞品"), any(), any())).thenReturn(graphPlan());
-        Goal orchestration = new Goal("g-orch", "调研竞品", "50");
+        Goal orchestration = Goal.newGoal("g-orch", "调研竞品", "50");
         orchestration.fail("子任务 LLM 调用超时");
-        Goal retry = new Goal("g-retry", "调研竞品", "50");
+        Goal retry = Goal.newGoal("g-retry", "调研竞品", "50");
         retry.fail("重答同样超时");
         when(agentService.executeSync(eq("multi-agent"), eq("调研竞品"), eq("50"), any(), any(), any(), any())).thenReturn(orchestration);
         when(agentService.executeSync(eq("general"), eq("调研竞品"), eq("50"), any(), any(), any(), any())).thenReturn(retry);
@@ -781,7 +781,7 @@ class ChatServiceImplTest {
     /** goal 仍在执行中（RUNNING）→ ResumeConflictException（映射 409，防同一检查点双跑） */
     @Test
     void resume_runningGoal_throwsConflict() {
-        Goal running = new Goal("g-run", "复杂任务", "s1");
+        Goal running = Goal.newGoal("g-run", "复杂任务", "s1");
         running.markRunning();
         when(goalService.get("g-run")).thenReturn(Optional.of(running));
 
@@ -792,7 +792,7 @@ class ChatServiceImplTest {
     /** 已成功的 goal（SUCCEEDED）→ 拒绝续跑：检查点回放无新工作，且会把状态拉回 RUNNING */
     @Test
     void resume_succeededGoal_throwsConflict() {
-        Goal done = new Goal("g-done", "复杂任务", "s1");
+        Goal done = Goal.newGoal("g-done", "复杂任务", "s1");
         done.succeed("最终结果");
         when(goalService.get("g-done")).thenReturn(Optional.of(done));
 
@@ -803,7 +803,7 @@ class ChatServiceImplTest {
     /** 正常续跑：复用 goal 对象路由 multi-agent，SSE 输出带 goal 的 sessionId 与 goalId */
     @Test
     void resume_success_delegatesToAgentServiceWithSameGoal() {
-        Goal goal = new Goal("g-ok", "复杂任务", "s9");
+        Goal goal = Goal.newGoal("g-ok", "复杂任务", "s9");
         goal.fail("客户端断开，编排已取消");  // 非 RUNNING（断点续跑的核心场景：上次中断的 FAILED goal）
         when(goalService.get("g-ok")).thenReturn(Optional.of(goal));
         when(agentService.resumeStreamReactive(goal)).thenReturn(Flux.just("续跑答案"));

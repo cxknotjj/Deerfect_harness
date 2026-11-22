@@ -56,7 +56,7 @@ class AgentScopeGeneralAgentTest {
         when(factory.build(any(), any())).thenThrow(new IllegalStateException("模型不可用"));
 
         AgentScopeGeneralAgent agent = newAgent(factory, fallback);
-        Goal goal = new Goal("goal-fallback", "你好", SESSION, "turn-1", "trace-1");
+        Goal goal = Goal.newGoal("goal-fallback", "你好", SESSION, "turn-1", "trace-1");
 
         String content = agent.executeStreamReactive(goal)
                 .filter(line -> !ProgressLine.isProgress(line))
@@ -76,7 +76,7 @@ class AgentScopeGeneralAgentTest {
 
         LlmCallRecorder recorder = mock(LlmCallRecorder.class);
         AgentScopeGeneralAgent agent = newAgent(factory, null, recorder);
-        Goal goal = new Goal("goal-react", "用一句话介绍你自己", SESSION, "turn-1", "trace-1");
+        Goal goal = Goal.newGoal("goal-react", "用一句话介绍你自己", SESSION, "turn-1", "trace-1");
 
         String content = agent.executeStreamReactive(goal)
                 .filter(line -> !ProgressLine.isProgress(line))
@@ -103,7 +103,7 @@ class AgentScopeGeneralAgentTest {
         List<Message> history = List.of(new UserMessage("请记住：我的名字是小明"),
                 new AssistantMessage("好的，我记住了。"));
         AgentScopeGeneralAgent agent = newAgent(factory, null, recorder, history, assignments);
-        Goal goal = new Goal("goal-react-tool",
+        Goal goal = Goal.newGoal("goal-react-tool",
                 "我叫什么？请先调用 poc_now 工具，然后用我的名字和工具返回的时间回答。",
                 SESSION, "turn-2", "trace-2");
 
@@ -182,10 +182,14 @@ class AgentScopeGeneralAgentTest {
                 new RoutePlan.Member(9L, 1L, "deepseek", "https://api.deepseek.com", "deepseek-chat",
                         "deepseek-chat", 10, "{}", null))));
 
-        return new AgentScopeGeneralAgent(AGENT, agentService,
-                memoryStore, effectiveAssignments, recorder, budgets, lazyTools, assembler, null, null,
-                timeouts, factory, agentic, fallback, null, modelResolver, agentCatalog,
-                mock(LlmClientRegistry.class));
+        LlmClientRegistry clientRegistry = mock(LlmClientRegistry.class);
+        AgentRequestSpecFactory specFactory = new AgentRequestSpecFactory(assembler,
+                effectiveAssignments, memoryStore, budgets, null,
+                com.dark.javaHarness.tool.DefaultToolDecorators.defaults(lazyTools, null, budgets, recorder),
+                null, modelResolver, agentCatalog, clientRegistry);
+
+        return new AgentScopeGeneralAgent(AGENT, agentService, assembler, budgets, timeouts,
+                factory, agentic, specFactory, fallback, null, recorder);
     }
 
     private static OpenAIChatModel realDeepSeekModel() {

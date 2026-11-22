@@ -13,10 +13,14 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.dark.javaHarness.config.ChatTimeoutProperties;
+import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.llm.catalog.AgentCatalog;
 import com.dark.javaHarness.llm.client.LlmClientRegistry;
 import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RouteExecutor;
 import com.dark.javaHarness.llm.routing.RoutePlan;
+import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.contract.model.Goal;
 import com.dark.javaHarness.domain.entity.LlmCallLogEntity;
 import com.dark.javaHarness.mapper.LlmCallLogMapper;
@@ -81,8 +85,7 @@ class GeneralAssistantAgentTest {
 
     @BeforeEach
     void setUp() {
-        agent = new GeneralAssistantAgent("general", memoryStore, agentService, toolAssignments, null,
-                null, null, null, null, null, null, null, modelResolver, agentCatalog, llmClientRegistry, null);
+        agent = newAgent(null);
         when(agentService.getAgentConfig("general")).thenReturn(java.util.Optional.empty());
         lenient().when(toolAssignments.forAgent(any())).thenReturn(com.dark.javaHarness.tool.ToolAssignments.ToolSet.EMPTY);
         com.dark.javaHarness.domain.entity.AgentEntity routeAgent = new com.dark.javaHarness.domain.entity.AgentEntity();
@@ -96,6 +99,18 @@ class GeneralAssistantAgentTest {
         when(chatClient.prompt()).thenReturn(requestSpec);
     }
 
+    /** 测试装配：共享执行器 + specFactory，Agent 自身只保留 name/execute 协作者。 */
+    private GeneralAssistantAgent newAgent(LlmCallRecorder recorder) {
+        ContextBudgetProperties budgets = new ContextBudgetProperties();
+        PromptAssembler assembler = new PromptAssembler(agentService, toolAssignments);
+        AgentRequestSpecFactory specFactory = new AgentRequestSpecFactory(assembler, toolAssignments,
+                memoryStore, budgets, null, List.of(), null, modelResolver, agentCatalog, llmClientRegistry);
+        AgentChatCaller chatCaller = new AgentChatCaller(agentService, specFactory, recorder,
+                new LlmRetry(), budgets, assembler, memoryStore, new ChatTimeoutProperties(),
+                llmClientRegistry, new RouteExecutor(RouteExecutor.DEFAULT_MAX_SAME_MEMBER_RETRIES));
+        return new GeneralAssistantAgent("general", agentService, chatCaller, new LlmRetry(), budgets);
+    }
+
     /** 喂 N 片 token 就应透传 N 个元素；退化实现只会产出单个整段元素 */
     @Test
     void executeStreamReactive_shouldEmitTokensProgressively() {
@@ -106,7 +121,7 @@ class GeneralAssistantAgentTest {
         when(requestSpec.stream()).thenReturn(streamSpec);
         when(streamSpec.chatResponse()).thenReturn(fluxOf(tokens.toArray(new String[0])));
 
-        List<String> out = agent.executeStreamReactive(new Goal("g1", "自我介绍"))
+        List<String> out = agent.executeStreamReactive(Goal.newGoal("g1", "自我介绍"))
                 .collectList()
                 .block();
 
@@ -130,7 +145,7 @@ class GeneralAssistantAgentTest {
                 fluxOf(tokens.toArray(new String[0])),
                 Flux.just(new ChatResponse(List.of()))));
 
-        List<String> out = agent.executeStreamReactive(new Goal("g2", "自我介绍"))
+        List<String> out = agent.executeStreamReactive(Goal.newGoal("g2", "自我介绍"))
                 .collectList()
                 .block();
 
@@ -153,11 +168,9 @@ class GeneralAssistantAgentTest {
         when(streamSpec.chatResponse()).thenReturn(fluxOf("你好"));
 
         LlmCallLogMapper mapper = mock(LlmCallLogMapper.class);
-        GeneralAssistantAgent observed = new GeneralAssistantAgent("general", memoryStore,
-                agentService, toolAssignments,
-                new LlmCallRecorder(mapper, mock(com.dark.javaHarness.mapper.ToolCallLogMapper.class)),
-                null, null, null, null, null, null, null, modelResolver, agentCatalog, llmClientRegistry, null);
-        observed.executeStreamReactive(new Goal("g3", "自我介绍")).collectList().block();
+        GeneralAssistantAgent observed = newAgent(new LlmCallRecorder(mapper,
+                mock(com.dark.javaHarness.mapper.ToolCallLogMapper.class)));
+        observed.executeStreamReactive(Goal.newGoal("g3", "自我介绍")).collectList().block();
 
         verify(mapper, timeout(2000)).insert(argThat((LlmCallLogEntity e) ->
                 "fetchUrl".equals(e.getToolNames())
@@ -180,7 +193,7 @@ class GeneralAssistantAgentTest {
                 .thenReturn(Flux.error(new TimeoutException("Did not observe any item within 120000ms")))
                 .thenReturn(fluxOf("重试", "成功"));
 
-        List<String> out = agent.executeStreamReactive(new Goal("g4", "自我介绍"))
+        List<String> out = agent.executeStreamReactive(Goal.newGoal("g4", "自我介绍"))
                 .collectList()
                 .block(Duration.ofSeconds(5));
 
@@ -206,11 +219,9 @@ class GeneralAssistantAgentTest {
                 .thenReturn(fluxOf("好"));
 
         LlmCallLogMapper mapper = mock(LlmCallLogMapper.class);
-        GeneralAssistantAgent observed = new GeneralAssistantAgent("general", memoryStore,
-                agentService, toolAssignments,
-                new LlmCallRecorder(mapper, mock(com.dark.javaHarness.mapper.ToolCallLogMapper.class)),
-                null, null, null, null, null, null, null, modelResolver, agentCatalog, llmClientRegistry, null);
-        observed.executeStreamReactive(new Goal("g5", "自我介绍")).collectList().block(Duration.ofSeconds(5));
+        GeneralAssistantAgent observed = newAgent(new LlmCallRecorder(mapper,
+                mock(com.dark.javaHarness.mapper.ToolCallLogMapper.class)));
+        observed.executeStreamReactive(Goal.newGoal("g5", "自我介绍")).collectList().block(Duration.ofSeconds(5));
 
         ArgumentCaptor<LlmCallLogEntity> captor = ArgumentCaptor.forClass(LlmCallLogEntity.class);
         verify(mapper, timeout(2000).times(2)).insert(captor.capture());
@@ -234,7 +245,7 @@ class GeneralAssistantAgentTest {
                 fluxOf("你"), Flux.error(new TimeoutException("watchdog"))));
 
         try {
-            agent.executeStreamReactive(new Goal("g6", "自我介绍")).collectList().block(Duration.ofSeconds(5));
+            agent.executeStreamReactive(Goal.newGoal("g6", "自我介绍")).collectList().block(Duration.ofSeconds(5));
             assertTrue(false, "部分输出后失败应原样抛出，不应吞错");
         } catch (RuntimeException expected) {
             // 预期：错误上抛（block 包装形态不限）
@@ -252,7 +263,7 @@ class GeneralAssistantAgentTest {
         when(streamSpec.chatResponse()).thenReturn(Flux.error(new IllegalStateException("供应商 4xx")));
 
         try {
-            agent.executeStreamReactive(new Goal("g7", "自我介绍")).collectList().block(Duration.ofSeconds(5));
+            agent.executeStreamReactive(Goal.newGoal("g7", "自我介绍")).collectList().block(Duration.ofSeconds(5));
             assertTrue(false, "不可重试错误应原样抛出");
         } catch (RuntimeException expected) {
             // 预期：错误上抛

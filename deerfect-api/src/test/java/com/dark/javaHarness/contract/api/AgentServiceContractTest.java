@@ -82,7 +82,7 @@ class AgentServiceContractTest {
 
     @Test
     void resumeStreamReactive_movesGoalBackToRunningBeforeEmitting() {
-        Goal goal = new Goal("g-resume", "复杂任务", "s4");
+        Goal goal = Goal.newGoal("g-resume", "复杂任务", "s4");
         goal.fail("客户端断开");
 
         Flux<String> stream = service.resumeStreamReactive(goal);
@@ -115,7 +115,7 @@ class AgentServiceContractTest {
 
         @Override
         public Goal submit(String agentName, String objective) {
-            return new Goal("g-async", objective);
+            return Goal.newGoal("g-async", objective);
         }
 
         /** 契约只要求「受理与否」可判定；内存替身不做真实重投 */
@@ -149,7 +149,7 @@ class AgentServiceContractTest {
         @Override
         public Goal executeSync(String agentName, String objective, String sessionId, String turnId,
                                 String traceId, String channel, List<ChatAttachment> attachments) {
-            Goal goal = new Goal("g-sync", objective, sessionId, turnId, traceId, channel);
+            Goal goal = Goal.newGoal("g-sync", objective, sessionId, turnId, traceId, channel);
             goal.markRunning();
             goal.succeed("done");
             return goal;

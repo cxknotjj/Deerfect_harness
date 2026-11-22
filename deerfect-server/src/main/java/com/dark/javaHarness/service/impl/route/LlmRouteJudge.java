@@ -217,14 +217,17 @@ public class LlmRouteJudge implements RouteJudge {
                 + LlmCallRecorder.estimateTokens(message);
         // 发起时刻由耗时反推（重试回调只给耗时；回调与耗时计算同一时钟读数，差值即发起瞬间）
         long start = System.currentTimeMillis() - durationMs;
-        recorder.record(new LlmCallLog(sessionId, ROUTE_AGENT, settings.model(), false, ok,
-                promptTokens, null, null, true,
-                durationMs, LlmCallRecorder.describeError(e),
-                null, null, null, null, null, null, null, null,
-                turnId, null, null, null, LlmCallRecorder.startedAt(start),
-                settings.routeId(), settings.routeCode(), settings.modelId(), settings.providerCode(),
-                settings.model(), null,
-                ok ? null : com.dark.javaHarness.llm.routing.FailurePolicy.errorClass(e)));
+        recorder.record(LlmCallLog.builder()
+                .call(sessionId, ROUTE_AGENT, settings.model(), false, ok)
+                .usage(promptTokens, null, null, true, null)
+                .timing(durationMs, null)
+                .error(LlmCallRecorder.describeError(e),
+                        ok ? null : com.dark.javaHarness.llm.routing.FailurePolicy.errorClass(e))
+                .attempt(null, null)
+                .trace(turnId, null, null, null, LlmCallRecorder.startedAt(start))
+                .route(settings.routeId(), settings.routeCode(), settings.modelId(),
+                        settings.providerCode(), settings.model(), null)
+                .build());
     }
 
     /** 解析 LLM 返回内容中的 route/confidence/workstreams；非法/缺失一律兜底 Agentic。 */

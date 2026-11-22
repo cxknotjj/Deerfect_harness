@@ -66,7 +66,7 @@ class ContextCompositionAdvisorChainTest {
                 mock(com.dark.javaHarness.mapper.ContextCompositionLogMapper.class),
                 new tools.jackson.databind.ObjectMapper());
         AgentRequestSpecFactory factory = new AgentRequestSpecFactory(assembler,
-                null, null, null, null, new ContextBudgetProperties(), null, null, List.of(), recorder,
+                null, null, new ContextBudgetProperties(), null, List.of(), recorder,
                 modelResolver, agentCatalog, registry);
 
         AgentRequestSpecFactory.Assembly assembly =

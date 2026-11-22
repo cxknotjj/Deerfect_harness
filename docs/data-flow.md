@@ -475,19 +475,22 @@ AgentChatCaller.buildSpec()（统一出口）
 ```
 启动期
    AgentConfigProvider.listAgentNames()（只返回 is_internal=0 的对话行）
-     → AgentRegistry 注册全部对话 Agent（构造 Agent + ChatClient 失败 → fail-safe 跳过该行，
+     → AgentRegistry 注册全部对话 Agent（AgentFactory.create(name)：
+       agentic 开启 → AgentScope ReAct，否则 ChatClient；构造失败 → fail-safe 跳过该行，
        warn 不拖垮启动；general 缺行 → 代码兜底注册，DB 优先不合并）
 
 请求期（AgentServiceImpl.requireAgent / getAgentConfig）
    注册表命中 → 直取实例（零 DB 查询）
    未命中（如 CLI /agent 切到新插入的 nailong）
-     → 查表惰性注册：ConcurrentHashMap.computeIfAbsent 原子构造（并发请求只构造一次）
+     → 查表惰性注册：ConcurrentHashMap.computeIfAbsent 原子构造（并发请求只构造一次，
+       构造委托共享 AgentFactory）
      → 表中无该行 → 抛「未知 Agent」（CLI 展示可用列表）
      ⚠️ 运行中插行即生效（免重启）；已有行的配置改动走 30s 缓存。查表仅依赖 Dao 层，无循环依赖
 ```
 
 **关键点**：① 单一事实来源（agent 表）；② internal 标记避免编排角色被对话路由选中；
-③ fail-safe（脏行不影响其它 Agent 与启动）；④ 兜底语义明确（general 代码兜底仅缺行时，两来源不合并）。
+③ fail-safe（脏行不影响其它 Agent 与启动）；④ 兜底语义明确（general 代码兜底仅缺行时，两来源不合并）；
+⑤ 装配收敛（AgentFactory 统一变体选择，AgentChatCaller / AgentRequestSpecFactory 为共享单例）。
 
 **测试**：`AgentRegistryTest`（自动注册/惰性热注册/internal 排除/兜底/脏数据跳过）+ `AgentServiceImplTest` 适配。
 

@@ -65,7 +65,7 @@ class LlmRequestLogAdvisorChainTest {
                 .thenReturn(List.of(new PromptAssembler.RenderedSection("角色", "SYS", 1)));
 
         AgentRequestSpecFactory factory = new AgentRequestSpecFactory(assembler,
-                null, null, null, null, new ContextBudgetProperties(), null, null, List.of(), null,
+                null, null, new ContextBudgetProperties(), null, List.of(), null,
                 modelResolver, agentCatalog, registry);
 
         Logger logger = (Logger) LoggerFactory.getLogger(com.dark.javaHarness.observability.LlmRequestLogAdvisor.class);

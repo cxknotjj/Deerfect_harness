@@ -91,7 +91,7 @@ class AgentServiceImplTest {
     private final AtomicReference<String> routedTo = new AtomicReference<>();
 
     private Goal stubGoal(String agentName, String sessionId) {
-        Goal g = new Goal("goal-x", "hi", sessionId);
+        Goal g = Goal.newGoal("goal-x", "hi", sessionId);
         when(goalService.create(any(), any(), any(), any(), any(), any())).thenReturn(g);
         return g;
     }
@@ -153,7 +153,7 @@ class AgentServiceImplTest {
     void resumeStreamReactive_routesToMultiAgentAndReusesGoal() {
         when(agentRegistry.require("multi-agent")).thenReturn(recordingAgent("multi-agent"));
 
-        Goal goal = new Goal("goal-resume", "复杂任务", "s1");
+        Goal goal = Goal.newGoal("goal-resume", "复杂任务", "s1");
         java.util.List<String> tokens = agentService.resumeStreamReactive(goal).collectList().block();
 
         // 流首为 goal 进度行（goalId 尽早下发供 CLI /resume 记录），随后是 agent 输出
@@ -220,7 +220,7 @@ class AgentServiceImplTest {
     /** 重投跑的是「同一个 goal」：轨迹与会话归属不变，只把状态重置回 PENDING */
     @Test
     void retry_failedGoal_requeuesSameGoal() {
-        Goal failed = new Goal("goal-r", "重试任务", "s1", "turn-1", "trace-1", null, "general");
+        Goal failed = Goal.newConversationGoal("goal-r", "重试任务", "s1", "turn-1", "trace-1", null, "general");
         failed.fail("模型 500");
         when(goalService.get("goal-r")).thenReturn(Optional.of(failed));
         when(agentRegistry.require("general")).thenReturn(recordingAgent("general"));
@@ -235,7 +235,7 @@ class AgentServiceImplTest {
     /** 没有记录 agent 的 goal 不可重投：不知道用谁跑，宁可停在 FAILED */
     @Test
     void retry_goalWithoutAgent_returnsFalse() {
-        Goal failed = new Goal("goal-n", "无 agent", "s1");
+        Goal failed = Goal.newGoal("goal-n", "无 agent", "s1");
         failed.fail("boom");
         when(goalService.get("goal-n")).thenReturn(Optional.of(failed));
 
@@ -244,7 +244,7 @@ class AgentServiceImplTest {
 
     @Test
     void retry_succeededGoal_returnsFalse() {
-        Goal done = new Goal("goal-ok", "已完成", "s1", "t", "tr", null, "general");
+        Goal done = Goal.newConversationGoal("goal-ok", "已完成", "s1", "t", "tr", null, "general");
         done.succeed("done");
         when(goalService.get("goal-ok")).thenReturn(Optional.of(done));
 
@@ -253,7 +253,7 @@ class AgentServiceImplTest {
 
     @Test
     void retry_agentGone_returnsFalse() {
-        Goal failed = new Goal("goal-g", "x", "s1", "t", "tr", null, "ghost");
+        Goal failed = Goal.newConversationGoal("goal-g", "x", "s1", "t", "tr", null, "ghost");
         failed.fail("boom");
         when(goalService.get("goal-g")).thenReturn(Optional.of(failed));
         when(agentRegistry.require("ghost")).thenThrow(new IllegalArgumentException("未知 Agent: ghost"));
@@ -264,7 +264,7 @@ class AgentServiceImplTest {
     /** 首次失败就安排重投（1 分钟后）；次数用尽后不再安排 */
     @Test
     void executeSync_failure_schedulesRetryUntilLimit() {
-        Goal goal = new Goal("goal-f", "x", "s1", "t", "tr", null, "general");
+        Goal goal = Goal.newConversationGoal("goal-f", "x", "s1", "t", "tr", null, "general");
         when(goalService.create(any(), any(), any(), any(), any(), any())).thenReturn(goal);
         when(agentRegistry.require("general")).thenReturn(new Agent() {
             @Override
@@ -289,7 +289,7 @@ class AgentServiceImplTest {
      */
     @Test
     void executeSync_cancelled_doesNotScheduleRetry() {
-        Goal goal = new Goal("goal-c", "x", "s1", "t", "tr", null, "general");
+        Goal goal = Goal.newConversationGoal("goal-c", "x", "s1", "t", "tr", null, "general");
         when(goalService.create(any(), any(), any(), any(), any(), any())).thenReturn(goal);
         when(agentRegistry.require("general")).thenReturn(new Agent() {
             @Override
@@ -370,7 +370,7 @@ class AgentServiceImplTest {
             });
             when(agentRegistry.require("general")).thenReturn(agent);
             when(goalService.create(anyString(), any(), any(), any(), any(), any()))
-                    .thenAnswer(inv -> new Goal("goal-" + UUID.randomUUID(), inv.getArgument(0, String.class)));
+                    .thenAnswer(inv -> Goal.newGoal("goal-" + UUID.randomUUID(), inv.getArgument(0, String.class)));
             AgentServiceImpl svc = new AgentServiceImpl(goalService, agentConfigProvider, agentRegistry, executor);
 
             int n = 10;
@@ -417,7 +417,7 @@ class AgentServiceImplTest {
             });
             when(agentRegistry.require("general")).thenReturn(agent);
             when(goalService.create(anyString(), any(), any(), any(), any(), any()))
-                    .thenAnswer(inv -> new Goal("goal-reject", inv.getArgument(0, String.class)));
+                    .thenAnswer(inv -> Goal.newGoal("goal-reject", inv.getArgument(0, String.class)));
             AgentServiceImpl svc = new AgentServiceImpl(goalService, agentConfigProvider, agentRegistry, executor);
 
             svc.submit("general", "第一个任务占住唯一线程");
@@ -440,7 +440,7 @@ class AgentServiceImplTest {
         when(agent.execute(any())).thenThrow(new LinkageError("类加载失败"));
         when(agentRegistry.require("general")).thenReturn(agent);
         when(goalService.create(anyString(), any(), any(), any(), any(), any()))
-                .thenAnswer(inv -> new Goal("goal-error", inv.getArgument(0, String.class)));
+                .thenAnswer(inv -> Goal.newGoal("goal-error", inv.getArgument(0, String.class)));
 
         Goal goal = agentService.submit("general", "obj"); // setUp 注入 Runnable::run，同步执行
 

@@ -80,6 +80,7 @@ deerfect-server/src/main/java/com/dark/javaHarness/
 ├── exception/                    # Global exception handling (@RestControllerAdvice, uniform {code, message})
 ├── agent/                        # Agent abstractions, orchestration & LLM calls
 │   ├── Agent.java / AgentRegistry.java    # Agent interface and registry
+│   ├── AgentFactory.java           # Agent variant factory (agentic switch → ReAct / ChatClient; registry only routes)
 │   ├── AgentScopeGeneralAgent.java # Agentic path: AgentScope ReAct reasoning-action loop
 │   ├── agentic/                    # Agentic path adapters
 │   │   ├── AgentScopeModelFactory.java  # Agent route primary member → AgentScope OpenAI-compatible Model

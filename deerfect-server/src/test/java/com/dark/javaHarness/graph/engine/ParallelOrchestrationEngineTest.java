@@ -39,7 +39,7 @@ class ParallelOrchestrationEngineTest {
         ParallelOrchestrationEngine engine = new ParallelOrchestrationEngine(
                 nodes, mock(OrchestrationBudget.class), store, 2);
 
-        String answer = engine.execute(new Goal("g1", "今天天气", null, null, null));
+        String answer = engine.execute(Goal.newGoal("g1", "今天天气", null, null, null));
 
         assertEquals("今天晴", answer);
         verify(store).save(eq("g1"), eq(OrchestrationStage.LEAD_DONE), anyMap());
@@ -62,7 +62,7 @@ class ParallelOrchestrationEngineTest {
         ParallelOrchestrationEngine engine = new ParallelOrchestrationEngine(
                 nodes, mock(OrchestrationBudget.class), null, 2);
 
-        String answer = engine.execute(new Goal("g2", "两个问题", null, null, null));
+        String answer = engine.execute(Goal.newGoal("g2", "两个问题", null, null, null));
 
         assertTrue(answer.contains("结论0"), "应包含第一个子任务结果");
         assertTrue(answer.contains("结论1"), "应包含第二个子任务结果");
@@ -88,7 +88,7 @@ class ParallelOrchestrationEngineTest {
         ParallelOrchestrationEngine engine = new ParallelOrchestrationEngine(
                 nodes, mock(OrchestrationBudget.class), null, 2);
 
-        String answer = engine.execute(new Goal("g4", "两个问题", null, null, null));
+        String answer = engine.execute(Goal.newGoal("g4", "两个问题", null, null, null));
 
         assertTrue(answer.contains("结论1"), "失败槽位不应拖垮其余子任务结果：" + answer);
         assertTrue(!answer.contains(SubtaskResults.FAILED), "失败占位不进入最终摘要：" + answer);
@@ -109,6 +109,6 @@ class ParallelOrchestrationEngineTest {
                 nodes, mock(OrchestrationBudget.class), null, 1);
 
         assertThrows(IllegalStateException.class,
-                () -> engine.execute(new Goal("g3", "单问题", null, null, null)));
+                () -> engine.execute(Goal.newGoal("g3", "单问题", null, null, null)));
     }
 }

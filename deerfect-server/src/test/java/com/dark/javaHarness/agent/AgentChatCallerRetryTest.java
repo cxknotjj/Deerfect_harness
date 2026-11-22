@@ -7,10 +7,14 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.dark.javaHarness.config.ChatTimeoutProperties;
+import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.llm.catalog.AgentCatalog;
 import com.dark.javaHarness.llm.client.LlmClientRegistry;
 import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RouteExecutor;
 import com.dark.javaHarness.llm.routing.RoutePlan;
+import com.dark.javaHarness.observability.LlmCallRecorder;
 import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.contract.api.AgentService;
 import com.dark.javaHarness.tool.ToolAssignments;
@@ -69,11 +73,19 @@ class AgentChatCallerRetryTest {
     }
 
     private AgentChatCaller callerWithClient(ChatClient client) {
+        return callerWithClient(client, null, new LlmRetry(3, 1));
+    }
+
+    private AgentChatCaller callerWithClient(ChatClient client, LlmCallRecorder recorder,
+                                             LlmRetry retry) {
         when(clientRegistry.get(9L)).thenReturn(client);
-        // 基准退避调小加速，确保测试不慢
-        return new AgentChatCaller(agentService, toolAssignments, null,
-                new LlmRetry(3, 1), null, new PromptAssembler(agentService, toolAssignments),
-                null, null, null, null, null, null, modelResolver, agentCatalog, clientRegistry, null);
+        ContextBudgetProperties budgets = new ContextBudgetProperties();
+        PromptAssembler assembler = new PromptAssembler(agentService, toolAssignments);
+        AgentRequestSpecFactory specFactory = new AgentRequestSpecFactory(assembler, toolAssignments,
+                null, budgets, null, List.of(), null, modelResolver, agentCatalog, clientRegistry);
+        return new AgentChatCaller(agentService, specFactory, recorder, retry, budgets, assembler,
+                null, new ChatTimeoutProperties(), clientRegistry,
+                new RouteExecutor(RouteExecutor.DEFAULT_MAX_SAME_MEMBER_RETRIES));
     }
 
     /** 组装一个流式 stub 客户端：chatResponse() 的 Flux 由调用方逐次给出，calls 计数每次尝试 +1 */
@@ -124,9 +136,7 @@ class AgentChatCallerRetryTest {
         org.mockito.ArgumentCaptor<com.dark.javaHarness.domain.LlmCallLog> captor =
                 org.mockito.ArgumentCaptor.forClass(com.dark.javaHarness.domain.LlmCallLog.class);
         when(clientRegistry.get(9L)).thenReturn(stub.client());
-        new AgentChatCaller(agentService, toolAssignments, recorder,
-                new LlmRetry(3, 1), null, new PromptAssembler(agentService, toolAssignments),
-                null, null, null, null, null, null, modelResolver, agentCatalog, clientRegistry, null)
+        callerWithClient(stub.client(), recorder, new LlmRetry(3, 1))
                 .call("s1", "coder", "sys", "任务");
 
         org.mockito.Mockito.verify(recorder, org.mockito.Mockito.times(2)).record(captor.capture());

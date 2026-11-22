@@ -84,13 +84,14 @@ class PortSignatureGuardTest {
     @Test
     void goal_signatureSnapshot() {
         Set<String> expected = new TreeSet<>(Set.of(
-                "<init>(String,String)",
-                "<init>(String,String,String)",
-                "<init>(String,String,String,String,String)",
-                "<init>(String,String,String,String,String,String)",
-                "<init>(String,String,String,String,String,String,String)",
-                "<init>(String,String,String,GoalStatus,LocalDateTime,LocalDateTime,String,String,String,String,LocalDateTime,String,int,LocalDateTime)",
-                "<init>(String,String,String,GoalStatus,LocalDateTime,LocalDateTime,String,String,String,String,LocalDateTime)",
+                "newGoal(String,String):Goal",
+                "newGoal(String,String,String):Goal",
+                "newGoal(String,String,String,String,String):Goal",
+                "newGoal(String,String,String,String,String,String):Goal",
+                "newConversationGoal(String,String,String,String,String,String,String):Goal",
+                "newActiveGoal(String,String,String):Goal",
+                "restore(String,String,String,GoalStatus,LocalDateTime,LocalDateTime,String,String,String,String,LocalDateTime):Goal",
+                "restore(String,String,String,GoalStatus,LocalDateTime,LocalDateTime,String,String,String,String,LocalDateTime,String,int,LocalDateTime):Goal",
                 "markRunning():void",
                 "touchProgress():void",
                 "succeed(String):void",

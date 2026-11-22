@@ -166,7 +166,7 @@ class ScheduleServiceImplTest {
         LocalDateTime past = LocalDateTime.now().minusMinutes(1);
         ScheduleEntity row = entity("sched-1", "0 0 8 * * *", past);
         when(mapper.selectList(any())).thenReturn(List.of(row));
-        when(agentService.submit("general", "每日早报")).thenReturn(new Goal("goal-1", "每日早报"));
+        when(agentService.submit("general", "每日早报")).thenReturn(Goal.newGoal("goal-1", "每日早报"));
 
         assertEquals(1, service.dispatchDue());
 
@@ -200,7 +200,7 @@ class ScheduleServiceImplTest {
     void dispatchDue_cronNeverFires_disables() {
         ScheduleEntity row = entity("sched-3", "0 0 0 30 2 *", LocalDateTime.now().minusMinutes(1));
         when(mapper.selectList(any())).thenReturn(List.of(row));
-        when(agentService.submit(any(), any())).thenReturn(new Goal("goal-3", "x"));
+        when(agentService.submit(any(), any())).thenReturn(Goal.newGoal("goal-3", "x"));
 
         service.dispatchDue();
 
@@ -225,7 +225,7 @@ class ScheduleServiceImplTest {
         // 第一次 selectList 是 collectPending（上一轮），第二次是 dispatchDue（无到期任务）
         when(mapper.selectList(any())).thenReturn(List.of(row), List.of());
 
-        Goal done = new Goal("goal-old", "早报");
+        Goal done = Goal.newGoal("goal-old", "早报");
         done.succeed("上一轮的结果");
         when(goalService.get("goal-old")).thenReturn(Optional.of(done));
 
@@ -259,7 +259,7 @@ class ScheduleServiceImplTest {
     void notifyFinished_goalRunning_waits() {
         ScheduleEntity row = pendingNotify("s1");
         when(mapper.selectList(any())).thenReturn(List.of(row));
-        Goal running = new Goal("goal-s1", "早报");
+        Goal running = Goal.newGoal("goal-s1", "早报");
         running.markRunning();
         when(goalService.get("goal-s1")).thenReturn(Optional.of(running));
 
@@ -274,7 +274,7 @@ class ScheduleServiceImplTest {
     void notifyFinished_succeeded_sendsAndMarks() {
         ScheduleEntity row = pendingNotify("s2");
         when(mapper.selectList(any())).thenReturn(List.of(row));
-        Goal done = new Goal("goal-s2", "早报");
+        Goal done = Goal.newGoal("goal-s2", "早报");
         done.succeed("昨天完成 3 个任务");
         when(goalService.get("goal-s2")).thenReturn(Optional.of(done));
 
@@ -314,7 +314,7 @@ class ScheduleServiceImplTest {
     void notifyFinished_enqueueFails_notMarked() {
         ScheduleEntity row = pendingNotify("s4");
         when(mapper.selectList(any())).thenReturn(List.of(row));
-        Goal done = new Goal("goal-s4", "早报");
+        Goal done = Goal.newGoal("goal-s4", "早报");
         done.fail("模型超时");
         when(goalService.get("goal-s4")).thenReturn(Optional.of(done));
         when(outbox.enqueue(any(), any(), any(), any())).thenThrow(new IllegalStateException("db down"));

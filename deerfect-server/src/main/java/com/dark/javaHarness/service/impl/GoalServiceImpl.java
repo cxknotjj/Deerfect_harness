@@ -31,16 +31,15 @@ public class GoalServiceImpl implements GoalService {
     public Goal create(String objective, String sessionId, String turnId, String traceId, String channel,
                        String agentName) {
         // UUID 保证重启/并发下主键唯一，避免内存序号与库中已有数据冲突
-        Goal goal = new Goal("goal-" + UUID.randomUUID(), objective, sessionId, turnId, traceId,
-                channel, agentName);
+        Goal goal = Goal.newConversationGoal("goal-" + UUID.randomUUID(), objective, sessionId, turnId,
+                traceId, channel, agentName);
         goalMapper.insert(toEntity(goal));
         return goal;
     }
 
     @Override
     public Goal createActive(String objective, String sessionId) {
-        Goal goal = new Goal("goal-" + UUID.randomUUID(), objective, sessionId,
-                GoalStatus.ACTIVE, LocalDateTime.now(), null, null, null, null, null, null, null, 0, null);
+        Goal goal = Goal.newActiveGoal("goal-" + UUID.randomUUID(), objective, sessionId);
         goalMapper.insert(toEntity(goal));
         log.info("[goal] 登记长期目标 {}（session={}）: {}", goal.id(), sessionId, objective);
         return goal;
@@ -167,7 +166,7 @@ public class GoalServiceImpl implements GoalService {
             return null;
         }
         // 轨迹标识不入 goal 表，恢复为 null（resume 场景的调用链归属由编排侧处理）
-        return new Goal(e.getId(), e.getObjective(), e.getSessionId(),
+        return Goal.restore(e.getId(), e.getObjective(), e.getSessionId(),
                 GoalStatus.valueOf(e.getStatus()), e.getCreatedAt(), e.getFinishedAt(), e.getSummary(),
                 null, null, e.getChannel(), e.getLastProgressAt(),
                 e.getAgentName(), e.getRetryCount() == null ? 0 : e.getRetryCount(), e.getNextRetryAt());

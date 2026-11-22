@@ -58,7 +58,7 @@ import org.springframework.ai.tool.definition.ToolDefinition;
  * 启用、记忆注入条件由调用方策略判定、maxTokens 档位由调用方解析），工厂本身不感知
  * 编排角色语义。
  */
-final class AgentRequestSpecFactory {
+public final class AgentRequestSpecFactory {
 
     private static final Logger log = LoggerFactory.getLogger(AgentRequestSpecFactory.class);
 
@@ -113,23 +113,19 @@ final class AgentRequestSpecFactory {
     private final ContextCompositionRecorder compositionRecorder;
 
     /**
-     * 全参构造：decorators 为可插拔工具装饰链（按 Order 升序应用，
-     * 默认链见 {@link DefaultToolDecorators#defaults}）；
+     * 请求规格工厂：工具装饰链由装配边界统一构造（见 {@code DefaultToolDecorators}），
      * compositionRecorder 为上下文构成快照写入器（null = 不记录，单测场景）。
      */
-    AgentRequestSpecFactory(PromptAssembler promptAssembler,
-                            ToolAssignments toolAssignments,
-                            ToolLazyManager lazyTools,
-                            SkillManager skillManager,
-                            SessionService memoryStore,
-                            ContextBudgetProperties budgets,
-                            KnowledgeRetriever knowledgeRetriever,
-                            LlmCallRecorder recorder,
-                            List<ToolCallbackDecorator> decorators,
-                            ContextCompositionRecorder compositionRecorder,
-                            ModelResolver modelResolver,
-                            AgentCatalog llmAgentCatalog,
-                            LlmClientRegistry llmClientRegistry) {
+    public AgentRequestSpecFactory(PromptAssembler promptAssembler,
+                                   ToolAssignments toolAssignments,
+                                   SessionService memoryStore,
+                                   ContextBudgetProperties budgets,
+                                   KnowledgeRetriever knowledgeRetriever,
+                                   List<ToolCallbackDecorator> decorators,
+                                   ContextCompositionRecorder compositionRecorder,
+                                   ModelResolver modelResolver,
+                                   AgentCatalog llmAgentCatalog,
+                                   LlmClientRegistry llmClientRegistry) {
         this.modelResolver = modelResolver;
         this.llmAgentCatalog = llmAgentCatalog;
         this.llmClientRegistry = llmClientRegistry;

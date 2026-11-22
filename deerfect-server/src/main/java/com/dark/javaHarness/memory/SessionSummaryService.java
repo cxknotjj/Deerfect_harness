@@ -283,14 +283,17 @@ public class SessionSummaryService implements SessionSummaryPort {
         int promptTokens = LlmCallRecorder.estimateTokens(systemPrompt())
                 + LlmCallRecorder.estimateTokens(userPrompt);
         long start = System.currentTimeMillis() - durationMs;
-        recorder.record(new LlmCallLog(null, "memory-summary", route.upstreamName(), false, ok,
-                promptTokens, null, null, true,
-                durationMs, LlmCallRecorder.describeError(e),
-                null, null, null, null, null, null, null, null,
-                null, null, null, null, LlmCallRecorder.startedAt(start),
-                route.routeId(), route.routeCode(), route.modelId(), route.providerCode(),
-                route.upstreamName(), route.fallbackFromModelId(),
-                ok ? null : com.dark.javaHarness.llm.routing.FailurePolicy.errorClass(e)));
+        recorder.record(LlmCallLog.builder()
+                .call(null, "memory-summary", route.upstreamName(), false, ok)
+                .usage(promptTokens, null, null, true, null)
+                .timing(durationMs, null)
+                .error(LlmCallRecorder.describeError(e),
+                        ok ? null : com.dark.javaHarness.llm.routing.FailurePolicy.errorClass(e))
+                .attempt(null, null)
+                .trace(null, null, null, null, LlmCallRecorder.startedAt(start))
+                .route(route.routeId(), route.routeCode(), route.modelId(), route.providerCode(),
+                        route.upstreamName(), route.fallbackFromModelId())
+                .build());
     }
 
     private static String describe(Throwable e) {

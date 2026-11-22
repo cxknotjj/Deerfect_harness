@@ -3,26 +3,14 @@ package com.dark.javaHarness.agent;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
-import com.dark.javaHarness.agent.agentic.AgentScopeModelFactory;
-import com.dark.javaHarness.config.AgenticProperties;
-import com.dark.javaHarness.config.ChatTimeoutProperties;
-import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.contract.model.Goal;
-import com.dark.javaHarness.knowledge.KnowledgeRetriever;
-import com.dark.javaHarness.observability.LlmCallRecorder;
-import com.dark.javaHarness.prompt.PromptAssembler;
-import com.dark.javaHarness.prompt.SkillManager;
 import com.dark.javaHarness.service.AgentConfigProvider;
-import com.dark.javaHarness.contract.api.AgentService;
-import com.dark.javaHarness.contract.api.SessionService;
-import com.dark.javaHarness.tool.ToolAssignments;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -36,7 +24,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.beans.factory.ObjectProvider;
 
 /**
  * AgentRegistry 单测：
@@ -54,24 +41,21 @@ class AgentRegistryTest {
     @Mock
     private AgentConfigProvider provider;
     @Mock
-    private ObjectProvider<AgentService> agentServiceProvider;
-    @Mock
-    private SessionService memoryStore;
-    @Mock
-    private ToolAssignments toolAssignments;
-    @Mock
-    private AgentService agentService;
+    private AgentFactory agentFactory;
 
     private AgentRegistry newRegistry() {
-        // recorder/lazyTools 传 null：GA 支持无观测/禁用延迟加载构造（单测场景）
-        return new AgentRegistry(provider, agentServiceProvider, memoryStore,
-                toolAssignments, null, new ContextBudgetProperties(), null);
+        return new AgentRegistry(provider, agentFactory);
+    }
+
+    /** 工厂按名返回最小 Agent stub：注册表单测只关心路由/缓存，不关心变体实现。 */
+    private void stubFactory() {
+        when(agentFactory.create(anyString())).thenAnswer(inv -> stubAgent(inv.getArgument(0)));
     }
 
     @Test
     void init_shouldRegisterAllRoutableRows() {
         when(provider.listAgentNames()).thenReturn(List.of("general", "deepseek", "nailong"));
-        when(agentServiceProvider.getObject()).thenReturn(agentService);
+        stubFactory();
         AgentRegistry registry = newRegistry();
 
         registry.init();
@@ -84,7 +68,7 @@ class AgentRegistryTest {
     void init_shouldNotRegisterInternalRoles() {
         // listAgentNames 仅返回 is_internal=0 行名：lead/aggregator/multi-agent（is_internal=1）已被 provider 过滤
         when(provider.listAgentNames()).thenReturn(List.of("general", "deepseek"));
-        when(agentServiceProvider.getObject()).thenReturn(agentService);
+        stubFactory();
         AgentRegistry registry = newRegistry();
 
         registry.init();
@@ -99,11 +83,11 @@ class AgentRegistryTest {
         when(provider.listAgentNames()).thenReturn(List.of("bad", "general"));
         // 第一次构造（bad 行）抛异常模拟脏数据，后续构造正常
         AtomicInteger constructions = new AtomicInteger();
-        when(agentServiceProvider.getObject()).thenAnswer(inv -> {
+        when(agentFactory.create(anyString())).thenAnswer(inv -> {
             if (constructions.incrementAndGet() == 1) {
                 throw new IllegalStateException("模拟构造失败");
             }
-            return agentService;
+            return stubAgent(inv.getArgument(0));
         });
         AgentRegistry registry = newRegistry();
 
@@ -116,7 +100,7 @@ class AgentRegistryTest {
     @Test
     void init_generalRowMissing_shouldRegisterCodeFallback() {
         when(provider.listAgentNames()).thenReturn(List.of("deepseek"));
-        when(agentServiceProvider.getObject()).thenReturn(agentService);
+        stubFactory();
         AgentRegistry registry = newRegistry();
 
         registry.init();
@@ -130,7 +114,7 @@ class AgentRegistryTest {
     @Test
     void require_miss_shouldLazilyRegisterAndCache() {
         when(provider.listAgentNames()).thenReturn(List.of("nailong"));
-        when(agentServiceProvider.getObject()).thenReturn(agentService);
+        stubFactory();
         AgentRegistry registry = newRegistry();
 
         Agent first = registry.require("nailong");
@@ -144,7 +128,7 @@ class AgentRegistryTest {
     @Test
     void require_unknownName_shouldThrowWithAvailableList() {
         when(provider.listAgentNames()).thenReturn(List.of("general"));
-        when(agentServiceProvider.getObject()).thenReturn(agentService);
+        stubFactory();
         AgentRegistry registry = newRegistry();
         registry.init();
 
@@ -173,9 +157,9 @@ class AgentRegistryTest {
     void require_concurrentSameName_shouldConstructOnlyOnce() throws Exception {
         when(provider.listAgentNames()).thenReturn(List.of("nailong"));
         AtomicInteger constructions = new AtomicInteger();
-        when(agentServiceProvider.getObject()).thenAnswer(inv -> {
+        when(agentFactory.create(anyString())).thenAnswer(inv -> {
             constructions.incrementAndGet();
-            return agentService;
+            return stubAgent(inv.getArgument(0));
         });
         AgentRegistry registry = newRegistry();
 
@@ -216,7 +200,7 @@ class AgentRegistryTest {
         // 防数据误配：即使 multi-agent 行被标成 is_internal=0 出现在表行名单里，
         // 也不能把预注入的 Graph 编排 bean 换成对话 Agent
         when(provider.listAgentNames()).thenReturn(List.of("multi-agent", "general"));
-        when(agentServiceProvider.getObject()).thenReturn(agentService);
+        stubFactory();
         Agent multiAgent = stubAgent("multi-agent");
         AgentRegistry registry = newRegistry();
         registry.register(multiAgent);
@@ -225,25 +209,6 @@ class AgentRegistryTest {
 
         assertSame(multiAgent, registry.require("multi-agent"),
                 "预注入的 Graph 编排 bean 不应被 agent 表行覆盖");
-    }
-
-    /** Agentic 开启时，所有可路由对话 Agent 都由 ReAct 承载（单 Agent 直答形态，含显式指定 Agent） */
-    @Test
-    void agenticEnabled_allRoutableAgentsUseReAct() {
-        when(provider.listAgentNames()).thenReturn(List.of("general", "coder"));
-        when(agentServiceProvider.getObject()).thenReturn(agentService);
-        AgentRegistry registry = new AgentRegistry(provider, agentServiceProvider,
-                memoryStore, toolAssignments, mock(LlmCallRecorder.class), new ContextBudgetProperties(),
-                null, mock(PromptAssembler.class), mock(SkillManager.class),
-                mock(KnowledgeRetriever.class), mock(ChatTimeoutProperties.class),
-                new AgenticProperties(), mock(AgentScopeModelFactory.class), null);
-
-        registry.init();
-
-        assertInstanceOf(AgentScopeGeneralAgent.class, registry.require("general"),
-                "判定为 agentic 的 general 路径应由 ReAct 承载");
-        assertInstanceOf(AgentScopeGeneralAgent.class, registry.require("coder"),
-                "显式指定 Agent 的直答同样走 ReAct");
     }
 
     /** 最小 Agent stub：仅验证路由命中与 name 透传 */

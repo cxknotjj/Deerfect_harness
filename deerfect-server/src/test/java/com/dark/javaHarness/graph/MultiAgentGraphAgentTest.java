@@ -21,8 +21,15 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import com.dark.javaHarness.advisor.ContextAssemblingAdvisor;
+import com.dark.javaHarness.agent.AgentChatCaller;
+import com.dark.javaHarness.agent.AgentRequestSpecFactory;
+import com.dark.javaHarness.agent.LlmRetry;
 import com.dark.javaHarness.agent.ProgressLine;
 import com.dark.javaHarness.agent.RagPrefetcher;
+import com.dark.javaHarness.config.ChatTimeoutProperties;
+import com.dark.javaHarness.config.ContextBudgetProperties;
+import com.dark.javaHarness.llm.routing.RouteExecutor;
+import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.state.OrchestrationCheckpoint;
 import com.dark.javaHarness.state.OrchestrationStage;
 import com.dark.javaHarness.state.persistence.OrchestrationCheckpointStore;
@@ -173,10 +180,19 @@ class MultiAgentGraphAgentTest {
             com.dark.javaHarness.agent.RagPrefetcher ragPrefetcher,
             com.dark.javaHarness.service.AgentConfigProvider agentConfigProvider,
             com.dark.javaHarness.prompt.ContextCompositionRecorder compositionRecorder) {
-        return new MultiAgentGraphAgent("multi-agent", agentService, toolAssignments, recorder,
-                checkpointStore, budgets, memoryStore, lazyTools, promptAssembler, skillManager,
-                knowledgeRetriever, timeouts, ragPrefetcher, agentConfigProvider, compositionRecorder,
-                modelResolver, agentCatalog, clientRegistry, null);
+        ContextBudgetProperties effectiveBudgets = budgets != null
+                ? budgets : new ContextBudgetProperties();
+        PromptAssembler effectiveAssembler = promptAssembler != null ? promptAssembler
+                : new PromptAssembler(agentService, toolAssignments, List.of(), List.of(), List.of(), false);
+        AgentRequestSpecFactory specFactory = new AgentRequestSpecFactory(effectiveAssembler,
+                toolAssignments, memoryStore, effectiveBudgets, knowledgeRetriever, List.of(),
+                compositionRecorder, modelResolver, agentCatalog, clientRegistry);
+        AgentChatCaller chatCaller = new AgentChatCaller(agentService, specFactory, recorder,
+                new LlmRetry(), effectiveBudgets, effectiveAssembler, memoryStore,
+                timeouts != null ? timeouts : new ChatTimeoutProperties(), clientRegistry,
+                new RouteExecutor(RouteExecutor.DEFAULT_MAX_SAME_MEMBER_RETRIES));
+        return new MultiAgentGraphAgent("multi-agent", chatCaller, effectiveAssembler,
+                effectiveBudgets, checkpointStore, ragPrefetcher, agentConfigProvider);
     }
 
     private static com.dark.javaHarness.domain.entity.AgentEntity routeAgent(String name, Long routeId) {
@@ -192,7 +208,7 @@ class MultiAgentGraphAgentTest {
         stubChat(fixedContent());
         agent = newAgent();
 
-        Goal goal = new Goal("g1", "调研竞品并输出报告");
+        Goal goal = Goal.newGoal("g1", "调研竞品并输出报告");
         String reply = agent.execute(goal);
 
         assertNotNull(reply);
@@ -210,7 +226,7 @@ class MultiAgentGraphAgentTest {
         stubChat(fixedContent());
         agent = newAgent();
 
-        String reply = agent.execute(new Goal("g2", "hello"));
+        String reply = agent.execute(Goal.newGoal("g2", "hello"));
 
         assertNotNull(reply);
         assertEquals(fixedContent(), reply, "聚合节点把读取到的结果作为最终回答返回");
@@ -222,7 +238,7 @@ class MultiAgentGraphAgentTest {
         stubChat(fixedContent());
         agent = newAgent();
 
-        Goal goal = new Goal("g3", "调研竞品并输出报告");
+        Goal goal = Goal.newGoal("g3", "调研竞品并输出报告");
         java.util.List<String> rows = agent.executeStreamReactive(goal).collectList().block();
 
         assertNotNull(rows);
@@ -244,7 +260,7 @@ class MultiAgentGraphAgentTest {
         agent = newAgent();
 
         java.util.List<String> rows = agent
-                .executeStreamReactive(new Goal("g4", "调研竞品并输出报告"))
+                .executeStreamReactive(Goal.newGoal("g4", "调研竞品并输出报告"))
                 .collectList()
                 .block();
 
@@ -299,7 +315,7 @@ class MultiAgentGraphAgentTest {
         agent = newAgent();
 
         java.util.List<String> rows = agent
-                .executeStreamReactive(new Goal("g8", "调研竞品并输出报告"))
+                .executeStreamReactive(Goal.newGoal("g8", "调研竞品并输出报告"))
                 .collectList()
                 .block();
 
@@ -357,7 +373,7 @@ class MultiAgentGraphAgentTest {
         when(clientRegistry.get(eq(102L))).thenReturn(analystClient);
         agent = newAgent();
 
-        String reply = agent.execute(new Goal("g5", "调研竞品并统计销量"));
+        String reply = agent.execute(Goal.newGoal("g5", "调研竞品并统计销量"));
 
         assertNotNull(reply);
         assertFalse(reply.isBlank(), "专家派遣后仍应产出聚合最终回答");
@@ -375,7 +391,7 @@ class MultiAgentGraphAgentTest {
         stubChat(leadJson);
         agent = newAgent();
 
-        String reply = agent.execute(new Goal("g6", "任务X"));
+        String reply = agent.execute(Goal.newGoal("g6", "任务X"));
 
         assertNotNull(reply);
         // 白名单拒绝：绝不以非法名查配置；客户端只允许走默认兜底（get(null)），不得按 id 取
@@ -388,7 +404,7 @@ class MultiAgentGraphAgentTest {
         stubChat(fixedContent());
         agent = newAgent();
 
-        String reply = agent.execute(new Goal("g7", "hello"));
+        String reply = agent.execute(Goal.newGoal("g7", "hello"));
 
         assertEquals(fixedContent(), reply);
         // lead + 2 个并行子任务 + 聚合共 4 次调用，全部取路由首选成员的客户端
@@ -416,7 +432,7 @@ class MultiAgentGraphAgentTest {
         when(clientRegistry.get(eq(201L))).thenReturn(researcherClient);
         agent = newAgent();
 
-        String reply = agent.execute(new Goal("gbr1", "调研竞品定价策略"));
+        String reply = agent.execute(Goal.newGoal("gbr1", "调研竞品定价策略"));
 
         assertNotNull(reply);
         assertFalse(reply.isBlank(), "带 brief 的子任务执行后仍应产出聚合最终回答");
@@ -430,7 +446,7 @@ class MultiAgentGraphAgentTest {
         stubChat(leadJson);
         agent = newAgent();
 
-        String reply = agent.execute(new Goal("gbr2", "调研竞品并撰写摘要"));
+        String reply = agent.execute(Goal.newGoal("gbr2", "调研竞品并撰写摘要"));
 
         assertNotNull(reply);
         // lead 的 user 文本带「拆解目标：」前缀、聚合为长 prompt，均不与 desc 全等——
@@ -460,7 +476,7 @@ class MultiAgentGraphAgentTest {
         budgets.setSubtaskBriefMaxChars(10);
         agent = newAgent(null, null, budgets, null, null, null, null, null, null, null, null, null);
 
-        String reply = agent.execute(new Goal("gbr3", "调研竞品定价策略"));
+        String reply = agent.execute(Goal.newGoal("gbr3", "调研竞品定价策略"));
 
         assertNotNull(reply);
         assertEquals(List.of(brief.substring(0, 10)),
@@ -484,7 +500,7 @@ class MultiAgentGraphAgentTest {
         budgets.setSubtaskBriefMaxChars(0);
         agent = newAgent(null, null, budgets, null, null, null, null, null, null, null, null, null);
 
-        String reply = agent.execute(new Goal("gbr5", "调研竞品定价策略"));
+        String reply = agent.execute(Goal.newGoal("gbr5", "调研竞品定价策略"));
 
         assertNotNull(reply);
         assertEquals(List.of(brief), researcherUsers, "上限 0 = 不限制，brief 应全文透传: " + researcherUsers);
@@ -505,7 +521,7 @@ class MultiAgentGraphAgentTest {
         when(clientRegistry.get(eq(203L))).thenReturn(wmsClient);
         agent = newAgent();
 
-        String reply = agent.execute(new Goal("gbr4", "查库存并核对差异"));
+        String reply = agent.execute(Goal.newGoal("gbr4", "查库存并核对差异"));
 
         assertNotNull(reply);
         // 子任务按指派查询 wms 配置并取其部署模型对应客户端
@@ -529,7 +545,7 @@ class MultiAgentGraphAgentTest {
         stubChat(fixedContent());
         agent = agentWithPackProvider(agentConfigProvider);
 
-        String reply = agent.execute(new Goal("gpk2", "调研竞品并输出报告"));
+        String reply = agent.execute(Goal.newGoal("gpk2", "调研竞品并输出报告"));
 
         assertEquals(fixedContent(), reply);
         // 无包声明：包定义不查、包工具不解析（状态键写空串，读侧归一化为无包——旧 checkpoint 缺键同口径）
@@ -551,7 +567,7 @@ class MultiAgentGraphAgentTest {
                 new AgentConfigProvider.ToolPackDef(List.of("wms_search_stock"), "仓储只读纪律")));
         agent = agentWithPackProvider(agentConfigProvider);
 
-        String reply = agent.execute(new Goal("gpk3", "查库存并核对差异"));
+        String reply = agent.execute(Goal.newGoal("gpk3", "查库存并核对差异"));
 
         assertEquals(leadJson, reply, "越权包应静默裁剪、不阻断子任务执行");
         // 包工具零授出 → 包工具解析不触发
@@ -573,7 +589,7 @@ class MultiAgentGraphAgentTest {
         stubChat(fixedContent());
         agent = newAgent(null, null, new com.dark.javaHarness.config.ContextBudgetProperties(), null, null, null, null, null, null, null, null, null);
 
-        agent.execute(new Goal("gb1", "调研竞品并输出报告"));
+        agent.execute(Goal.newGoal("gb1", "调研竞品并输出报告"));
 
         // lead 1 次 + 聚合 1 次挂载预算 advisor；子任务不挂
         verify(requestSpec, org.mockito.Mockito.times(2))
@@ -596,7 +612,7 @@ class MultiAgentGraphAgentTest {
         when(requestSpec.messages(anyList())).thenReturn(requestSpec);
         agent = newAgent(null, null, null, memoryStore, null, null, null, null, null, null, null, null);
 
-        agent.execute(new Goal("gm1", "调研竞品并撰写摘要", "sess-1"));
+        agent.execute(Goal.newGoal("gm1", "调研竞品并撰写摘要", "sess-1"));
 
         // 仅 lead 1 次调用注入历史（只读，无记忆 advisor、无 CONVERSATION_ID 参数）+ 上下文裁剪
         verify(requestSpec, org.mockito.Mockito.times(1)).messages(anyList());
@@ -610,7 +626,7 @@ class MultiAgentGraphAgentTest {
         stubChat(fixedContent());
         agent = newAgent(null, null, null, memoryStore, null, null, null, null, null, null, null, null);
 
-        agent.execute(new Goal("gm2", "调研竞品并输出报告"));
+        agent.execute(Goal.newGoal("gm2", "调研竞品并输出报告"));
 
         verify(requestSpec, never()).messages(anyList());
         verify(requestSpec, never()).advisors(any(MessageChatMemoryAdvisor.class));
@@ -646,7 +662,7 @@ class MultiAgentGraphAgentTest {
         agent = newAgent();
 
         assertThrows(IllegalStateException.class,
-                () -> agent.resumeStreamReactive(new Goal("gr1", "调研竞品")),
+                () -> agent.resumeStreamReactive(Goal.newGoal("gr1", "调研竞品")),
                 "未启用 checkpointer 应拒绝续跑");
     }
 
@@ -656,7 +672,7 @@ class MultiAgentGraphAgentTest {
         agent = newAgent(null, inMemoryCheckpointStore(), null, null, null, null, null, null, null, null, null, null);
 
         assertThrows(IllegalStateException.class,
-                () -> agent.resumeStreamReactive(new Goal("gr2", "调研竞品")),
+                () -> agent.resumeStreamReactive(Goal.newGoal("gr2", "调研竞品")),
                 "无检查点记录应拒绝续跑");
     }
 
@@ -671,7 +687,7 @@ class MultiAgentGraphAgentTest {
 
         // 首跑：lead + 2 子任务 + 聚合 = 4 次流式调用（call 已统一流式背书），检查点按阶段落库
         java.util.List<String> first = agent
-                .executeStreamReactive(new Goal("gr3", "调研竞品并输出报告"))
+                .executeStreamReactive(Goal.newGoal("gr3", "调研竞品并输出报告"))
                 .collectList()
                 .block();
         assertNotNull(first);
@@ -679,7 +695,7 @@ class MultiAgentGraphAgentTest {
 
         // 续跑：所有节点已完成，零 LLM 调用，从检查点状态直接取回最终回答
         java.util.List<String> resumed = agent
-                .resumeStreamReactive(new Goal("gr3", "调研竞品并输出报告"))
+                .resumeStreamReactive(Goal.newGoal("gr3", "调研竞品并输出报告"))
                 .collectList()
                 .block();
         assertNotNull(resumed);
@@ -739,7 +755,7 @@ class MultiAgentGraphAgentTest {
 
         // lead 完成（检查点已落库）→ 子任务批在途阻塞中 → 模拟客户端断开
         reactor.core.Disposable disposable = agent
-                .executeStreamReactive(new Goal("gr4", "调研竞品并输出报告"))
+                .executeStreamReactive(Goal.newGoal("gr4", "调研竞品并输出报告"))
                 .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
                 .subscribe();
         // 等 lead 完成、两个子任务都进入在途阻塞（第 3 次 chatResponse 已发起）——
@@ -753,7 +769,7 @@ class MultiAgentGraphAgentTest {
 
         // 续跑：从 lead 检查点恢复 → lead 不重跑（复用拆解），子任务批补跑 + 聚合补跑
         java.util.List<String> resumed = agent
-                .resumeStreamReactive(new Goal("gr4", "调研竞品并输出报告"))
+                .resumeStreamReactive(Goal.newGoal("gr4", "调研竞品并输出报告"))
                 .collectList()
                 .block();
         assertNotNull(resumed);
@@ -807,7 +823,7 @@ class MultiAgentGraphAgentTest {
 
         // subscribeOn 让图执行离开测试线程（否则同步图驱动会把 subscribe() 卡在 lead 阻塞上）
         reactor.core.Disposable disposable = agent
-                .executeStreamReactive(new Goal("g9", "调研竞品并输出报告"))
+                .executeStreamReactive(Goal.newGoal("g9", "调研竞品并输出报告"))
                 .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
                 .subscribe();
         // 等图启动、lead 真正进入在途流式调用（latch 由 stub 在发起时置位）
@@ -882,7 +898,7 @@ class MultiAgentGraphAgentTest {
 
         java.util.List<String> rows = new java.util.concurrent.CopyOnWriteArrayList<>();
         reactor.core.Disposable disposable = agent
-                .executeStreamReactive(new Goal("g10", "调研竞品并输出报告"))
+                .executeStreamReactive(Goal.newGoal("g10", "调研竞品并输出报告"))
                 .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
                 .subscribe(rows::add);
         assertTrue(aggStarted.await(10, java.util.concurrent.TimeUnit.SECONDS),
@@ -945,7 +961,7 @@ class MultiAgentGraphAgentTest {
         agent = newAgent();
 
         java.util.List<String> rows = agent
-                .executeStreamReactive(new Goal("g11", "调研竞品并输出报告"))
+                .executeStreamReactive(Goal.newGoal("g11", "调研竞品并输出报告"))
                 .collectList()
                 .block(java.time.Duration.ofSeconds(10));
 
@@ -998,7 +1014,7 @@ class MultiAgentGraphAgentTest {
 
         java.util.List<String> rows = new java.util.concurrent.CopyOnWriteArrayList<>();
         java.util.concurrent.CountDownLatch finished = new java.util.concurrent.CountDownLatch(1);
-        agent.executeStreamReactive(new Goal("g12", "调研竞品并输出报告"))
+        agent.executeStreamReactive(Goal.newGoal("g12", "调研竞品并输出报告"))
                 .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
                 .subscribe(rows::add, err -> finished.countDown(), finished::countDown);
         // 等流真正结束（完成或出错），而不是睡 800ms 猜它跑完了
@@ -1026,7 +1042,7 @@ class MultiAgentGraphAgentTest {
         budgets.setOrchestrationBudget(1);
         agent = newAgent(null, null, budgets, null, null, null, null, null, null, null, null, null);
 
-        String reply = agent.execute(new Goal("gover1", "调研竞品并输出报告"));
+        String reply = agent.execute(Goal.newGoal("gover1", "调研竞品并输出报告"));
 
         // 编排正常终态：聚合产出最终回答（非 FAILED、非「未生成最终回答」兜底）
         assertEquals(fixedContent(), reply, "熔断后聚合节点应照常执行并产出最终回答");
@@ -1054,7 +1070,7 @@ class MultiAgentGraphAgentTest {
         budgets.setOrchestrationBudget(60000);
         agent = newAgent(null, null, budgets, null, null, null, null, null, null, null, null, null);
 
-        String reply = agent.execute(new Goal("gover2", "调研竞品并输出报告"));
+        String reply = agent.execute(Goal.newGoal("gover2", "调研竞品并输出报告"));
 
         assertEquals(fixedContent(), reply);
         // lead(1) + 2 子任务 + 聚合 = 4 次调用（子任务全部执行，零熔断）
@@ -1079,7 +1095,7 @@ class MultiAgentGraphAgentTest {
         budgets.setSubtaskMaxCount(2);
         agent = newAgent(null, null, budgets, null, null, null, null, null, null, null, null, null);
 
-        String reply = agent.execute(new Goal("gmc1", "调研竞品并输出报告"));
+        String reply = agent.execute(Goal.newGoal("gmc1", "调研竞品并输出报告"));
 
         assertEquals(leadJson, reply);
         // 只截断到 2 条：lead(1) + 已布置的 2 个子任务 + 聚合(1) = 4 次（第 3 条未布置零调用）
@@ -1100,7 +1116,7 @@ class MultiAgentGraphAgentTest {
         stubChat(leadJson);
         agent = newAgent(null, null, new com.dark.javaHarness.config.ContextBudgetProperties(), null, null, null, null, null, null, null, null, null);
 
-        String reply = agent.execute(new Goal("gmc2", "调研竞品并输出报告"));
+        String reply = agent.execute(Goal.newGoal("gmc2", "调研竞品并输出报告"));
 
         assertEquals(leadJson, reply);
         // 缺省 0 → 兜底 4：lead(1) + 4 子任务 + 聚合(1) = 6 次
@@ -1117,7 +1133,7 @@ class MultiAgentGraphAgentTest {
         budgets.setSubtaskMaxCount(8);
         agent = newAgent(null, null, budgets, null, null, null, null, null, null, null, null, null);
 
-        String reply = agent.execute(new Goal("gmc3", "调研竞品并输出报告"));
+        String reply = agent.execute(Goal.newGoal("gmc3", "调研竞品并输出报告"));
 
         assertEquals(leadJson, reply);
         // 超界 8 → clamp 4：前 4 条执行（lead 1 + 4 + 聚合 1 = 6 次），第 5 条未布置零调用
@@ -1183,7 +1199,7 @@ class MultiAgentGraphAgentTest {
         budgets.setSubtaskConcurrency(1);
         agent = newAgent(null, null, budgets, null, null, null, null, null, null, null, null, null);
 
-        String reply = agent.execute(new Goal("gtw1", "调研竞品并输出报告"));
+        String reply = agent.execute(Goal.newGoal("gtw1", "调研竞品并输出报告"));
 
         assertEquals("最终回答", reply, "超时占位后聚合应照常执行并产出最终回答");
         // 聚合 prompt 前置超时说明：2 个子任务超时未执行，且不得混入预算降级文案
@@ -1242,7 +1258,7 @@ class MultiAgentGraphAgentTest {
         budgets.setSubtaskConcurrency(1);
         agent = newAgent(null, null, budgets, null, null, null, null, null, null, null, null, null);
 
-        String reply = agent.execute(new Goal("gfail1", "调研竞品并输出报告"));
+        String reply = agent.execute(Goal.newGoal("gfail1", "调研竞品并输出报告"));
 
         assertEquals("最终回答", reply, "失败占位后聚合应照常执行并产出最终回答（其余子任务结果不作废）");
         // 聚合 prompt 前置失败说明：1 个子任务失败已跳过，B 的真实结果保留，不得混入超时/预算文案
@@ -1302,7 +1318,7 @@ class MultiAgentGraphAgentTest {
         budgets.setSubtaskConcurrency(1);
         agent = newAgent(null, null, budgets, null, null, null, null, null, null, null, null, null);
 
-        String reply = agent.execute(new Goal("gfail2", "调研竞品并输出报告"));
+        String reply = agent.execute(Goal.newGoal("gfail2", "调研竞品并输出报告"));
 
         assertEquals("最终回答", reply, "全失败占位后聚合应照常执行并产出最终回答");
         // 聚合 prompt 前置失败说明：2 个子任务失败，不得混入超时/预算文案
@@ -1347,7 +1363,7 @@ class MultiAgentGraphAgentTest {
         stubChat(fixedContent());
         agent = newAgent(null, null, new com.dark.javaHarness.config.ContextBudgetProperties(), null, null, null, null, null, null, null, null, null);
 
-        String reply = agent.execute(new Goal("gtw2", "调研竞品并输出报告"));
+        String reply = agent.execute(Goal.newGoal("gtw2", "调研竞品并输出报告"));
 
         assertEquals(fixedContent(), reply);
         // lead(1) + 2 子任务 + 聚合(1) = 4 次全部正常执行
@@ -1364,7 +1380,7 @@ class MultiAgentGraphAgentTest {
         agent = newAgent(null, null, budgets, null, null, null, null, null, null, null, null, null);
 
         java.util.List<String> rows = agent
-                .executeStreamReactive(new Goal("gover3", "调研竞品并输出报告"))
+                .executeStreamReactive(Goal.newGoal("gover3", "调研竞品并输出报告"))
                 .collectList()
                 .block(java.time.Duration.ofSeconds(10));
 
@@ -1430,7 +1446,7 @@ class MultiAgentGraphAgentTest {
                 fluxOf("最终回答"));
         agent = newAgent(null, null, budgets, null, null, null, null, null, null, null, null, null);
 
-        String reply = agent.execute(new Goal("gpart1", "调研竞品并输出报告"));
+        String reply = agent.execute(Goal.newGoal("gpart1", "调研竞品并输出报告"));
 
         assertEquals("最终回答", reply, "部分熔断后聚合应照常产出最终回答");
         // lead(1) + 子任务A(1) + 子任务B(1，中途断流) + 聚合(1) = 4 次 HTTP
@@ -1477,7 +1493,7 @@ class MultiAgentGraphAgentTest {
         RagPrefetcher prefetcher = mock(RagPrefetcher.class);
         agent = agentWithPrefetcher(prefetcher);
 
-        agent.execute(new Goal("gp1", "调研竞品并统计销量", "sess-p1"));
+        agent.execute(Goal.newGoal("gp1", "调研竞品并统计销量", "sess-p1"));
 
         // lead 出口 + subtask 入口各提交一次（同参数幂等重复）
         verify(prefetcher, org.mockito.Mockito.times(1)).submit("researcher", "sess-p1", "调研竞品", KnowledgeRetriever.SOURCE_LEAD_PREFETCH);
@@ -1494,7 +1510,7 @@ class MultiAgentGraphAgentTest {
         RagPrefetcher prefetcher = mock(RagPrefetcher.class);
         agent = agentWithPrefetcher(prefetcher);
 
-        agent.execute(new Goal("gp2", "调研竞品并输出报告", "sess-p2"));
+        agent.execute(Goal.newGoal("gp2", "调研竞品并输出报告", "sess-p2"));
 
         // 仅 2 个已布置槽位提交（lead 出口 + subtask 入口各一次；未指派 → 执行回退 general，
         // 预取同源用 general 查绑定）；槽位 2/3 未布置 → 快速短路零提交（NoMore 兜底证明零贡献）
@@ -1511,7 +1527,7 @@ class MultiAgentGraphAgentTest {
         stubChat(fixedContent());
         agent = agentWithPrefetcher(null);
 
-        String reply = agent.execute(new Goal("gp3", "调研竞品并输出报告"));
+        String reply = agent.execute(Goal.newGoal("gp3", "调研竞品并输出报告"));
 
         assertEquals(fixedContent(), reply);
         // lead + 2 子任务 + 聚合照常执行（零感知、零报错）
@@ -1542,7 +1558,7 @@ class MultiAgentGraphAgentTest {
         });
         agent = agentWithPrefetcher(prefetcher);
 
-        String reply = agent.execute(new Goal("gpo1", "调研竞品并统计销量", "sess-po1"));
+        String reply = agent.execute(Goal.newGoal("gpo1", "调研竞品并统计销量", "sess-po1"));
 
         assertNotNull(reply);
         assertFalse(reply.isBlank(), "预取钩子不得影响编排产出");
@@ -1562,7 +1578,7 @@ class MultiAgentGraphAgentTest {
         RagPrefetcher prefetcher = mock(RagPrefetcher.class);
         agent = agentWithPrefetcher(prefetcher);
 
-        String reply = agent.execute(new Goal("gpd1", "调研竞品并统计销量", "sess-pd1"));
+        String reply = agent.execute(Goal.newGoal("gpd1", "调研竞品并统计销量", "sess-pd1"));
 
         assertEquals(leadJson, reply, "重复提交不得影响最终回答");
         // 每个子任务恰好两次提交（lead 出口 + subtask 入口）：KnowledgeRetriever 复合缓存键下同参数幂等，无需去重

@@ -91,39 +91,19 @@ public class MultiAgentGraphAgent implements Agent {
      * checkpointStore 为引擎检查点存储（可 null = 不落库且拒绝续跑，单测场景）。
      */
     public MultiAgentGraphAgent(String agentName,
-                                AgentService agentService,
-                                ToolAssignments toolAssignments,
-                                LlmCallRecorder recorder,
-                                OrchestrationCheckpointStore checkpointStore,
+                                AgentChatCaller chatCaller,
+                                PromptAssembler assembler,
                                 ContextBudgetProperties budgets,
-                                SessionService memoryStore,
-                                ToolLazyManager lazyTools,
-                                PromptAssembler promptAssembler,
-                                SkillManager skillManager,
-                                KnowledgeRetriever knowledgeRetriever,
-                                ChatTimeoutProperties timeouts,
+                                OrchestrationCheckpointStore checkpointStore,
                                 RagPrefetcher ragPrefetcher,
-                                AgentConfigProvider agentConfigProvider,
-                                ContextCompositionRecorder compositionRecorder,
-                                ModelResolver modelResolver,
-                                AgentCatalog llmAgentCatalog,
-                                LlmClientRegistry llmClientRegistry,
-                                RouteExecutor routeExecutor) {
-        ToolLazyManager lazy = lazyTools != null ? lazyTools : new ToolLazyManager(toolAssignments, false);
+                                AgentConfigProvider agentConfigProvider) {
         this.agentName = agentName;
-        // 工具索引段与延迟加载同源：开启时索引段追加 expand_tool 使用引导（与轻量态工具面对齐）
-        PromptAssembler assembler = promptAssembler != null ? promptAssembler
-                : new PromptAssembler(agentService, toolAssignments, List.of(), List.of(), List.of(), lazy.isEnabled());
-        AgentChatCaller chatCaller = new AgentChatCaller(agentService, toolAssignments, recorder,
-                new LlmRetry(), budgets, assembler, memoryStore, lazy, skillManager,
-                knowledgeRetriever, timeouts, compositionRecorder, modelResolver, llmAgentCatalog,
-                llmClientRegistry, routeExecutor);
-        this.budgets = budgets != null ? budgets : new ContextBudgetProperties();
-        this.orchestrationBudget = new OrchestrationBudget(this.budgets);
-        this.nodes = new OrchestrationNodes(chatCaller, assembler, this.budgets, this.orchestrationBudget,
+        this.budgets = budgets;
+        this.orchestrationBudget = new OrchestrationBudget(budgets);
+        this.nodes = new OrchestrationNodes(chatCaller, assembler, budgets, this.orchestrationBudget,
                 ragPrefetcher, agentConfigProvider);
         this.engine = new ParallelOrchestrationEngine(this.nodes, this.orchestrationBudget,
-                checkpointStore, this.budgets.getSubtaskConcurrency());
+                checkpointStore, budgets.getSubtaskConcurrency());
         this.streamPipeline = new MultiAgentStreamPipeline();
     }
 

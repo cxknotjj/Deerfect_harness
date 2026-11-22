@@ -51,4 +51,138 @@ public record LlmCallLog(String sessionId, String agentName, String model,
                          java.time.LocalDateTime startedAt,
                          Long routeId, String routeCode, Long modelId, String providerCode,
                          String upstreamName, Long fallbackFromModelId, String errorClass) {
+
+    /** 语义分组 Builder：31 个字段按调用/用量/耗时/装配/轨迹/路由分组，避免位置参数错位。 */
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public static final class Builder {
+
+        private String sessionId;
+        private String agentName;
+        private String model;
+        private boolean stream;
+        private boolean ok;
+        private Integer promptTokens;
+        private Integer completionTokens;
+        private Integer totalTokens;
+        private boolean tokensEstimated;
+        private Integer cachedTokens;
+        private long durationMs;
+        private Long firstTokenMs;
+        private String errorMsg;
+        private String errorClass;
+        private List<String> skillNames;
+        private List<String> toolNames;
+        private List<String> mcpToolNames;
+        private String outputSummary;
+        private Integer attempt;
+        private Integer maxAttempts;
+        private String turnId;
+        private String traceId;
+        private String spanId;
+        private String parentSpan;
+        private java.time.LocalDateTime startedAt;
+        private Long routeId;
+        private String routeCode;
+        private Long modelId;
+        private String providerCode;
+        private String upstreamName;
+        private Long fallbackFromModelId;
+
+        private Builder() {
+        }
+
+        /** 调用身份与结果：谁发起、用的哪个模型、是否流式、是否成功。 */
+        public Builder call(String sessionId, String agentName, String model,
+                            boolean stream, boolean ok) {
+            this.sessionId = sessionId;
+            this.agentName = agentName;
+            this.model = model;
+            this.stream = stream;
+            this.ok = ok;
+            return this;
+        }
+
+        /** token 用量：原生 usage 缺失时 prompt/completion/total 为 null，cached 为供应商命中数。 */
+        public Builder usage(Integer promptTokens, Integer completionTokens, Integer totalTokens,
+                             boolean tokensEstimated, Integer cachedTokens) {
+            this.promptTokens = promptTokens;
+            this.completionTokens = completionTokens;
+            this.totalTokens = totalTokens;
+            this.tokensEstimated = tokensEstimated;
+            this.cachedTokens = cachedTokens;
+            return this;
+        }
+
+        /** 耗时：durationMs 必填；firstTokenMs 仅流式成功调用有值。 */
+        public Builder timing(long durationMs, Long firstTokenMs) {
+            this.durationMs = durationMs;
+            this.firstTokenMs = firstTokenMs;
+            return this;
+        }
+
+        /** 失败信息：成功时为 null；errorClass 见 FailurePolicy 分类。 */
+        public Builder error(String errorMsg, String errorClass) {
+            this.errorMsg = errorMsg;
+            this.errorClass = errorClass;
+            return this;
+        }
+
+        /** prompt 装配名单（装配口径，非实际调用；未采集为 null）。 */
+        public Builder promptAssembly(List<String> skillNames, List<String> toolNames,
+                                      List<String> mcpToolNames) {
+            this.skillNames = skillNames;
+            this.toolNames = toolNames;
+            this.mcpToolNames = mcpToolNames;
+            return this;
+        }
+
+        /** 回复摘要（截断 200 字符；失败/无输出为 null）。 */
+        public Builder output(String outputSummary) {
+            this.outputSummary = outputSummary;
+            return this;
+        }
+
+        /** 重试通道的尝试序号与上限；无重试通道记 1。 */
+        public Builder attempt(Integer attempt, Integer maxAttempts) {
+            this.attempt = attempt;
+            this.maxAttempts = maxAttempts;
+            return this;
+        }
+
+        /** 执行树标识：turnId/traceId/spanId/parentSpan 与发起时刻。 */
+        public Builder trace(String turnId, String traceId, String spanId, String parentSpan,
+                             java.time.LocalDateTime startedAt) {
+            this.turnId = turnId;
+            this.traceId = traceId;
+            this.spanId = spanId;
+            this.parentSpan = parentSpan;
+            this.startedAt = startedAt;
+            return this;
+        }
+
+        /** 路由命中口径：routeId/routeCode/modelId/providerCode/upstreamName/fallbackFromModelId。 */
+        public Builder route(Long routeId, String routeCode, Long modelId, String providerCode,
+                             String upstreamName, Long fallbackFromModelId) {
+            this.routeId = routeId;
+            this.routeCode = routeCode;
+            this.modelId = modelId;
+            this.providerCode = providerCode;
+            this.upstreamName = upstreamName;
+            this.fallbackFromModelId = fallbackFromModelId;
+            return this;
+        }
+
+        public LlmCallLog build() {
+            return new LlmCallLog(sessionId, agentName, model, stream, ok,
+                    promptTokens, completionTokens, totalTokens, tokensEstimated,
+                    durationMs, errorMsg, skillNames, toolNames, mcpToolNames,
+                    outputSummary, firstTokenMs, cachedTokens, attempt, maxAttempts,
+                    turnId, traceId, spanId, parentSpan, startedAt,
+                    routeId, routeCode, modelId, providerCode, upstreamName,
+                    fallbackFromModelId, errorClass);
+        }
+    }
 }

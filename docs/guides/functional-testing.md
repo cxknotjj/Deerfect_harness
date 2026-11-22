@@ -85,7 +85,8 @@
 | `AgentChatCallerTest` | 编排调用器（工具幻觉容错重试/异常透传） | 22 |
 | `AgentChatCallerRetryTest` | 编排调用器失败自动重试（指数退避） | 5 |
 | `AgentChatPipelineTest` | 流管道核（watchdog/帧记账/空响应防御） | 6 |
-| `AgentRegistryTest` | Agent 注册表（表驱动自动注册/内部角色排除） | 11 |
+| `AgentRegistryTest` | Agent 注册表（表驱动自动注册/内部角色排除） | 10 |
+| `AgentFactoryTest` | Agent 变体工厂（agentic 开关 → ReAct / ChatClient） | 2 |
 | `GeneralAssistantAgentTest` | Agentic 路径回退（ChatClient）真·逐 token 透传契约 | 7 |
 | `GeneralAssistantAgentScaffoldTest` | Agentic 路径回退装配脚手架 | 7 |
 | `LlmCallObserverTest` | 调用观测值对象（估算标记/usage 帧） | 2 |

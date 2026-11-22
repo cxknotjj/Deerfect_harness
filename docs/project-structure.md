@@ -132,6 +132,7 @@ deerfect-server/src/main/java/com/dark/javaHarness/
 │   └── admin/                    # LlmAdminService / LlmAdminController（/api/admin/*）
 ├── agent/                        # Agent 抽象、编排与 LLM 调用
 │   ├── Agent.java / AgentRegistry.java    # Agent 接口与注册表
+│   ├── AgentFactory.java           # Agent 变体工厂（agentic 开关 → ReAct / ChatClient；注册表只管路由）
 │   ├── AgentScopeGeneralAgent.java # Agentic 路径：AgentScope ReAct 显式推理-行动循环
 │   ├── agentic/                    # Agentic 路径适配层
 │   │   ├── AgentScopeModelFactory.java  # Agent 路由首选成员 → AgentScope OpenAI 兼容 Model

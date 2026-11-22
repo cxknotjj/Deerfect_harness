@@ -93,7 +93,6 @@ public class AgentScopeGeneralAgent implements Agent {
 
     private final String agentName;
     private final AgentService agentService;
-    private final SessionService memoryStore;
     private final PromptAssembler promptAssembler;
     private final ContextBudgetProperties budgets;
     private final ChatTimeoutProperties timeouts;
@@ -108,25 +107,17 @@ public class AgentScopeGeneralAgent implements Agent {
 
     public AgentScopeGeneralAgent(String agentName,
                                   AgentService agentService,
-                                  SessionService memoryStore,
-                                  ToolAssignments toolAssignments,
-                                  LlmCallRecorder recorder,
-                                  ContextBudgetProperties budgets,
-                                  ToolLazyManager lazyTools,
                                   PromptAssembler promptAssembler,
-                                  SkillManager skillManager,
-                                  KnowledgeRetriever knowledgeRetriever,
+                                  ContextBudgetProperties budgets,
                                   ChatTimeoutProperties timeouts,
                                   AgentScopeModelFactory modelFactory,
                                   AgenticProperties agentic,
+                                  AgentRequestSpecFactory specFactory,
                                   Agent fallback,
                                   ContextCompositionRecorder compositionRecorder,
-                                  ModelResolver modelResolver,
-                                  AgentCatalog llmAgentCatalog,
-                                  LlmClientRegistry llmClientRegistry) {
+                                  LlmCallRecorder recorder) {
         this.agentName = agentName;
         this.agentService = agentService;
-        this.memoryStore = memoryStore;
         this.promptAssembler = promptAssembler;
         this.budgets = budgets;
         this.timeouts = timeouts;
@@ -134,11 +125,7 @@ public class AgentScopeGeneralAgent implements Agent {
         this.modelFactory = modelFactory;
         this.fallback = fallback;
         this.compositionRecorder = compositionRecorder;
-        this.specFactory = new AgentRequestSpecFactory(promptAssembler, toolAssignments,
-                lazyTools, skillManager, memoryStore, budgets, knowledgeRetriever, recorder,
-                com.dark.javaHarness.tool.DefaultToolDecorators.defaults(lazyTools, skillManager,
-                        budgets, recorder), null,
-                modelResolver, llmAgentCatalog, llmClientRegistry);
+        this.specFactory = specFactory;
         this.observer = new LlmCallObserver(recorder);
     }
 

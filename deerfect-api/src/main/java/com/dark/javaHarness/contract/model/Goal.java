@@ -32,48 +32,67 @@ public class Goal {
     /** 下次重投时间（指数退避）；空 = 不再重投 */
     private LocalDateTime nextRetryAt;
 
-    /** 构造目标（无会话记忆） */
-    public Goal(String id, String objective) {
-        this(id, objective, null);
+    /**
+     * 新目标（无会话记忆），初始 PENDING。调用方按意图选择工厂方法，不再用 null 占位选构造器。
+     */
+    public static Goal newGoal(String id, String objective) {
+        return newGoal(id, objective, null);
     }
 
-    /** 构造目标（带会话记忆），初始状态 PENDING */
-    public Goal(String id, String objective, String sessionId) {
-        this(id, objective, sessionId, null, null);
+    /** 新目标（带会话记忆），初始 PENDING。 */
+    public static Goal newGoal(String id, String objective, String sessionId) {
+        return newGoal(id, objective, sessionId, null, null);
     }
 
-    /** 构造目标（带会话记忆与轨迹标识），初始状态 PENDING；渠道为空 */
-    public Goal(String id, String objective, String sessionId, String turnId, String traceId) {
-        this(id, objective, sessionId, turnId, traceId, null);
+    /** 新目标（带会话记忆与轨迹标识），初始 PENDING。 */
+    public static Goal newGoal(String id, String objective, String sessionId, String turnId, String traceId) {
+        return newGoal(id, objective, sessionId, turnId, traceId, null);
     }
 
-    /** 构造目标（带会话记忆、轨迹标识、来源渠道与执行 Agent），初始状态 PENDING */
-    public Goal(String id, String objective, String sessionId, String turnId, String traceId,
-                String channel, String agentName) {
-        this(id, objective, sessionId, GoalStatus.PENDING, LocalDateTime.now(), null, null,
-                turnId, traceId, channel, null, agentName, 0, null);
-    }
-
-    /** 构造目标（带会话记忆、轨迹标识与来源渠道），初始状态 PENDING */
-    public Goal(String id, String objective, String sessionId, String turnId, String traceId,
-                String channel) {
-        this(id, objective, sessionId, GoalStatus.PENDING, LocalDateTime.now(), null, null,
+    /** 新目标（带会话记忆、轨迹标识与来源渠道），初始 PENDING。 */
+    public static Goal newGoal(String id, String objective, String sessionId, String turnId, String traceId,
+                               String channel) {
+        return new Goal(id, objective, sessionId, GoalStatus.PENDING, LocalDateTime.now(), null, null,
                 turnId, traceId, channel, null, null, 0, null);
     }
 
-    /** 从持久化数据恢复完整状态（轨迹标识不入 goal 表，恢复为 null） */
-    public Goal(String id, String objective, String sessionId,
-                GoalStatus status, LocalDateTime createdAt, LocalDateTime finishedAt, String summary,
-                String turnId, String traceId, String channel, LocalDateTime lastProgressAt) {
-        this(id, objective, sessionId, status, createdAt, finishedAt, summary,
+    /** 新对话目标：带执行 Agent，失败后可重投。 */
+    public static Goal newConversationGoal(String id, String objective, String sessionId, String turnId,
+                                           String traceId, String channel, String agentName) {
+        return new Goal(id, objective, sessionId, GoalStatus.PENDING, LocalDateTime.now(), null, null,
+                turnId, traceId, channel, null, agentName, 0, null);
+    }
+
+    /** 新建长期目标，初始 ACTIVE。 */
+    public static Goal newActiveGoal(String id, String objective, String sessionId) {
+        return new Goal(id, objective, sessionId, GoalStatus.ACTIVE, LocalDateTime.now(), null, null,
+                null, null, null, null, null, 0, null);
+    }
+
+    /** 从持久化数据恢复（历史行无执行 Agent / 重投字段，按 0 次重投处理）。 */
+    public static Goal restore(String id, String objective, String sessionId,
+                               GoalStatus status, LocalDateTime createdAt, LocalDateTime finishedAt,
+                               String summary, String turnId, String traceId, String channel,
+                               LocalDateTime lastProgressAt) {
+        return restore(id, objective, sessionId, status, createdAt, finishedAt, summary,
                 turnId, traceId, channel, lastProgressAt, null, 0, null);
     }
 
-    /** 全状态构造（含失败重投三要素：执行 Agent / 已重投次数 / 下次重投时间） */
-    public Goal(String id, String objective, String sessionId,
-                GoalStatus status, LocalDateTime createdAt, LocalDateTime finishedAt, String summary,
-                String turnId, String traceId, String channel, LocalDateTime lastProgressAt,
-                String agentName, int retryCount, LocalDateTime nextRetryAt) {
+    /** 从持久化数据恢复完整状态（轨迹标识不入 goal 表，恢复为 null）。 */
+    public static Goal restore(String id, String objective, String sessionId,
+                               GoalStatus status, LocalDateTime createdAt, LocalDateTime finishedAt,
+                               String summary, String turnId, String traceId, String channel,
+                               LocalDateTime lastProgressAt, String agentName, int retryCount,
+                               LocalDateTime nextRetryAt) {
+        return new Goal(id, objective, sessionId, status, createdAt, finishedAt, summary,
+                turnId, traceId, channel, lastProgressAt, agentName, retryCount, nextRetryAt);
+    }
+
+    /** 唯一规范构造器：状态、时间与重投字段由工厂方法或持久化恢复显式给出。 */
+    private Goal(String id, String objective, String sessionId,
+                 GoalStatus status, LocalDateTime createdAt, LocalDateTime finishedAt, String summary,
+                 String turnId, String traceId, String channel, LocalDateTime lastProgressAt,
+                 String agentName, int retryCount, LocalDateTime nextRetryAt) {
         this.id = id;
         this.objective = objective;
         this.sessionId = sessionId;

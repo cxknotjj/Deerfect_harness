@@ -87,51 +87,33 @@ public final class AgentChatCaller {
     private final RouteExecutor routeExecutor;
 
     /**
-     * 全参构造（含 skill 装配与 RAG 知识检索，正式装配由 MultiAgentGraphAgent/GeneralAssistantAgent
-     * 统一构建传入）：knowledgeRetriever 仅知识库启用时非 null（MultiAgentGraphAgent 经
-     * ObjectProvider 传入），null 时无知识段注入。
-     * timeouts 为 null（单测场景）时流式空闲超时走默认
-     * {@link #DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS}。
-     * 路由解析三件套（modelResolver / llmAgentCatalog / llmClientRegistry）必填：
-     * 调用链只按 Agent → 路由 → 模型 id 取客户端。
+     * 共享执行器：请求规格工厂、提示装配器与会话记忆由装配边界注入，供所有 Agent 复用。
+     * routeExecutor 为路由推进唯一实现；budgets 为上下文预算配置。
      */
     public AgentChatCaller(AgentService agentService,
-                    ToolAssignments toolAssignments,
-                    LlmCallRecorder recorder,
-                    LlmRetry retry,
-                    ContextBudgetProperties budgets,
-                    PromptAssembler promptAssembler,
-                    SessionService memoryStore,
-                    ToolLazyManager lazyTools,
-                    SkillManager skillManager,
-                    KnowledgeRetriever knowledgeRetriever,
-                    ChatTimeoutProperties timeouts,
-                    ContextCompositionRecorder compositionRecorder,
-                    ModelResolver modelResolver,
-                    AgentCatalog llmAgentCatalog,
-                    LlmClientRegistry llmClientRegistry,
-                    RouteExecutor routeExecutor) {
+                           AgentRequestSpecFactory specFactory,
+                           LlmCallRecorder recorder,
+                           LlmRetry retry,
+                           ContextBudgetProperties budgets,
+                           PromptAssembler promptAssembler,
+                           SessionService memoryStore,
+                           ChatTimeoutProperties timeouts,
+                           LlmClientRegistry llmClientRegistry,
+                           RouteExecutor routeExecutor) {
         this.agentService = agentService;
         this.llmClientRegistry = llmClientRegistry;
-        this.routeExecutor = routeExecutor != null ? routeExecutor
-                : new RouteExecutor(RouteExecutor.DEFAULT_MAX_SAME_MEMBER_RETRIES);
+        this.routeExecutor = routeExecutor;
         this.observer = new LlmCallObserver(recorder);
         this.retry = retry;
-        this.budgets = budgets != null ? budgets : new ContextBudgetProperties();
-        ToolLazyManager lazy = lazyTools != null ? lazyTools : new ToolLazyManager(toolAssignments, false);
-        this.specFactory = new AgentRequestSpecFactory(promptAssembler,
-                toolAssignments, lazy, skillManager, memoryStore, this.budgets,
-                knowledgeRetriever, recorder,
-                DefaultToolDecorators.defaults(lazy, skillManager,
-                        this.budgets, recorder), compositionRecorder,
-                modelResolver, llmAgentCatalog, llmClientRegistry);
+        this.budgets = budgets;
+        this.specFactory = specFactory;
         Duration streamIdleTimeout = ChatClientFactory.resolve(
-                timeouts != null ? timeouts.getStreamIdleTimeoutSeconds() : null,
+                timeouts.getStreamIdleTimeoutSeconds(),
                 DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS);
         Duration firstFrameTimeout = ChatClientFactory.resolve(
-                timeouts != null ? timeouts.getFirstFrameTimeoutSeconds() : null,
+                timeouts.getFirstFrameTimeoutSeconds(),
                 DEFAULT_FIRST_FRAME_TIMEOUT_SECONDS);
-        this.pipeline = new AgentChatPipeline(llmClientRegistry, this.specFactory, streamIdleTimeout,
+        this.pipeline = new AgentChatPipeline(llmClientRegistry, specFactory, streamIdleTimeout,
                 firstFrameTimeout, this.routeExecutor);
         this.assembler = new CallSpecAssembler(promptAssembler, memoryStore, this.budgets);
     }

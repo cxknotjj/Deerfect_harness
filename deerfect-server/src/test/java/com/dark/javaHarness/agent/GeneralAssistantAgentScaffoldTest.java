@@ -12,9 +12,12 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.dark.javaHarness.config.ChatTimeoutProperties;
+import com.dark.javaHarness.config.ContextBudgetProperties;
 import com.dark.javaHarness.llm.catalog.AgentCatalog;
 import com.dark.javaHarness.llm.client.LlmClientRegistry;
 import com.dark.javaHarness.llm.routing.ModelResolver;
+import com.dark.javaHarness.llm.routing.RouteExecutor;
 import com.dark.javaHarness.llm.routing.RoutePlan;
 import com.dark.javaHarness.contract.model.AgentConfig;
 import com.dark.javaHarness.contract.model.Goal;
@@ -22,6 +25,7 @@ import com.dark.javaHarness.domain.LlmCallLog;
 import com.dark.javaHarness.contract.api.AgentService;
 import com.dark.javaHarness.contract.api.SessionService;
 import com.dark.javaHarness.observability.LlmCallRecorder;
+import com.dark.javaHarness.prompt.PromptAssembler;
 import com.dark.javaHarness.tool.ToolAssignments;
 import java.util.ArrayList;
 import java.util.List;
@@ -104,9 +108,14 @@ class GeneralAssistantAgentScaffoldTest {
 
     @BeforeEach
     void setUp() {
-        agent = new GeneralAssistantAgent("general", memoryStore, agentService,
-                toolAssignments, recorder, null, null, null, null, null, null, null,
-                modelResolver, agentCatalog, llmClientRegistry, null);
+        ContextBudgetProperties budgets = new ContextBudgetProperties();
+        PromptAssembler assembler = new PromptAssembler(agentService, toolAssignments);
+        AgentRequestSpecFactory specFactory = new AgentRequestSpecFactory(assembler, toolAssignments,
+                memoryStore, budgets, null, List.of(), null, modelResolver, agentCatalog, llmClientRegistry);
+        AgentChatCaller chatCaller = new AgentChatCaller(agentService, specFactory, recorder,
+                new LlmRetry(), budgets, assembler, memoryStore, new ChatTimeoutProperties(),
+                llmClientRegistry, new RouteExecutor(RouteExecutor.DEFAULT_MAX_SAME_MEMBER_RETRIES));
+        agent = new GeneralAssistantAgent("general", agentService, chatCaller, new LlmRetry(), budgets);
         when(agentService.getAgentConfig("general"))
                 .thenReturn(Optional.of(new AgentConfig(1L, "m1", "系统提示词", null)));
         lenient().when(toolAssignments.forAgent(any())).thenReturn(ToolAssignments.ToolSet.EMPTY);
@@ -138,7 +147,7 @@ class GeneralAssistantAgentScaffoldTest {
     void execute_success_returnsReplyAndRecordsOk() {
         when(streamSpec.chatResponse()).thenReturn(Flux.just(textResponse("完整回答")));
 
-        String reply = agent.execute(new Goal("g1", "问题", "s1"));
+        String reply = agent.execute(Goal.newGoal("g1", "问题", "s1"));
 
         assertEquals("完整回答", reply);
         LlmCallLog row = capturedSingle();
@@ -155,7 +164,7 @@ class GeneralAssistantAgentScaffoldTest {
         when(streamSpec.chatResponse()).thenReturn(Flux.error(new RuntimeException("boom-401无效")));
 
         RuntimeException ex = assertThrows(RuntimeException.class,
-                () -> agent.execute(new Goal("g2", "问题", "s2")));
+                () -> agent.execute(Goal.newGoal("g2", "问题", "s2")));
         assertTrue(ex.getMessage().contains("boom-401无效"));
 
         LlmCallLog row = capturedSingle();
@@ -169,7 +178,7 @@ class GeneralAssistantAgentScaffoldTest {
     void executeStreamReactive_tokensProgressively_estimatedRecord() {
         when(streamSpec.chatResponse()).thenReturn(fluxOf("你", "好"));
 
-        List<String> out = agent.executeStreamReactive(new Goal("g3", "问题", "s3"))
+        List<String> out = agent.executeStreamReactive(Goal.newGoal("g3", "问题", "s3"))
                 .collectList()
                 .block();
 
@@ -188,7 +197,7 @@ class GeneralAssistantAgentScaffoldTest {
     void executeStreamReactive_usageFinalFrame_realUsageRecorded() {
         when(streamSpec.chatResponse()).thenReturn(fluxWithUsage(21, 21, 42, "你好"));
 
-        List<String> out = agent.executeStreamReactive(new Goal("g4", "问题", "s4"))
+        List<String> out = agent.executeStreamReactive(Goal.newGoal("g4", "问题", "s4"))
                 .collectList()
                 .block();
 
@@ -208,7 +217,7 @@ class GeneralAssistantAgentScaffoldTest {
                 .thenReturn(Flux.concat(fluxOf("你"), Flux.error(new RuntimeException("供应商 5xx 炸了"))));
 
         assertThrows(RuntimeException.class,
-                () -> agent.executeStreamReactive(new Goal("g5", "问题", "s5")).collectList().block());
+                () -> agent.executeStreamReactive(Goal.newGoal("g5", "问题", "s5")).collectList().block());
 
         LlmCallLog row = capturedSingle();
         assertFalse(row.ok());
@@ -228,7 +237,7 @@ class GeneralAssistantAgentScaffoldTest {
             return null;
         }).when(recorder).record(any());
 
-        agent.executeStreamReactive(new Goal("g6", "问题", "s6"))
+        agent.executeStreamReactive(Goal.newGoal("g6", "问题", "s6"))
                 .subscribe(t -> firstToken.countDown(), e -> { }, () -> { },
                         s -> { subRef.set(s); s.request(Long.MAX_VALUE); });
         assertTrue(firstToken.await(2, TimeUnit.SECONDS), "首个 token 应到达");
@@ -247,7 +256,7 @@ class GeneralAssistantAgentScaffoldTest {
         when(streamSpec.chatResponse()).thenReturn(fluxOf("你", "好"));
         List<String> got = new ArrayList<>();
 
-        agent.executeStream(new Goal("g7", "问题", "s7"), got::add);
+        agent.executeStream(Goal.newGoal("g7", "问题", "s7"), got::add);
 
         assertEquals(List.of("你", "好"), got);
         LlmCallLog row = capturedSingle();

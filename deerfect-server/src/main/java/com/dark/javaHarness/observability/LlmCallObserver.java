@@ -74,24 +74,25 @@ public final class LlmCallObserver {
         // 按它统计会把失败切换的调用全算到首选模型头上（upstream_name 同源，保留兼容）。
         String servedModel = route != null && route.upstreamName() != null
                 ? route.upstreamName() : model;
-        recorder.record(new LlmCallLog(sessionId, agentName, servedModel, stream, ok,
-                promptTokens, completionTokens, totalTokens,
-                tokensEstimated,
-                System.currentTimeMillis() - start, errorMsg,
-                attachments == null ? null : attachments.skills(),
-                attachments == null ? null : attachments.tools(),
-                attachments == null ? null : attachments.mcpTools(),
-                ok && content != null && !content.isEmpty() ? content : null,
-                firstTokenAt > 0 ? firstTokenAt - start : null,
-                LlmCallRecorder.extractCachedTokens(usage),
-                attempt, maxAttempts, turnId, traceId, spanId, parentSpan,
-                LlmCallRecorder.startedAt(start),
-                route == null ? null : route.routeId(),
-                route == null ? null : route.routeCode(),
-                route == null ? null : route.modelId(),
-                route == null ? null : route.providerCode(),
-                route == null ? null : route.upstreamName(),
-                route == null ? null : route.fallbackFromModelId(),
-                errorClass));
+        recorder.record(LlmCallLog.builder()
+                .call(sessionId, agentName, servedModel, stream, ok)
+                .usage(promptTokens, completionTokens, totalTokens, tokensEstimated,
+                        LlmCallRecorder.extractCachedTokens(usage))
+                .timing(System.currentTimeMillis() - start,
+                        firstTokenAt > 0 ? firstTokenAt - start : null)
+                .error(errorMsg, errorClass)
+                .promptAssembly(attachments == null ? null : attachments.skills(),
+                        attachments == null ? null : attachments.tools(),
+                        attachments == null ? null : attachments.mcpTools())
+                .output(ok && content != null && !content.isEmpty() ? content : null)
+                .attempt(attempt, maxAttempts)
+                .trace(turnId, traceId, spanId, parentSpan, LlmCallRecorder.startedAt(start))
+                .route(route == null ? null : route.routeId(),
+                        route == null ? null : route.routeCode(),
+                        route == null ? null : route.modelId(),
+                        route == null ? null : route.providerCode(),
+                        route == null ? null : route.upstreamName(),
+                        route == null ? null : route.fallbackFromModelId())
+                .build());
     }
 }

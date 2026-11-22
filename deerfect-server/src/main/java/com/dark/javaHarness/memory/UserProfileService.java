@@ -438,13 +438,16 @@ public class UserProfileService {
                 + LlmCallRecorder.estimateTokens(userPrompt);
         // 发起时刻由耗时反推（重试回调只给耗时；回调与耗时计算同一时钟读数，差值即发起瞬间）
         long start = System.currentTimeMillis() - durationMs;
-        recorder.record(new LlmCallLog(null, "memory-profile", route.upstreamName(), false, ok,
-                promptTokens, null, null, true,
-                durationMs, LlmCallRecorder.describeError(e),
-                null, null, null, null, null, null, null, null,
-                null, null, null, null, LlmCallRecorder.startedAt(start),
-                route.routeId(), route.routeCode(), route.modelId(), route.providerCode(),
-                route.upstreamName(), route.fallbackFromModelId(),
-                ok ? null : com.dark.javaHarness.llm.routing.FailurePolicy.errorClass(e)));
+        recorder.record(LlmCallLog.builder()
+                .call(null, "memory-profile", route.upstreamName(), false, ok)
+                .usage(promptTokens, null, null, true, null)
+                .timing(durationMs, null)
+                .error(LlmCallRecorder.describeError(e),
+                        ok ? null : com.dark.javaHarness.llm.routing.FailurePolicy.errorClass(e))
+                .attempt(null, null)
+                .trace(null, null, null, null, LlmCallRecorder.startedAt(start))
+                .route(route.routeId(), route.routeCode(), route.modelId(), route.providerCode(),
+                        route.upstreamName(), route.fallbackFromModelId())
+                .build());
     }
 }

@@ -66,43 +66,18 @@ public class GeneralAssistantAgent implements Agent {
     private final LlmRetry streamRetry;
 
     /**
-     * 全参构造（含 skill 装配与 RAG 知识检索）：knowledgeRetriever 仅知识库启用时非 null
-     * （AgentRegistry 经 ObjectProvider 注入），null 时无知识段注入。
-     * 内部构建 {@link AgentChatCaller} 共享执行引擎（组装链/重试/观测同源）。timeouts 透传
-     * 给调用器作流式空闲超时（null 时走调用器默认）。路由解析三件套必填。
+     * 共享执行器由 AgentFactory 注入；本类只保留 agentName、配置查询与最终输出档位。
      */
     public GeneralAssistantAgent(String agentName,
-                                 SessionService memoryStore,
                                  AgentService agentService,
-                                 ToolAssignments toolAssignments,
-                                 LlmCallRecorder recorder,
-                                 ContextBudgetProperties budgets,
-                                 ToolLazyManager lazyTools,
-                                 PromptAssembler promptAssembler,
-                                 SkillManager skillManager,
-                                 KnowledgeRetriever knowledgeRetriever,
-                                 ChatTimeoutProperties timeouts,
-                                 ContextCompositionRecorder compositionRecorder,
-                                 ModelResolver modelResolver,
-                                 AgentCatalog llmAgentCatalog,
-                                 LlmClientRegistry llmClientRegistry,
-                                 RouteExecutor routeExecutor) {
+                                 AgentChatCaller chatCaller,
+                                 LlmRetry streamRetry,
+                                 ContextBudgetProperties budgets) {
         this.agentName = agentName;
         this.agentService = agentService;
-        ToolLazyManager effectiveLazy = lazyTools != null ? lazyTools : new ToolLazyManager(toolAssignments, false);
-        // 工具索引段与延迟加载同源：开启时索引段追加 expand_tool 使用引导（与轻量态工具面对齐）
-        PromptAssembler effectiveAssembler = promptAssembler != null ? promptAssembler
-                : new PromptAssembler(agentService, toolAssignments, List.of(), List.of(), List.of(), effectiveLazy.isEnabled());
-        // budgets 缺省时取配置类默认（与 application-chat.yaml 生产默认一致的单一数值源），
-        // 不在此处硬编码兜底数字，避免代码/yaml 双口径漂移
-        ContextBudgetProperties effectiveBudgets =
-                budgets != null ? budgets : new ContextBudgetProperties();
-        this.maxTokensFinal = effectiveBudgets.getMaxTokensFinal();
-        this.streamRetry = new LlmRetry();
-        this.chatCaller = new AgentChatCaller(agentService, toolAssignments, recorder,
-                streamRetry, effectiveBudgets, effectiveAssembler, memoryStore, effectiveLazy,
-                skillManager, knowledgeRetriever, timeouts, compositionRecorder,
-                modelResolver, llmAgentCatalog, llmClientRegistry, routeExecutor);
+        this.maxTokensFinal = budgets.getMaxTokensFinal();
+        this.streamRetry = streamRetry;
+        this.chatCaller = chatCaller;
     }
 
     /** 返回 Agent 名称（用于注册与路由） */

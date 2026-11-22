@@ -39,7 +39,7 @@ class ActiveGoalSectionProviderImplTest {
 
     @Test
     void rendersObjectiveIdAndDuration() {
-        Goal goal = new Goal("goal-1", "整理 WMS 库存异常", "s1", GoalStatus.ACTIVE,
+        Goal goal = Goal.restore("goal-1", "整理 WMS 库存异常", "s1", GoalStatus.ACTIVE,
                 LocalDateTime.now().minusDays(2), null, null, null, null, null, null);
         when(goalService.activeBySession("s1")).thenReturn(Optional.of(goal));
 
@@ -54,7 +54,7 @@ class ActiveGoalSectionProviderImplTest {
     /** 目标描述可能很长：截断到 200 字，别让一段目标吃掉本轮预算 */
     @Test
     void longObjective_truncated() {
-        Goal goal = new Goal("goal-2", "x".repeat(500), "s1", GoalStatus.ACTIVE,
+        Goal goal = Goal.restore("goal-2", "x".repeat(500), "s1", GoalStatus.ACTIVE,
                 LocalDateTime.now(), null, null, null, null, null, null);
         when(goalService.activeBySession("s1")).thenReturn(Optional.of(goal));
 

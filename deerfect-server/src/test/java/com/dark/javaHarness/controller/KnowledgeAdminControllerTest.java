@@ -121,8 +121,6 @@ class KnowledgeAdminControllerTest {
 
     @Test
     void search_invalidOptions_rejectedAtHttpBoundary() {
-        enableService();
-
         assertThrows(IllegalArgumentException.class,
                 () -> controller.search("问题", null, false, -1, null, null));
         assertThrows(IllegalArgumentException.class,
