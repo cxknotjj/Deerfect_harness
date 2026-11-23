@@ -1,12 +1,14 @@
 # Agent 设置与路由配置：模型绑定管理计划书
 
-> 状态：待评审　日期：2026-11-19
+> 状态：已实施（2026-11-21；方案调整为设置页单页「路由与 Agent」，非原文的两个同级页）　日期：2026-11-19
 >
 > 结论先行：**需要新增两个同级页面**——「Agent 设置」和「路由配置」，都挂在设置页「配置」分组下。
 > 现有架构是 `Agent → llm_route → llm_model`，后端已经支持绑定、路由 CRUD 与热更新，前端完全没有入口；
 > 两个页面分别补「使用方」和「模型组合」两层配置，缺一不可。
 >
 > 已确认：**路由配置页与 Agent 设置同级，不放进「模型管理」子页。**
+>
+> 历史说明：实际落地时合并为单页「路由与 Agent」，保留路由卡片与 Agent 配置弹窗；正文保留当时的两页方案，当前实现以 `deerfect-web/src/components/settings/RouteAgentPanel.vue` 与 `docs/guides/api.md` 为准。
 
 ---
 
@@ -23,6 +25,8 @@
 | 配置热更新 | ✅ 清空路由解析、Agent 配置、客户端缓存 | `LlmConfigRefresher.refresh` |
 | Agent 管理列表 | ⚠️ 只有 `GET /api/harness/agents` 返回 `{id, name}` | `AgentConfigProvider.listAgentItems` |
 | Agent 路由详情 | ❌ 管理面没有接口 | — |
+
+> **历史说明（2026-11-21）**：上表是写作时（2026-11-19）的状态。后续提交已落地 `GET /api/admin/agents`、`PUT /api/admin/agents/{id}`，设置页也已合并为单页「路由与 Agent」；当前实现以 [guides/api.md](../guides/api.md) 与 `RouteAgentPanel.vue` 为准。
 
 关键实现细节：
 

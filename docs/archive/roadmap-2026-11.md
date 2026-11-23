@@ -178,7 +178,7 @@ order: 10
 
 > 本节按完成时点记录，保留当时的实现描述；部分技术选型已被后续重构替换
 > （StateGraph → 自研 `ParallelOrchestrationEngine`、Spring AI 1.1 → 2.0、Boot 3.5 → 4.1），
-> 现状以 [tech-stack.md](./tech-stack.md) 与 [features.md](./features.md) 为准。
+> 现状以 [tech-stack.md](./tech-stack.md) 与 [overview.md](./overview.md) 为准。
 
 ## 两路径架构（2026-08 完成）
 

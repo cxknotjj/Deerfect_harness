@@ -1,6 +1,6 @@
 # channel 模块 TODO
 
-> QQ（NapCat / OneBot 11 纯 HTTP）通道的待办清单。总任务清单见 `docs/roadmap.md`，本文件只收 channel 侧事项；完成后打勾并注明验证方式。
+> QQ（NapCat / OneBot 11 纯 HTTP）通道的待办清单。总进度见 `docs/task-checklist/readme.md`，本文件只收 channel 侧事项；完成后打勾并注明验证方式。
 > 2026-11-06 核对：渐进发送相关配置已随「整段单条发送」改造移除；主动推送（P1-2）链路见 `data-flow.md` 第九节。
 
 ## 功能缺口

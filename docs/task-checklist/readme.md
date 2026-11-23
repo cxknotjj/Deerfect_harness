@@ -1,6 +1,13 @@
 # task-checklist 使用约定
 
-本目录存放可执行的任务清单，一个 Markdown 对应一个任务主题。
+本目录只存放**跨功能 / 跨发布的 program 清单**（长期债、能力补齐、需要真机验收的尾巴），
+一个 Markdown 对应一个 program。
+
+**单功能任务不在这里**：新功能/行为变更的拆解、依赖与验收写在 `specs/NNN-xxx/tasks.md`
+（Spec Kit 变更区），完成后随 spec 一起归档到 `docs/archive/specs/NNN-xxx/`。
+
+准入判断：一条清单如果能在**一个 spec 的生命周期内**做完，就不该建在这里；只有「跨多个 spec、
+没有单一交付物、或依赖外部条件（凭据 / 真机 / 上线窗口）」的才留。
 
 ## 记录约定
 
@@ -18,8 +25,8 @@
 
 ### 3. 全部勾选后转为存档，不再回填时点数字
 
-- 写法：文件内不再有 `- [ ]` 时，文件头保留「状态：已完成」并停止维护正文
-- 作用：判断当前进度只看仍有 `- [ ]` 的清单（如 `personal-agent-gap.md`）；已验收清单留档可追溯
+- 写法：文件内不再有 `- [ ]` 时，文件头保留「状态：已完成」，把文件移到 [`docs/archive/checklists/`](../archive/checklists/)，并从本页汇总表删除
+- 作用：判断当前进度只看仍有 `- [ ]` 的清单（如 `personal-agent-gap.md`）；已验收清单在归档目录可追溯
 - 为什么：早期约定是「全勾完直接删」，实践中验收结论（做法 / 取舍 / 端到端结果）有复用价值，改为留档。正文里的测试数、代码行数是**验收当时的基线**，不随主干回填，否则会把「验收时的事实」改写掉
 
 ### 4. 文件名与文件头写清主题、范围和日期
@@ -46,6 +53,8 @@
 
 ## 当前清单
 
+**状态汇总口径**：清单文件头部的「已完成 / 待办」是事实源，下表只做汇总；任务完成数只在文件头与本表维护，不在 `docs/index.md` 或其它页面重复（设计文档状态见 [design/README.md](../design/README.md)）。完成数按 `- [x]` / `- [ ]` 统计，完成一项就把复选框改掉，不删除条目。
+
 | 清单 | 主题 | 进度 |
 | --- | --- | --- |
 | [personal-agent-gap.md](./personal-agent-gap.md) | 能力补齐（主动性 / 记忆 / 触达） | 11/14 |
@@ -53,8 +62,8 @@
 | [email-channel.md](./email-channel.md) | 邮件渠道模块（M1 后半） | 5/6（E1-5 待真实 SMTP 验证） |
 | [feishu-channel.md](./feishu-channel.md) | 飞书渠道：webhook（M3a）/ 事件订阅（M3b） | 8/9（M3a 4/5，F2-5 待真实群 webhook 验证；M3b 4/4，含群聊 @） |
 | [feishu-inbound-expansion.md](./feishu-inbound-expansion.md) | 飞书入站扩展：群聊全量接收 / 富文本 / 图片多模态 | 10/11（T2 待真机） |
-| [llm-routing.md](./llm-routing.md) | LLM 供应商 / 模型 / 路由三层模型与 Agent 绑定 | 0/29 |
 
-> 上表只列仍有待办的清单。`delivery-outbox.md`（10/10，2026-11-08 完成）、`channel-health.md`（4/4，2026-11-08 完成）、`session-context-composition.md`（11/11）、`super-agent-adoption.md`（14/14）、`skill-optimization.md`（17/17）、`project-optimization.md`（15/15）已全部验收，按约定留档、不再回填。
+> 上表只列仍有待办的 program。以下清单已全部验收，移到 [archive/checklists](../archive/checklists/) 留档、不再回填：
+> `llm-routing.md`（29/29，2026-11-12）、`delivery-outbox.md`（10/10，2026-11-08）、`channel-health.md`（4/4，2026-11-08）、`session-context-composition.md`（11/11）、`super-agent-adoption.md`（14/14）、`skill-optimization.md`（17/17）、`project-optimization.md`（15/15）。
 >
 > 投递可靠性相关的几份清单来自同一份规划书 [2026-11-08-delivery-reliability-feishu-email-plan.md](../design/2026-11-08-delivery-reliability-feishu-email-plan.md)，拆成多个文件是因为它们**能独立提交、独立验收**：投递层不依赖邮件实现（用测试替身就能验），邮件不依赖飞书，飞书 M3a 也不依赖 M3b。拆开的边界是「一次提交能完整说明一件事」，不是按代码目录切。
