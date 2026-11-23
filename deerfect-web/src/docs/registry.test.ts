@@ -16,7 +16,10 @@ describe('文档注册表', () => {
     expect(overview.docs[0].path).toBe('index.md')
     expect(overview.docs[0].title).toBe('文档导航')
     expect(overview.docs[0].order).toBe(1)
-    expect(overview.docs.map((d) => d.order)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    // 概览序号连续（01..N）：改 front-matter order 才会变，加文档不会让断言过期
+    expect(overview.docs.map((d) => d.order)).toEqual(
+      Array.from({ length: overview.docs.length }, (_, i) => i + 1),
+    )
     // 其他分组也按展示顺序补 1..N 序号
     expect(DOC_GROUPS[1].docs.map((d) => d.order)).toEqual(
       Array.from({ length: DOC_GROUPS[1].count }, (_, i) => i + 1),
@@ -24,8 +27,13 @@ describe('文档注册表', () => {
   })
 
   it('组计数按折叠后的真实目录重算', () => {
-    const counts = Object.fromEntries(DOC_GROUPS.map((g) => [g.key, g.count]))
-    expect(counts).toEqual({ overview: 10, guides: 15, design: 17, tasks: 13, reports: 4 })
+    // 不写死数字：新增文档不该让测试过期，只校验「计数 = 折叠后条目数」这一口径
+    for (const group of DOC_GROUPS) {
+      expect(group.count).toBe(group.docs.length)
+      expect(group.docs.some((d) => d.path.endsWith('.en.md'))).toBe(false)
+    }
+    expect(DOC_GROUPS.map((g) => g.key)).toEqual(['overview', 'guides', 'design', 'tasks', 'reports'])
+    expect(DOC_GROUPS.every((g) => g.count > 0)).toBe(true)
   })
 
   it('英文变体折叠成一条：中文条目带 enPath，树里不再占行', () => {
@@ -39,7 +47,7 @@ describe('文档注册表', () => {
     const markdown = docMarkdown('index.md')
     expect(markdown).toContain('## 项目约束')
     expect(markdown?.startsWith('---')).toBe(false)
-    expect(findDoc('index.md')?.updated).toBe('2026-11-14')
+    expect(findDoc('index.md')?.updated).toBe('2026-11-23')
     expect(findDoc('guides/setup.md')?.title).toBeTruthy()
     // 没有 front-matter 的文档用本地文件修改日期，保证每篇都有「更新」
     expect(findDoc('guides/setup.md')?.updated).toMatch(/^\d{4}-\d{2}-\d{2}$/)

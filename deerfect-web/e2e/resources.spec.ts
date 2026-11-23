@@ -152,7 +152,7 @@ test.describe('资源面导航', () => {
     await expect(metaBar).toContainText('group 概览')
     await expect(metaBar).toContainText('order 01')
     await expect(metaBar).toContainText('lang zh')
-    await expect(metaBar).toContainText('更新 2026-11-14')
+    await expect(metaBar).toContainText('更新 2026-11-23')
 
     // 正文来自打包的 index.md：表格与「项目约束」段落
     await expect(page.locator('.docs-md table').first()).toBeVisible()
@@ -193,11 +193,12 @@ test.describe('资源面导航', () => {
     const pill = page.locator('.docs-menu-pill')
     await expect(pill).toContainText('本页目录')
 
-    // 展开：当前章节 = 顶部第一节
+    // 展开：章节数 = 正文 h2 数，当前章节 = 顶部第一节（不写死标题，索引加章节不用改测试）
+    const h2Titles = (await page.locator('.docs-md h2').allTextContents()).map((t) => t.trim())
     await pill.click()
     await expect(page.locator('.docs-menu-panel')).toBeVisible()
-    await expect(page.locator('.docs-menu-item')).toHaveCount(6)
-    await expect(page.locator('.docs-menu-item.is-active')).toHaveText('项目约束')
+    await expect(page.locator('.docs-menu-item')).toHaveCount(h2Titles.length)
+    await expect(page.locator('.docs-menu-item.is-active')).toHaveText(h2Titles[0])
 
     // 方向键在列表内移动焦点
     await page.keyboard.press('ArrowDown')
