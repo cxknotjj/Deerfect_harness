@@ -14,12 +14,14 @@ order: 6
 | 模块 | 职责 | 依赖 |
 |---|---|---|
 | `deerfect-api` | 渠道与 core 共用的契约层：`contract.api`（调用型端口）、`contract.spi`（实现型 SPI）、`contract.model`（端口载荷）、`view`（对外 DTO） | 无同反应堆依赖 |
-| `deerfect-server` | Spring Boot 主服务、core 实现与 fat jar 宿主 | compile → `deerfect-api`；runtime → `channel-qq` |
+| `deerfect-server` | Spring Boot 主服务、core 实现与 fat jar 宿主 | compile → `deerfect-api`；runtime → `channel-qq` / `channel-email` / `channel-feishu` |
 | `channel-qq` | QQ 渠道（NapCat/OneBot 11）：客户端/事件/回复/持久化；事件准入 `ChannelEventPolicy` + 语义层端口 | compile → `deerfect-api` |
+| `channel-email` | 邮件渠道（只出不进）：`MessageSender` + `ChannelHealth`，SMTP/465 SSL | compile → `deerfect-api` |
+| `channel-feishu` | 飞书渠道：webhook 出站（M3a）+ 长连接入站（M3b） | compile → `deerfect-api` |
 | `deerfect-cli` | 终端客户端，纯 HTTP + SSE | compile → `deerfect-api` |
 | `wms-mcp-adapter` | 领域 MCP 适配范例 | 独立 |
 
-> 规则：core（deerfect-server）编译期不得引用 `channel.qq`（enforcer 守护 `com.dark:channel-qq:*:*:compile`）；渠道新增输出控制走 `ReplyPostProcessor`，主动外发走 `MessageSender`（deerfect-api 端口，实现由渠道装配），两者都不改 core。详见 [`docs/design/channel-core-module-split.md`](./design/channel-core-module-split.md)。
+> 规则：core（deerfect-server）编译期不得引用任何 `channel-*`（enforcer 守护 `channel-qq` / `channel-email` / `channel-feishu` 的 compile 依赖）；渠道新增输出控制走 `ReplyPostProcessor`，主动外发走 `MessageSender`（deerfect-api 端口，实现由渠道装配），两者都不改 core。详见 [`docs/design/channel-core-module-split.md`](./design/channel-core-module-split.md)。
 
 ---
 

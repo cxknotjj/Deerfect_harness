@@ -79,7 +79,7 @@ flowchart TD
 ```
 
 > [!TIP]
-> For a full feature inventory see [`docs/features.md`](./docs/features.md) (Chinese); for data-flow details see [`docs/data-flow.md`](./docs/data-flow.md) (Chinese), for the roadmap see [`docs/roadmap.md`](./docs/roadmap.md) (Chinese), and for the full test landscape see [`docs/guides/functional-testing.md`](./docs/guides/functional-testing.md) (Chinese).
+> For the project overview see [`docs/overview.md`](./docs/overview.md) (Chinese); for data-flow details see [`docs/data-flow.md`](./docs/data-flow.md) (Chinese), and for the full test landscape see [`docs/guides/functional-testing.md`](./docs/guides/functional-testing.md) (Chinese).
 
 ## 🧰 Tech Stack
 

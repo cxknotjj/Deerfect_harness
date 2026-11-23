@@ -148,12 +148,12 @@ curl -s -X POST http://localhost:8080/api/chat \
 | 文档                                                                             | 内容                                                 |
 | ------------------------------------------------------------------------------ | -------------------------------------------------- |
 | **入门**                                                                         | <br />                                             |
+| [`docs/overview.md`](./docs/overview.md)                                       | 项目总说明（定位 / 边界 / 技术栈 / 模块图 / 不可违反的原则）              |
 | [`docs/guides/setup.md`](./docs/guides/setup.md)                               | 本地部署详解（数据库 / API Key / 启动脚本 / agent 服务商核对）         |
 | [`docs/guides/docker-deploy.md`](./docs/guides/docker-deploy.md)               | Docker 三件套部署（构建 / ACR 拉取 / 离线部署）                   |
 | [`docs/guides/models.md`](./docs/guides/models.md)                             | 多模型与多服务商接入                                         |
 | [`docs/guides/first-run-audit.md`](./docs/guides/first-run-audit.md)           | 首次使用流程规则与走查记录                                      |
 | **架构**                                                                         | <br />                                             |
-| [`docs/features.md`](./docs/features.md)                                       | 项目功能介绍（已落地能力全景 / 未实现清单）                            |
 | [`docs/architecture.md`](./docs/architecture.md)                               | 架构总览与数据流                                           |
 | [`docs/project-structure.md`](./docs/project-structure.md)                     | 服务端目录树（[EN](./docs/project-structure.en.md)）       |
 | [`docs/data-flow.md`](./docs/data-flow.md)                                     | 数据流详解                                              |
@@ -168,11 +168,12 @@ curl -s -X POST http://localhost:8080/api/chat \
 | [`docs/guides/resume.md`](./docs/guides/resume.md)                             | 断点续跑                                               |
 | **协议与规范**                                                                      | <br />                                             |
 | [`docs/guides/sse-protocol.md`](./docs/guides/sse-protocol.md)                 | SSE 流式协议（[EN](./docs/guides/sse-protocol.en.md)）   |
+| [`docs/guides/coding-conventions.md`](./docs/guides/coding-conventions.md)     | 编码与目录约定（命名 / 错误体 / 日志 / 测试 / 前端样式）              |
 | [`docs/guides/commit-convention.md`](./docs/guides/commit-convention.md)       | 提交规范（Conventional Commits）                         |
 | [`docs/guides/context-optimization.md`](./docs/guides/context-optimization.md) | 上下文优化与 Token 预算策略                                  |
 | **测试与演进**                                                                      | <br />                                             |
 | [`docs/guides/functional-testing.md`](./docs/guides/functional-testing.md)     | 测试全景                                               |
-| [`docs/roadmap.md`](./docs/roadmap.md)                               | 落地 TODO / 路线图                                      |
+| [`docs/design/README.md`](./docs/design/README.md)                             | 设计文档索引（ADR）：类型 / 状态 / 结论 / 替代方案                    |
 
 > 完整文档索引与存档目录（设计文档 design/、报告 reports/、历史 spec archive/specs/）见 **[`docs/index.md`](./docs/index.md)**。
 

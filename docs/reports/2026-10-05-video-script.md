@@ -3,7 +3,7 @@
 > **作品**：Deerfect Harness · 智算云主题
 >
 > **历史存档**：本文为 2026-10-05 的视频脚本，其中 Java 17 / StateGraph 等表述已过时；
-> 当前技术口径以 [features.md](../features.md) 与 [tech-stack.md](../tech-stack.md) 为准；
+> 当前技术口径以 [overview.md](../overview.md) 与 [tech-stack.md](../tech-stack.md) 为准；
 > 文末「700+ 自动化测试用例」等数字同为时点值，当前为 1086，见 [README](../../README.md)。
 > **视频定位**：作品展示 / 评审场景 · 核心功能 + 使用流程
 > **目标时长**：约 3 分 40 秒（可按 3–4 分钟剪辑）

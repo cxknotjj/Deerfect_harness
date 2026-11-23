@@ -1,8 +1,8 @@
 # 主动投递可靠性改造：飞书 + 邮箱（规划书）
 
-> 状态：待实施（v5，2026-11-08 四次修订：① 邮件改为独立模块 `channel-email`，见 6.3；② 去掉多实例假设，见 6.2；③ 删除进程外心跳，见 7.2；④ M3 拆为 M3a 群机器人 webhook（0.5 天）/ M3b 事件订阅（可选），见 8.1）　|　日期：2026-11-08　|　影响模块：`harness-api` / `server` / 新增 `channel-email` / 新增 `channel-feishu` / `channel-qq`
+> 状态：部分实施（M1 outbox / 探活已完成；邮件与飞书剩真机验证，进度见 [task-checklist/readme.md](../task-checklist/readme.md)）　|　版本：v5（2026-11-08 四次修订：① 邮件改为独立模块 `channel-email`，见 6.3；② 去掉多实例假设，见 6.2；③ 删除进程外心跳，见 7.2；④ M3 拆为 M3a 群机器人 webhook / M3b 事件订阅，见 8.1）　|　日期：2026-11-08　|　影响模块：`deerfect-api` / `deerfect-server` / `channel-email` / `channel-feishu` / `channel-qq`
 >
-> 前置阅读：[project-structure.md](../project-structure.md) 的 Flyway 迁移表（当前基线 V13，本方案从 V14 起）、[data-flow.md](../data-flow.md) 第九节主动推送链路。
+> 前置阅读：[project-structure.md](../project-structure.md) 的 Flyway 迁移表（编号取目录当前最大版本 +1）、[data-flow.md](../data-flow.md) 第九节主动推送链路。
 
 ## 1. 问题：不是「渠道不好用」，是「失败没人知道」
 
