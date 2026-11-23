@@ -25,7 +25,7 @@ describe('文档注册表', () => {
 
   it('组计数按折叠后的真实目录重算', () => {
     const counts = Object.fromEntries(DOC_GROUPS.map((g) => [g.key, g.count]))
-    expect(counts).toEqual({ overview: 10, guides: 15, design: 15, tasks: 13, reports: 4 })
+    expect(counts).toEqual({ overview: 10, guides: 15, design: 17, tasks: 13, reports: 4 })
   })
 
   it('英文变体折叠成一条：中文条目带 enPath，树里不再占行', () => {
