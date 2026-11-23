@@ -106,6 +106,9 @@ app:
     tool-call-limit: 12       # 单次调用工具执行次数上限（现有）
 ```
 
+> 上例是 2026-10 立项时的配置口径，**现行值以 `deerfect-server/src/main/resources/application-chat.yaml` 为准**
+> （如 `tool-call-limit` 现为 4）；本文只讲拆分与记账方式，不维护数字。
+
 ### 2.3 明确不做的事
 
 - **不硬截断子任务最终输出**：截断聚合输入已足够兜底；截模型输出可能切掉结论，且抑制表达质量。

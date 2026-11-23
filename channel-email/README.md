@@ -40,6 +40,29 @@ channel-email/
 - 不是 runtime 必需：`deerfect-server/pom.xml` 里是 `runtime` 依赖，`enabled=false` 时依赖树里
   没有 mail starter，注册表里也不会出现 `email`。
 
+## 启用（环境变量与首次检查）
+
+配置在 server 的 `application-channel.yaml` 的 `channel.email.*`，占位符已接好，**不用改 yaml**；
+关闭时 `deerfect-server` 的依赖树里没有 mail starter（渠道模块是 runtime 依赖）。
+
+`.env.local`：
+
+```bash
+export CHANNEL_EMAIL_ENABLED=true
+export MAIL_HOST=smtp.qq.com          # QQ 邮箱；其它服务商换成自己的
+export MAIL_USERNAME=you@qq.com       # 完整发件地址
+export MAIL_PASSWORD=xxxxxxxx         # 授权码，不是登录密码
+export MAIL_FROM=you@qq.com           # 可省略，默认等于 MAIL_USERNAME
+```
+
+首次启用按这个顺序检查，别跳过第 3 步：
+
+1. `MAIL_FROM` 不设时自动等于 `MAIL_USERNAME`；若单独设置，两者必须一致（多数服务商强制要求，不一致会被拒信）
+2. 发件人加入服务商白名单；主题避免「中奖 / 免费」这类词
+3. **发一封测试邮件到你手机上的邮箱客户端，确认它不在垃圾箱**——「邮件能发出去」和
+   「你会看到它」是两件事，后者才是告警的意义
+4. 打开监控页确认渠道状态：从未投递时会显示「未知（尚无投递记录）」，这是预期行为，不是故障
+
 ## 测试方式
 
 单元测试不连真实 SMTP：`EmailMessageSenderTest` 用假的 `JavaMailSender` 验证错误码翻译，

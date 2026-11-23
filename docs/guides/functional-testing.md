@@ -369,6 +369,11 @@ mock `AgentCatalog` / `ModelResolver` / `LlmClientRegistry` 与 `ChatClient` 固
 - **分层结构**：单元测试为主（Agent/Advisor/Service 层行为），`JavaHarnessApplicationTests` 提供容器级冒烟。
 - **防回归重点**：钩子方案的两个踩坑（merge 后关闸死锁、并行线程并发发射丢事件）由 `executeStreamReactive_streamsStageEventsInOrder` 的时序断言兜住；「宁可轻量」的路径判定兜底语义由 `LlmRouteJudgeTest` 六个失败分支覆盖。
 - **命名规约**：`方法_条件_期望结果`（如 `judge_whenCallThrows_shouldFallbackSimple`），失败信息一眼定位功能点。
+- **覆盖率门禁（jacoco）**：`report` / `check` 绑在 `verify` 上，阈值是各模块 `jacoco.line.minimum` 的
+  行覆盖率，取「实测值下方约 2 个点」，**具体数值以各模块 `pom.xml` 为准**。只跑 `test` 能过、
+  `verify` 红就是跌破模块阈值——报告在 `target/site/jacoco/index.html`，日志会打印实际值与阈值。
+  调整时先跑 `verify` 看实际值，确认下降合理后再改模块属性；**不要放宽规则本身**。命令见
+  [dev.md](../dev.md) 的「Maven 常用命令」。
 
 ***
 

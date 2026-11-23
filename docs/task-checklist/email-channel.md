@@ -55,7 +55,7 @@
 
 - [ ] E1-5 环境变量与首次部署检查
   - 作用：凭据不进仓库；「邮件进垃圾箱」这件事在首次部署时就被确认，而不是等告警丢了才发现
-  - 位置：`application-channel.yaml` 的占位符、`docs/dev.md` 的部署说明、`docs/guides/docker-deploy.md` 的环境变量清单
+  - 位置：`application-channel.yaml` 的占位符、`channel-email/README.md` 的「启用」、`docs/dev.md` 的环境变量清单、`docs/guides/docker-deploy.md` 的环境变量清单
   - 做法：`username` / `password` 从 `MAIL_USERNAME` / `MAIL_PASSWORD` 注入；文档写清 SMTP 服务商选择（QQ 邮箱授权码 / 阿里云邮件推送等）与「发件人白名单」；首次部署检查清单加一条：**发一封测试邮件到你手机上的邮箱客户端，确认不在垃圾箱**
   - 验收：`grep -r "MAIL_PASSWORD" docs/` 能查到说明；仓库里无明文密码；首次部署后测试邮件在收件箱
   - 进度（2026-11-08）：**代码与文档侧已就绪**——`MAIL_USERNAME` / `MAIL_PASSWORD` 占位符、`docs/dev.md` 的四步首次启用检查、`docker-deploy.md` 的渠道开关说明都已补。**验收未闭环**：没有 SMTP 凭据，无法验证「测试邮件落在收件箱而非垃圾箱」。需要你自己配一次并确认，这条才能勾选。

@@ -172,6 +172,20 @@ send_file(path, name?)                     服务端读沙箱文件（stat + bas
   （要拼进 shell 命令，无法安全转义）。
 - `send_file` 归在 `sandbox.read` 组：它只读容器、不修改任何东西，所以默认 Agent 就能用。
 
+## 推送（webhook，M3a）
+
+单向推送，不是对话入口——对话渠道见下节「接入准备」。
+
+1. 飞书里建一个只有自己的群 → 群设置 → 群机器人 → 添加「自定义机器人」
+2. 复制 webhook 地址，开启**签名校验**并复制密钥（`secret`）
+3. `CHANNEL_FEISHU_ENABLED=true`；`channel.feishu.enabled: true`，`notify_channel` 写 `feishu:main`——**别名**，不是 URL；
+   URL 与 secret 是凭证，只放环境变量（`FEISHU_WEBHOOK_URL` / `FEISHU_WEBHOOK_SECRET`），不进业务表也不进 git
+4. 缺 secret 时应用会**拒绝启动**：不签名的 webhook 等于对任何拿到 URL 的人开放
+
+M3a 不能接收消息、不能当对话入口，也没有 `message_id`（查不了已读、撤不回）。
+请求体上限 20 KB，超长正文由投递层自动改走邮件（不截断）。从未投递时监控页显示
+「未知（尚无投递记录）」，不是故障。
+
 ## 接入准备
 
 设计与根因见 [设计文档](../docs/design/2026-11-11-feishu-channel-design.md)；这里只列操作。
