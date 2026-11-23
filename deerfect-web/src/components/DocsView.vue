@@ -337,7 +337,9 @@ function onArticleClick(event: MouseEvent): void {
   event.preventDefault()
   const path = resolveDocLink(selectedPath.value, href)
   if (docMarkdown(path) == null) {
-    note.value = `「${path}」是历史存档，未打包进前端（archive/ 不参与目录）`
+    note.value = path.startsWith('archive/')
+      ? `「${path}」是历史存档，未打包进前端（archive/ 不参与目录）`
+      : `「${path}」不在 docs/ 收录范围内，未打包进前端；请在仓库里直接打开`
     return
   }
   openDoc(path)
