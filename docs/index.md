@@ -52,6 +52,7 @@ updated: 2026-11-23
 | [design/2026-11-11-cli-terminal-probe.md](./design/2026-11-11-cli-terminal-probe.md) | CLI 终端探测 40 秒阻塞的根因与最终取舍 |
 | [design/2026-11-12-llm-provider-model-routing.md](./design/2026-11-12-llm-provider-model-routing.md) | LLM 供应商 / 模型 / 路由三层模型与 Agent 绑定设计 |
 | [design/2026-11-23-mem0-long-term-memory-design.md](./design/2026-11-23-mem0-long-term-memory-design.md) | mem0 长期记忆扩展设计（与现有三套记忆的边界、自托管 API 对接、身份映射与写入钩子） |
+| [design/2026-11-24-plugin-mechanism.md](./design/2026-11-24-plugin-mechanism.md) | 插件机制与长期记忆扩展点（ADR：为什么不是 SPI/热插拔、为什么收敛到 writeBackBoth） |
 | [design/2026-11-23-xiaohongshu-ops-feasibility.md](./design/2026-11-23-xiaohongshu-ops-feasibility.md) | 小红书自动运维可行性（官方 API vs 浏览器 MCP、为何不是渠道、定时触发 + Agent 执行 + 独立 adapter、core 零业务耦合） |
 | [design/README.md](./design/README.md) | 设计文档索引（ADR）：类型、状态、结论与替代方案 |
 
@@ -62,6 +63,7 @@ updated: 2026-11-23
 | [guides/api.md](./guides/api.md) | REST 接口全表与知识库管理页 |
 | [guides/cli.md](./guides/cli.md) | CLI 命令（/agent、/goal、/resume 等） |
 | [guides/knowledge-rag.md](./guides/knowledge-rag.md) | RAG 知识库配置（[EN](./guides/knowledge-rag.en.md)） |
+| [guides/mem0-memory.md](./guides/mem0-memory.md) | 长期记忆插件（mem0 自托管接入、开关、作用域、排障） |
 | [guides/mcp-tools.md](./guides/mcp-tools.md) | MCP 工具接入（多 server、mcp-config.json） |
 | [guides/wms-mcp.md](./guides/wms-mcp.md) | WMS 仓储查询 MCP 适配（独立 adapter、只读工具集、双侧鉴权） |
 | [guides/qq-channel.md](./guides/qq-channel.md) | QQ 机器人接入（NapCat HTTP 模式） |

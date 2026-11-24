@@ -195,11 +195,15 @@ deerfect-server/src/main/java/com/dark/javaHarness/
 │   ├── DeliveryOutboxService.java  # 投递 outbox：入队 / 领取（发送前计数 + 租约）/ 结案 / 换跳 / 长文转邮件
 │   ├── DeliveryRetryScheduler.java  # 30s 扫到期消息：送达 / 退避 / 换下一跳 / 终态
 │   └── AlertGate.java              # 告警抑制：连续 N 次才发、24h 窗口、恢复补发
-├── memory/                       # 长期记忆（用户画像 + 显式记忆）
+├── memory/                       # 长期记忆（用户画像 + 显式记忆 + 插件化长期记忆）
 │   ├── UserProfileService.java   # 增量提炼空闲会话的新消息 → 按 key 合并进全局画像（补丁式，非全文重写；原子写 + .bak）
 │   ├── UserProfileSectionProviderImpl.java  # 画像段注入 general/lead 的 system prompt（order 150）
 │   ├── SessionSummaryService.java  # 会话滚动摘要：裁剪丢弃的轮次压缩落库，游标增量合并（P2-3）
-│   └── ExplicitMemorySectionProviderImpl.java  # 显式记忆段注入（order 140，排在画像之前，冲突以用户明说为准）
+│   ├── ExplicitMemorySectionProviderImpl.java  # 显式记忆段注入（order 140，排在画像之前，冲突以用户明说为准）
+│   ├── MemoryWriteDispatcher.java  # 成功轮异步投递：单线程 + 有界队列 + turnId 去重 + 异常隔离
+│   ├── plugin/                   # 记忆扩展点契约（MemoryPlugin / MemoryScope / MemoryQuery / MemoryHit / MemoryTurn）
+│   └── mem0/                     # mem0 OSS 插件实现（条件装配、REST 客户端、order 145 注入段）
+├── plugin/                       # 插件机制（Plugin / PluginCapability / PluginRegistry）
 ├── deerfect-cli/                  # 已独立为 `deerfect-cli` 模块（`deerfect-cli/src/main/java/com/dark/javaHarness/cli`，纯 HTTP 连 8080）
 ├── tool/                         # 工具层
     ├── WebTools.java             # 网页抓取门面（fetchUrl：抓取 + 30min 内容缓存 + 相关段落裁剪）

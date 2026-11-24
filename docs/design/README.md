@@ -31,7 +31,8 @@
 | [2026-11-11-feishu-channel-design.md](./2026-11-11-feishu-channel-design.md) | 决策 | 部分实施 | webhook 出站 + 长连接入站两条独立链路；M3a 待真实群 webhook 验证 |
 | [2026-11-11-session-serialization.md](./2026-11-11-session-serialization.md) | 决策 | 部分实施 | 按会话串行的锁加在「读上下文之前」；飞书已做，QQ 待跟 |
 | [2026-11-12-llm-provider-model-routing.md](./2026-11-12-llm-provider-model-routing.md) | 设计 | 已实施 | Agent 只绑 `route_id`，路由按 priority 失败切换；不按模型名查找、不回退默认 |
-| [2026-11-23-mem0-long-term-memory-design.md](./2026-11-23-mem0-long-term-memory-design.md) | 设计 | 草案 | 作为第四路「跨会话自动提取」记忆；自托管 OSS REST，不替换画像/摘要/显式记忆 |
+| [2026-11-23-mem0-long-term-memory-design.md](./2026-11-23-mem0-long-term-memory-design.md) | 设计 | 已实施 | 作为第四路「跨会话自动提取」记忆；自托管 OSS REST，不替换画像/摘要/显式记忆 |
+| [2026-11-24-plugin-mechanism.md](./2026-11-24-plugin-mechanism.md) | ADR | 已实施 | 插件注册表 + `MemoryPlugin` 扩展点；mem0 条件装配，注入 order 145、写在 `writeBackBoth` |
 | [2026-11-23-xiaohongshu-ops-feasibility.md](./2026-11-23-xiaohongshu-ops-feasibility.md) | 评估 | 草案 | 技术可行但平台规则有风险；不做渠道，走独立 MCP 扩展 + 定时触发 + Agent 决策；core 零业务代码。替代方案：官方 API（资质门槛高）、core 内定时任务（侵入高） |
 | [agentic-simple-path-feasibility.md](./agentic-simple-path-feasibility.md) | 评估 | 已实施 | 只引 `agentscope-core`，工具经 Spring AI 桥接；未引入 graph-core |
 | [channel-core-module-split.md](./channel-core-module-split.md) | 设计 | 已实施 | 契约 / 内核 / 渠道三层；模块已改名：`harness-api`→`deerfect-api`，`server`→`deerfect-server`，enforcer 守护 |

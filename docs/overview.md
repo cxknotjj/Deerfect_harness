@@ -47,7 +47,7 @@ order: 2
 - **模型路由**：`Agent → llm_route → llm_model`，按 priority 失败切换，管理面可配置
 - **工具**：core 工具、MCP（stdio / HTTP）、声明式 HTTP、sandbox（Docker，Python/Shell/浏览器）；技能按 `skills/<name>/` 注入索引、`load_skill` 取正文；Schema 首轮只给名称、`expand_tool` 再展开
 - **知识**：本地 Markdown 知识库 + pgvector/BM25 混合检索（RAG，可选依赖）
-- **记忆**：会话快照、滚动摘要、用户画像、显式记忆、历史归档召回
+- **记忆**：会话快照、滚动摘要、用户画像、显式记忆、历史归档召回；插件化长期记忆（mem0，自托管 OSS，默认关闭）
 - **主动化**：定时任务、Goal 台账、投递 outbox、渠道探活
 - **观测**：`llm_call_log` / `tool_call_log` / `kb_retrieval_log` / `mcp_server_log`，以及 Prometheus 指标
 - **安全**：口令换 HttpOnly Cookie（`X-API-Token` 机器通道）、沙箱隔离、工具最小权限
@@ -132,6 +132,7 @@ deerfect-web（独立前端，静态托管 / 反向代理 /api）
 | 变更 | `specs/`：在途 spec（Spec Kit：spec → plan → tasks）；完成后归档 `docs/archive/specs/` |
 | 渠道 | `channel-qq/`、`channel-email/`、`channel-feishu/`，各自有 `README.md` |
 | 领域适配 | `wms-mcp-adapter/` |
+| 本地记忆服务 | `plugin-mem0-local/`：mem0 本地服务（Python + mem0ai + Chroma），`start.ps1` 一键启动 |
 
 完整目录树与逐文件说明见 [project-structure.md](./project-structure.md)。
 

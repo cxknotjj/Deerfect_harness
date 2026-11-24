@@ -676,6 +676,44 @@ sequenceDiagram
 **测试**：`MemoryServiceImplTest`（同 key 覆盖 / 软删 / 状态判定）、`MemoryToolsTest`（多命中不删）、
 `ExplicitMemorySectionProviderTest`（角色过滤 / 截断 / 优先级）、`MemoryControllerTest`（REST 契约）。
 
+## 5l. 长期记忆插件：mem0（2026-11-24）
+
+> mem0 不替换现有四套记忆，而是通过插件系统新增「跨会话自动提取的事实记忆」。
+> 默认关闭；关闭时无客户端、无注入段、无写入投递。
+
+```text
+插件装配（启动期）
+  mem0 服务：plugin-mem0-local/start.ps1（mem0ai + Chroma，无 Docker/Postgres）
+  app.memory.mem0.enabled=true
+    → Mem0Config 建 RestClient（超时来自 yaml，X-API-Key 来自 MEM0_API_KEY）
+    → Mem0MemoryPlugin 校验 base-url / api-key / 数值配置，非法则启动失败
+    → PluginRegistry 收集启用插件；同扩展点多实现直接失败
+    → Mem0Section（PromptSection，order 145）随插件段落注入 PromptAssembler
+
+读取（每轮 PromptAssembler，order 145）
+  Context.userMessage + session.creator → MemoryScope(user, agent, session)
+    → MemoryPlugin.search → mem0 POST /search（top-k 来自 yaml）
+    → 命中按 max-chars 截断，段末声明「显式记忆 > 长期记忆 > 画像」
+    → 空召回/插件缺失/无 creator：空段跳过
+
+写入（仅成功轮，唯一汇合点）
+  TurnPersistence.writeBackBoth
+    → session.creator 取 user_id，session 绑定 Agent 取 agent_id
+    → MemoryWriteDispatcher：单线程守护池 + 有界队列 + 同 turnId 去重
+    → MemoryPlugin.remember → mem0 POST /memories（metadata 带 turn_id/channel）
+
+降级与观测
+  客户端连接失败/超时/4xx/5xx/非法响应 → WARN + 空结果，对话继续
+  日志 [memory] plugin=mem0 op=search|remember result=... hits=... costMs=...
+  指标 harness.memory.plugin.calls / harness.memory.plugin.latency
+```
+
+**边界**：mem0 自存数据，本项目零迁移；CLI/anonymous 是共享标识，不同 CLI 用户会共享一份记忆。
+
+**测试**：`Mem0ClientTest`（REST 契约 / 错误降级）、`Mem0SectionTest`（注入 / 截断 / 空段）、
+`Mem0MemoryPluginTest`（启停 / 配置校验）、`PluginRegistryTest`（多实现冲突）、
+`MemoryWriteDispatcherTest`（去重 / 异常隔离）、`TurnPersistenceMemoryTest`（成功轮写一次）。
+
 ***
 
 ## 6. 错误处理
