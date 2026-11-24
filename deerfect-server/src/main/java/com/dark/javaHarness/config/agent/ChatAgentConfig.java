@@ -22,6 +22,7 @@ import com.dark.javaHarness.prompt.ContextCompositionRecorder;
 import com.dark.javaHarness.prompt.ActiveGoalSectionProvider;
 import com.dark.javaHarness.prompt.ExplicitMemorySectionProvider;
 import com.dark.javaHarness.prompt.PromptAssembler;
+import com.dark.javaHarness.prompt.PromptSection;
 import com.dark.javaHarness.prompt.SkillManager;
 import com.dark.javaHarness.prompt.SkillSectionProvider;
 import com.dark.javaHarness.prompt.ToolLazyManager;
@@ -82,9 +83,11 @@ public class ChatAgentConfig {
                                            List<ExplicitMemorySectionProvider> memoryProviders,
                                            List<UserProfileSectionProvider> profileProviders,
                                            List<ActiveGoalSectionProvider> goalProviders,
-                                           ToolLazyManager toolLazyManager) {
+                                           ToolLazyManager toolLazyManager,
+                                           List<PromptSection> pluginSections) {
         return new PromptAssembler(agentService, toolAssignments, skillProviders,
-                memoryProviders, profileProviders, goalProviders, toolLazyManager.isEnabled());
+                memoryProviders, profileProviders, goalProviders, toolLazyManager.isEnabled(),
+                pluginSections);
     }
 
     /**

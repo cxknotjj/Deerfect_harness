@@ -95,6 +95,20 @@ public class PromptAssembler {
                            List<ExplicitMemorySectionProvider> memoryProviders,
                            List<UserProfileSectionProvider> profileProviders,
                            List<ActiveGoalSectionProvider> goalProviders, boolean lazyToolsEnabled) {
+        this(agentService, toolAssignments, skillProviders, memoryProviders, profileProviders,
+                goalProviders, lazyToolsEnabled, List.of());
+    }
+
+    /**
+     * 全参构造：pluginSections 为插件系统提供的额外段落（如 order 145 的长期记忆段）。
+     * 未启用任何插件时为空表，行为与旧构造一致。
+     */
+    public PromptAssembler(AgentService agentService, ToolAssignments toolAssignments,
+                           List<SkillSectionProvider> skillProviders,
+                           List<ExplicitMemorySectionProvider> memoryProviders,
+                           List<UserProfileSectionProvider> profileProviders,
+                           List<ActiveGoalSectionProvider> goalProviders, boolean lazyToolsEnabled,
+                           List<PromptSection> pluginSections) {
         this.agentService = agentService;
         this.toolAssignments = toolAssignments;
         this.skillProviders = skillProviders == null ? List.of() : List.copyOf(skillProviders);
@@ -102,9 +116,14 @@ public class PromptAssembler {
         this.profileProviders = profileProviders == null ? List.of() : List.copyOf(profileProviders);
         this.goalProviders = goalProviders == null ? List.of() : List.copyOf(goalProviders);
         this.lazyToolsEnabled = lazyToolsEnabled;
-        this.sections = List.of(new RoleSection(), new ExplicitMemorySection(), new ProfileSection(),
+        List<PromptSection> allSections = new ArrayList<>(List.of(
+                new RoleSection(), new ExplicitMemorySection(), new ProfileSection(),
                 new ActiveGoalSection(), new ToolIndexSection(), new ToolDisciplineSection(),
-                new OutputConventionSection(), new ChannelSection(), new SkillSection());
+                new OutputConventionSection(), new ChannelSection(), new SkillSection()));
+        if (pluginSections != null) {
+            allSections.addAll(pluginSections);
+        }
+        this.sections = List.copyOf(allSections);
     }
 
     /**
@@ -160,9 +179,19 @@ public class PromptAssembler {
      */
     public List<RenderedSection> assembleSections(String agentName, String roleFallback,
                                                   AgentConfig config, String channel, String sessionId) {
+        return assembleSections(agentName, roleFallback, config, channel, sessionId, null);
+    }
+
+    /**
+     * 按固定段落次序渲染（携带渠道、会话标识与当前用户消息）：用户消息供长期记忆段做语义检索，
+     * 无会话场景传 null，该段自动跳过。
+     */
+    public List<RenderedSection> assembleSections(String agentName, String roleFallback,
+                                                  AgentConfig config, String channel, String sessionId,
+                                                  String userMessage) {
         PromptSection.Context ctx = new PromptSection.Context(
                 agentName, resolveRolePrompt(agentName, roleFallback, config),
-                toolNamesOf(agentName), channel, sessionId);
+                toolNamesOf(agentName), channel, sessionId, userMessage);
         List<RenderedSection> rendered = new ArrayList<>();
         for (PromptSection section : sections.stream()
                 .sorted(Comparator.comparingInt(PromptSection::order))

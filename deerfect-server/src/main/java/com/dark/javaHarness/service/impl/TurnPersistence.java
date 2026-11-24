@@ -6,6 +6,9 @@ import com.dark.javaHarness.enums.AgentConstants;
 import com.dark.javaHarness.contract.model.GoalStatus;
 import com.dark.javaHarness.exception.ResumeConflictException;
 import com.dark.javaHarness.contract.api.AgentService;
+import com.dark.javaHarness.memory.MemoryWriteDispatcher;
+import com.dark.javaHarness.memory.plugin.MemoryScope;
+import com.dark.javaHarness.memory.plugin.MemoryTurn;
 import com.dark.javaHarness.service.GoalService;
 import com.dark.javaHarness.contract.model.SessionMessageEntry;
 import com.dark.javaHarness.contract.api.SessionService;
@@ -37,6 +40,8 @@ class TurnPersistence {
     private final SessionService sessionService;
     private final AgentService agentService;
     private final GoalService goalService;
+    /** 长期记忆插件写入调度（无启用插件时 submit 为空操作） */
+    private final MemoryWriteDispatcher memoryDispatcher;
 
     /** 会话标识（sid + 是否新建） */
     record SessionCtx(String sid, boolean newSession) {
@@ -118,6 +123,24 @@ class TurnPersistence {
                 new SessionMessageEntry(new UserMessage(message), userSentAt),
                 new SessionMessageEntry(new AssistantMessage(assistantReply), System.currentTimeMillis())));
         sessionService.touchSession(sessionId, message);
+        dispatchMemoryWrite(sessionId, message, assistantReply);
+    }
+
+    /**
+     * 长期记忆写入：只挂本轮唯一汇合点，成功写回后投递一次；无启用插件/无 creator 时跳过。
+     * 身份取 session.creator（禁止用 default），Agent 维度用于跨会话隔离。
+     */
+    private void dispatchMemoryWrite(String sessionId, String message, String assistantReply) {
+        if (!memoryDispatcher.active()) {
+            return;
+        }
+        SessionInfo session = sessionService.getSession(sessionId);
+        if (session == null || session.creator() == null || session.creator().isBlank()) {
+            return;
+        }
+        MemoryScope scope = new MemoryScope(session.creator(), sessionAgentName(sessionId), sessionId);
+        memoryDispatcher.submit(new MemoryTurn(scope, message, assistantReply,
+                newTurnId(), null, System.currentTimeMillis()));
     }
 
     /** 续跑前置校验：goal 必须存在、非 RUNNING、非 SUCCEEDED（违规按 400/409 抛出） */

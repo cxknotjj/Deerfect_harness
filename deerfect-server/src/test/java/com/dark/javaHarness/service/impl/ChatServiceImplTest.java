@@ -101,7 +101,8 @@ class ChatServiceImplTest {
         if (knowledgeRetriever != null) {
             lenient().when(knowledgeRetrieverProvider.getIfAvailable()).thenReturn(knowledgeRetriever);
         }
-        TurnPersistence persistence = new TurnPersistence(sessionService, agentService, goalService);
+        TurnPersistence persistence = new TurnPersistence(sessionService, agentService, goalService,
+                org.mockito.Mockito.mock(com.dark.javaHarness.memory.MemoryWriteDispatcher.class));
         ReplyDecorator decorator = new ReplyDecorator(replyPostProcessors, voiceArtifacts, fileArtifacts,
                 knowledgeRetrieverProvider);
         RouteDecider routeDecider = new RouteDecider(routeJudge, ragPrefetcherProvider);

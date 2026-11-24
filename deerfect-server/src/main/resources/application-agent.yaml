@@ -60,6 +60,20 @@ app:
     profile-scan-interval-ms: 900000           # 空闲会话扫描周期（5 分钟，fixedDelay 上一轮完成后间隔再跑，不堆叠）
     profile-idle-minutes: 30                     # 会话静默多久后视为可提炼（防活跃会话反复提取；存量会话不回溯）
     profile-max-chars: 4000                      # 画像合并后字符上限（超出尾截，控制常驻注入预算）
+    # mem0 长期记忆插件（自托管 OSS REST）：默认关闭；开启时走插件系统，
+    # 一轮成功写回后异步 add，system prompt 以 order 145 段检索注入。
+    mem0:
+      enabled: false                              # 总开关：false 时不装配客户端/注入段/写入投递
+      base-url: ${MEM0_BASE_URL:http://127.0.0.1:8888}   # OSS API 端口（无 /v1/ 前缀）
+      api-key: ${MEM0_API_KEY:}                   # m0sk_…，只从环境变量注入
+      search-enabled: true                        # 关闭后只写不读
+      write-enabled: true                         # 关闭后只读不写
+      top-k: 5                                    # 单次召回条数
+      max-chars: 1200                             # 注入段字符上限
+      connect-timeout-ms: 2000
+      read-timeout-ms: 3000
+    write-queue-size: 200                       # 记忆写入异步队列长度（满则丢弃新任务）
+    dedupe-capacity: 1024                       # 同 turnId 去重窗口容量
   # 渠道事件语义层判断（SemanticTriggerJudge）：QQ 事件经程序层标记为 candidate 后，
   # 由一次轻量 LLM 判断是否值得主动介入；默认关闭，关闭时候选事件一律忽略。
   trigger-judge:
