@@ -44,7 +44,10 @@
 
 ## Documentation Impact *(mandatory)*
 
-列出本次变更**必须同批更新**的 `docs/` 文件；没有就写「无」，不要留空：
+由执行本计划的 agent **自行判断后填写**（读 `docs/index.md` 与本次变更范围，不需要等用户指定），人工只复核：
+
+- 判断依据：用户可见能力变化 → `overview.md` + 对应 `guides/`；HTTP/SSE/CLI 契约变化 → `api.md` / `sse-protocol.md` / `cli.md`；请求链路、预算、观测口径变化 → `data-flow.md`；目录或模块边界变化 → `project-structure.md`；本地命令/端口/坑变化 → `dev.md`；有需要长期保留的取舍 → `docs/design/` ADR。
+- 无影响就写「无」，不要留空，也不要为了凑表去改无关文档。
 
 | 文件 | 更新什么 |
 | --- | --- |

@@ -1,9 +1,10 @@
 {
-  "ai": "none",
+  "ai": "trae",
+  "ai_skills": true,
   "allow_symlinks": false,
   "feature_numbering": "sequential",
   "here": true,
-  "integration": "none",
+  "integration": "trae",
   "script": "ps",
   "speckit_version": "1.4.3"
 }

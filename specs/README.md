@@ -12,15 +12,30 @@ specs/003-agent-route-picker/
 └── checklists/      # 需求质量自查（按需，不是任务清单）
 ```
 
-## 流程
+## 流程与命令
 
-命令前缀随集成变化（Spec Kit 1.x 为 `/speckit-*`，旧版为 `/specify` 等），以 `specify init --integration <agent>` 生成的为准。
+日常流程用 skill 驱动。Trae 下直接调用 skill 名（如 `Use Skill: speckit-specify`）；其他 agent 的调用前缀由 `specify init` / `specify integration switch` 生成。`specify` CLI 只负责集成与扩展管理，不承载日常流程。
 
-1. `specify`（建 spec）：只写“做什么、为什么、怎么算完成”，不写实现细节
-2. `plan` 写方案：必须写「影响文档」一节（哪些 `docs/` 要同批更新）
-3. `tasks` 拆任务：**最后一个阶段固定是「文档沉淀」**（见下）
-4. 实现、测试、合并
-5. 归档：目录移到 `docs/archive/specs/NNN-slug/`，在 [归档索引](../docs/archive/specs/README.md) 加一行
+0. **确认集成**：`specify integration status`；未切到 trae 时先执行 `specify integration switch trae --script ps`
+1. **建 spec**：调用 `speckit-specify`
+   - 生成 `specs/NNN-slug/spec.md`、`checklists/requirements.md`，并写 `.specify/feature.json`
+   - 只写“做什么、为什么、怎么算完成”，不写实现细节
+2. **澄清（可选）**：调用 `speckit-clarify`，最多 5 个问题，答案写回 spec
+3. **需求自查（可选）**：调用 `speckit-checklist`
+4. **写方案**：调用 `speckit-plan`
+   - 生成 `plan.md`、`research.md`、`data-model.md`、`contracts/`、`quickstart.md`
+   - agent 读 `docs/index.md` 与变更范围，**自行判断并填写「影响文档」**（无影响写「无」），人工只复核
+5. **拆任务**：调用 `speckit-tasks`
+   - 生成 `tasks.md`，**最后一个阶段固定是「文档沉淀」**（见下）
+6. **一致性检查（可选）**：`speckit-analyze` 检查 spec/plan/tasks 是否一致；`speckit-converge` 把尚未实现的工作补成新任务
+7. **实现**：调用 `speckit-implement`
+   - 按 `tasks.md` 逐项实现，每个 checkpoint 跑测试；测试命令 `mvn -s .mvn/settings.xml -pl <module> -am test`
+8. **归档**（Spec Kit 1.4.3 没有内置归档命令，手动执行）：
+   ```powershell
+   git mv specs/NNN-slug docs/archive/specs/NNN-slug      # 已跟踪
+   Move-Item specs/NNN-slug docs/archive/specs/NNN-slug   # 尚未 git add 时
+   ```
+   然后在 [归档索引](../docs/archive/specs/README.md) 的「新归档（Spec Kit）」加一行：`NNN-slug` ｜ 标题 ｜ 结论 ｜ 归档日期；归档后 `specs/` 只保留在途变更
 
 另外两个入口（按需装扩展）：
 
@@ -68,7 +83,7 @@ specify integration status             # 确认当前生效
 | 模板 | 定制点 |
 | --- | --- |
 | `spec-template.md` | 头部增加 `**Supersedes**`，改同一块功能必须链接上一份 spec |
-| `plan-template.md` | 增加 `## Documentation Impact *(mandatory)*`，强制列同批要更新的 `docs/` 文件 |
+| `plan-template.md` | 增加 `## Documentation Impact *(mandatory)*`，agent 自行判断并列同批要更新的 `docs/` 文件（人工复核） |
 | `tasks-template.md` | 增加 `Phase N+1: 文档沉淀`（验收→测试、能力面、guides、ADR、归档、program 汇总） |
 
 被覆盖时从 git 历史恢复这几个文件；模板是项目资产，不是 CLI 的只读产物。
